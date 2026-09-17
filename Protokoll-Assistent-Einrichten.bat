@@ -3,7 +3,7 @@ setlocal enabledelayedexpansion
 
 set "REPO_URL=https://github.com/kevinweisbrod/lokaler-protokoll-assistent.git"
 set "REPO_BRANCH=claude/dreamy-carson-ybtbg4"
-set "ZIELORDNER=%USERPROFILE%\Protokoll-Assistent"
+set "MERKDATEI=%~dp0.protokoll_assistent_ordner.txt"
 
 echo ============================================================
 echo  Protokoll-Assistent - Einrichtung
@@ -15,6 +15,24 @@ if exist "%~dp0setup_fenster.py" (
     set "ZIELORDNER=%~dp0"
     goto :check_python
 )
+
+rem Zielordner festlegen: Kommandozeilenargument, sonst zuletzt verwendeter
+rem Ordner, sonst Vorschlag im Benutzerprofil. Jeder Anwender kann hier
+rem seinen eigenen Ordner waehlen.
+set "STANDARDORDNER=%USERPROFILE%\Protokoll-Assistent"
+if exist "%MERKDATEI%" (
+    set /p STANDARDORDNER=<"%MERKDATEI%"
+)
+
+if not "%~1"=="" (
+    set "ZIELORDNER=%~1"
+) else (
+    echo In welchen Ordner soll das Projekt heruntergeladen werden?
+    set /p "ZIELORDNER=Projektordner [!STANDARDORDNER!]: "
+    if "!ZIELORDNER!"=="" set "ZIELORDNER=!STANDARDORDNER!"
+)
+
+echo !ZIELORDNER!>"%MERKDATEI%"
 
 where git >nul 2>nul
 if errorlevel 1 (

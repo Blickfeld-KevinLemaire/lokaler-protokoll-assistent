@@ -1,6 +1,7 @@
 __pycache__/
 *.pyc
 .env
+.protokoll_assistent_ordner.txt
 
 eingabe/*
 !eingabe/.gitkeep

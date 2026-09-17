@@ -25,6 +25,12 @@ einstellungen/   fachbegriffe.txt fuer Fachbegriffe/Eigennamen
 
 Die Ordner werden beim Start automatisch angelegt, falls sie fehlen.
 
+Der Projektordner selbst kann beliebig heissen und an einem beliebigen Ort
+liegen (lokale Festplatte, USB-Stick, Netzlaufwerk, ...) - alle Skripte
+ermitteln ihren Ordner automatisch anhand ihres eigenen Speicherorts. Jeder
+Anwender kann sich also seinen eigenen Projektordner aussuchen, ohne Code
+anpassen zu muessen.
+
 ## Installation unter Windows (ein Fenster fuer alles)
 
 Fuer Windows gibt es einen Einrichtungsassistenten, der die Schritte 1-4
@@ -32,10 +38,12 @@ uebernimmt bzw. anleitet:
 
 1. Die Datei [`Protokoll-Assistent-Einrichten.bat`](Protokoll-Assistent-Einrichten.bat)
    herunterladen (z. B. ueber den "Raw"-Button auf GitHub, "Speichern unter ...").
-2. Datei doppelklicken. Sie laedt das Projekt per `git` in
-   `%USERPROFILE%\Protokoll-Assistent` herunter (Git wird bei Bedarf zur
-   Installation vorgeschlagen) und oeffnet danach automatisch das
-   Einrichtungsfenster (`setup_fenster.py`).
+2. Datei doppelklicken. Sie fragt nach dem gewuenschten Projektordner
+   (Vorschlag: `%USERPROFILE%\Protokoll-Assistent`, aber jeder Anwender
+   kann einen eigenen Ordner/Laufwerk eintragen - der gewaehlte Pfad wird
+   fuer den naechsten Aufruf gemerkt), laedt das Projekt per `git` dorthin
+   (Git wird bei Bedarf zur Installation vorgeschlagen) und oeffnet danach
+   automatisch das Einrichtungsfenster (`setup_fenster.py`).
 3. Im Einrichtungsfenster werden Python, FFmpeg und das lokale KI-Modell
    (Ollama) geprueft. Fehlt etwas, oeffnet ein Klick die passende
    Download-Seite; das Modell laesst sich direkt per Knopfdruck laden.
