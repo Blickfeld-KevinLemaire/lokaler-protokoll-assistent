@@ -43,31 +43,15 @@ if errorlevel 1 (
     exit /b 1
 )
 
-if exist "%ZIELORDNER%\.git" (
+if exist "%ZIELORDNER%" (
     echo Projektordner existiert bereits: %ZIELORDNER%
     echo Aktualisiere per "git pull" ...
     git -C "%ZIELORDNER%" pull
-    goto :nach_download
+) else (
+    echo Lade Projekt nach %ZIELORDNER% ...
+    git clone -b "%REPO_BRANCH%" "%REPO_URL%" "%ZIELORDNER%"
 )
 
-if exist "%ZIELORDNER%" (
-    set "ORDNER_LEER=1"
-    for /f %%F in ('dir /a /b "%ZIELORDNER%" 2^>nul') do set "ORDNER_LEER=0"
-    if "!ORDNER_LEER!"=="0" (
-        echo.
-        echo Der Ordner "%ZIELORDNER%" existiert bereits, enthaelt aber Dateien
-        echo und ist kein Git-Projektordner ^(kein .git-Unterordner^).
-        echo Bitte beim naechsten Start einen anderen, leeren Ordner angeben
-        echo oder den Inhalt dieses Ordners zuvor entfernen.
-        pause
-        exit /b 1
-    )
-)
-
-echo Lade Projekt nach %ZIELORDNER% ...
-git clone -b "%REPO_BRANCH%" "%REPO_URL%" "%ZIELORDNER%"
-
-:nach_download
 if errorlevel 1 (
     echo.
     echo FEHLER beim Herunterladen des Projekts. Falls sich ein Anmeldefenster
