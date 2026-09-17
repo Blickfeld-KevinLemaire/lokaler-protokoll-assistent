@@ -62,6 +62,11 @@ SYSTEMPROMPT_VORLAGEN = {
     ),
 }
 
+CHUNK_SCHWELLE_MINUTEN = int(os.environ.get("PROTOKOLL_CHUNK_SCHWELLE_MINUTEN", "40"))
+CHUNK_LAENGE_MINUTEN = int(os.environ.get("PROTOKOLL_CHUNK_LAENGE_MINUTEN", "15"))
+CHUNK_SCHWELLE_SEKUNDEN = CHUNK_SCHWELLE_MINUTEN * 60
+CHUNK_LAENGE_SEKUNDEN = CHUNK_LAENGE_MINUTEN * 60
+
 FFMPEG_SUCHPFADE = [
     "/usr/bin/ffmpeg",
     "/usr/local/bin/ffmpeg",
@@ -93,6 +98,201 @@ def ensure_ffmpeg_on_path() -> str | None:
         ffmpeg_dir = str(Path(ffmpeg_path).resolve().parent)
         os.environ["PATH"] = ffmpeg_dir + os.pathsep + os.environ.get("PATH", "")
     return ffmpeg_path
+
+
+def get_audio_duration_seconds(path: Path) -> float | None:
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe:
+        return None
+    ergebnis = subprocess.run(
+        [
+            ffprobe,
+            "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "csv=p=0",
+            str(path),
+        ],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    if ergebnis.returncode != 0:
+        return None
+    try:
+        return float(ergebnis.stdout.strip())
+    except ValueError:
+        return None
+
+
+def split_audio_into_chunks(
+    audio_path: Path, work_dir: Path, chunk_seconds: int, log: Callable[[str], None]
+) -> list[Path]:
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        raise RuntimeError("FFmpeg wird zum Aufteilen langer Aufnahmen benoetigt.")
+
+    muster = work_dir / "abschnitt_%04d.mp3"
+    befehl = [
+        ffmpeg,
+        "-hide_banner",
+        "-loglevel", "error",
+        "-y",
+        "-i", str(audio_path),
+        "-f", "segment",
+        "-segment_time", str(chunk_seconds),
+        "-reset_timestamps", "1",
+        "-c", "copy",
+        str(muster),
+    ]
+    log(f"Teile Aufnahme in Abschnitte von je {chunk_seconds // 60} Minuten ...")
+    ergebnis = subprocess.run(
+        befehl, capture_output=True, text=True, encoding="utf-8", errors="replace"
+    )
+    if ergebnis.returncode != 0:
+        details = ergebnis.stderr.strip()[-800:]
+        raise RuntimeError(f"FFmpeg konnte die Aufnahme nicht aufteilen: {details}")
+
+    chunks = sorted(work_dir.glob("abschnitt_*.mp3"))
+    if not chunks:
+        raise RuntimeError("Das Aufteilen der Aufnahme ergab keine Abschnitte.")
+    return chunks
+
+
+def transcribe_in_chunks(
+    source: Path,
+    api_key: str,
+    terms: list[str],
+    chunk_seconds: int,
+    log: Callable[[str], None],
+    progress: Callable[[float, str], None],
+) -> dict[str, Any]:
+    """Teilt lange Aufnahmen in Abschnitte, transkribiert sie einzeln und fuegt
+    das Ergebnis zeitlich sortiert wieder zusammen.
+
+    Wichtig: Die Sprechertrennung laeuft pro Abschnitt unabhaengig. Ob "Sprecher 1"
+    in Abschnitt 2 dieselbe Person ist wie "Sprecher 1" in Abschnitt 1, kann die
+    Cloud-Diarisierung ueber getrennte Anfragen hinweg nicht garantieren. Deshalb
+    werden die Sprecherbezeichnungen bewusst mit "(Teil N)" gekennzeichnet, statt
+    eine durchgaengige Identitaet vorzutaeuschen.
+    """
+    with tempfile.TemporaryDirectory(prefix="protokoll_audio_") as temp_name:
+        temp_dir = Path(temp_name)
+        progress(0.12, "Audio wird vorbereitet ...")
+        vorbereitetes_audio, _ = kern.prepare_audio(source, temp_dir)
+        chunk_pfade = split_audio_into_chunks(vorbereitetes_audio, temp_dir, chunk_seconds, log)
+        anzahl = len(chunk_pfade)
+        log(f"{anzahl} Abschnitte werden einzeln transkribiert.")
+
+        alle_segmente: list[dict[str, Any]] = []
+        alle_woerter: list[dict[str, Any]] = []
+        alle_sprecher: list[dict[str, str]] = []
+        gesamtdauer = 0.0
+        sprache: str | None = None
+
+        for index, chunk_pfad in enumerate(chunk_pfade, start=1):
+            versatz = (index - 1) * chunk_seconds
+            progress(
+                0.15 + 0.55 * ((index - 1) / anzahl),
+                f"Abschnitt {index}/{anzahl} wird uebertragen ...",
+            )
+
+            checkpoint = CHECKPOINT_DIR / f"{source.stem}_teil{index:02d}_rohantwort.json"
+            if checkpoint.exists():
+                log(f"Abschnitt {index}/{anzahl}: vorhandene Antwort wird weiterverwendet.")
+                api_result = json.loads(checkpoint.read_text(encoding="utf-8-sig"))
+            else:
+                request_data = kern.build_request(chunk_pfad, "mp3", terms)
+                api_result = kern.call_openrouter(request_data, api_key)
+                checkpoint.write_text(
+                    json.dumps(api_result, ensure_ascii=False, indent=2), encoding="utf-8"
+                )
+
+            if api_result.get("language") and sprache is None:
+                sprache = str(api_result.get("language"))
+
+            segmente, woerter, sprecher = kern.normalize_transcript(api_result)
+            for eintrag in segmente:
+                eintrag["start_sekunden"] = round(eintrag["start_sekunden"] + versatz, 3)
+                eintrag["ende_sekunden"] = round(eintrag["ende_sekunden"] + versatz, 3)
+                eintrag["start"] = kern.format_timestamp(eintrag["start_sekunden"])
+                eintrag["ende"] = kern.format_timestamp(eintrag["ende_sekunden"])
+                eintrag["sprecher"] = f"{eintrag['sprecher']} (Teil {index})"
+                eintrag["text"] = f"{eintrag['sprecher']}: {eintrag['inhalt']}"
+                eintrag["nummer"] = len(alle_segmente) + 1
+                alle_segmente.append(eintrag)
+                gesamtdauer = max(gesamtdauer, eintrag["ende_sekunden"])
+
+            for eintrag in woerter:
+                eintrag["start_sekunden"] = round(eintrag["start_sekunden"] + versatz, 3)
+                eintrag["ende_sekunden"] = round(eintrag["ende_sekunden"] + versatz, 3)
+                eintrag["sprecher"] = f"{eintrag['sprecher']} (Teil {index})"
+                alle_woerter.append(eintrag)
+
+            for eintrag in sprecher:
+                alle_sprecher.append(
+                    {
+                        "sprecher_id": f"teil{index}:{eintrag['sprecher_id']}",
+                        "bezeichnung": f"{eintrag['bezeichnung']} (Teil {index})",
+                    }
+                )
+
+            checkpoint.unlink(missing_ok=True)
+            log(f"Abschnitt {index}/{anzahl} fertig.")
+
+        progress(0.72, "Abschnitte werden zusammengefuegt ...")
+        return {
+            "segmente": alle_segmente,
+            "woerter": alle_woerter,
+            "sprecher": alle_sprecher,
+            "dauer_sekunden": gesamtdauer,
+            "sprache": sprache or kern.LANGUAGE or "automatisch erkannt",
+            "anzahl_abschnitte": anzahl,
+        }
+
+
+def save_merged_transcript(source: Path, zusammengefasst: dict[str, Any]) -> tuple[Path, Path]:
+    segmente = zusammengefasst["segmente"]
+    if not segmente:
+        raise RuntimeError("Die Aufnahme wurde verarbeitet, aber es wurde keine Sprache erkannt.")
+
+    output_txt = OUTPUT_DIR / f"{source.stem}_mai2_transkript.txt"
+    output_json = OUTPUT_DIR / f"{source.stem}_mai2_transkript.json"
+
+    transcript_lines = [
+        f"[{segment['start']} --> {segment['ende']}] {segment['text']}" for segment in segmente
+    ]
+    header = [
+        "PROTOKOLL-ASSISTENT - VOLLTRANSKRIPT MIT SPRECHERTRENNUNG",
+        f"Quelldatei: {source.name}",
+        f"Erstellt: {datetime.now().astimezone().isoformat(timespec='seconds')}",
+        f"Transkriptionsmodell: {kern.MODEL_NAME}",
+        f"Erkannte Sprache: {zusammengefasst['sprache']}",
+        f"Aufgeteilt in {zusammengefasst['anzahl_abschnitte']} Abschnitte "
+        f"(je ca. {CHUNK_LAENGE_MINUTEN} Minuten)",
+        "Hinweis: Sprecherbezeichnungen sind technische IDs, keine echten Namen, und "
+        "nur innerhalb eines Abschnitts konsistent (siehe Klammerzusatz 'Teil N').",
+        "",
+    ]
+    output_txt.write_text("\n".join(header + transcript_lines) + "\n", encoding="utf-8")
+
+    ergebnis = {
+        "quelldatei": source.name,
+        "erstellt": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "modell": kern.MODEL_NAME,
+        "anbieter": "OpenRouter / Microsoft Azure",
+        "sprache": zusammengefasst["sprache"],
+        "dauer_sekunden": round(zusammengefasst["dauer_sekunden"], 3),
+        "aufgeteilt_in_abschnitte": zusammengefasst["anzahl_abschnitte"],
+        "abschnittslaenge_minuten": CHUNK_LAENGE_MINUTEN,
+        "anzahl_sprecher": len(zusammengefasst["sprecher"]),
+        "sprecher": zusammengefasst["sprecher"],
+        "anzahl_segmente": len(segmente),
+        "segmente": segmente,
+        "woerter": zusammengefasst["woerter"],
+    }
+    output_json.write_text(json.dumps(ergebnis, ensure_ascii=False, indent=2), encoding="utf-8")
+    return output_txt, output_json
 
 
 def scan_audio_files(folder: Path) -> list[Path]:
@@ -453,26 +653,48 @@ class ProtokollGUI:
                     "Audiodateien bitte FFmpeg installieren (https://ffmpeg.org)."
                 )
 
-            checkpoint = CHECKPOINT_DIR / f"{source.stem}_mai_transcribe_2_rohantwort.json"
-            if checkpoint.exists():
-                self._log("Vorhandene Modellantwort wird weiterverarbeitet (kein neuer Upload).")
-                api_result = json.loads(checkpoint.read_text(encoding="utf-8-sig"))
-            else:
-                self._progress(0.15, "Audio wird vorbereitet ...")
-                terms = kern.load_terms()
-                with tempfile.TemporaryDirectory(prefix="protokoll_audio_") as temp_name:
-                    audio_path, audio_format = kern.prepare_audio(source, Path(temp_name))
-                    request_data = kern.build_request(audio_path, audio_format, terms)
-                    self._progress(0.35, "Uebertragung an OpenRouter / Azure ...")
-                    self._log("Cloud-Transkription mit Sprechertrennung gestartet ...")
-                    api_result = kern.call_openrouter(request_data, api_key)
-                checkpoint.write_text(
-                    json.dumps(api_result, ensure_ascii=False, indent=2), encoding="utf-8"
-                )
+            dauer_sekunden = get_audio_duration_seconds(source)
+            if dauer_sekunden:
+                self._log(f"Erkannte Laenge der Aufnahme: {kern.format_timestamp(dauer_sekunden)}")
 
-            self._progress(0.6, "Transkript wird gespeichert ...")
-            output_txt, output_json = kern.save_transcript(source, api_result)
-            checkpoint.unlink(missing_ok=True)
+            if dauer_sekunden and dauer_sekunden > CHUNK_SCHWELLE_SEKUNDEN:
+                self._log(
+                    f"Aufnahme ist laenger als {CHUNK_SCHWELLE_MINUTEN} Minuten - wird in "
+                    f"Abschnitte von je {CHUNK_LAENGE_MINUTEN} Minuten aufgeteilt, transkribiert "
+                    "und danach wieder zusammengefuegt."
+                )
+                self._log(
+                    "Hinweis: Die Sprechernummerierung kann an Abschnittsgrenzen neu beginnen "
+                    "(siehe Klammerzusatz 'Teil N' in den Sprecherbezeichnungen)."
+                )
+                terms = kern.load_terms()
+                zusammengefasst = transcribe_in_chunks(
+                    source, api_key, terms, CHUNK_LAENGE_SEKUNDEN, self._log, self._progress
+                )
+                self._progress(0.75, "Transkript wird gespeichert ...")
+                output_txt, output_json = save_merged_transcript(source, zusammengefasst)
+            else:
+                checkpoint = CHECKPOINT_DIR / f"{source.stem}_mai_transcribe_2_rohantwort.json"
+                if checkpoint.exists():
+                    self._log("Vorhandene Modellantwort wird weiterverarbeitet (kein neuer Upload).")
+                    api_result = json.loads(checkpoint.read_text(encoding="utf-8-sig"))
+                else:
+                    self._progress(0.15, "Audio wird vorbereitet ...")
+                    terms = kern.load_terms()
+                    with tempfile.TemporaryDirectory(prefix="protokoll_audio_") as temp_name:
+                        audio_path, audio_format = kern.prepare_audio(source, Path(temp_name))
+                        request_data = kern.build_request(audio_path, audio_format, terms)
+                        self._progress(0.35, "Uebertragung an OpenRouter / Azure ...")
+                        self._log("Cloud-Transkription mit Sprechertrennung gestartet ...")
+                        api_result = kern.call_openrouter(request_data, api_key)
+                    checkpoint.write_text(
+                        json.dumps(api_result, ensure_ascii=False, indent=2), encoding="utf-8"
+                    )
+
+                self._progress(0.6, "Transkript wird gespeichert ...")
+                output_txt, output_json = kern.save_transcript(source, api_result)
+                checkpoint.unlink(missing_ok=True)
+
             self._log(f"Transkript gespeichert: {output_txt.name}")
             self._log(f"Transkript (JSON) gespeichert: {output_json.name}")
 

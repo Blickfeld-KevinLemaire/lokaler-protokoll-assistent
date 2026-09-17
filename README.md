@@ -129,10 +129,35 @@ Erwartet genau eine Audio-/Videodatei im Ordner `eingabe/` (bei mehreren
 Dateien wird interaktiv nachgefragt). Diese Datei bleibt unveraendert und
 wird durch die GUI nicht ueberschrieben.
 
-## Hinweis zur Verarbeitung langer Aufnahmen
+## Verarbeitung langer Aufnahmen (GUI)
 
-`microsoft/mai-transcribe-2` verarbeitet die gesamte Aufnahme in einem
-Durchgang (inkl. Sprechertrennung), damit Sprecher-IDs ueber die ganze
-Aufnahme stabil bleiben. Grosse Dateien werden dafuer vorab per FFmpeg zu
-einer kompakten Mono-MP3-Datei komprimiert; eine manuelle Aufteilung in
-10-Minuten-Abschnitte ist mit diesem Modell nicht mehr noetig.
+Kurze und mittellange Aufnahmen werden in einem Durchgang uebertragen
+(inkl. Sprechertrennung), damit Sprecher-IDs innerhalb der Aufnahme stabil
+bleiben. Das reicht in der Regel bis knapp unter eine Stunde.
+
+Fuer laengere Aufnahmen (Standard-Schwelle: **40 Minuten**, z. B. eine bis
+zu 2 Stunden lange Besprechung) teilt die GUI die Aufnahme automatisch in
+Abschnitte auf (Standard: **15 Minuten** je Abschnitt), transkribiert jeden
+Abschnitt einzeln und fuegt das Ergebnis danach zeitlich sortiert wieder zu
+einem durchgaengigen Transkript zusammen (`<name>_mai2_transkript.txt/json`
+in `ausgabe/`, wie gewohnt). Das geschieht automatisch im Hintergrund;
+nichts muss manuell aufgeteilt oder wieder zusammengefuegt werden. Auch bei
+einem Abbruch mitten in einer langen Aufnahme werden bereits fertig
+transkribierte Abschnitte beim naechsten Versuch nicht erneut hochgeladen
+(Wiederaufnahme ueber `zwischenstaende/`, wie beim regulaeren Ablauf).
+
+**Wichtige Einschraenkung:** Die Sprechertrennung laeuft pro Abschnitt
+unabhaengig - ob "Sprecher 1" in Abschnitt 2 dieselbe Person ist wie
+"Sprecher 1" in Abschnitt 1, kann ueber getrennte Cloud-Anfragen hinweg
+nicht garantiert werden. Deshalb tragen alle Sprecherbezeichnungen in
+aufgeteilten Transkripten den Zusatz `(Teil N)`, statt eine durchgehende
+Identitaet vorzutaeuschen.
+
+Schwelle und Abschnittslaenge lassen sich per Umgebungsvariable anpassen:
+`PROTOKOLL_CHUNK_SCHWELLE_MINUTEN` (Standard 40),
+`PROTOKOLL_CHUNK_LAENGE_MINUTEN` (Standard 15). Das Aufteilen benoetigt
+FFmpeg (siehe oben) sowie `ffprobe` (liegt bei jeder Standard-FFmpeg-
+Installation bei).
+
+Die Konsolenversion (`protokoll_assistent_v2.py`) teilt Aufnahmen bewusst
+nicht auf und bleibt unveraendert.
