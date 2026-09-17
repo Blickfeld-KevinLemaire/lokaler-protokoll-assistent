@@ -25,6 +25,28 @@ einstellungen/   fachbegriffe.txt fuer Fachbegriffe/Eigennamen
 
 Die Ordner werden beim Start automatisch angelegt, falls sie fehlen.
 
+## Installation unter Windows (ein Fenster fuer alles)
+
+Fuer Windows gibt es einen Einrichtungsassistenten, der die Schritte 1-4
+uebernimmt bzw. anleitet:
+
+1. Die Datei [`Protokoll-Assistent-Einrichten.bat`](Protokoll-Assistent-Einrichten.bat)
+   herunterladen (z. B. ueber den "Raw"-Button auf GitHub, "Speichern unter ...").
+2. Datei doppelklicken. Sie laedt das Projekt per `git` in
+   `%USERPROFILE%\Protokoll-Assistent` herunter (Git wird bei Bedarf zur
+   Installation vorgeschlagen) und oeffnet danach automatisch das
+   Einrichtungsfenster (`setup_fenster.py`).
+3. Im Einrichtungsfenster werden Python, FFmpeg und das lokale KI-Modell
+   (Ollama) geprueft. Fehlt etwas, oeffnet ein Klick die passende
+   Download-Seite; das Modell laesst sich direkt per Knopfdruck laden.
+4. Mit "Desktop-Verknuepfung erstellen" (Schritt 5) entsteht ein Icon auf
+   dem Desktop, mit dem sich `protokoll_assistent_gui.py` danach jederzeit
+   per Doppelklick starten laesst (alternativ: "Anwendung jetzt starten"
+   im selben Fenster, oder direkt `Protokoll-Assistent-Starten.bat`).
+
+Auf macOS/Linux die Voraussetzungen unten manuell installieren und die GUI
+wie im Abschnitt "GUI benutzen" beschrieben starten.
+
 ## Voraussetzungen
 
 - Python 3.10 oder neuer
