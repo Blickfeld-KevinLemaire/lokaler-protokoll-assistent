@@ -34,6 +34,7 @@ INPUT_DIR = kern.INPUT_DIR
 OUTPUT_DIR = kern.OUTPUT_DIR
 CHECKPOINT_DIR = kern.CHECKPOINT_DIR
 SETTINGS_DIR = kern.SETTINGS_DIR
+ERGEBNIS_DIR = APP_DIR / "Ergebnis des Meetings wie gewünscht"
 
 LOCAL_MODEL_URL = os.environ.get(
     "PROTOKOLL_LOKALES_MODELL_URL", "http://localhost:11434/api/generate"
@@ -161,8 +162,9 @@ def call_local_model(
 def save_processed_result(
     source: Path, system_prompt: str, model_name: str, result_text: str
 ) -> tuple[Path, Path]:
-    output_txt = OUTPUT_DIR / f"{source.stem}_protokoll.txt"
-    output_json = OUTPUT_DIR / f"{source.stem}_protokoll.json"
+    ERGEBNIS_DIR.mkdir(parents=True, exist_ok=True)
+    output_txt = ERGEBNIS_DIR / f"{source.stem}_protokoll.txt"
+    output_json = ERGEBNIS_DIR / f"{source.stem}_protokoll.json"
 
     header = [
         "PROTOKOLL-ASSISTENT - ERGEBNIS DER LOKALEN VERARBEITUNG",
@@ -204,7 +206,7 @@ class ProtokollGUI:
         self.worker_thread: threading.Thread | None = None
         self.last_output_paths: list[Path] = []
 
-        for directory in (INPUT_DIR, OUTPUT_DIR, CHECKPOINT_DIR, SETTINGS_DIR):
+        for directory in (INPUT_DIR, OUTPUT_DIR, CHECKPOINT_DIR, SETTINGS_DIR, ERGEBNIS_DIR):
             directory.mkdir(parents=True, exist_ok=True)
 
         self._build_widgets()
@@ -306,10 +308,16 @@ class ProtokollGUI:
         self.start_button.pack(side="left")
         self.open_output_button = ttk.Button(
             action_frame,
-            text="Ausgabeordner oeffnen",
+            text="Transkript-Ordner oeffnen",
             command=lambda: open_in_file_manager(OUTPUT_DIR),
         )
         self.open_output_button.pack(side="left", padx=8)
+        self.open_ergebnis_button = ttk.Button(
+            action_frame,
+            text="Ergebnisordner oeffnen",
+            command=lambda: open_in_file_manager(ERGEBNIS_DIR),
+        )
+        self.open_ergebnis_button.pack(side="left", padx=8)
 
         self.progress_var = tk.DoubleVar(value=0.0)
         self.progress_bar = ttk.Progressbar(
@@ -478,8 +486,8 @@ class ProtokollGUI:
             protokoll_txt, protokoll_json = save_processed_result(
                 source, systemprompt, model_name, result_text
             )
-            self._log(f"Ergebnis gespeichert: {protokoll_txt.name}")
-            self._log(f"Ergebnis (JSON) gespeichert: {protokoll_json.name}")
+            self._log(f"Ergebnis gespeichert in '{ERGEBNIS_DIR.name}': {protokoll_txt.name}")
+            self._log(f"Ergebnis (JSON) gespeichert in '{ERGEBNIS_DIR.name}': {protokoll_json.name}")
 
             self._progress(1.0, "Fertig.")
             self.message_queue.put(

@@ -17,10 +17,11 @@ Es gibt zwei gleichwertige, unabhaengige Programme:
 ## Ordnerstruktur
 
 ```
-eingabe/         Optionaler Startpunkt fuer den Ordnerdialog der GUI
-ausgabe/         Alle Ergebnisdateien (Transkript + finales Protokoll, TXT + JSON)
-zwischenstaende/ Rohantworten der Cloud-Transkription (Wiederaufnahme nach Abbruch)
-einstellungen/   fachbegriffe.txt fuer Fachbegriffe/Eigennamen
+eingabe/                                 Optionaler Startpunkt fuer den Ordnerdialog der GUI
+ausgabe/                                 Volltranskript mit Sprechertrennung (TXT + JSON)
+Ergebnis des Meetings wie gewuenscht/    Ergebnis der lokalen Nachbearbeitung (Zusammenfassung/Agenda/... als TXT + JSON)
+zwischenstaende/                         Rohantworten der Cloud-Transkription (Wiederaufnahme nach Abbruch)
+einstellungen/                           fachbegriffe.txt fuer Fachbegriffe/Eigennamen
 ```
 
 Die Ordner werden beim Start automatisch angelegt, falls sie fehlen.
@@ -109,12 +110,13 @@ Fortschrittsbalken und Protokollbereich den aktuellen Schritt an:
 Vorbereitung -> Uebertragung -> Sprechertrennung/Speichern -> lokale
 Nachbearbeitung -> Fertig.
 
-### Ausgabedateien (in `ausgabe/`)
+### Ausgabedateien
 
-- `<name>_mai2_transkript.txt` / `.json` - vollstaendiges Transkript mit
-  Sprechertrennung (identisch zur Konsolenversion)
-- `<name>_protokoll.txt` / `.json` - Ergebnis der lokalen Nachbearbeitung
-  gemaess Systemprompt
+- in `ausgabe/`: `<name>_mai2_transkript.txt` / `.json` - vollstaendiges
+  Transkript mit Sprechertrennung (identisch zur Konsolenversion)
+- in `Ergebnis des Meetings wie gewuenscht/`: `<name>_protokoll.txt` / `.json`
+  - das eigentliche Ergebnis der lokalen Nachbearbeitung gemaess
+  Systemprompt (Zusammenfassung, Agenda, Prioritaetenliste, ...)
 
 ## Konsolenversion benutzen
 
