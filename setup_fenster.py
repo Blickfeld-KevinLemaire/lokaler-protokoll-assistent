@@ -239,6 +239,8 @@ class EinrichtungsFenster:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
             )
             assert prozess.stdout is not None
             for zeile in prozess.stdout:
