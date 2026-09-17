@@ -1,0 +1,106 @@
+# Lokaler Protokoll-Assistent
+
+Transkribiert Besprechungsaufnahmen (mit Sprechertrennung, ueber OpenRouter /
+`microsoft/mai-transcribe-2`) und erstellt daraus anschliessend mit einem
+**lokalen** KI-Modell ein Ergebnisdokument nach freier Wahl (Zusammenfassung,
+Agenda, Prioritaetenliste, ...).
+
+Es gibt zwei gleichwertige, unabhaengige Programme:
+
+- `protokoll_assistent_v2.py` - die bestehende Konsolenversion. Unveraendert,
+  bleibt weiterhin eigenstaendig lauffaehig und dient gleichzeitig als
+  Bibliothek fuer die GUI.
+- `protokoll_assistent_gui.py` - die neue grafische Oberflaeche. Nutzt dieselbe
+  Transkriptionslogik wie die Konsolenversion und ergaenzt die lokale
+  Nachbearbeitung per Systemprompt.
+
+## Ordnerstruktur
+
+```
+eingabe/         Optionaler Startpunkt fuer den Ordnerdialog der GUI
+ausgabe/         Alle Ergebnisdateien (Transkript + finales Protokoll, TXT + JSON)
+zwischenstaende/ Rohantworten der Cloud-Transkription (Wiederaufnahme nach Abbruch)
+einstellungen/   fachbegriffe.txt fuer Fachbegriffe/Eigennamen
+```
+
+Die Ordner werden beim Start automatisch angelegt, falls sie fehlen.
+
+## Voraussetzungen
+
+- Python 3.10 oder neuer
+- Fuer die GUI: das Modul `tkinter` (gehoert bei den meisten Python-Installationen
+  dazu; unter Debian/Ubuntu ggf. nachinstallieren mit
+  `sudo apt install python3-tk`)
+- **FFmpeg** fuer Videos oder grosse Audiodateien (alles ausser kleinen MP3s).
+  Die GUI sucht FFmpeg automatisch: zuerst in `PATH`, danach in den ueblichen
+  Installationsordnern (`/usr/bin`, `/usr/local/bin`, `/opt/homebrew/bin`,
+  Standard-Windows-Pfade) und ueber die Umgebungsvariable `FFMPEG_PATH`. Wird
+  FFmpeg gefunden, aber ist nicht in `PATH`, wird es fuer die laufende Sitzung
+  automatisch ergaenzt. Download: https://ffmpeg.org/download.html
+- Ein **lokales** KI-Modell fuer die Nachbearbeitung des Transkripts, z. B.
+  [Ollama](https://ollama.com). Nach der Installation ein Modell laden, z. B.:
+  ```
+  ollama pull llama3.1
+  ```
+  Ollama muss beim Start der GUI laufen (Standard: `http://localhost:11434`).
+  Adresse und Modellname lassen sich per Umgebungsvariable anpassen:
+  `PROTOKOLL_LOKALES_MODELL_URL`, `PROTOKOLL_LOKALES_MODELL`.
+
+## API-Schluessel
+
+Der OpenRouter API-Schluessel wird **niemals** im Code gespeichert.
+
+- Konsolenversion: Umgebungsvariable `OPENROUTER_API_KEY` setzen, bevor das
+  Skript gestartet wird.
+- GUI: Schluessel in das dafuer vorgesehene Feld eintragen. Er wird nur fuer
+  die Dauer der Sitzung im Arbeitsspeicher gehalten und nicht auf die
+  Festplatte geschrieben.
+
+## GUI benutzen
+
+```
+python3 protokoll_assistent_gui.py
+```
+
+1. Ordner auswaehlen, in dem die Aufnahme liegt (bei mehreren passenden
+   Dateien im Ordner erscheint eine Auswahlliste).
+2. OpenRouter API-Schluessel eintragen.
+3. Namen des lokalen Modells pruefen/anpassen.
+4. Im Systemprompt-Feld beschreiben, was mit dem Transkript geschehen soll
+   (Vorlagen fuer Zusammenfassung/Agenda/Prioritaetenliste stehen bereit).
+5. "Transkription starten" klicken.
+
+Vor jeder Uebertragung an OpenRouter/den Modellanbieter erscheint eine
+Datenschutzabfrage, die bestaetigt werden muss. Die anschliessende
+Auswertung durch das lokale Modell verlaesst das Geraet nicht.
+
+Der Ablauf laeuft im Hintergrund (eigener Thread), waehrenddessen zeigen
+Fortschrittsbalken und Protokollbereich den aktuellen Schritt an:
+Vorbereitung -> Uebertragung -> Sprechertrennung/Speichern -> lokale
+Nachbearbeitung -> Fertig.
+
+### Ausgabedateien (in `ausgabe/`)
+
+- `<name>_mai2_transkript.txt` / `.json` - vollstaendiges Transkript mit
+  Sprechertrennung (identisch zur Konsolenversion)
+- `<name>_protokoll.txt` / `.json` - Ergebnis der lokalen Nachbearbeitung
+  gemaess Systemprompt
+
+## Konsolenversion benutzen
+
+```
+export OPENROUTER_API_KEY=...
+python3 protokoll_assistent_v2.py
+```
+
+Erwartet genau eine Audio-/Videodatei im Ordner `eingabe/` (bei mehreren
+Dateien wird interaktiv nachgefragt). Diese Datei bleibt unveraendert und
+wird durch die GUI nicht ueberschrieben.
+
+## Hinweis zur Verarbeitung langer Aufnahmen
+
+`microsoft/mai-transcribe-2` verarbeitet die gesamte Aufnahme in einem
+Durchgang (inkl. Sprechertrennung), damit Sprecher-IDs ueber die ganze
+Aufnahme stabil bleiben. Grosse Dateien werden dafuer vorab per FFmpeg zu
+einer kompakten Mono-MP3-Datei komprimiert; eine manuelle Aufteilung in
+10-Minuten-Abschnitte ist mit diesem Modell nicht mehr noetig.

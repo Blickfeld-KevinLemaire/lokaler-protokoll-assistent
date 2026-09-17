@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.env
+
+eingabe/*
+!eingabe/.gitkeep
+ausgabe/*
+!ausgabe/.gitkeep
+zwischenstaende/*
+!zwischenstaende/.gitkeep
