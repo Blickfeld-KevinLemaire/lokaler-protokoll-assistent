@@ -43,6 +43,10 @@ LOCAL_MODEL_URL = os.environ.get(
 DEFAULT_LOCAL_MODEL = os.environ.get("PROTOKOLL_LOKALES_MODELL", "llama3.1")
 LOCAL_MODEL_TIMEOUT_SECONDS = 1800
 
+OPENROUTER_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions"
+DEFAULT_API_MODEL = os.environ.get("PROTOKOLL_API_MODELL", "openai/gpt-4o-mini")
+API_MODEL_TIMEOUT_SECONDS = 600
+
 DEFAULT_SYSTEMPROMPT = (
     "Fasse das folgende Besprechungstranskript in klarer, gut strukturierter "
     "Form zusammen. Nenne die wichtigsten Themen, getroffene Entscheidungen "
@@ -360,18 +364,77 @@ def call_local_model(
     return text
 
 
+def call_api_model(
+    transcript_text: str,
+    system_prompt: str,
+    api_key: str,
+    model_name: str,
+    log: Callable[[str], None],
+) -> str:
+    payload = {
+        "model": model_name,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": transcript_text},
+        ],
+    }
+    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    request = urllib.request.Request(
+        OPENROUTER_CHAT_URL,
+        data=body,
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json; charset=utf-8",
+            "X-Title": "BLICKFELD Protokoll-Assistent",
+        },
+        method="POST",
+    )
+
+    log(f"API-Modell '{model_name}' wird ueber OpenRouter angefragt ...")
+    try:
+        with urllib.request.urlopen(request, timeout=API_MODEL_TIMEOUT_SECONDS) as response:
+            result = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as error:
+        details = error.read().decode("utf-8", errors="replace")[:1000]
+        raise RuntimeError(f"OpenRouter-Fehler HTTP {error.code}: {details}") from error
+    except urllib.error.URLError as error:
+        raise RuntimeError(f"OpenRouter ist nicht erreichbar: {error}") from error
+
+    if not isinstance(result, dict):
+        raise RuntimeError("OpenRouter hat kein JSON-Objekt geliefert.")
+    if result.get("error"):
+        raise RuntimeError(f"OpenRouter meldet einen Fehler: {result['error']}")
+    try:
+        text = str(result["choices"][0]["message"]["content"]).strip()
+    except (KeyError, IndexError, TypeError) as error:
+        raise RuntimeError(f"Unerwartete Antwort von OpenRouter: {result}") from error
+    if not text:
+        raise RuntimeError("Das API-Modell hat keine Antwort geliefert.")
+    return text
+
+
 def save_processed_result(
-    source: Path, system_prompt: str, model_name: str, result_text: str
+    basisname: str,
+    quelle_name: str,
+    system_prompt: str,
+    engine: str,
+    model_name: str,
+    result_text: str,
 ) -> tuple[Path, Path]:
     ERGEBNIS_DIR.mkdir(parents=True, exist_ok=True)
-    output_txt = ERGEBNIS_DIR / f"{source.stem}_protokoll.txt"
-    output_json = ERGEBNIS_DIR / f"{source.stem}_protokoll.json"
+    output_txt = ERGEBNIS_DIR / f"{basisname}_protokoll.txt"
+    output_json = ERGEBNIS_DIR / f"{basisname}_protokoll.json"
 
+    verarbeitung_text = (
+        f"Lokales Modell: {model_name}"
+        if engine == "lokal"
+        else f"API-Modell (OpenRouter): {model_name}"
+    )
     header = [
-        "PROTOKOLL-ASSISTENT - ERGEBNIS DER LOKALEN VERARBEITUNG",
-        f"Quelldatei: {source.name}",
+        "PROTOKOLL-ASSISTENT - ERGEBNIS DER NACHBEARBEITUNG",
+        f"Quelle: {quelle_name}",
         f"Erstellt: {datetime.now().astimezone().isoformat(timespec='seconds')}",
-        f"Lokales Modell: {model_name}",
+        verarbeitung_text,
         "",
         "Verwendeter Systemprompt:",
         system_prompt.strip(),
@@ -382,9 +445,10 @@ def save_processed_result(
     output_txt.write_text("\n".join(header) + result_text.strip() + "\n", encoding="utf-8")
 
     payload = {
-        "quelldatei": source.name,
+        "quelle": quelle_name,
         "erstellt": datetime.now().astimezone().isoformat(timespec="seconds"),
-        "lokales_modell": model_name,
+        "verarbeitung": engine,
+        "modell": model_name,
         "systemprompt": system_prompt.strip(),
         "ergebnis": result_text.strip(),
     }
@@ -396,13 +460,14 @@ class ProtokollGUI:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         root.title("Protokoll-Assistent")
-        root.geometry("960x800")
-        root.minsize(760, 620)
+        root.geometry("1000x970")
+        root.minsize(820, 700)
 
         self.aktuelles_theme = theme.anwenden(root)
 
         self.selected_folder: Path | None = None
         self.audio_files: list[Path] = []
+        self.transkript_pfad: Path | None = None
         self.message_queue: "queue.Queue[tuple[str, Any]]" = queue.Queue()
         self.confirm_event = threading.Event()
         self.confirm_result = False
@@ -471,33 +536,89 @@ class ProtokollGUI:
             api_frame,
             text=(
                 "Der Schluessel wird nur im Arbeitsspeicher dieser Sitzung gehalten, "
-                "niemals in eine Datei oder in den Code geschrieben."
+                "niemals in eine Datei oder in den Code geschrieben. Er wird fuer die "
+                "Transkription verwendet und - falls unten gewaehlt - auch fuer ein "
+                "API-Modell zur Nachbearbeitung."
             ),
             foreground="#555555",
             wraplength=880,
             justify="left",
         ).pack(fill="x", padx=8, pady=(0, 6))
 
-        model_frame = ttk.LabelFrame(self.root, text="3. Lokales Modell fuer die Nachbearbeitung")
+        transkription_action = ttk.Frame(self.root)
+        transkription_action.pack(fill="x", **padding)
+        self.start_button = ttk.Button(
+            transkription_action, text="Transkription starten", command=self.start_transkription
+        )
+        self.start_button.pack(side="left")
+        self.open_output_button = ttk.Button(
+            transkription_action,
+            text="Transkript-Ordner oeffnen",
+            command=lambda: open_in_file_manager(OUTPUT_DIR),
+        )
+        self.open_output_button.pack(side="left", padx=8)
+
+        ttk.Separator(self.root, orient="horizontal").pack(fill="x", padx=10, pady=(4, 0))
+        ttk.Label(
+            self.root,
+            text="Nachbearbeitung (separater Schritt - jederzeit fuer ein vorhandenes Transkript)",
+            font=("Segoe UI", 11, "bold"),
+        ).pack(anchor="w", padx=10, pady=(8, 0))
+
+        transkript_frame = ttk.LabelFrame(self.root, text="3. Transkript auswaehlen")
+        transkript_frame.pack(fill="x", **padding)
+        row_transkript = ttk.Frame(transkript_frame)
+        row_transkript.pack(fill="x", padx=8, pady=6)
+        ttk.Button(
+            row_transkript, text="Transkript auswaehlen ...", command=self.waehle_transkript
+        ).pack(side="left")
+        self.transkript_label_var = tk.StringVar(value="Noch kein Transkript ausgewaehlt")
+        ttk.Label(row_transkript, textvariable=self.transkript_label_var, wraplength=700).pack(
+            side="left", padx=10
+        )
+
+        model_frame = ttk.LabelFrame(self.root, text="4. Sprachmodell fuer die Nachbearbeitung")
         model_frame.pack(fill="x", **padding)
+        row_engine = ttk.Frame(model_frame)
+        row_engine.pack(fill="x", padx=8, pady=(6, 0))
+        self.engine_var = tk.StringVar(value="lokal")
+        ttk.Radiobutton(
+            row_engine,
+            text="Lokal (z. B. Ollama)",
+            value="lokal",
+            variable=self.engine_var,
+            command=self._engine_geaendert,
+        ).pack(side="left")
+        ttk.Radiobutton(
+            row_engine,
+            text="API-Modell (z. B. ueber OpenRouter)",
+            value="api",
+            variable=self.engine_var,
+            command=self._engine_geaendert,
+        ).pack(side="left", padx=16)
+
         row4 = ttk.Frame(model_frame)
         row4.pack(fill="x", padx=8, pady=6)
-        ttk.Label(row4, text="Modellname (z. B. Ollama):").pack(side="left")
+        ttk.Label(row4, text="Modellname:").pack(side="left")
         self.model_var = tk.StringVar(value=DEFAULT_LOCAL_MODEL)
         ttk.Entry(row4, textvariable=self.model_var, width=30).pack(side="left", padx=8)
-        ttk.Label(
-            model_frame,
-            text=(
+
+        self.model_hinweis_var = tk.StringVar(
+            value=(
                 "Das Modell laeuft lokal (z. B. via Ollama, https://ollama.com) und "
                 "verarbeitet nur Daten, die bereits auf diesem Geraet liegen."
-            ),
+            )
+        )
+        ttk.Label(
+            model_frame,
+            textvariable=self.model_hinweis_var,
             foreground="#555555",
             wraplength=880,
             justify="left",
         ).pack(fill="x", padx=8, pady=(0, 6))
 
         prompt_frame = ttk.LabelFrame(
-            self.root, text="4. Was soll mit dem Transkript geschehen? (Systemprompt)"
+            self.root, text="5. Was soll mit dem Transkript geschehen? (Systemprompt)"
         )
         prompt_frame.pack(fill="both", expand=False, **padding)
         row5 = ttk.Frame(prompt_frame)
@@ -518,20 +639,16 @@ class ProtokollGUI:
         self.systemprompt_text.pack(fill="x", padx=8, pady=6)
         self.systemprompt_text.insert("1.0", DEFAULT_SYSTEMPROMPT)
 
-        action_frame = ttk.Frame(self.root)
-        action_frame.pack(fill="x", **padding)
-        self.start_button = ttk.Button(
-            action_frame, text="Transkription starten", command=self.start
+        nachbearbeitung_action = ttk.Frame(self.root)
+        nachbearbeitung_action.pack(fill="x", **padding)
+        self.nachbearbeitung_button = ttk.Button(
+            nachbearbeitung_action,
+            text="Nachbearbeitung starten",
+            command=self.start_nachbearbeitung,
         )
-        self.start_button.pack(side="left")
-        self.open_output_button = ttk.Button(
-            action_frame,
-            text="Transkript-Ordner oeffnen",
-            command=lambda: open_in_file_manager(OUTPUT_DIR),
-        )
-        self.open_output_button.pack(side="left", padx=8)
+        self.nachbearbeitung_button.pack(side="left")
         self.open_ergebnis_button = ttk.Button(
-            action_frame,
+            nachbearbeitung_action,
             text="Ergebnisordner oeffnen",
             command=lambda: open_in_file_manager(ERGEBNIS_DIR),
         )
@@ -552,12 +669,12 @@ class ProtokollGUI:
 
         log_tab = ttk.Frame(notebook)
         notebook.add(log_tab, text="Ablauf / Protokoll")
-        self.log_text = scrolledtext.ScrolledText(log_tab, wrap="word", state="disabled")
+        self.log_text = scrolledtext.ScrolledText(log_tab, wrap="word", height=8, state="disabled")
         self.log_text.pack(fill="both", expand=True)
 
         result_tab = ttk.Frame(notebook)
         notebook.add(result_tab, text="Ergebnis")
-        self.result_text = scrolledtext.ScrolledText(result_tab, wrap="word", state="disabled")
+        self.result_text = scrolledtext.ScrolledText(result_tab, wrap="word", height=8, state="disabled")
         self.result_text.pack(fill="both", expand=True)
 
         self._text_widgets_faerben()
@@ -582,6 +699,24 @@ class ProtokollGUI:
             self.systemprompt_text.delete("1.0", "end")
             self.systemprompt_text.insert("1.0", template)
 
+    def _engine_geaendert(self) -> None:
+        aktuelle = self.model_var.get().strip()
+        if self.engine_var.get() == "api":
+            if aktuelle in ("", DEFAULT_LOCAL_MODEL):
+                self.model_var.set(DEFAULT_API_MODEL)
+            self.model_hinweis_var.set(
+                "Wird ueber OpenRouter gesendet (z. B. openai/gpt-4o-mini, "
+                "anthropic/claude-3.5-sonnet). Nutzt denselben API-Schluessel wie oben "
+                "unter Punkt 2 - dabei verlaesst das Transkript das Geraet."
+            )
+        else:
+            if aktuelle in ("", DEFAULT_API_MODEL):
+                self.model_var.set(DEFAULT_LOCAL_MODEL)
+            self.model_hinweis_var.set(
+                "Das Modell laeuft lokal (z. B. via Ollama, https://ollama.com) und "
+                "verarbeitet nur Daten, die bereits auf diesem Geraet liegen."
+            )
+
     # ------------------------------------------------------------ Auswahl
 
     def choose_folder(self) -> None:
@@ -604,10 +739,28 @@ class ProtokollGUI:
         self.file_combo["values"] = [path.name for path in self.audio_files]
         self.file_var.set(self.audio_files[0].name)
 
+    def waehle_transkript(self) -> None:
+        start_dir = str(OUTPUT_DIR) if OUTPUT_DIR.exists() else str(APP_DIR)
+        datei = filedialog.askopenfilename(
+            title="Transkript auswaehlen",
+            initialdir=start_dir,
+            filetypes=[("Transkript", "*.txt"), ("Alle Dateien", "*.*")],
+        )
+        if not datei:
+            return
+        self._setze_transkript(Path(datei))
+
+    def _setze_transkript(self, pfad: Path) -> None:
+        self.transkript_pfad = pfad
+        self.transkript_label_var.set(str(pfad))
+
     # -------------------------------------------------------------- Start
 
-    def start(self) -> None:
-        if self.worker_thread and self.worker_thread.is_alive():
+    def _ist_beschaeftigt(self) -> bool:
+        return bool(self.worker_thread and self.worker_thread.is_alive())
+
+    def start_transkription(self) -> None:
+        if self._ist_beschaeftigt():
             return
 
         if not self.audio_files or not self.file_var.get():
@@ -624,6 +777,47 @@ class ProtokollGUI:
             )
             return
 
+        source = self.selected_folder / self.file_var.get()  # type: ignore[operator]
+
+        self.start_button.config(state="disabled")
+        self.nachbearbeitung_button.config(state="disabled")
+        self.progress_var.set(0.0)
+        self.progress_label_var.set("Start ...")
+        self._set_text_widget(self.log_text, "")
+
+        self.worker_thread = threading.Thread(
+            target=self._run_transkription,
+            args=(source, api_key),
+            daemon=True,
+        )
+        self.worker_thread.start()
+
+    def start_nachbearbeitung(self) -> None:
+        if self._ist_beschaeftigt():
+            return
+
+        if not self.transkript_pfad or not self.transkript_pfad.is_file():
+            messagebox.showwarning(
+                "Kein Transkript ausgewaehlt",
+                "Bitte zuerst ein Transkript auswaehlen (oder eine Transkription "
+                "durchfuehren - das Ergebnis wird hier automatisch eingetragen).",
+            )
+            return
+
+        modell = self.model_var.get().strip()
+        if not modell:
+            messagebox.showwarning("Modell fehlt", "Bitte einen Modellnamen angeben.")
+            return
+
+        engine = self.engine_var.get()
+        api_key = self.api_key_var.get().strip()
+        if engine == "api" and not api_key:
+            messagebox.showwarning(
+                "API-Schluessel fehlt",
+                "Fuer ein API-Modell wird der OpenRouter API-Schluessel unter Punkt 2 benoetigt.",
+            )
+            return
+
         systemprompt = self.systemprompt_text.get("1.0", "end").strip()
         if not systemprompt:
             messagebox.showwarning(
@@ -632,18 +826,15 @@ class ProtokollGUI:
             )
             return
 
-        model_name = self.model_var.get().strip() or DEFAULT_LOCAL_MODEL
-        source = self.selected_folder / self.file_var.get()  # type: ignore[operator]
-
         self.start_button.config(state="disabled")
+        self.nachbearbeitung_button.config(state="disabled")
         self.progress_var.set(0.0)
-        self.progress_label_var.set("Start ...")
-        self._set_text_widget(self.log_text, "")
+        self.progress_label_var.set("Start Nachbearbeitung ...")
         self._set_text_widget(self.result_text, "")
 
         self.worker_thread = threading.Thread(
-            target=self._run_pipeline,
-            args=(source, api_key, systemprompt, model_name),
+            target=self._run_nachbearbeitung,
+            args=(self.transkript_pfad, engine, modell, api_key, systemprompt),
             daemon=True,
         )
         self.worker_thread.start()
@@ -656,22 +847,25 @@ class ProtokollGUI:
     def _progress(self, fraction: float, text: str) -> None:
         self.message_queue.put(("progress", (fraction, text)))
 
-    def _ask_confirmation(self, source: "Path") -> bool:
+    def _ask_confirmation(self, nachricht: str) -> bool:
         self.confirm_event.clear()
-        self.message_queue.put(("confirm", source))
+        self.message_queue.put(("confirm", nachricht))
         self.confirm_event.wait()
         return self.confirm_result
 
-    def _run_pipeline(
-        self, source: Path, api_key: str, systemprompt: str, model_name: str
-    ) -> None:
+    def _run_transkription(self, source: Path, api_key: str) -> None:
         try:
             os.environ["OPENROUTER_API_KEY"] = api_key
             self._log(f"Eingabedatei: {source.name}")
             self._log(f"Transkriptionsmodell: {kern.MODEL_NAME} (Sprechertrennung aktiviert)")
 
             self._progress(0.05, "Datenschutzabfrage ...")
-            if not self._ask_confirmation(source):
+            nachricht = (
+                f"Die Aufnahme '{source.name}' wird zur Transkription an OpenRouter "
+                "und den Modellanbieter (Microsoft Azure) uebertragen.\n\n"
+                "Uebertragung jetzt starten?"
+            )
+            if not self._ask_confirmation(nachricht):
                 self._log("Abbruch: Uebertragung wurde nicht bestaetigt. Es wurden keine Daten gesendet.")
                 return
 
@@ -702,7 +896,7 @@ class ProtokollGUI:
                 zusammengefasst = transcribe_in_chunks(
                     source, api_key, terms, CHUNK_LAENGE_SEKUNDEN, self._log, self._progress
                 )
-                self._progress(0.75, "Transkript wird gespeichert ...")
+                self._progress(0.85, "Transkript wird gespeichert ...")
                 output_txt, output_json = save_merged_transcript(source, zusammengefasst)
             else:
                 checkpoint = CHECKPOINT_DIR / f"{source.stem}_mai_transcribe_2_rohantwort.json"
@@ -722,33 +916,18 @@ class ProtokollGUI:
                         json.dumps(api_result, ensure_ascii=False, indent=2), encoding="utf-8"
                     )
 
-                self._progress(0.6, "Transkript wird gespeichert ...")
+                self._progress(0.85, "Transkript wird gespeichert ...")
                 output_txt, output_json = kern.save_transcript(source, api_result)
                 checkpoint.unlink(missing_ok=True)
 
             self._log(f"Transkript gespeichert: {output_txt.name}")
             self._log(f"Transkript (JSON) gespeichert: {output_json.name}")
-
-            self._progress(0.75, "Lokale Verarbeitung gemaess Systemprompt ...")
             self._log(
-                "Transkript wird lokal verarbeitet - hierfuer werden keine weiteren "
-                "Daten an Dritte uebertragen."
+                "Transkription abgeschlossen. Die Nachbearbeitung (Zusammenfassung, Agenda, "
+                "...) kann jetzt weiter unten separat gestartet werden."
             )
-            transcript_text = output_txt.read_text(encoding="utf-8")
-            result_text = call_local_model(transcript_text, systemprompt, model_name, self._log)
-            protokoll_txt, protokoll_json = save_processed_result(
-                source, systemprompt, model_name, result_text
-            )
-            self._log(f"Ergebnis gespeichert in '{ERGEBNIS_DIR.name}': {protokoll_txt.name}")
-            self._log(f"Ergebnis (JSON) gespeichert in '{ERGEBNIS_DIR.name}': {protokoll_json.name}")
-
-            self._progress(1.0, "Fertig.")
-            self.message_queue.put(
-                (
-                    "result",
-                    (result_text, [output_txt, output_json, protokoll_txt, protokoll_json]),
-                )
-            )
+            self._progress(1.0, "Transkription fertig.")
+            self.message_queue.put(("transkript_fertig", output_txt))
         except KeyboardInterrupt:
             self._log("Abbruch durch Benutzer.")
         except Exception as error:  # noqa: BLE001 - Fehler sollen sichtbar in der GUI landen
@@ -756,7 +935,60 @@ class ProtokollGUI:
             self.message_queue.put(("error", str(error)))
         finally:
             os.environ.pop("OPENROUTER_API_KEY", None)
-            self.message_queue.put(("done", None))
+            self.message_queue.put(("job_fertig", None))
+
+    def _run_nachbearbeitung(
+        self,
+        transkript_pfad: Path,
+        engine: str,
+        modell: str,
+        api_key: str,
+        systemprompt: str,
+    ) -> None:
+        try:
+            self._log(f"Nachbearbeitung fuer: {transkript_pfad.name}")
+            transcript_text = transkript_pfad.read_text(encoding="utf-8")
+
+            basisname = transkript_pfad.stem
+            suffix = "_mai2_transkript"
+            if basisname.endswith(suffix):
+                basisname = basisname[: -len(suffix)]
+
+            if engine == "api":
+                self._progress(0.1, "Datenschutzabfrage ...")
+                nachricht = (
+                    f"Das Transkript '{transkript_pfad.name}' wird zur Nachbearbeitung an "
+                    f"OpenRouter uebertragen (Modell: {modell}).\n\nUebertragung jetzt starten?"
+                )
+                if not self._ask_confirmation(nachricht):
+                    self._log("Abbruch: Uebertragung wurde nicht bestaetigt.")
+                    return
+                self._progress(0.35, f"API-Modell '{modell}' wird angefragt ...")
+                result_text = call_api_model(transcript_text, systemprompt, api_key, modell, self._log)
+            else:
+                self._progress(0.25, f"Lokales Modell '{modell}' wird angefragt ...")
+                self._log(
+                    "Transkript wird lokal verarbeitet - hierfuer werden keine weiteren "
+                    "Daten an Dritte uebertragen."
+                )
+                result_text = call_local_model(transcript_text, systemprompt, modell, self._log)
+
+            self._progress(0.85, "Ergebnis wird gespeichert ...")
+            protokoll_txt, protokoll_json = save_processed_result(
+                basisname, transkript_pfad.name, systemprompt, engine, modell, result_text
+            )
+            self._log(f"Ergebnis gespeichert in '{ERGEBNIS_DIR.name}': {protokoll_txt.name}")
+            self._log(f"Ergebnis (JSON) gespeichert in '{ERGEBNIS_DIR.name}': {protokoll_json.name}")
+
+            self._progress(1.0, "Fertig.")
+            self.message_queue.put(
+                ("nachbearbeitung_ergebnis", (result_text, [protokoll_txt, protokoll_json]))
+            )
+        except Exception as error:  # noqa: BLE001 - Fehler sollen sichtbar in der GUI landen
+            self._log(f"FEHLER: {error}")
+            self.message_queue.put(("error", str(error)))
+        finally:
+            self.message_queue.put(("job_fertig", None))
 
     # -------------------------------------------------------------- Queue
 
@@ -772,16 +1004,8 @@ class ProtokollGUI:
         self.log_text.see("end")
         self.log_text.config(state="disabled")
 
-    def _show_confirm_dialog(self, source: Path) -> None:
-        answer = messagebox.askyesno(
-            "Datenschutzhinweis",
-            (
-                f"Die Aufnahme '{source.name}' wird zur Transkription an OpenRouter "
-                "und den Modellanbieter (Microsoft Azure) uebertragen.\n\n"
-                "Die anschliessende Zusammenfassung/Auswertung erfolgt danach lokal "
-                "auf diesem Geraet.\n\nUebertragung jetzt starten?"
-            ),
-        )
+    def _show_confirm_dialog(self, nachricht: str) -> None:
+        answer = messagebox.askyesno("Datenschutzhinweis", nachricht)
         self.confirm_result = bool(answer)
         self.confirm_event.set()
 
@@ -797,14 +1021,17 @@ class ProtokollGUI:
                     self.progress_label_var.set(text)
                 elif kind == "confirm":
                     self._show_confirm_dialog(payload)
-                elif kind == "result":
+                elif kind == "transkript_fertig":
+                    self._setze_transkript(payload)
+                elif kind == "nachbearbeitung_ergebnis":
                     result_text, paths = payload
                     self._set_text_widget(self.result_text, result_text)
                     self.last_output_paths = paths
                 elif kind == "error":
                     messagebox.showerror("Fehler", payload)
-                elif kind == "done":
+                elif kind == "job_fertig":
                     self.start_button.config(state="normal")
+                    self.nachbearbeitung_button.config(state="normal")
         except queue.Empty:
             pass
         self.root.after(100, self._poll_queue)

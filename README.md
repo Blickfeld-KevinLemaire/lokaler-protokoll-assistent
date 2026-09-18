@@ -1,9 +1,12 @@
 # Lokaler Protokoll-Assistent
 
 Transkribiert Besprechungsaufnahmen (mit Sprechertrennung, ueber OpenRouter /
-`microsoft/mai-transcribe-2`) und erstellt daraus anschliessend mit einem
-**lokalen** KI-Modell ein Ergebnisdokument nach freier Wahl (Zusammenfassung,
-Agenda, Prioritaetenliste, ...).
+`microsoft/mai-transcribe-2`) und erstellt daraus anschliessend - als
+getrennter, unabhaengiger Schritt - mit einem frei waehlbaren Sprachmodell
+ein Ergebnisdokument nach freier Wahl (Zusammenfassung, Agenda,
+Prioritaetenliste, ...). Fuer die Nachbearbeitung steht wahlweise ein
+**lokales** Modell (z. B. Ollama) oder ein **API-Modell** (ueber OpenRouter)
+zur Verfuegung.
 
 Es gibt zwei gleichwertige, unabhaengige Programme:
 
@@ -11,8 +14,8 @@ Es gibt zwei gleichwertige, unabhaengige Programme:
   bleibt weiterhin eigenstaendig lauffaehig und dient gleichzeitig als
   Bibliothek fuer die GUI.
 - `protokoll_assistent_gui.py` - die neue grafische Oberflaeche. Nutzt dieselbe
-  Transkriptionslogik wie die Konsolenversion und ergaenzt die lokale
-  Nachbearbeitung per Systemprompt.
+  Transkriptionslogik wie die Konsolenversion und ergaenzt die separate
+  Nachbearbeitung per Systemprompt (lokal oder per API-Modell).
 
 ## Ordnerstruktur
 
@@ -69,14 +72,20 @@ wie im Abschnitt "GUI benutzen" beschrieben starten.
   Standard-Windows-Pfade) und ueber die Umgebungsvariable `FFMPEG_PATH`. Wird
   FFmpeg gefunden, aber ist nicht in `PATH`, wird es fuer die laufende Sitzung
   automatisch ergaenzt. Download: https://ffmpeg.org/download.html
-- Ein **lokales** KI-Modell fuer die Nachbearbeitung des Transkripts, z. B.
-  [Ollama](https://ollama.com). Nach der Installation ein Modell laden, z. B.:
-  ```
-  ollama pull llama3.1
-  ```
-  Ollama muss beim Start der GUI laufen (Standard: `http://localhost:11434`).
-  Adresse und Modellname lassen sich per Umgebungsvariable anpassen:
-  `PROTOKOLL_LOKALES_MODELL_URL`, `PROTOKOLL_LOKALES_MODELL`.
+- Fuer die Nachbearbeitung des Transkripts, je nach gewaehlter Option:
+  - **Lokal**: ein lokales KI-Modell, z. B. [Ollama](https://ollama.com).
+    Nach der Installation ein Modell laden, z. B.:
+    ```
+    ollama pull llama3.1
+    ```
+    Ollama muss beim Start der Nachbearbeitung laufen (Standard:
+    `http://localhost:11434`). Adresse und Modellname lassen sich per
+    Umgebungsvariable anpassen: `PROTOKOLL_LOKALES_MODELL_URL`,
+    `PROTOKOLL_LOKALES_MODELL`.
+  - **API-Modell**: keine zusaetzliche Installation noetig, nur der bereits
+    hinterlegte OpenRouter API-Schluessel und ein Modellname (z. B.
+    `openai/gpt-4o-mini`, `anthropic/claude-3.5-sonnet`). Standardmodell
+    ueber `PROTOKOLL_API_MODELL` anpassbar.
 - Optional fuer ein moderneres Erscheinungsbild (Windows-11-Stil, Light/Dark):
   `pip install -r requirements.txt` (installiert `sv-ttk`). Fehlt das Paket,
   startet die GUI trotzdem, dann mit einem schlichteren Standard-ttk-Design.
@@ -97,30 +106,48 @@ Der OpenRouter API-Schluessel wird **niemals** im Code gespeichert.
 python3 protokoll_assistent_gui.py
 ```
 
+Transkription und Nachbearbeitung sind zwei getrennte Schritte, die auch
+zeitlich unabhaengig voneinander laufen koennen:
+
+**A) Transkription**
 1. Ordner auswaehlen, in dem die Aufnahme liegt (bei mehreren passenden
    Dateien im Ordner erscheint eine Auswahlliste).
 2. OpenRouter API-Schluessel eintragen.
-3. Namen des lokalen Modells pruefen/anpassen.
-4. Im Systemprompt-Feld beschreiben, was mit dem Transkript geschehen soll
-   (Vorlagen fuer Zusammenfassung/Agenda/Prioritaetenliste stehen bereit).
-5. "Transkription starten" klicken.
+3. "Transkription starten" klicken.
 
-Vor jeder Uebertragung an OpenRouter/den Modellanbieter erscheint eine
-Datenschutzabfrage, die bestaetigt werden muss. Die anschliessende
-Auswertung durch das lokale Modell verlaesst das Geraet nicht.
+Nach Abschluss wird das fertige Transkript automatisch in Schritt 3 der
+Nachbearbeitung (siehe unten) eingetragen.
 
-Der Ablauf laeuft im Hintergrund (eigener Thread), waehrenddessen zeigen
-Fortschrittsbalken und Protokollbereich den aktuellen Schritt an:
-Vorbereitung -> Uebertragung -> Sprechertrennung/Speichern -> lokale
-Nachbearbeitung -> Fertig.
+**B) Nachbearbeitung** (jederzeit, auch fuer ein frueher erstelltes
+Transkript - unabhaengig von einer aktuellen Transkription):
+1. Transkript auswaehlen (wird nach einer Transkription automatisch
+   eingetragen, oder manuell aus `ausgabe/` auswaehlen).
+2. Sprachmodell waehlen:
+   - **Lokal** (z. B. Ollama) - das Transkript verlaesst dabei das Geraet nicht.
+   - **API-Modell** (z. B. `openai/gpt-4o-mini`, `anthropic/claude-3.5-sonnet`
+     ueber OpenRouter) - nutzt denselben OpenRouter API-Schluessel wie die
+     Transkription; das Transkript wird dabei an OpenRouter uebertragen.
+3. Im Systemprompt-Feld beschreiben, was mit dem Transkript geschehen soll
+   (Vorlagen fuer Zusammenfassung/Agenda/Prioritaetenliste stehen bereit,
+   oder freier Text fuer jede andere Aufgabe).
+4. "Nachbearbeitung starten" klicken.
+
+Vor jeder Uebertragung nach aussen (Transkription an OpenRouter/Azure, oder
+Nachbearbeitung mit einem API-Modell) erscheint eine Datenschutzabfrage,
+die bestaetigt werden muss. Bei lokaler Nachbearbeitung entfaellt das, da
+keine Daten das Geraet verlassen.
+
+Beide Schritte laufen im Hintergrund (eigener Thread); Fortschrittsbalken
+und Protokollbereich zeigen den aktuellen Stand an.
 
 ### Ausgabedateien
 
 - in `ausgabe/`: `<name>_mai2_transkript.txt` / `.json` - vollstaendiges
   Transkript mit Sprechertrennung (identisch zur Konsolenversion)
 - in `Ergebnis des Meetings wie gewuenscht/`: `<name>_protokoll.txt` / `.json`
-  - das eigentliche Ergebnis der lokalen Nachbearbeitung gemaess
-  Systemprompt (Zusammenfassung, Agenda, Prioritaetenliste, ...)
+  - das Ergebnis der Nachbearbeitung gemaess Systemprompt (Zusammenfassung,
+  Agenda, Prioritaetenliste, ...), inkl. Angabe, ob lokal oder per API-Modell
+  erzeugt
 
 ## Konsolenversion benutzen
 
