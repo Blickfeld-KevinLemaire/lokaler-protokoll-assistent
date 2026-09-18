@@ -28,6 +28,7 @@ from typing import Any, Callable
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import protokoll_assistent_v2 as kern  # Konsolenversion wird als Bibliothek wiederverwendet
+import oberflaeche_theme as theme
 
 APP_DIR = kern.APP_DIR
 INPUT_DIR = kern.INPUT_DIR
@@ -395,8 +396,10 @@ class ProtokollGUI:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         root.title("Protokoll-Assistent")
-        root.geometry("960x780")
+        root.geometry("960x800")
         root.minsize(760, 620)
+
+        self.aktuelles_theme = theme.anwenden(root)
 
         self.selected_folder: Path | None = None
         self.audio_files: list[Path] = []
@@ -416,6 +419,21 @@ class ProtokollGUI:
 
     def _build_widgets(self) -> None:
         padding = {"padx": 10, "pady": 6}
+
+        kopfzeile = ttk.Frame(self.root)
+        kopfzeile.pack(fill="x", padx=10, pady=(10, 0))
+        ttk.Label(
+            kopfzeile, text="Protokoll-Assistent", font=("Segoe UI", 16, "bold")
+        ).pack(side="left")
+        if theme.HAT_SV_TTK:
+            self.dunkel_var = tk.BooleanVar(value=(self.aktuelles_theme == "dark"))
+            ttk.Checkbutton(
+                kopfzeile,
+                text="Dunkles Design",
+                style="Switch.TCheckbutton",
+                variable=self.dunkel_var,
+                command=self._theme_umschalten,
+            ).pack(side="right")
 
         folder_frame = ttk.LabelFrame(self.root, text="1. Aufnahme auswaehlen")
         folder_frame.pack(fill="x", **padding)
@@ -541,6 +559,19 @@ class ProtokollGUI:
         notebook.add(result_tab, text="Ergebnis")
         self.result_text = scrolledtext.ScrolledText(result_tab, wrap="word", state="disabled")
         self.result_text.pack(fill="both", expand=True)
+
+        self._text_widgets_faerben()
+
+    def _text_widgets_faerben(self) -> None:
+        for widget in (self.systemprompt_text, self.log_text, self.result_text):
+            theme.text_widget_faerben(widget, self.aktuelles_theme)
+
+    def _theme_umschalten(self) -> None:
+        neues_theme = "dark" if self.dunkel_var.get() else "light"
+        if theme.HAT_SV_TTK:
+            theme.sv_ttk.set_theme(neues_theme)
+        self.aktuelles_theme = neues_theme
+        self._text_widgets_faerben()
 
     def _toggle_key_visibility(self) -> None:
         self.api_key_entry.config(show="" if self.show_key_var.get() else "*")

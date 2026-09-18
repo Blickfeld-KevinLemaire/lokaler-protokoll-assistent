@@ -1,0 +1,4 @@
+# Optionales Paket fuer ein moderneres Erscheinungsbild (Windows-11-Stil,
+# Light/Dark). Fehlt es, laeuft die Anwendung trotzdem - dann mit einem
+# schlichteren Standard-ttk-Design.
+sv-ttk>=2.6.0

@@ -23,6 +23,7 @@ from typing import Callable
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import protokoll_assistent_gui as gui  # find_ffmpeg(), FFMPEG_SUCHPFADE, DEFAULT_LOCAL_MODEL
+import oberflaeche_theme as theme
 
 APP_DIR = Path(__file__).resolve().parent
 IST_WINDOWS = sys.platform.startswith("win")
@@ -88,6 +89,8 @@ class EinrichtungsFenster:
         root.geometry("760x640")
         root.minsize(640, 520)
 
+        self.aktuelles_theme = theme.anwenden(root)
+
         self.message_queue: "queue.Queue[tuple[str, object]]" = queue.Queue()
         self.status_vars: dict[str, tk.StringVar] = {}
 
@@ -109,6 +112,23 @@ class EinrichtungsFenster:
             wraplength=720,
             justify="left",
         ).pack(fill="x", **pad)
+
+        # Erscheinungsbild (optional)
+        design_frame = ttk.LabelFrame(self.root, text="Erscheinungsbild (optional)")
+        design_frame.pack(fill="x", **pad)
+        self.status_vars["design"] = tk.StringVar(value="wird geprueft ...")
+        ttk.Label(design_frame, textvariable=self.status_vars["design"], wraplength=700).pack(
+            anchor="w", padx=8, pady=(6, 0)
+        )
+        row_design = ttk.Frame(design_frame)
+        row_design.pack(fill="x", padx=8, pady=6)
+        ttk.Button(row_design, text="Erneut pruefen", command=self._pruefe_design).pack(
+            side="left"
+        )
+        self.design_button = ttk.Button(
+            row_design, text="Modernes Design installieren", command=self._design_installieren
+        )
+        self.design_button.pack(side="left", padx=8)
 
         # Schritt 1 - Projekt
         step1 = ttk.LabelFrame(self.root, text="Schritt 1: Projekt")
@@ -180,6 +200,7 @@ class EinrichtungsFenster:
         log_frame.pack(fill="both", expand=True, **pad)
         self.log_text = scrolledtext.ScrolledText(log_frame, wrap="word", height=8, state="disabled")
         self.log_text.pack(fill="both", expand=True)
+        theme.text_widget_faerben(self.log_text, self.aktuelles_theme)
 
     # --------------------------------------------------------------- Logik
 
@@ -197,8 +218,50 @@ class EinrichtungsFenster:
         self.status_vars["python"].set(("OK: " if ok else "Problem: ") + text)
         if not ok:
             webbrowser.open(PYTHON_DOWNLOAD_URL)
+        self._pruefe_design()
         self._pruefe_ffmpeg()
         self._pruefe_ollama()
+
+    def _pruefe_design(self) -> None:
+        if theme.HAT_SV_TTK:
+            self.status_vars["design"].set(
+                "OK: Modernes Design (sv-ttk) ist installiert."
+            )
+            self.design_button.config(state="disabled")
+        else:
+            self.status_vars["design"].set(
+                "Nicht installiert. Die Anwendung laeuft auch so, dann mit dem "
+                "einfachen Standard-Design."
+            )
+            self.design_button.config(state="normal")
+
+    def _design_installieren(self) -> None:
+        self.design_button.config(state="disabled")
+        threading.Thread(target=self._design_installieren_hintergrund, daemon=True).start()
+
+    def _design_installieren_hintergrund(self) -> None:
+        self._log("Installiere modernes Design (sv-ttk) ...")
+        try:
+            prozess = subprocess.Popen(
+                [sys.executable, "-m", "pip", "install", "--quiet", "sv-ttk"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+            assert prozess.stdout is not None
+            for zeile in prozess.stdout:
+                self._log(zeile.rstrip())
+            prozess.wait()
+            if prozess.returncode == 0:
+                self._log("Modernes Design installiert. Bitte Fenster neu starten.")
+            else:
+                self._log(f"FEHLER: pip endete mit Code {prozess.returncode}.")
+        except OSError as error:
+            self._log(f"FEHLER bei der Installation: {error}")
+        finally:
+            self.message_queue.put(("enable_design_button", None))
 
     def _pruefe_ffmpeg(self) -> None:
         pfad = gui.find_ffmpeg()
@@ -281,6 +344,8 @@ class EinrichtungsFenster:
                     self._append_log(str(payload))
                 elif kind == "enable_pull":
                     self.pull_button.config(state="normal")
+                elif kind == "enable_design_button":
+                    self._pruefe_design()
         except queue.Empty:
             pass
         self.root.after(150, self._poll_queue)

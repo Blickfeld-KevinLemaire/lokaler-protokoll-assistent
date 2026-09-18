@@ -43,8 +43,9 @@ uebernimmt bzw. anleitet:
    (Vorschlag: `%USERPROFILE%\Protokoll-Assistent`, aber jeder Anwender
    kann einen eigenen Ordner/Laufwerk eintragen - der gewaehlte Pfad wird
    fuer den naechsten Aufruf gemerkt), laedt das Projekt per `git` dorthin
-   (Git wird bei Bedarf zur Installation vorgeschlagen) und oeffnet danach
-   automatisch das Einrichtungsfenster (`setup_fenster.py`).
+   (Git wird bei Bedarf zur Installation vorgeschlagen), installiert das
+   Paket fuer das moderne Erscheinungsbild und oeffnet danach automatisch
+   das Einrichtungsfenster (`setup_fenster.py`).
 3. Im Einrichtungsfenster werden Python, FFmpeg und das lokale KI-Modell
    (Ollama) geprueft. Fehlt etwas, oeffnet ein Klick die passende
    Download-Seite; das Modell laesst sich direkt per Knopfdruck laden.
@@ -76,6 +77,9 @@ wie im Abschnitt "GUI benutzen" beschrieben starten.
   Ollama muss beim Start der GUI laufen (Standard: `http://localhost:11434`).
   Adresse und Modellname lassen sich per Umgebungsvariable anpassen:
   `PROTOKOLL_LOKALES_MODELL_URL`, `PROTOKOLL_LOKALES_MODELL`.
+- Optional fuer ein moderneres Erscheinungsbild (Windows-11-Stil, Light/Dark):
+  `pip install -r requirements.txt` (installiert `sv-ttk`). Fehlt das Paket,
+  startet die GUI trotzdem, dann mit einem schlichteren Standard-ttk-Design.
 
 ## API-Schluessel
 

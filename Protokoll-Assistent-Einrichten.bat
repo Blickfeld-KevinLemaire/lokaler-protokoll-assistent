@@ -81,5 +81,11 @@ exit /b 1
 
 :run_setup
 cd /d "%ZIELORDNER%"
+echo Installiere/aktualisiere optionale Pakete fuer das moderne Design ...
+%PYTHON_CMD% -m pip install --quiet --disable-pip-version-check -r requirements.txt
+if errorlevel 1 (
+    echo Hinweis: Optionale Pakete konnten nicht installiert werden.
+    echo Die Anwendung startet trotzdem, dann mit dem einfachen Standard-Design.
+)
 %PYTHON_CMD% setup_fenster.py
 exit /b 0
