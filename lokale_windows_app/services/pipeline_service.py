@@ -77,6 +77,7 @@ class PipelineSettings:
     resume_mode: Literal["fortsetzen", "neu_beginnen"] = "fortsetzen"
     run_protocol: bool = True
     ollama_model: str = ollama_service.DEFAULT_MODEL
+    whisper_model: str = model_service.WHISPER_MODEL_NAME
     protocol_group_size: int = 4
 
 
@@ -194,7 +195,7 @@ def run_pipeline(
                 "sprache": settings.language,
                 "min_sprecher": settings.min_speakers,
                 "max_sprecher": settings.max_speakers,
-                "modell": model_service.WHISPER_MODEL_NAME,
+                "modell": settings.whisper_model,
             },
         )
         manifest_service.save_manifest(work_dir, manifest)
@@ -213,7 +214,7 @@ def run_pipeline(
     whisper_model = None
     if transcribe_chunk_fn is None:
         whisper_model = transcription_service.load_whisper_model(
-            model_service.WHISPER_MODEL_NAME, device, compute_type, settings.language
+            settings.whisper_model, device, compute_type, settings.language
         )
 
         def transcribe_chunk_fn(chunk_wav_path: Path) -> list[dict[str, Any]]:  # noqa: F811
@@ -306,7 +307,7 @@ def run_pipeline(
         settings.source_path.stem,
         run_timestamp,
         created_iso,
-        f"WhisperX {model_service.WHISPER_MODEL_NAME}",
+        f"WhisperX {settings.whisper_model}",
         settings.language or "automatisch erkannt",
         device_desc,
         processing_duration,
@@ -356,7 +357,7 @@ def run_pipeline(
     report = export_service.build_processing_report(
         manifest,
         {
-            "whisperx": model_service.WHISPER_MODEL_NAME,
+            "whisperx": settings.whisper_model,
             "ollama": settings.ollama_model if settings.run_protocol else None,
         },
         timings,

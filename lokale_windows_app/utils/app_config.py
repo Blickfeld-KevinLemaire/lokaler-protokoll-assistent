@@ -22,6 +22,7 @@ DEFAULTS: dict[str, Any] = {
     "ausgabeordner": None,
     "geraetepraeferenz": "auto",  # "auto" | "cuda" | "cpu"
     "einrichtung_abgeschlossen": False,
+    "whisper_modell": None,  # None = noch keine bewusste Wahl getroffen
 }
 
 

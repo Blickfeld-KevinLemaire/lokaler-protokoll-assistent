@@ -18,14 +18,15 @@ LogFn = Callable[[str], None]
 TokenProviderFn = Callable[[], str | None]
 
 
-def download_whisper_and_alignment(log: LogFn) -> bool:
-    log("WhisperX-Modell (large-v3-turbo) und deutsches Alignment-Modell ...")
+def download_whisper_and_alignment(log: LogFn, model_name: str | None = None) -> bool:
+    model_name = model_name or model_service.WHISPER_MODEL_NAME
+    log(f"WhisperX-Modell ({model_name}) und deutsches Alignment-Modell ...")
     try:
         import whisperx  # type: ignore
 
         device, compute_type = model_service.get_device_and_compute_type()
         log(f"Geraet: {device} ({compute_type})")
-        whisperx.load_model(model_service.WHISPER_MODEL_NAME, device=device, compute_type=compute_type)
+        whisperx.load_model(model_name, device=device, compute_type=compute_type)
         log("WhisperX-Modell verfuegbar.")
 
         whisperx.load_align_model(language_code="de", device=device)
@@ -90,11 +91,18 @@ def download_ollama_model(log: LogFn, model: str = ollama_service.DEFAULT_MODEL)
     return True
 
 
-def download_all_models(log: LogFn, get_token: TokenProviderFn | None = None) -> dict[str, bool]:
+def download_all_models(
+    log: LogFn, get_token: TokenProviderFn | None = None, whisper_model: str | None = None
+) -> dict[str, bool]:
     """Fuehrt alle drei Download-Schritte nacheinander aus und gibt das
-    Ergebnis je Schritt zurueck (fuer Einrichtungsstatus.json / Anzeige)."""
+    Ergebnis je Schritt zurueck (fuer Einrichtungsstatus.json / Anzeige).
+
+    Wird vom Konsolen-/Automatisierungsweg (``Modelle-herunterladen.py``)
+    verwendet, der -- anders als der GUI-Assistent -- keine interaktive
+    Hardware-basierte Modellempfehlung anzeigt. Ohne ``whisper_model`` wird
+    das Standardmodell aus ``model_service.WHISPER_MODEL_NAME`` geladen."""
     return {
-        "whisperx_und_alignment": download_whisper_and_alignment(log),
+        "whisperx_und_alignment": download_whisper_and_alignment(log, model_name=whisper_model),
         "pyannote": download_pyannote(log, get_token=get_token),
         "ollama_modell": download_ollama_model(log),
     }

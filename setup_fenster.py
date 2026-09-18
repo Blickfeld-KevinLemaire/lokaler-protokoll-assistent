@@ -330,7 +330,7 @@ class EinrichtungsFenster:
             messagebox.showerror("Fehler", str(error))
 
     def _anwendung_starten(self) -> None:
-        skript = APP_DIR / "protokoll_assistent_gui.py"
+        skript = APP_DIR / "hauptanwendung.py"
         try:
             subprocess.Popen([sys.executable, str(skript)], cwd=str(APP_DIR))
         except OSError as error:

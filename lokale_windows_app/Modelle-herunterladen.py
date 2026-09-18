@@ -14,12 +14,28 @@ gelesen ODER -- falls nicht gesetzt -- einmalig verdeckt abgefragt
 
 from __future__ import annotations
 
+import argparse
 import getpass
 import sys
 
-from services import model_download_service
+from services import model_download_service, model_service
 from utils import setup_status
 from utils.hf_env import disable_offline_mode
+
+
+def _parse_args(argv: list[str]) -> argparse.Namespace:
+    modell_ids = ", ".join(option.id for option in model_service.WHISPER_MODELLE)
+    parser = argparse.ArgumentParser(description="Laedt alle lokalen Modelle herunter.")
+    parser.add_argument(
+        "--modell",
+        default=None,
+        help=(
+            f"Whisper-Modell-ID (Standard: {model_service.WHISPER_MODEL_NAME}). "
+            f"Kuratierte Auswahl: {modell_ids}. Andere gueltige WhisperX-/"
+            "CTranslate2-Modell-IDs sind ebenfalls erlaubt."
+        ),
+    )
+    return parser.parse_args(argv)
 
 
 def _prompt_for_token() -> str | None:
@@ -32,12 +48,17 @@ def _prompt_for_token() -> str | None:
 
 
 def main() -> int:
+    args = _parse_args(sys.argv[1:])
     print("=" * 72)
     print("PHASE 3: LOKALE MODELLE HERUNTERLADEN")
     print("=" * 72)
+    if args.modell:
+        print(f"Gewaehltes Whisper-Modell: {args.modell}")
     disable_offline_mode()  # fuer diesen einmaligen, bewussten Download
 
-    results = model_download_service.download_all_models(print, get_token=_prompt_for_token)
+    results = model_download_service.download_all_models(
+        print, get_token=_prompt_for_token, whisper_model=args.modell
+    )
     ok = all(results.values())
 
     status = setup_status.load_status()

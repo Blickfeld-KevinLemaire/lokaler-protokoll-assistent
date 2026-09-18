@@ -101,7 +101,8 @@ def check_gpu_vram() -> DiagnosticCheck:
         total_gb = total_bytes / (1024**3)
         ok = total_gb >= 4.0
         return DiagnosticCheck(
-            "vram", "GPU-Speicher", ok, f"{total_gb:.1f} GB VRAM erkannt."
+            "vram", "GPU-Speicher", ok, f"{total_gb:.1f} GB VRAM erkannt.",
+            extra={"vram_gb": total_gb},
         )
     except ImportError:
         return DiagnosticCheck("vram", "GPU-Speicher", False, "PyTorch ist nicht installiert.")
@@ -115,7 +116,10 @@ def check_ram() -> DiagnosticCheck:
 
         total_gb = psutil.virtual_memory().total / (1024**3)
         ok = total_gb >= RECOMMENDED_RAM_GB
-        return DiagnosticCheck("ram", "Arbeitsspeicher", ok, f"{total_gb:.1f} GB erkannt.")
+        return DiagnosticCheck(
+            "ram", "Arbeitsspeicher", ok, f"{total_gb:.1f} GB erkannt.",
+            extra={"ram_gb": total_gb},
+        )
     except ImportError:
         return DiagnosticCheck(
             "ram", "Arbeitsspeicher", True, "psutil nicht installiert, Pruefung uebersprungen.", critical=False

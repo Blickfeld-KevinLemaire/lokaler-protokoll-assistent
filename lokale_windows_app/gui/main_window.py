@@ -72,6 +72,7 @@ class MainWindow(QMainWindow):
         self.resize(1100, 850)
 
         config = load_config()
+        self._configured_whisper_model: str | None = config.get("whisper_modell")
         self._input_folder: Path | None = initial_folder
         if self._input_folder is None and config.get("eingabeordner"):
             candidate = Path(config["eingabeordner"])
@@ -100,6 +101,7 @@ class MainWindow(QMainWindow):
 
         self._build_ui()
         self._refresh_hardware_label()
+        self._init_whisper_model_selection()
 
         if self._source_path is not None:
             self.file_label.setText(f"Ausgewählt: {self._source_path.name}")
@@ -192,6 +194,16 @@ class MainWindow(QMainWindow):
         self.language_combo.addItem("Deutsch (de)", "de")
         self.language_combo.addItem("Automatisch erkennen", None)
         layout.addRow("Sprache:", self.language_combo)
+
+        self.whisper_model_combo = QComboBox(self)
+        for option in model_service.WHISPER_MODELLE:
+            self.whisper_model_combo.addItem(option.label, option.id)
+        self.whisper_model_combo.currentIndexChanged.connect(self._update_whisper_model_hint)
+        layout.addRow("Whisper-Modell:", self.whisper_model_combo)
+
+        self.whisper_model_hint_label = QLabel("", self)
+        self.whisper_model_hint_label.setWordWrap(True)
+        layout.addRow(self.whisper_model_hint_label)
 
         self.limit_speakers_checkbox = QCheckBox("Sprecherzahl manuell begrenzen", self)
         self.limit_speakers_checkbox.toggled.connect(self._toggle_speaker_limits)
@@ -334,6 +346,29 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     def _refresh_hardware_label(self) -> None:
         self.hardware_label.setText(model_service.get_gpu_description())
+
+    def _init_whisper_model_selection(self) -> None:
+        model_id = self._configured_whisper_model
+        if not model_id:
+            from utils import diagnostics
+
+            vram_gb = diagnostics.check_gpu_vram().extra.get("vram_gb")
+            ram_gb = diagnostics.check_ram().extra.get("ram_gb")
+            model_id = model_service.empfehle_whisper_modell(vram_gb, ram_gb)
+
+        index = self.whisper_model_combo.findData(model_id)
+        if index < 0:
+            index = self.whisper_model_combo.findData(model_service.WHISPER_MODEL_NAME)
+        if index >= 0:
+            self.whisper_model_combo.setCurrentIndex(index)
+        self._update_whisper_model_hint()
+
+    def _update_whisper_model_hint(self, *_args) -> None:
+        model_id = self.whisper_model_combo.currentData()
+        option = model_service.get_whisper_model_option(model_id)
+        self.whisper_model_hint_label.setText(option.hinweis if option else "")
+        if model_id:
+            update_config(whisper_modell=model_id)
 
     def _toggle_speaker_limits(self, checked: bool) -> None:
         self.min_speakers_spin.setEnabled(checked)
@@ -482,6 +517,7 @@ class MainWindow(QMainWindow):
             allow_download=not self.offline_checkbox.isChecked(),
             resume_mode=self.resume_combo.currentData(),
             run_protocol=self.protocol_checkbox.isChecked(),
+            whisper_model=self.whisper_model_combo.currentData() or model_service.WHISPER_MODEL_NAME,
         )
 
         self._set_controls_running(True)

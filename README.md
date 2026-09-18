@@ -8,6 +8,23 @@ Prioritaetenliste, ...). Fuer die Nachbearbeitung steht wahlweise ein
 **lokales** Modell (z. B. Ollama) oder ein **API-Modell** (ueber OpenRouter)
 zur Verfuegung.
 
+**Einstiegspunkt: `hauptanwendung.py`** - ein kleines Auswahlfenster, mit dem
+Sie entscheiden, wie Sie arbeiten moechten, und das dann die passende
+Anwendung startet:
+
+- **Lokal (vollstaendig offline)** - startet `lokale_windows_app/`. Beim
+  allerersten Mal laufen dort automatisch Systemtest und Modell-Download
+  (siehe unten); eine Hardware-basierte Empfehlung schlaegt ein passendes
+  Whisper-Modell vor, Sie entscheiden, welches tatsaechlich verwendet wird.
+- **Schnittstelle nutzen (selbst eingerichtet)** - startet
+  `protokoll_assistent_gui.py`. Sie richten dafuer selbst einen API-Zugang
+  ein (aktuell: OpenRouter) und geben Ihren eigenen API-Schluessel ein.
+
+`Protokoll-Assistent-Starten.bat` und die Desktop-Verknuepfung (siehe
+[Installation](#installation-unter-windows-ein-fenster-fuer-alles)) oeffnen
+dieses Auswahlfenster; Sie koennen die beiden Anwendungen darunter aber
+auch jederzeit direkt starten, ohne den Umweg ueber `hauptanwendung.py`.
+
 Es gibt drei unabhaengige Programme in diesem Repository:
 
 - `protokoll_assistent_v2.py` - die bestehende Konsolenversion. Unveraendert,
@@ -69,9 +86,12 @@ anpassen zu muessen.
 
 ## Installation unter Windows (ein Fenster fuer alles)
 
-*Gilt fuer die Cloud-Variante (`protokoll_assistent_gui.py`). Fuer die
+*Richtet die Cloud-Variante (`protokoll_assistent_gui.py`) ein und erstellt
+eine Verknuepfung fuer `hauptanwendung.py` (das Auswahlfenster). Fuer die
 vollstaendig lokale Variante siehe [`lokale_windows_app/README.md`](lokale_windows_app/README.md)
-- dort gibt es einen eigenen, aehnlich aufgebauten Einrichtungsassistenten.*
+- dort gibt es einen eigenen, aehnlich aufgebauten Einrichtungsassistenten
+(inkl. Systemtest und Whisper-Modellwahl), der beim ersten Start ueber die
+Option "Lokal" im Auswahlfenster automatisch angestossen wird.*
 
 Fuer Windows gibt es einen Einrichtungsassistenten, der die Schritte 1-4
 uebernimmt bzw. anleitet:
@@ -89,9 +109,12 @@ uebernimmt bzw. anleitet:
    (Ollama) geprueft. Fehlt etwas, oeffnet ein Klick die passende
    Download-Seite; das Modell laesst sich direkt per Knopfdruck laden.
 4. Mit "Desktop-Verknuepfung erstellen" (Schritt 5) entsteht ein Icon auf
-   dem Desktop, mit dem sich `protokoll_assistent_gui.py` danach jederzeit
-   per Doppelklick starten laesst (alternativ: "Anwendung jetzt starten"
-   im selben Fenster, oder direkt `Protokoll-Assistent-Starten.bat`).
+   dem Desktop, mit dem sich das Auswahlfenster (`hauptanwendung.py`)
+   danach jederzeit per Doppelklick starten laesst (alternativ: "Anwendung
+   jetzt starten" im selben Fenster, oder direkt
+   `Protokoll-Assistent-Starten.bat`). Von dort aus starten Sie dann
+   entweder die Cloud-Variante oder - beim ersten Mal inklusive
+   automatischer Einrichtung - die vollstaendig lokale Variante.
 
 Auf macOS/Linux die Voraussetzungen unten manuell installieren und die GUI
 wie im Abschnitt "GUI benutzen" beschrieben starten.

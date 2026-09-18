@@ -24,6 +24,130 @@ PYANNOTE_MODEL_NAME = "pyannote/speaker-diarization-community-1"
 PYANNOTE_LICENSE_URL = "https://huggingface.co/pyannote/speaker-diarization-community-1"
 
 
+@dataclass(frozen=True)
+class WhisperModelOption:
+    id: str
+    label: str
+    min_vram_gb: float
+    hinweis: str
+
+
+# Absteigend sortiert nach Anspruch (staerkstes zuerst) -- die
+# Empfehlungslogik in ``empfehle_whisper_modell`` nutzt genau diese
+# Reihenfolge. Alle Eintraege sind Standard-Modellnamen, die WhisperX
+# (ueber faster-whisper/CTranslate2) direkt entgegennimmt; ein eigenes
+# Herunterladen/Konvertieren ist nicht noetig. Zusaetzlich zu dieser Liste
+# kann der Nutzer in der Oberflaeche auch eine beliebige andere gueltige
+# WhisperX-/CTranslate2-Modell-ID frei eingeben (z.B. eine eigene
+# Hugging-Face-Repo-ID) -- die Liste ist also eine kuratierte Auswahl
+# bewaehrter Modelle, keine abschliessende Einschraenkung.
+WHISPER_MODELLE: list[WhisperModelOption] = [
+    WhisperModelOption(
+        id="large-v3",
+        label="Large v3 (beste Qualitaet, am langsamsten)",
+        min_vram_gb=10.0,
+        hinweis=(
+            "Hoechste Genauigkeit, auch bei Akzenten, Dialekten und Fachbegriffen. "
+            "Benoetigt die meiste GPU-Leistung/-Speicher."
+        ),
+    ),
+    WhisperModelOption(
+        id="large-v3-turbo",
+        label="Large v3 Turbo (empfohlener Standard: sehr gut & deutlich schneller)",
+        min_vram_gb=6.0,
+        hinweis=(
+            "Fast so genau wie Large v3, aber deutlich schneller und genuegsamer. "
+            "Guter Standard fuer die meisten PCs mit einer aktuellen Mittelklasse-GPU."
+        ),
+    ),
+    WhisperModelOption(
+        id="distil-large-v3",
+        label="Distil-Large v3 (sehr schnell, primaer fuer Englisch optimiert)",
+        min_vram_gb=6.0,
+        hinweis=(
+            "Sehr schnell und genuegsam. Fuer deutsche Aufnahmen kann die Genauigkeit "
+            "spuerbar niedriger sein als bei Large v3(-Turbo), da das Modell primaer "
+            "fuer Englisch destilliert wurde."
+        ),
+    ),
+    WhisperModelOption(
+        id="medium",
+        label="Medium (guter Kompromiss)",
+        min_vram_gb=5.0,
+        hinweis="Solide, mehrsprachige Qualitaet; laeuft auch auf kleineren GPUs.",
+    ),
+    WhisperModelOption(
+        id="small",
+        label="Small (schnell, genuegsam)",
+        min_vram_gb=2.0,
+        hinweis=(
+            "Deutlich schneller, aber spuerbar weniger genau. Gut geeignet fuer "
+            "schwaechere GPUs oder reinen CPU-Betrieb."
+        ),
+    ),
+    WhisperModelOption(
+        id="base",
+        label="Base (sehr genuegsam)",
+        min_vram_gb=1.0,
+        hinweis="Nur fuer einfache Aufnahmen oder sehr schwache Hardware; fehleranfaelliger.",
+    ),
+    WhisperModelOption(
+        id="tiny",
+        label="Tiny (minimal, nur zum Ausprobieren)",
+        min_vram_gb=0.0,
+        hinweis="Nur zum schnellen Ausprobieren geeignet, nicht fuer echte Protokolle empfohlen.",
+    ),
+]
+
+# CPU-Empfehlungen (kein GPU-Speicher erkannt), gestaffelt nach Arbeitsspeicher.
+_CPU_EMPFEHLUNG_MIT_VIEL_RAM = "small"
+_CPU_EMPFEHLUNG_STANDARD = "base"
+_CPU_RAM_SCHWELLE_GB = 16.0
+
+
+def empfehle_whisper_modell(vram_gb: float | None, ram_gb: float | None) -> str:
+    """Liefert die ID des empfohlenen Whisper-Modells anhand der erkannten
+    Hardware. Reine Heuristik, transparent nachvollziehbar -- der Nutzer
+    sieht diese Empfehlung in der Oberflaeche und kann sie jederzeit durch
+    ein anderes Modell aus ``WHISPER_MODELLE`` (oder eine freie Eingabe)
+    ersetzen."""
+    if vram_gb is not None and vram_gb > 0:
+        for option in WHISPER_MODELLE:
+            if vram_gb >= option.min_vram_gb:
+                return option.id
+        return WHISPER_MODELLE[-1].id
+
+    # Keine GPU/kein VRAM erkannt -> CPU-Betrieb. Auf der CPU sind auch
+    # kleinere Modelle bereits deutlich langsamer als auf einer GPU; groessere
+    # Modelle werden hier bewusst nicht empfohlen (waeren zwar moeglich, aber
+    # in der Praxis zu langsam fuer eine ganze Aufnahme).
+    if ram_gb is not None and ram_gb >= _CPU_RAM_SCHWELLE_GB:
+        return _CPU_EMPFEHLUNG_MIT_VIEL_RAM
+    return _CPU_EMPFEHLUNG_STANDARD
+
+
+def whisper_empfehlung_aus_diagnose(checks: list) -> str:
+    """Wie ``empfehle_whisper_modell``, liest die Werte aber direkt aus den
+    Ergebnissen von ``utils.diagnostics.run_diagnostics`` (Checks mit den
+    Schluesseln ``vram``/``ram`` und den Zahlenwerten in ``.extra``)."""
+    vram_gb = None
+    ram_gb = None
+    for check in checks:
+        extra = getattr(check, "extra", None) or {}
+        if getattr(check, "key", None) == "vram":
+            vram_gb = extra.get("vram_gb")
+        elif getattr(check, "key", None) == "ram":
+            ram_gb = extra.get("ram_gb")
+    return empfehle_whisper_modell(vram_gb, ram_gb)
+
+
+def get_whisper_model_option(model_id: str) -> WhisperModelOption | None:
+    for option in WHISPER_MODELLE:
+        if option.id == model_id:
+            return option
+    return None
+
+
 @dataclass
 class ModelAvailability:
     whisper_ok: bool

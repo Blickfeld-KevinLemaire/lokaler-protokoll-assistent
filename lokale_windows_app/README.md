@@ -31,6 +31,7 @@ Referenzrechner), wird diese automatisch erkannt und weiterverwendet.
 4. [Installation — Schritt für Schritt](#installation--schritt-für-schritt)
 5. [Bedienung der Anwendung](#bedienung-der-anwendung)
 6. [Ausgabedateien](#ausgabedateien)
+6a. [Verfügbare Whisper-Modelle](#verfügbare-whisper-modelle)
 7. [Langzeitaufnahmen (Chunking, Fortsetzen)](#langzeitaufnahmen-chunking-fortsetzen)
 8. [Lokale Protokollerstellung (Ollama)](#lokale-protokollerstellung-ollama)
 9. [Windows-Build (EXE)](#windows-build-exe)
@@ -57,14 +58,21 @@ aufgebaut — ähnlich wie man es von heutiger Desktop-Software gewohnt ist:
 2. Danach öffnet sich der **Einrichtungsassistent** in der Anwendung selbst:
    - **Willkommen** — kurze Erklärung und Datenschutzhinweis.
    - **Einrichtung** — fehlendes FFmpeg und/oder Ollama werden automatisch
-     heruntergeladen, danach die WhisperX-/Alignment-/pyannote-/
-     Ollama-Modelle.
+     heruntergeladen, danach das pyannote-Modell und das Ollama-Modell.
    - **Systemtest** — zeigt übersichtlich, ob alles vorhanden und
-     einsatzbereit ist (Python, GPU/CPU, FFmpeg, Modelle, Ollama, ...).
+     einsatzbereit ist (Python, GPU/CPU, VRAM, RAM, FFmpeg, Modelle,
+     Ollama, ...).
+   - **Modell** — anhand der beim Systemtest erkannten Hardware (VRAM bzw.
+     Arbeitsspeicher) wird ein passendes Whisper-Modell **vorgeschlagen**;
+     Sie sehen alle verfügbaren Modelle (siehe
+     [Verfügbare Whisper-Modelle](#verfügbare-whisper-modelle)) und
+     entscheiden selbst, welches heruntergeladen und verwendet wird.
    - **Eingabeordner** — Sie wählen einmalig den Ordner mit Ihren
      Aufnahmen; unterstützte Dateien darin werden sofort aufgelistet.
 3. Danach öffnet sich das **Hauptfenster** und Sie können direkt eine Datei
-   auswählen und die Verarbeitung starten.
+   auswählen und die Verarbeitung starten. Das Whisper-Modell lässt sich
+   dort jederzeit über das Dropdown "Whisper-Modell" ändern (auch nach der
+   Ersteinrichtung), die Wahl wird gemerkt.
 
 Der zuletzt verwendete Eingabe-/Ausgabeordner wird lokal in
 `konfiguration.json` gemerkt (keine Zugangsdaten, keine Rechnernamen) —
@@ -120,7 +128,7 @@ lokale_windows_app\
     bootstrap.py                    Selbstinstallierende Laufzeitumgebung
     gui\                            PySide6-Oberfläche
         wizard.py                   Einrichtungsassistent (Willkommen/Einrichtung/
-                                     Systemtest/Eingabeordner)
+                                     Systemtest/Modell/Eingabeordner)
         main_window.py              Hauptfenster
         worker.py                   QThread-Hintergrundverarbeitung
         dialogs.py                  Systemprompt-Editor, Systemdiagnose
@@ -275,6 +283,39 @@ Erkannte Sprecher: 5
 
 ---
 
+## Verfügbare Whisper-Modelle
+
+Im Einrichtungsassistenten (Schritt "Modell") und jederzeit im Hauptfenster
+(Dropdown "Whisper-Modell") stehen folgende Modelle zur Auswahl, absteigend
+nach Anspruch sortiert:
+
+| Modell-ID | Beschreibung | Empfohlen ab |
+|---|---|---|
+| `large-v3` | Beste Qualität, am langsamsten. Höchste Genauigkeit, auch bei Akzenten/Dialekten/Fachbegriffen. | ≥ 10 GB VRAM |
+| `large-v3-turbo` | **Empfohlener Standard.** Fast so genau wie Large v3, aber deutlich schneller und genügsamer. | ≥ 6 GB VRAM |
+| `distil-large-v3` | Sehr schnell und genügsam; primär für Englisch destilliert — für deutsche Aufnahmen ggf. spürbar ungenauer als Large v3(-Turbo). | ≥ 6 GB VRAM |
+| `medium` | Guter Kompromiss, solide mehrsprachige Qualität, läuft auch auf kleineren GPUs. | ≥ 5 GB VRAM |
+| `small` | Deutlich schneller, spürbar weniger genau. Auch für CPU-Betrieb geeignet. | ≥ 2 GB VRAM |
+| `base` | Sehr genügsam, nur für einfache Aufnahmen oder sehr schwache Hardware. | ≥ 1 GB VRAM |
+| `tiny` | Minimal, nur zum Ausprobieren, nicht für echte Protokolle empfohlen. | überall |
+
+**Empfehlung ohne erkannte GPU (reiner CPU-Betrieb):** `small` bei ≥ 16 GB
+Arbeitsspeicher, sonst `base`.
+
+Diese Liste ist eine kuratierte Auswahl bewährter Modelle, keine
+abschließende Einschränkung: Über "Eigene Modell-ID eingeben …" (im
+Einrichtungsassistenten) lässt sich jede andere gültige WhisperX-/
+CTranslate2-Modell-ID verwenden (z. B. eine eigene Hugging-Face-Repo-ID).
+
+Die Empfehlung ist eine transparente, rein hardwarebasierte Heuristik
+(``services/model_service.py::empfehle_whisper_modell``) — sie entscheidet
+nichts automatisch endgültig, sondern schlägt nur vor; die Auswahl trifft
+immer der Nutzer. Die getroffene Wahl wird in `konfiguration.json`
+gespeichert (Schlüssel `whisper_modell`) und bei jedem weiteren Start
+vorausgewählt, bis sie bewusst geändert wird.
+
+---
+
 ## Langzeitaufnahmen (Chunking, Fortsetzen)
 
 Aufnahmen über 10 Minuten werden automatisch in **600-Sekunden-Chunks mit
@@ -385,8 +426,10 @@ powershell -ExecutionPolicy Bypass -File .\Anwendung-starten.ps1
 - **Phase 2** (`setup_lokal.ps1`): setzt eine bereits vorhandene
   `.venv-whisperx` voraus und installiert dort nur die GUI-/Build-Extras
   (`requirements-local-gui.txt`) sowie die pyannote-Korrektur.
-- **Phase 3** (`Modelle-herunterladen.py`): WhisperX, Alignment, pyannote,
-  `ollama pull qwen3:8b`.
+- **Phase 3** (`Modelle-herunterladen.py`): WhisperX (Standard:
+  `large-v3-turbo`, mit `--modell <id>` anpassbar -- siehe
+  [Verfügbare Whisper-Modelle](#verfügbare-whisper-modelle)), Alignment,
+  pyannote, `ollama pull qwen3:8b`.
 - **Phase 4**: Offline-Funktionsprüfung (alles läuft ohne Internetzugriff).
 - **Phase 5**: `Einrichtungsstatus.json` wird als vollständig markiert.
   `Anwendung-starten.ps1` verweigert den Start, solange eine Phase fehlt.
@@ -404,7 +447,9 @@ pyannote-NaN-Absicherung, unabhängig vom gewählten Weg.
 & .\runtime\venv\Scripts\python.exe -m pytest lokale_windows_app\tests -v
 ```
 
-150 Tests decken u.a. ab: Chunk-Grenzen und 10-Sekunden-Überlappung
+165 Tests decken u.a. ab: die hardwarebasierte Whisper-Modellempfehlung
+(VRAM-/RAM-Staffelung, CPU-Fallback, Diagnose-Auswertung), Chunk-Grenzen und
+10-Sekunden-Überlappung
 (inkl. des Beispiels aus dem Auftrag: Chunk 3 beginnt bei 00:19:40),
 Umrechnung lokaler in globale Zeitstempel, Entfernung eindeutiger
 Überlappungsdubletten bei Erhalt unsicherer Textstellen, Wiederaufnahme nach
@@ -476,14 +521,21 @@ dieses Skript **nicht** automatisch bei jedem Start auf.
 WhisperX/PyTorch/pyannote/Ollama vorinstalliert):
 
 - Alle Python-Module kompilieren fehlerfrei (`py_compile`).
-- 150 automatisierte pytest-Tests laufen grün (reine Logik: Chunking,
+- 165 automatisierte pytest-Tests laufen grün (reine Logik: Chunking,
   Manifest/Resume, Merge/Dedup, Sprecherzuordnung, JSON-Validierung,
   Ollama-Client gegen simulierte Antworten, dreistufige Protokoll­pipeline,
   Export, FFmpeg-Such-/Download-Logik, Ollama-Installer-Download,
   selbstinstallierende Laufzeitumgebung, portable Pfad-/Konfigurations­logik,
   pyannote-Patch-Logik, Diagnosefunktionen, Pipeline-Orchestrierung inkl.
-  Abbruch/Fortsetzen/fehlerhaftem Chunk — alle mit ausgetauschten Backends,
-  ohne echte ML-Modelle oder echte Downloads).
+  Abbruch/Fortsetzen/fehlerhaftem Chunk, hardwarebasierte Whisper-
+  Modellempfehlung — alle mit ausgetauschten Backends, ohne echte
+  ML-Modelle oder echte Downloads).
+- Der neue Einrichtungsschritt "Modell" (`gui/wizard.py::ModelChoicePage`)
+  sowie die Modellauswahl im Hauptfenster wurden in einer Offscreen-Qt-
+  Umgebung tatsächlich konstruiert und durchgeklickt: Vorauswahl anhand
+  simulierter Diagnoseergebnisse, Umschalten auf "Eigene Modell-ID
+  eingeben …", simulierter Download inkl. Freischaltung von "Weiter", sowie
+  Speichern/Wiederherstellen der Wahl in `konfiguration.json`.
 - Die komplette PySide6-Oberfläche (Einrichtungsassistent mit allen vier
   Seiten, Hauptfenster mit Eingabeordner-Auswahl, Systemprompt-Dialog,
   Systemdiagnose) wurde in einer Offscreen-Qt-Umgebung tatsächlich

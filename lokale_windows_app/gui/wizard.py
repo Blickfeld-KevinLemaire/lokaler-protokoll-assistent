@@ -19,6 +19,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import (
+    QComboBox,
     QFileDialog,
     QHBoxLayout,
     QHeaderView,
@@ -38,8 +39,9 @@ from PySide6.QtWidgets import (
 
 from gui.dialogs import DiagnosticsRunner, render_check_item
 from gui.strings import PRIVACY_NOTICE
+from services import model_service
 
-STEP_NAMES = ["Willkommen", "Einrichtung", "Systemtest", "Eingabeordner"]
+STEP_NAMES = ["Willkommen", "Einrichtung", "Systemtest", "Modell", "Eingabeordner"]
 
 SUPPORTED_EXTENSIONS = {
     ".mp3", ".mp4", ".m4a", ".wav", ".aac", ".flac", ".ogg", ".opus", ".mov", ".mkv", ".webm",
@@ -123,8 +125,20 @@ class InstallWorker(QThread):
             installer_dir = get_app_dir() / "runtime" / "installer"
             ollama_service.ensure_ollama_or_offer_installer(installer_dir, progress_cb=self.log_line.emit)
 
-            self.log_line.emit("\nLade lokale KI-Modelle herunter (kann einige Minuten dauern) ...")
-            results = model_download_service.download_all_models(self.log_line.emit, get_token=self._get_token)
+            self.log_line.emit(
+                "\nLade Sprecher-Erkennungs- und Ollama-Modell herunter (kann einige "
+                "Minuten dauern) ..."
+            )
+            results = {
+                "pyannote": model_download_service.download_pyannote(
+                    self.log_line.emit, get_token=self._get_token
+                ),
+                "ollama_modell": model_download_service.download_ollama_model(self.log_line.emit),
+            }
+            self.log_line.emit(
+                "\nHinweis: Das WhisperX-Transkriptionsmodell wird im naechsten Schritt "
+                "('Modell') anhand einer Hardware-Empfehlung ausgewaehlt und heruntergeladen."
+            )
 
             self.finished_ok.emit(results)
         except Exception as error:  # keine Tracebacks im Log -- nur die Kurzfassung
@@ -228,6 +242,7 @@ class DiagnosticsPage(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("WizardPage")
+        self.last_results: list = []
         self._thread: DiagnosticsRunner | None = None
 
         layout = QVBoxLayout(self)
@@ -273,6 +288,7 @@ class DiagnosticsPage(QWidget):
 
     def _show_results(self, results) -> None:
         self.retry_button.setEnabled(True)
+        self.last_results = results
         self.table.setRowCount(len(results))
         for row, check in enumerate(results):
             self.table.setItem(row, 0, QTableWidgetItem(check.label))
@@ -288,6 +304,176 @@ class DiagnosticsPage(QWidget):
         else:
             self.summary_label.setText("Alle wichtigen Prüfungen sind erfolgreich.")
         self.continue_button.setEnabled(not critical_failed)
+
+
+EIGENE_MODELL_ID = "__eigene_modell_id__"
+
+
+class WhisperDownloadWorker(QThread):
+    log_line = Signal(str)
+    finished_ok = Signal(bool)
+
+    def __init__(self, model_name: str, parent=None):
+        super().__init__(parent)
+        self._model_name = model_name
+
+    def run(self) -> None:
+        from services import model_download_service
+
+        try:
+            ok = model_download_service.download_whisper_and_alignment(
+                self.log_line.emit, model_name=self._model_name
+            )
+            self.finished_ok.emit(ok)
+        except Exception as error:  # keine Tracebacks im Log -- nur die Kurzfassung
+            self.log_line.emit(f"FEHLER: {error}")
+            self.finished_ok.emit(False)
+
+
+class ModelChoicePage(QWidget):
+    continue_requested = Signal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("WizardPage")
+        self._worker: WhisperDownloadWorker | None = None
+
+        layout = QVBoxLayout(self)
+        title = QLabel("Whisper-Modell auswählen", self)
+        title.setObjectName("PageTitle")
+        layout.addWidget(title)
+
+        subtitle = QLabel(
+            "Größere Modelle transkribieren genauer, benötigen aber mehr GPU-Speicher "
+            "und Zeit. Basierend auf dem Systemtest wird unten ein passendes Modell "
+            "vorausgewählt -- Sie können jederzeit ein anderes wählen.",
+            self,
+        )
+        subtitle.setObjectName("PageSubtitle")
+        subtitle.setWordWrap(True)
+        layout.addWidget(subtitle)
+
+        self.recommendation_label = QLabel("", self)
+        self.recommendation_label.setWordWrap(True)
+        layout.addWidget(self.recommendation_label)
+
+        self.model_combo = QComboBox(self)
+        for option in model_service.WHISPER_MODELLE:
+            self.model_combo.addItem(option.label, option.id)
+        self.model_combo.addItem("Eigene Modell-ID eingeben …", EIGENE_MODELL_ID)
+        self.model_combo.currentIndexChanged.connect(self._on_selection_changed)
+        layout.addWidget(self.model_combo)
+
+        self.custom_model_edit = QLineEdit(self)
+        self.custom_model_edit.setPlaceholderText(
+            "z. B. eine eigene WhisperX-/CTranslate2-Modell-ID oder Hugging-Face-Repo-ID"
+        )
+        self.custom_model_edit.setVisible(False)
+        layout.addWidget(self.custom_model_edit)
+
+        self.hinweis_label = QLabel("", self)
+        self.hinweis_label.setWordWrap(True)
+        self.hinweis_label.setObjectName("PageSubtitle")
+        layout.addWidget(self.hinweis_label)
+
+        self.progress_bar = QProgressBar(self)
+        self.progress_bar.setRange(0, 1)
+        layout.addWidget(self.progress_bar)
+
+        self.log_edit = QPlainTextEdit(self)
+        self.log_edit.setReadOnly(True)
+        self.log_edit.setMaximumHeight(140)
+        layout.addWidget(self.log_edit)
+
+        button_row = QHBoxLayout()
+        self.download_button = QPushButton("Dieses Modell herunterladen", self)
+        self.download_button.clicked.connect(self._start_download)
+        button_row.addWidget(self.download_button)
+        button_row.addStretch(1)
+        self.continue_button = QPushButton("Weiter", self)
+        self.continue_button.setObjectName("PrimaryButton")
+        self.continue_button.setEnabled(False)
+        self.continue_button.clicked.connect(self._confirm)
+        button_row.addWidget(self.continue_button)
+        layout.addLayout(button_row)
+
+        self._on_selection_changed()
+
+    def apply_recommendation(self, diagnostics_results: list) -> None:
+        empfehlung = model_service.whisper_empfehlung_aus_diagnose(diagnostics_results)
+        option = model_service.get_whisper_model_option(empfehlung)
+        label = option.label if option else empfehlung
+        self.recommendation_label.setText(f"Empfehlung für diesen Computer: {label}")
+
+        from utils.app_config import load_config
+
+        gespeichert = load_config().get("whisper_modell")
+        ziel_id = gespeichert or empfehlung
+        index = self.model_combo.findData(ziel_id)
+        if index >= 0:
+            self.model_combo.setCurrentIndex(index)
+        self._on_selection_changed()
+
+    def _on_selection_changed(self, *_args) -> None:
+        model_id = self.model_combo.currentData()
+        is_custom = model_id == EIGENE_MODELL_ID
+        self.custom_model_edit.setVisible(is_custom)
+        if is_custom:
+            self.hinweis_label.setText(
+                "Freie Eingabe: Die Modell-ID muss von WhisperX (faster-whisper/"
+                "CTranslate2) unterstützt werden."
+            )
+        else:
+            option = model_service.get_whisper_model_option(model_id)
+            self.hinweis_label.setText(option.hinweis if option else "")
+        self.continue_button.setEnabled(False)
+
+    def _selected_model_name(self) -> str | None:
+        model_id = self.model_combo.currentData()
+        if model_id == EIGENE_MODELL_ID:
+            eigene_id = self.custom_model_edit.text().strip()
+            return eigene_id or None
+        return model_id
+
+    def _start_download(self) -> None:
+        if self._worker is not None and self._worker.isRunning():
+            return
+        model_name = self._selected_model_name()
+        if not model_name:
+            self.log_edit.appendPlainText("Bitte zuerst eine Modell-ID eingeben.")
+            return
+
+        self.download_button.setEnabled(False)
+        self.continue_button.setEnabled(False)
+        self.progress_bar.setRange(0, 0)
+        self.log_edit.clear()
+
+        self._worker = WhisperDownloadWorker(model_name, self)
+        self._worker.log_line.connect(self.log_edit.appendPlainText)
+        self._worker.finished_ok.connect(self._on_download_finished)
+        self._worker.start()
+
+    def _on_download_finished(self, ok: bool) -> None:
+        self.progress_bar.setRange(0, 1)
+        self.progress_bar.setValue(1)
+        self.download_button.setEnabled(True)
+        if ok:
+            self.log_edit.appendPlainText("\nModell einsatzbereit.")
+        else:
+            self.log_edit.appendPlainText(
+                "\nDas Modell konnte nicht geladen werden. Sie können es erneut "
+                "versuchen oder trotzdem fortfahren (Prüfung später über die "
+                "Systemdiagnose möglich)."
+            )
+        self.continue_button.setEnabled(True)
+
+    def _confirm(self) -> None:
+        from utils.app_config import update_config
+
+        model_name = self._selected_model_name()
+        if model_name:
+            update_config(whisper_modell=model_name)
+        self.continue_requested.emit()
 
 
 class InputFolderPage(QWidget):
@@ -376,7 +562,7 @@ class InputFolderPage(QWidget):
 
 
 class SetupWizard(QWidget):
-    """Container fuer alle vier Einrichtungsseiten."""
+    """Container fuer alle fuenf Einrichtungsseiten."""
 
     setup_finished = Signal(str, str)  # (eingabeordner, vorausgewaehlte_datei_oder_leer)
 
@@ -415,13 +601,21 @@ class SetupWizard(QWidget):
         self.welcome_page = WelcomePage(self)
         self.install_page = InstallPage(self)
         self.diagnostics_page = DiagnosticsPage(self)
+        self.model_page = ModelChoicePage(self)
         self.folder_page = InputFolderPage(self)
-        for page in (self.welcome_page, self.install_page, self.diagnostics_page, self.folder_page):
+        for page in (
+            self.welcome_page,
+            self.install_page,
+            self.diagnostics_page,
+            self.model_page,
+            self.folder_page,
+        ):
             self.stack.addWidget(page)
 
         self.welcome_page.continue_requested.connect(lambda: self._go_to(1))
         self.install_page.continue_requested.connect(lambda: self._go_to(2))
         self.diagnostics_page.continue_requested.connect(lambda: self._go_to(3))
+        self.model_page.continue_requested.connect(lambda: self._go_to(4))
         self.folder_page.folder_confirmed.connect(self.setup_finished.emit)
 
         self._go_to(0)
@@ -436,3 +630,5 @@ class SetupWizard(QWidget):
             self.install_page.start()
         elif index == 2:
             self.diagnostics_page.start()
+        elif index == 3:
+            self.model_page.apply_recommendation(self.diagnostics_page.last_results)
