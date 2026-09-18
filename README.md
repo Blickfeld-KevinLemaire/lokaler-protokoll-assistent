@@ -8,14 +8,41 @@ Prioritaetenliste, ...). Fuer die Nachbearbeitung steht wahlweise ein
 **lokales** Modell (z. B. Ollama) oder ein **API-Modell** (ueber OpenRouter)
 zur Verfuegung.
 
-Es gibt zwei gleichwertige, unabhaengige Programme:
+Es gibt drei unabhaengige Programme in diesem Repository:
 
 - `protokoll_assistent_v2.py` - die bestehende Konsolenversion. Unveraendert,
   bleibt weiterhin eigenstaendig lauffaehig und dient gleichzeitig als
   Bibliothek fuer die GUI.
-- `protokoll_assistent_gui.py` - die neue grafische Oberflaeche. Nutzt dieselbe
-  Transkriptionslogik wie die Konsolenversion und ergaenzt die separate
-  Nachbearbeitung per Systemprompt (lokal oder per API-Modell).
+- `protokoll_assistent_gui.py` - die grafische Oberflaeche fuer die
+  Cloud-Transkription (OpenRouter). Nutzt dieselbe Transkriptionslogik wie
+  die Konsolenversion und ergaenzt die separate Nachbearbeitung per
+  Systemprompt (lokal oder per API-Modell).
+- **`lokale_windows_app/`** - eine komplett eigenstaendige, **vollstaendig
+  lokale** Windows-Anwendung (WhisperX + pyannote.audio statt OpenRouter):
+  keinerlei Cloud-/API-Anbindung, keine Uebertragung von Audio- oder
+  Videodaten. Eigene GUI (PySide6), eigener Installationsweg, eigene
+  Ausgabedateien. Siehe [`lokale_windows_app/README.md`](lokale_windows_app/README.md)
+  fuer die vollstaendige Anleitung.
+
+Alle drei Programme sind vollkommen unabhaengig voneinander lauffaehig und
+beruehren sich gegenseitig nicht (keine gemeinsamen Dateien, keine
+gemeinsamen Ordner).
+
+### Welches Programm passt?
+
+| | `protokoll_assistent_gui.py` (Cloud) | `lokale_windows_app/` (vollstaendig lokal) |
+|---|---|---|
+| Transkription | OpenRouter / `microsoft/mai-transcribe-2` | WhisperX (lokal, GPU empfohlen) |
+| Sprechertrennung | ueber den Cloud-Anbieter | pyannote.audio (lokal) |
+| Datenuebertragung | Audio wird an OpenRouter/Azure gesendet | keine - alles laeuft auf dem Geraet |
+| Nachbearbeitung | lokal (Ollama) oder API-Modell | lokal (Ollama), dreistufig |
+| Voraussetzungen | OpenRouter API-Schluessel, FFmpeg | Python, FFmpeg, optional NVIDIA-GPU (sonst CPU) |
+| Installation | ein Fenster (siehe unten) | eigener Assistent, siehe `lokale_windows_app/README.md` |
+
+Kurz: Wer keine Daten aus der Hand geben will (und eine ausreichend
+schnelle GPU/CPU hat), nutzt `lokale_windows_app/`. Wer keine lokalen
+KI-Modelle installieren moechte oder eine leistungsfaehige Cloud-
+Transkription bevorzugt, nutzt `protokoll_assistent_gui.py`.
 
 ## Ordnerstruktur
 
@@ -27,6 +54,11 @@ zwischenstaende/                         Rohantworten der Cloud-Transkription (W
 einstellungen/                           fachbegriffe.txt fuer Fachbegriffe/Eigennamen
 ```
 
+Diese Ordner gehoeren zur Cloud-Variante (`protokoll_assistent_v2.py` /
+`protokoll_assistent_gui.py`). `lokale_windows_app/` bringt eine eigene,
+vollstaendig getrennte Ordnerstruktur mit (siehe dort) und teilt sich
+nichts mit den obigen Ordnern.
+
 Die Ordner werden beim Start automatisch angelegt, falls sie fehlen.
 
 Der Projektordner selbst kann beliebig heissen und an einem beliebigen Ort
@@ -36,6 +68,10 @@ Anwender kann sich also seinen eigenen Projektordner aussuchen, ohne Code
 anpassen zu muessen.
 
 ## Installation unter Windows (ein Fenster fuer alles)
+
+*Gilt fuer die Cloud-Variante (`protokoll_assistent_gui.py`). Fuer die
+vollstaendig lokale Variante siehe [`lokale_windows_app/README.md`](lokale_windows_app/README.md)
+- dort gibt es einen eigenen, aehnlich aufgebauten Einrichtungsassistenten.*
 
 Fuer Windows gibt es einen Einrichtungsassistenten, der die Schritte 1-4
 uebernimmt bzw. anleitet:
