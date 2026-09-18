@@ -149,6 +149,37 @@ und Protokollbereich zeigen den aktuellen Stand an.
   Agenda, Prioritaetenliste, ...), inkl. Angabe, ob lokal oder per API-Modell
   erzeugt
 
+## Sprecher mit echten Namen versehen (GUI)
+
+Die Cloud-Diarisierung liefert nur technische Bezeichnungen ("Sprecher 1",
+"Sprecher 2", ...). Wenn sich die Teilnehmer zu Beginn der Aufnahme kurz
+vorstellen ("Hallo, ich bin Fritz." / "Mein Name ist Marco." / "Hier
+spricht Julia."), kann die GUI diese Selbstvorstellungen automatisch
+erkennen und die Bezeichnungen im ganzen Transkript entsprechend ersetzen:
+
+1. Nach jeder Transkription (Haekchen "Sprecher danach benennen", per
+   Standard aktiviert) durchsucht die App die ersten
+   `PROTOKOLL_SPRECHER_FENSTER_MINUTEN` Minuten (Standard: 3) nach Mustern
+   wie "ich bin ...", "ich heisse ...", "mein Name ist ..." oder "hier
+   spricht/ist ...".
+2. Ein Dialogfenster zeigt pro erkanntem Sprecher ein Textbeispiel und ein
+   vorausgefuelltes Namensfeld (falls eine Vorstellung erkannt wurde).
+   Namen lassen sich dort pruefen, korrigieren oder ergaenzen; leer
+   gelassene Felder behalten die technische Bezeichnung.
+3. Nach "Uebernehmen" wird der Name im gesamten Transkript verwendet -
+   auch in Segmenten weit nach der Vorstellung, da die Zuordnung pro
+   Sprecher-ID gilt, nicht nur innerhalb des Zeitfensters.
+
+Der Button "Sprecher umbenennen ..." (bei Punkt 3, Transkript auswaehlen)
+oeffnet denselben Dialog jederzeit erneut fuer ein beliebiges vorhandenes
+Transkript - unabhaengig davon, ob die automatische Erkennung beim Erstellen
+etwas gefunden hat oder uebersprungen wurde.
+
+Die Erkennung ist eine Texterkennung per Muster, kein echtes
+Stimm-Erkennungsverfahren: Sie schlaegt nur Namen vor, wenn eine passende
+Formulierung im Transkript steht. Ohne (oder bei unklarer) Selbstvorstellung
+bleibt das Namensfeld leer und die technische Bezeichnung wird beibehalten.
+
 ## Konsolenversion benutzen
 
 ```

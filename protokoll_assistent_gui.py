@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import os
 import queue
+import re
 import shutil
 import sys
 import subprocess
@@ -71,6 +72,18 @@ CHUNK_SCHWELLE_MINUTEN = int(os.environ.get("PROTOKOLL_CHUNK_SCHWELLE_MINUTEN", 
 CHUNK_LAENGE_MINUTEN = int(os.environ.get("PROTOKOLL_CHUNK_LAENGE_MINUTEN", "15"))
 CHUNK_SCHWELLE_SEKUNDEN = CHUNK_SCHWELLE_MINUTEN * 60
 CHUNK_LAENGE_SEKUNDEN = CHUNK_LAENGE_MINUTEN * 60
+
+SPRECHER_FENSTER_MINUTEN = int(os.environ.get("PROTOKOLL_SPRECHER_FENSTER_MINUTEN", "3"))
+SPRECHER_FENSTER_SEKUNDEN = SPRECHER_FENSTER_MINUTEN * 60
+
+SELBSTVORSTELLUNG_MUSTER = [
+    # Die Schluesselwoerter sind gross-/kleinschreibungsunabhaengig ("(?i:...)"),
+    # der eigentliche Name muss aber gross geschrieben sein - das schuetzt vor
+    # Fehltreffern wie "ich bin noch dazugekommen" -> "Noch".
+    re.compile(r"(?i:ich\s+(?:bin|hei(?:ß|ss)e))\s+(?i:der|die|das)?\s*([A-ZÄÖÜ][\wäöüß-]+)"),
+    re.compile(r"(?i:mein\s+name\s+ist)\s+([A-ZÄÖÜ][\wäöüß-]+)"),
+    re.compile(r"(?i:hier\s+(?:ist|spricht))\s+([A-ZÄÖÜ][\wäöüß-]+)"),
+]
 
 FFMPEG_SUCHPFADE = [
     "/usr/bin/ffmpeg",
@@ -300,6 +313,84 @@ def save_merged_transcript(source: Path, zusammengefasst: dict[str, Any]) -> tup
     return output_txt, output_json
 
 
+def erkenne_namen_vorschlag(text: str) -> str | None:
+    for muster in SELBSTVORSTELLUNG_MUSTER:
+        treffer = muster.search(text)
+        if treffer:
+            return treffer.group(1).strip(".,!? ").capitalize()
+    return None
+
+
+def sprecher_einfuehrungen_sammeln(
+    segmente: list[dict[str, Any]], fenster_sekunden: float
+) -> dict[str, dict[str, Any]]:
+    """Liefert je Sprecherlabel ein Textbeispiel sowie - falls innerhalb des
+    Zeitfensters eine Selbstvorstellung erkannt wurde - einen Namensvorschlag.
+
+    Die Reihenfolge der Rueckgabe entspricht der Reihenfolge des ersten
+    Auftretens im Transkript.
+    """
+    ergebnis: dict[str, dict[str, Any]] = {}
+    for segment in segmente:
+        label = str(segment.get("sprecher", "Sprecher unbekannt"))
+        eintrag = ergebnis.setdefault(label, {"beispiel": "", "vorschlag": None})
+        inhalt = str(segment.get("inhalt", ""))
+        start_sekunden = kern.value_float(segment.get("start_sekunden"))
+        if not eintrag["beispiel"]:
+            eintrag["beispiel"] = inhalt
+        if eintrag["vorschlag"] is None and start_sekunden <= fenster_sekunden:
+            vorschlag = erkenne_namen_vorschlag(inhalt)
+            if vorschlag:
+                eintrag["vorschlag"] = vorschlag
+    return ergebnis
+
+
+def wende_sprechernamen_an(
+    segmente: list[dict[str, Any]],
+    woerter: list[dict[str, Any]],
+    sprecher: list[dict[str, str]],
+    zuordnung: dict[str, str],
+) -> None:
+    """Ersetzt generische Sprecherlabels durch vom Anwender vergebene Namen (in place)."""
+    for segment in segmente:
+        alt = str(segment.get("sprecher", ""))
+        neu = zuordnung.get(alt, alt)
+        segment["sprecher"] = neu
+        segment["text"] = f"{neu}: {segment.get('inhalt', '')}"
+    for wort in woerter:
+        alt = str(wort.get("sprecher", ""))
+        wort["sprecher"] = zuordnung.get(alt, alt)
+    for eintrag in sprecher:
+        alt = str(eintrag.get("bezeichnung", ""))
+        eintrag["bezeichnung"] = zuordnung.get(alt, alt)
+
+
+def speichere_transkript_mit_namen(
+    output_txt: Path, output_json: Path, zuordnung: dict[str, str]
+) -> None:
+    """Schreibt ein bereits gespeichertes Transkript mit umbenannten Sprechern neu.
+
+    Die Kopfzeilen der TXT-Datei (Quelldatei, Erstellungsdatum, Hinweise, ...)
+    bleiben erhalten; nur die eigentlichen Transkriptzeilen sowie die
+    Sprecherangaben in der JSON-Datei werden ersetzt.
+    """
+    daten = json.loads(output_json.read_text(encoding="utf-8-sig"))
+    segmente = daten.get("segmente", [])
+    woerter = daten.get("woerter", [])
+    sprecher = daten.get("sprecher", [])
+    wende_sprechernamen_an(segmente, woerter, sprecher, zuordnung)
+    daten["sprecher"] = sprecher
+
+    alte_zeilen = output_txt.read_text(encoding="utf-8").splitlines()
+    kopf_ende = next((i for i, zeile in enumerate(alte_zeilen) if zeile == ""), len(alte_zeilen))
+    kopf = alte_zeilen[: kopf_ende + 1]
+    neue_zeilen = [
+        f"[{segment['start']} --> {segment['ende']}] {segment['text']}" for segment in segmente
+    ]
+    output_txt.write_text("\n".join(kopf + neue_zeilen) + "\n", encoding="utf-8")
+    output_json.write_text(json.dumps(daten, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
 def scan_audio_files(folder: Path) -> list[Path]:
     if not folder.is_dir():
         return []
@@ -471,6 +562,8 @@ class ProtokollGUI:
         self.message_queue: "queue.Queue[tuple[str, Any]]" = queue.Queue()
         self.confirm_event = threading.Event()
         self.confirm_result = False
+        self.sprecher_dialog_event = threading.Event()
+        self.sprecher_namen_ergebnis: dict[str, str] = {}
         self.worker_thread: threading.Thread | None = None
         self.last_output_paths: list[Path] = []
 
@@ -557,6 +650,12 @@ class ProtokollGUI:
             command=lambda: open_in_file_manager(OUTPUT_DIR),
         )
         self.open_output_button.pack(side="left", padx=8)
+        self.sprecher_benennen_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(
+            transkription_action,
+            text="Sprecher danach benennen",
+            variable=self.sprecher_benennen_var,
+        ).pack(side="left", padx=8)
 
         ttk.Separator(self.root, orient="horizontal").pack(fill="x", padx=10, pady=(4, 0))
         ttk.Label(
@@ -572,10 +671,13 @@ class ProtokollGUI:
         ttk.Button(
             row_transkript, text="Transkript auswaehlen ...", command=self.waehle_transkript
         ).pack(side="left")
+        ttk.Button(
+            row_transkript, text="Sprecher umbenennen ...", command=self.sprecher_umbenennen
+        ).pack(side="left", padx=8)
         self.transkript_label_var = tk.StringVar(value="Noch kein Transkript ausgewaehlt")
-        ttk.Label(row_transkript, textvariable=self.transkript_label_var, wraplength=700).pack(
-            side="left", padx=10
-        )
+        ttk.Label(
+            transkript_frame, textvariable=self.transkript_label_var, wraplength=700
+        ).pack(anchor="w", padx=8, pady=(0, 6))
 
         model_frame = ttk.LabelFrame(self.root, text="4. Sprachmodell fuer die Nachbearbeitung")
         model_frame.pack(fill="x", **padding)
@@ -754,6 +856,107 @@ class ProtokollGUI:
         self.transkript_pfad = pfad
         self.transkript_label_var.set(str(pfad))
 
+    def sprecher_umbenennen(self) -> None:
+        if not self.transkript_pfad or not self.transkript_pfad.is_file():
+            messagebox.showwarning(
+                "Kein Transkript ausgewaehlt", "Bitte zuerst ein Transkript auswaehlen."
+            )
+            return
+
+        json_pfad = self.transkript_pfad.with_suffix(".json")
+        if not json_pfad.is_file():
+            messagebox.showwarning(
+                "Keine JSON-Datei gefunden",
+                f"Zur Textdatei wurde keine passende JSON-Datei gefunden ({json_pfad.name}).",
+            )
+            return
+
+        daten = json.loads(json_pfad.read_text(encoding="utf-8-sig"))
+        einfuehrungen = sprecher_einfuehrungen_sammeln(
+            daten.get("segmente", []), SPRECHER_FENSTER_SEKUNDEN
+        )
+        echte_sprecher = {
+            label: info for label, info in einfuehrungen.items() if label != "Sprecher unbekannt"
+        }
+        if not echte_sprecher:
+            messagebox.showinfo(
+                "Keine Sprecher gefunden",
+                "In diesem Transkript wurden keine Sprecherlabels gefunden.",
+            )
+            return
+
+        zuordnung = self._zeige_sprecher_dialog(echte_sprecher)
+        if not zuordnung:
+            return
+        speichere_transkript_mit_namen(self.transkript_pfad, json_pfad, zuordnung)
+        self._append_log(
+            "Sprechernamen uebernommen: "
+            + ", ".join(f"{alt} -> {neu}" for alt, neu in zuordnung.items())
+        )
+        messagebox.showinfo("Fertig", "Die Sprechernamen wurden im Transkript aktualisiert.")
+
+    def _zeige_sprecher_dialog(self, einfuehrungen: dict[str, dict[str, Any]]) -> dict[str, str]:
+        fenster = tk.Toplevel(self.root)
+        fenster.title("Sprecher benennen")
+        fenster.transient(self.root)
+        fenster.grab_set()
+
+        ttk.Label(
+            fenster,
+            text=(
+                "Erkannte Sprecher aus den ersten Minuten. Namen eintragen (ein "
+                "Vorschlag ist bereits eingetragen, falls eine Selbstvorstellung "
+                "erkannt wurde) oder leer lassen, um die technische Bezeichnung "
+                "zu behalten."
+            ),
+            wraplength=520,
+            justify="left",
+        ).pack(padx=16, pady=(16, 8), fill="x")
+
+        eingabe_vars: dict[str, tk.StringVar] = {}
+        for label, info in einfuehrungen.items():
+            zeile = ttk.Frame(fenster)
+            zeile.pack(fill="x", padx=16, pady=4)
+            ttk.Label(zeile, text=label, width=16).pack(side="left")
+            var = tk.StringVar(value=info.get("vorschlag") or "")
+            ttk.Entry(zeile, textvariable=var, width=20).pack(side="left", padx=8)
+            beispiel = str(info.get("beispiel") or "").strip()[:70]
+            ttk.Label(
+                zeile, text=f'"{beispiel}"', foreground="#777777", wraplength=260
+            ).pack(side="left")
+            eingabe_vars[label] = var
+
+        ergebnis: dict[str, str] = {}
+
+        def bestaetigen() -> None:
+            ergebnis.update(
+                {
+                    label: var.get().strip()
+                    for label, var in eingabe_vars.items()
+                    if var.get().strip()
+                }
+            )
+            fenster.destroy()
+
+        knopf_zeile = ttk.Frame(fenster)
+        knopf_zeile.pack(fill="x", padx=16, pady=16)
+        ttk.Button(knopf_zeile, text="Uebernehmen", command=bestaetigen).pack(side="left")
+        ttk.Button(knopf_zeile, text="Ueberspringen", command=fenster.destroy).pack(
+            side="left", padx=8
+        )
+        fenster.protocol("WM_DELETE_WINDOW", fenster.destroy)
+
+        fenster.update_idletasks()
+        fenster.geometry(f"+{self.root.winfo_rootx() + 60}+{self.root.winfo_rooty() + 60}")
+        self.root.wait_window(fenster)
+        return ergebnis
+
+    def _frage_sprecher_namen(self, einfuehrungen: dict[str, dict[str, Any]]) -> dict[str, str]:
+        self.sprecher_dialog_event.clear()
+        self.message_queue.put(("sprecher_dialog", einfuehrungen))
+        self.sprecher_dialog_event.wait()
+        return self.sprecher_namen_ergebnis
+
     # -------------------------------------------------------------- Start
 
     def _ist_beschaeftigt(self) -> bool:
@@ -778,6 +981,7 @@ class ProtokollGUI:
             return
 
         source = self.selected_folder / self.file_var.get()  # type: ignore[operator]
+        sprecher_benennen = self.sprecher_benennen_var.get()
 
         self.start_button.config(state="disabled")
         self.nachbearbeitung_button.config(state="disabled")
@@ -787,7 +991,7 @@ class ProtokollGUI:
 
         self.worker_thread = threading.Thread(
             target=self._run_transkription,
-            args=(source, api_key),
+            args=(source, api_key, sprecher_benennen),
             daemon=True,
         )
         self.worker_thread.start()
@@ -853,7 +1057,7 @@ class ProtokollGUI:
         self.confirm_event.wait()
         return self.confirm_result
 
-    def _run_transkription(self, source: Path, api_key: str) -> None:
+    def _run_transkription(self, source: Path, api_key: str, sprecher_benennen: bool) -> None:
         try:
             os.environ["OPENROUTER_API_KEY"] = api_key
             self._log(f"Eingabedatei: {source.name}")
@@ -922,6 +1126,36 @@ class ProtokollGUI:
 
             self._log(f"Transkript gespeichert: {output_txt.name}")
             self._log(f"Transkript (JSON) gespeichert: {output_json.name}")
+
+            if sprecher_benennen:
+                daten = json.loads(output_json.read_text(encoding="utf-8-sig"))
+                einfuehrungen = sprecher_einfuehrungen_sammeln(
+                    daten.get("segmente", []), SPRECHER_FENSTER_SEKUNDEN
+                )
+                echte_sprecher = {
+                    label: info
+                    for label, info in einfuehrungen.items()
+                    if label != "Sprecher unbekannt"
+                }
+                if echte_sprecher:
+                    self._log(
+                        f"Sprecher aus den ersten {SPRECHER_FENSTER_MINUTEN} Minuten werden "
+                        "zur Benennung vorgeschlagen ..."
+                    )
+                    self._progress(0.95, "Sprecher benennen ...")
+                    zuordnung = self._frage_sprecher_namen(echte_sprecher)
+                    if zuordnung:
+                        speichere_transkript_mit_namen(output_txt, output_json, zuordnung)
+                        self._log(
+                            "Sprechernamen uebernommen: "
+                            + ", ".join(f"{alt} -> {neu}" for alt, neu in zuordnung.items())
+                        )
+                    else:
+                        self._log(
+                            "Sprecherbenennung uebersprungen - technische Bezeichnungen "
+                            "bleiben erhalten."
+                        )
+
             self._log(
                 "Transkription abgeschlossen. Die Nachbearbeitung (Zusammenfassung, Agenda, "
                 "...) kann jetzt weiter unten separat gestartet werden."
@@ -1021,6 +1255,9 @@ class ProtokollGUI:
                     self.progress_label_var.set(text)
                 elif kind == "confirm":
                     self._show_confirm_dialog(payload)
+                elif kind == "sprecher_dialog":
+                    self.sprecher_namen_ergebnis = self._zeige_sprecher_dialog(payload)
+                    self.sprecher_dialog_event.set()
                 elif kind == "transkript_fertig":
                     self._setze_transkript(payload)
                 elif kind == "nachbearbeitung_ergebnis":
