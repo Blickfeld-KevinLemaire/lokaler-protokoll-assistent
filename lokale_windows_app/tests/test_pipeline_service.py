@@ -9,12 +9,10 @@ dieser Sandbox kein FFmpeg installiert ist.
 
 from __future__ import annotations
 
-import json
-
 import pytest
 
 import utils.paths as utils_paths
-from services import ffmpeg_service, manifest_service, pipeline_service
+from services import manifest_service, pipeline_service
 
 
 @pytest.fixture()

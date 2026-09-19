@@ -231,7 +231,9 @@ def test_create_venv_with_base_python_calls_subprocess(monkeypatch, tmp_path):
     monkeypatch.setattr(bootstrap.subprocess, "run", fake_run)
     venv_dir = tmp_path / "venv"
     bootstrap._create_venv(venv_dir, base_python=Path("/anderswo/python3.11"))
-    assert calls == [["/anderswo/python3.11", "-m", "venv", str(venv_dir)]]
+    # str(Path(...)) statt eines festen POSIX-Strings, damit der Test
+    # auch unter Windows gilt.
+    assert calls == [[str(Path("/anderswo/python3.11")), "-m", "venv", str(venv_dir)]]
 
 
 def test_create_venv_with_base_python_raises_on_failure(monkeypatch, tmp_path):

@@ -1,3 +1,5 @@
+import itertools
+
 import pytest
 
 from services.chunking_service import plan_chunks
@@ -28,7 +30,7 @@ def test_chunk_boundaries_and_overlap_example_from_spec():
         assert plan.overlap_with_previous == 10.0
 
     # Ueberlappungsfenster zwischen Chunk i und i+1 ist exakt 10 Sekunden.
-    for previous, current in zip(plans, plans[1:]):
+    for previous, current in itertools.pairwise(plans):
         overlap_seconds = previous.global_end - current.global_start
         assert overlap_seconds == pytest.approx(10.0)
 
@@ -44,7 +46,7 @@ def test_no_chunk_shorter_than_needed_and_no_gaps():
     total_duration = 2000.0
     plans = plan_chunks(total_duration)
     # Keine Luecken: jeder naechste Chunk beginnt vor oder bei Ende des vorherigen.
-    for previous, current in zip(plans, plans[1:]):
+    for previous, current in itertools.pairwise(plans):
         assert current.global_start <= previous.global_end
     assert plans[-1].global_end == total_duration
 

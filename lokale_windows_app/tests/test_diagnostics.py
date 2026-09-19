@@ -55,7 +55,18 @@ def test_check_output_dir_writable_true_for_writable_dir(tmp_path):
     assert result.ok is True
 
 
-@pytest.mark.skipif(os.geteuid() == 0, reason="Als root werden Dateirechte nicht durchgesetzt.")
+# 'os.geteuid' gibt es nur unter POSIX. Unter Windows entzieht 'chmod(0o500)'
+# einem Ordner ausserdem gar kein Schreibrecht - dieser Test kann dort also
+# nicht greifen. Den Fehlerfall deckt stattdessen der Test darunter ab, der
+# auf beiden Systemen laeuft.
+_IST_POSIX = os.name == "posix"
+_IST_ROOT = _IST_POSIX and os.geteuid() == 0
+
+
+@pytest.mark.skipif(
+    not _IST_POSIX or _IST_ROOT,
+    reason="Schreibrechte lassen sich nur unter POSIX und nicht als root zuverlaessig entziehen.",
+)
 def test_check_output_dir_writable_false_for_readonly_dir(tmp_path):
     readonly_dir = tmp_path / "gesperrt"
     readonly_dir.mkdir()
@@ -65,6 +76,18 @@ def test_check_output_dir_writable_false_for_readonly_dir(tmp_path):
         assert result.ok is False
     finally:
         readonly_dir.chmod(0o700)
+
+
+def test_check_output_dir_writable_false_when_parent_is_a_file(tmp_path):
+    """Plattformunabhaengiger Fehlerfall: der uebergeordnete Pfad ist eine Datei,
+    'mkdir' muss deshalb scheitern."""
+    blockierende_datei = tmp_path / "keine_ordner_datei.txt"
+    blockierende_datei.write_text("belegt", encoding="utf-8")
+
+    result = diagnostics.check_output_dir_writable(blockierende_datei / "unterordner")
+
+    assert result.ok is False
+    assert result.critical is True
 
 
 def test_check_hf_token_reflects_environment(monkeypatch):
