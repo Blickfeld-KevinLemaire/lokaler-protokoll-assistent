@@ -460,8 +460,16 @@ def call_api_model(
     system_prompt: str,
     api_key: str,
     model_name: str,
+    endpoint_url: str,
     log: Callable[[str], None],
 ) -> str:
+    """Ruft ein Chat-Completions-kompatibles API-Modell auf.
+
+    Funktioniert mit jedem Anbieter, der die verbreitete OpenAI-kompatible
+    '/chat/completions'-Schnittstelle anbietet (OpenRouter, OpenAI, IONOS AI
+    Model Hub, u. v. a.) -- der Anwender traegt dafuer den passenden
+    Endpunkt und Modellnamen selbst ein.
+    """
     payload = {
         "model": model_name,
         "messages": [
@@ -471,34 +479,33 @@ def call_api_model(
     }
     body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     request = urllib.request.Request(
-        OPENROUTER_CHAT_URL,
+        endpoint_url,
         data=body,
         headers={
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json; charset=utf-8",
-            "X-Title": "BLICKFELD Protokoll-Assistent",
         },
         method="POST",
     )
 
-    log(f"API-Modell '{model_name}' wird ueber OpenRouter angefragt ...")
+    log(f"API-Modell '{model_name}' wird angefragt ({endpoint_url}) ...")
     try:
         with urllib.request.urlopen(request, timeout=API_MODEL_TIMEOUT_SECONDS) as response:
             result = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as error:
         details = error.read().decode("utf-8", errors="replace")[:1000]
-        raise RuntimeError(f"OpenRouter-Fehler HTTP {error.code}: {details}") from error
+        raise RuntimeError(f"API-Fehler HTTP {error.code} von {endpoint_url}: {details}") from error
     except urllib.error.URLError as error:
-        raise RuntimeError(f"OpenRouter ist nicht erreichbar: {error}") from error
+        raise RuntimeError(f"Der Endpunkt ist nicht erreichbar ({endpoint_url}): {error}") from error
 
     if not isinstance(result, dict):
-        raise RuntimeError("OpenRouter hat kein JSON-Objekt geliefert.")
+        raise RuntimeError(f"{endpoint_url} hat kein JSON-Objekt geliefert.")
     if result.get("error"):
-        raise RuntimeError(f"OpenRouter meldet einen Fehler: {result['error']}")
+        raise RuntimeError(f"Der Endpunkt meldet einen Fehler: {result['error']}")
     try:
         text = str(result["choices"][0]["message"]["content"]).strip()
     except (KeyError, IndexError, TypeError) as error:
-        raise RuntimeError(f"Unerwartete Antwort von OpenRouter: {result}") from error
+        raise RuntimeError(f"Unerwartete Antwort von {endpoint_url}: {result}") from error
     if not text:
         raise RuntimeError("Das API-Modell hat keine Antwort geliefert.")
     return text
@@ -511,16 +518,16 @@ def save_processed_result(
     engine: str,
     model_name: str,
     result_text: str,
+    endpoint_url: str | None = None,
 ) -> tuple[Path, Path]:
     ERGEBNIS_DIR.mkdir(parents=True, exist_ok=True)
     output_txt = ERGEBNIS_DIR / f"{basisname}_protokoll.txt"
     output_json = ERGEBNIS_DIR / f"{basisname}_protokoll.json"
 
-    verarbeitung_text = (
-        f"Lokales Modell: {model_name}"
-        if engine == "lokal"
-        else f"API-Modell (OpenRouter): {model_name}"
-    )
+    if engine == "lokal":
+        verarbeitung_text = f"Lokales Modell: {model_name}"
+    else:
+        verarbeitung_text = f"API-Modell: {model_name} (Endpunkt: {endpoint_url})"
     header = [
         "PROTOKOLL-ASSISTENT - ERGEBNIS DER NACHBEARBEITUNG",
         f"Quelle: {quelle_name}",
@@ -540,6 +547,7 @@ def save_processed_result(
         "erstellt": datetime.now().astimezone().isoformat(timespec="seconds"),
         "verarbeitung": engine,
         "modell": model_name,
+        "endpunkt": endpoint_url if engine == "api" else None,
         "systemprompt": system_prompt.strip(),
         "ergebnis": result_text.strip(),
     }
@@ -630,8 +638,8 @@ class ProtokollGUI:
             text=(
                 "Der Schluessel wird nur im Arbeitsspeicher dieser Sitzung gehalten, "
                 "niemals in eine Datei oder in den Code geschrieben. Er wird fuer die "
-                "Transkription verwendet und - falls unten gewaehlt - auch fuer ein "
-                "API-Modell zur Nachbearbeitung."
+                "Transkription (OpenRouter) verwendet und dient bei der Nachbearbeitung "
+                "als Standard-Schluessel, falls dort kein eigener eingetragen wird."
             ),
             foreground="#555555",
             wraplength=880,
@@ -693,7 +701,7 @@ class ProtokollGUI:
         ).pack(side="left")
         ttk.Radiobutton(
             row_engine,
-            text="API-Modell (z. B. ueber OpenRouter)",
+            text="API-Modell (frei waehlbarer Endpunkt)",
             value="api",
             variable=self.engine_var,
             command=self._engine_geaendert,
@@ -704,6 +712,34 @@ class ProtokollGUI:
         ttk.Label(row4, text="Modellname:").pack(side="left")
         self.model_var = tk.StringVar(value=DEFAULT_LOCAL_MODEL)
         ttk.Entry(row4, textvariable=self.model_var, width=30).pack(side="left", padx=8)
+
+        row_endpoint = ttk.Frame(model_frame)
+        row_endpoint.pack(fill="x", padx=8, pady=(0, 6))
+        ttk.Label(row_endpoint, text="API-Endpunkt (Basis-URL):").pack(side="left")
+        self.endpoint_var = tk.StringVar(value=OPENROUTER_CHAT_URL)
+        self.endpoint_entry = ttk.Entry(row_endpoint, textvariable=self.endpoint_var, width=55)
+        self.endpoint_entry.pack(side="left", padx=8, fill="x", expand=True)
+        self.endpoint_entry.config(state="disabled")
+
+        row_api_key_nachbearbeitung = ttk.Frame(model_frame)
+        row_api_key_nachbearbeitung.pack(fill="x", padx=8, pady=(0, 6))
+        ttk.Label(row_api_key_nachbearbeitung, text="API-Schluessel fuer diesen Endpunkt:").pack(
+            side="left"
+        )
+        self.api_key_nachbearbeitung_var = tk.StringVar()
+        self.api_key_nachbearbeitung_entry = ttk.Entry(
+            row_api_key_nachbearbeitung,
+            textvariable=self.api_key_nachbearbeitung_var,
+            show="*",
+            width=40,
+        )
+        self.api_key_nachbearbeitung_entry.pack(side="left", padx=8, fill="x", expand=True)
+        self.api_key_nachbearbeitung_entry.config(state="disabled")
+        ttk.Label(
+            row_api_key_nachbearbeitung,
+            text="(leer = Schluessel oben verwenden)",
+            foreground="#555555",
+        ).pack(side="left")
 
         self.model_hinweis_var = tk.StringVar(
             value=(
@@ -806,14 +842,23 @@ class ProtokollGUI:
         if self.engine_var.get() == "api":
             if aktuelle in ("", DEFAULT_LOCAL_MODEL):
                 self.model_var.set(DEFAULT_API_MODEL)
+            self.endpoint_entry.config(state="normal")
+            self.api_key_nachbearbeitung_entry.config(state="normal")
             self.model_hinweis_var.set(
-                "Wird ueber OpenRouter gesendet (z. B. openai/gpt-4o-mini, "
-                "anthropic/claude-3.5-sonnet). Nutzt denselben API-Schluessel wie oben "
-                "unter Punkt 2 - dabei verlaesst das Transkript das Geraet."
+                "Wird an den oben eingetragenen API-Endpunkt gesendet (Standard: "
+                "OpenRouter; ebenso moeglich sind z. B. OpenAI, IONOS AI Model Hub "
+                "oder jeder andere Anbieter mit OpenAI-kompatibler "
+                "'/chat/completions'-Schnittstelle - Endpunkt und Modellname bitte "
+                "beim jeweiligen Anbieter nachschlagen). Verwendet den "
+                "API-Schluessel fuer diesen Endpunkt (oder, falls leer gelassen, "
+                "den OpenRouter-Schluessel unter Punkt 2) - dabei verlaesst das "
+                "Transkript das Geraet."
             )
         else:
             if aktuelle in ("", DEFAULT_API_MODEL):
                 self.model_var.set(DEFAULT_LOCAL_MODEL)
+            self.endpoint_entry.config(state="disabled")
+            self.api_key_nachbearbeitung_entry.config(state="disabled")
             self.model_hinweis_var.set(
                 "Das Modell laeuft lokal (z. B. via Ollama, https://ollama.com) und "
                 "verarbeitet nur Daten, die bereits auf diesem Geraet liegen."
@@ -1014,13 +1059,25 @@ class ProtokollGUI:
             return
 
         engine = self.engine_var.get()
-        api_key = self.api_key_var.get().strip()
-        if engine == "api" and not api_key:
-            messagebox.showwarning(
-                "API-Schluessel fehlt",
-                "Fuer ein API-Modell wird der OpenRouter API-Schluessel unter Punkt 2 benoetigt.",
-            )
-            return
+        endpoint_url = self.endpoint_var.get().strip()
+        api_key = (
+            self.api_key_nachbearbeitung_var.get().strip() or self.api_key_var.get().strip()
+        )
+        if engine == "api":
+            if not api_key:
+                messagebox.showwarning(
+                    "API-Schluessel fehlt",
+                    "Bitte einen API-Schluessel fuer diesen Endpunkt eintragen (oder "
+                    "den OpenRouter-Schluessel unter Punkt 2 hinterlegen).",
+                )
+                return
+            if not endpoint_url:
+                messagebox.showwarning(
+                    "API-Endpunkt fehlt",
+                    "Bitte den API-Endpunkt (Basis-URL) eintragen, z. B. den "
+                    "Chat-Completions-Endpunkt von OpenRouter, OpenAI oder IONOS.",
+                )
+                return
 
         systemprompt = self.systemprompt_text.get("1.0", "end").strip()
         if not systemprompt:
@@ -1038,7 +1095,7 @@ class ProtokollGUI:
 
         self.worker_thread = threading.Thread(
             target=self._run_nachbearbeitung,
-            args=(self.transkript_pfad, engine, modell, api_key, systemprompt),
+            args=(self.transkript_pfad, engine, modell, api_key, endpoint_url, systemprompt),
             daemon=True,
         )
         self.worker_thread.start()
@@ -1177,6 +1234,7 @@ class ProtokollGUI:
         engine: str,
         modell: str,
         api_key: str,
+        endpoint_url: str,
         systemprompt: str,
     ) -> None:
         try:
@@ -1192,13 +1250,15 @@ class ProtokollGUI:
                 self._progress(0.1, "Datenschutzabfrage ...")
                 nachricht = (
                     f"Das Transkript '{transkript_pfad.name}' wird zur Nachbearbeitung an "
-                    f"OpenRouter uebertragen (Modell: {modell}).\n\nUebertragung jetzt starten?"
+                    f"'{endpoint_url}' uebertragen (Modell: {modell}).\n\nUebertragung jetzt starten?"
                 )
                 if not self._ask_confirmation(nachricht):
                     self._log("Abbruch: Uebertragung wurde nicht bestaetigt.")
                     return
                 self._progress(0.35, f"API-Modell '{modell}' wird angefragt ...")
-                result_text = call_api_model(transcript_text, systemprompt, api_key, modell, self._log)
+                result_text = call_api_model(
+                    transcript_text, systemprompt, api_key, modell, endpoint_url, self._log
+                )
             else:
                 self._progress(0.25, f"Lokales Modell '{modell}' wird angefragt ...")
                 self._log(
@@ -1209,7 +1269,13 @@ class ProtokollGUI:
 
             self._progress(0.85, "Ergebnis wird gespeichert ...")
             protokoll_txt, protokoll_json = save_processed_result(
-                basisname, transkript_pfad.name, systemprompt, engine, modell, result_text
+                basisname,
+                transkript_pfad.name,
+                systemprompt,
+                engine,
+                modell,
+                result_text,
+                endpoint_url=endpoint_url if engine == "api" else None,
             )
             self._log(f"Ergebnis gespeichert in '{ERGEBNIS_DIR.name}': {protokoll_txt.name}")
             self._log(f"Ergebnis (JSON) gespeichert in '{ERGEBNIS_DIR.name}': {protokoll_json.name}")

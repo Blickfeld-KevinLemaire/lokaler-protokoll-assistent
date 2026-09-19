@@ -10,6 +10,7 @@ Die tatsaechliche Ausfuehrung uebernimmt ``bootstrap.py``.
 from __future__ import annotations
 
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -49,6 +50,50 @@ def python_version_error_message(version_info: tuple[int, int] | None = None) ->
         "Bitte eine unterstuetzte Python-Version von https://www.python.org/downloads/ "
         "installieren und die Anwendung erneut starten."
     )
+
+
+def _pruefe_py_launcher_version(major: int, minor: int) -> Path | None:
+    """Fragt (nur unter Windows sinnvoll) den 'py'-Launcher, ob eine
+    bestimmte Python-Version bereits auf diesem Computer installiert ist,
+    unabhaengig davon, mit welchem Python dieses Skript gerade laeuft.
+    Installiert oder veraendert nichts -- reine Abfrage."""
+    py_launcher = shutil.which("py")
+    if not py_launcher:
+        return None
+    try:
+        completed = subprocess.run(
+            [py_launcher, f"-{major}.{minor}", "-c", "import sys; print(sys.executable)"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if completed.returncode != 0:
+        return None
+    pfad_text = completed.stdout.strip()
+    return Path(pfad_text) if pfad_text else None
+
+
+def find_alternate_supported_python() -> Path | None:
+    """Sucht nach einer bereits auf diesem Computer installierten,
+    unterstuetzten Python-Version (3.10 oder 3.11) -- wird nur aufgerufen,
+    wenn der aktuell aufgerufene Interpreter selbst NICHT unterstuetzt wird
+    (z. B. Python 3.12/3.13). Installiert, laedt herunter oder veraendert
+    bewusst nichts an diesem Computer; liefert nur einen bereits
+    vorhandenen Pfad oder ``None``."""
+    if sys.platform == "win32":
+        for major, minor in SUPPORTED_PYTHON_VERSIONS:
+            gefunden = _pruefe_py_launcher_version(major, minor)
+            if gefunden is not None:
+                return gefunden
+
+    # Plattformuebergreifender Rueckfallweg ueber uebliche Befehlsnamen.
+    for major, minor in SUPPORTED_PYTHON_VERSIONS:
+        pfad = shutil.which(f"python{major}.{minor}")
+        if pfad:
+            return Path(pfad)
+    return None
 
 
 def detect_nvidia_gpu() -> bool:

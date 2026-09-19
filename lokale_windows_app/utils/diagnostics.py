@@ -20,10 +20,9 @@ import subprocess
 import sys
 from dataclasses import dataclass, field
 
-from services import ffmpeg_service
+from services import environment_service, ffmpeg_service
 from utils.hf_env import has_hf_token
 
-MIN_PYTHON = (3, 10)
 REQUIRED_FREE_DISK_GB = 5.0
 RECOMMENDED_RAM_GB = 16.0
 
@@ -39,9 +38,11 @@ class DiagnosticCheck:
 
 
 def check_python_version() -> DiagnosticCheck:
-    version = sys.version_info
-    ok = (version.major, version.minor) == MIN_PYTHON
-    detail = f"{platform.python_version()} (erwartet: 3.10.x)"
+    ok = environment_service.is_supported_python_version()
+    unterstuetzt = ", ".join(
+        f"{maj}.{min_}" for maj, min_ in environment_service.SUPPORTED_PYTHON_VERSIONS
+    )
+    detail = f"{platform.python_version()} (unterstuetzt: {unterstuetzt})"
     return DiagnosticCheck("python_version", "Python-Version", ok, detail, critical=True)
 
 

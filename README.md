@@ -5,8 +5,10 @@ Transkribiert Besprechungsaufnahmen (mit Sprechertrennung, ueber OpenRouter /
 getrennter, unabhaengiger Schritt - mit einem frei waehlbaren Sprachmodell
 ein Ergebnisdokument nach freier Wahl (Zusammenfassung, Agenda,
 Prioritaetenliste, ...). Fuer die Nachbearbeitung steht wahlweise ein
-**lokales** Modell (z. B. Ollama) oder ein **API-Modell** (ueber OpenRouter)
-zur Verfuegung.
+**lokales** Modell (z. B. Ollama) oder ein **API-Modell** zur Verfuegung -
+Endpunkt (Basis-URL), Modellname und API-Schluessel dafuer sind frei
+eintragbar, z. B. OpenRouter, OpenAI, IONOS AI Model Hub oder jeder andere
+Anbieter mit OpenAI-kompatibler `/chat/completions`-Schnittstelle.
 
 **Einstiegspunkt: `hauptanwendung.py`** - ein kleines Auswahlfenster, mit dem
 Sie entscheiden, wie Sie arbeiten moechten, und das dann die passende
@@ -141,10 +143,15 @@ wie im Abschnitt "GUI benutzen" beschrieben starten.
     `http://localhost:11434`). Adresse und Modellname lassen sich per
     Umgebungsvariable anpassen: `PROTOKOLL_LOKALES_MODELL_URL`,
     `PROTOKOLL_LOKALES_MODELL`.
-  - **API-Modell**: keine zusaetzliche Installation noetig, nur der bereits
-    hinterlegte OpenRouter API-Schluessel und ein Modellname (z. B.
-    `openai/gpt-4o-mini`, `anthropic/claude-3.5-sonnet`). Standardmodell
-    ueber `PROTOKOLL_API_MODELL` anpassbar.
+  - **API-Modell**: keine zusaetzliche Installation noetig. Endpunkt
+    (Basis-URL), Modellname und API-Schluessel sind frei eintragbar -
+    Standard ist OpenRouters `/chat/completions`-Endpunkt (Modell z. B.
+    `openai/gpt-4o-mini`, `anthropic/claude-3.5-sonnet`), es funktioniert
+    aber mit jedem Anbieter, der dieselbe OpenAI-kompatible Schnittstelle
+    bereitstellt (z. B. `https://api.openai.com/v1/chat/completions` bei
+    OpenAI oder der entsprechende Endpunkt bei IONOS AI Model Hub - Details
+    beim jeweiligen Anbieter nachschlagen). Standard-Endpunkt/-Modell ueber
+    `PROTOKOLL_API_MODELL` anpassbar.
 - Optional fuer ein moderneres Erscheinungsbild (Windows-11-Stil, Light/Dark):
   `pip install -r requirements.txt` (installiert `sv-ttk`). Fehlt das Paket,
   startet die GUI trotzdem, dann mit einem schlichteren Standard-ttk-Design.
@@ -183,9 +190,12 @@ Transkript - unabhaengig von einer aktuellen Transkription):
    eingetragen, oder manuell aus `ausgabe/` auswaehlen).
 2. Sprachmodell waehlen:
    - **Lokal** (z. B. Ollama) - das Transkript verlaesst dabei das Geraet nicht.
-   - **API-Modell** (z. B. `openai/gpt-4o-mini`, `anthropic/claude-3.5-sonnet`
-     ueber OpenRouter) - nutzt denselben OpenRouter API-Schluessel wie die
-     Transkription; das Transkript wird dabei an OpenRouter uebertragen.
+   - **API-Modell** (frei waehlbarer Endpunkt) - Endpunkt (Basis-URL) und
+     Modellname eintragen (Standard: OpenRouter, ebenso moeglich z. B.
+     OpenAI, IONOS AI Model Hub, ...). Fuer den API-Schluessel gibt es ein
+     eigenes Feld direkt daneben; leer gelassen wird der OpenRouter-Schluessel
+     von Schritt A wiederverwendet. Das Transkript wird dabei an den
+     eingetragenen Endpunkt uebertragen.
 3. Im Systemprompt-Feld beschreiben, was mit dem Transkript geschehen soll
    (Vorlagen fuer Zusammenfassung/Agenda/Prioritaetenliste stehen bereit,
    oder freier Text fuer jede andere Aufgabe).

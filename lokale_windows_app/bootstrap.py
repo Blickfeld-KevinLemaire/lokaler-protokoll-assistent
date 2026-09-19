@@ -52,6 +52,7 @@ class _TkSplash:
         self._root = root
         self._text = text_widget
         self._tk = tk_module
+        self._close_button = None
 
     def log(self, message: str) -> None:
         print(message, flush=True)
@@ -59,6 +60,22 @@ class _TkSplash:
             self._text.insert(self._tk.END, message + "\n")
             self._text.see(self._tk.END)
             self._root.update()
+        except Exception:
+            pass
+
+    def show_close_button(self, text: str = "Schließen") -> None:
+        try:
+            self._close_button = self._tk.Button(self._root, text=text, command=self._root.quit)
+            self._close_button.pack(pady=8)
+            self._root.update()
+        except Exception:
+            pass
+
+    def wait_for_close(self) -> None:
+        if self._close_button is None:
+            return
+        try:
+            self._root.mainloop()
         except Exception:
             pass
 
@@ -113,6 +130,54 @@ def _run_logged(command: list[str], splash) -> None:
         raise RuntimeError(f"Befehl fehlgeschlagen (Exit-Code {return_code}): {' '.join(command)}")
 
 
+def _create_venv(venv_dir: Path, base_python: Path | None = None) -> None:
+    """Legt die neue virtuelle Umgebung an. Ohne ``base_python`` (Normalfall:
+    das aufgerufene Python ist selbst unterstuetzt) geschieht das In-Prozess
+    ueber ``venv.EnvBuilder``. Mit ``base_python`` (Ausweichfall: eine andere,
+    bereits vorhandene passende Python-Version wurde gefunden) wird diese
+    stattdessen per Unterprozess als Basis verwendet, da ``venv.EnvBuilder``
+    immer nur den gerade laufenden Interpreter als Basis nehmen kann."""
+    if base_python is None:
+        venv.EnvBuilder(with_pip=True).create(str(venv_dir))
+        return
+
+    completed = subprocess.run(
+        [str(base_python), "-m", "venv", str(venv_dir)],
+        capture_output=True,
+        text=True,
+    )
+    if completed.returncode != 0:
+        raise RuntimeError(f"Anlegen der Umgebung mit {base_python} fehlgeschlagen: {completed.stderr.strip()}")
+
+
+def _report_python_diagnosis_and_exit() -> None:
+    """Wird aufgerufen, wenn weder das aufgerufene Python noch eine andere
+    bereits vorhandene Installation unterstuetzt wird. Zeigt eine klare
+    Diagnose (statt kommentarlos abzubrechen) und wartet, bis der Nutzer sie
+    bestaetigt hat -- es wird dabei nichts an diesem Computer veraendert."""
+    from services import environment_service
+
+    splash = _try_create_splash()
+    splash.log("SYSTEMDIAGNOSE: Python-Version")
+    splash.log("=" * 60)
+    splash.log(environment_service.python_version_error_message())
+    splash.log(
+        "\nEs wurde auf diesem Computer auch sonst keine unterstuetzte "
+        "Python-Version (3.10 oder 3.11) gefunden."
+    )
+    splash.log(
+        "\nZur vollstaendig lokalen Transkription fehlt auf diesem Computer:\n"
+        "  - Python 3.10 oder 3.11\n"
+        "\nBitte eine dieser Versionen von https://www.python.org/downloads/ "
+        "installieren (beim Installer den Haken bei 'Add python.exe to PATH' "
+        "setzen) und diese Anwendung danach erneut starten."
+    )
+    splash.log("\nEs wurde nichts an diesem Computer veraendert.")
+    _wait_for_acknowledgement(splash)
+    splash.close()
+    sys.exit(1)
+
+
 def _relaunch(python_exe: Path, app_entry: Path) -> None:
     child_env = dict(os.environ)
     child_env[MARKER_ENV_VAR] = "1"
@@ -145,19 +210,31 @@ def ensure_runtime_and_relaunch(app_entry: Path) -> None:
         _relaunch(python_exe, app_entry)
         return
 
+    # Wird nur gesetzt, wenn das AUFGERUFENE Python selbst nicht unterstuetzt
+    # wird, aber eine andere, bereits auf diesem Computer installierte
+    # passende Version gefunden wurde. Diese wird dann NUR zum Anlegen der
+    # neuen 'runtime\venv'-Umgebung verwendet -- am System aendert sich
+    # dadurch nichts.
+    alternate_python: Path | None = None
     if not environment_service.is_supported_python_version():
-        splash = _try_create_splash()
-        splash.log(environment_service.python_version_error_message())
-        splash.log("\nDie Einrichtung wird abgebrochen.")
-        _wait_for_acknowledgement(splash)
-        splash.close()
-        sys.exit(1)
+        alternate_python = environment_service.find_alternate_supported_python()
+        if alternate_python is None:
+            _report_python_diagnosis_and_exit()
+            return
 
     splash = _try_create_splash()
+    if alternate_python is not None:
+        splash.log(
+            f"Diagnose: Das aufgerufene Python ({sys.version_info.major}."
+            f"{sys.version_info.minor}) wird nicht unterstuetzt.\n"
+            f"Eine passende, bereits auf diesem Computer installierte Version "
+            f"wurde gefunden und wird stattdessen verwendet:\n  {alternate_python}\n"
+            "An der aufgerufenen Python-Installation wird nichts veraendert.\n"
+        )
     try:
         if not python_exe.is_file():
             splash.log(f"Lege private Python-Umgebung an unter:\n  {venv_dir}\n")
-            venv.EnvBuilder(with_pip=True).create(str(venv_dir))
+            _create_venv(venv_dir, base_python=alternate_python)
             splash.log("Umgebung angelegt.\n")
 
         gpu_available = environment_service.detect_nvidia_gpu()
@@ -185,6 +262,8 @@ def _wait_for_acknowledgement(splash) -> None:
         except (EOFError, OSError):
             pass
     else:
-        import time
-
-        time.sleep(6)
+        # Statt einer festen Wartezeit bekommt der Nutzer einen echten
+        # Schliessen-Knopf, damit die Meldung nicht einfach unbeachtet
+        # verschwindet, bevor sie gelesen werden konnte.
+        splash.show_close_button()
+        splash.wait_for_close()

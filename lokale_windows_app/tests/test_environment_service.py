@@ -62,3 +62,61 @@ def test_build_pip_install_commands_never_uses_shell_string():
 def test_describe_plan_mentions_device():
     assert "GPU" in env.describe_plan(True)
     assert "CPU" in env.describe_plan(False)
+
+
+def test_find_alternate_supported_python_via_py_launcher(monkeypatch):
+    monkeypatch.setattr(env.sys, "platform", "win32")
+    monkeypatch.setattr(env.shutil, "which", lambda name: r"C:\Windows\py.exe" if name == "py" else None)
+
+    def fake_run(command, capture_output, text, timeout):
+        assert command[0] == r"C:\Windows\py.exe"
+        if command[1] == "-3.10":
+            class _Result:
+                returncode = 1
+                stdout = ""
+
+            return _Result()
+
+        class _Result:
+            returncode = 0
+            stdout = r"C:\Python311\python.exe" + "\n"
+
+        return _Result()
+
+    monkeypatch.setattr(env.subprocess, "run", fake_run)
+    gefunden = env.find_alternate_supported_python()
+    assert gefunden == Path(r"C:\Python311\python.exe")
+
+
+def test_find_alternate_supported_python_returns_none_when_py_launcher_missing(monkeypatch):
+    monkeypatch.setattr(env.sys, "platform", "win32")
+    monkeypatch.setattr(env.shutil, "which", lambda name: None)
+    assert env.find_alternate_supported_python() is None
+
+
+def test_find_alternate_supported_python_falls_back_to_command_name_on_linux(monkeypatch, tmp_path):
+    monkeypatch.setattr(env.sys, "platform", "linux")
+    fake_python = tmp_path / "python3.11"
+    fake_python.write_text("dummy", encoding="utf-8")
+
+    def fake_which(name):
+        return str(fake_python) if name == "python3.11" else None
+
+    monkeypatch.setattr(env.shutil, "which", fake_which)
+    assert env.find_alternate_supported_python() == fake_python
+
+
+def test_find_alternate_supported_python_returns_none_when_nothing_found(monkeypatch):
+    monkeypatch.setattr(env.sys, "platform", "linux")
+    monkeypatch.setattr(env.shutil, "which", lambda name: None)
+    assert env.find_alternate_supported_python() is None
+
+
+def test_pruefe_py_launcher_version_returns_none_on_timeout(monkeypatch):
+    monkeypatch.setattr(env.shutil, "which", lambda name: "py")
+
+    def fake_run(*args, **kwargs):
+        raise env.subprocess.TimeoutExpired(cmd="py", timeout=10)
+
+    monkeypatch.setattr(env.subprocess, "run", fake_run)
+    assert env._pruefe_py_launcher_version(3, 11) is None
