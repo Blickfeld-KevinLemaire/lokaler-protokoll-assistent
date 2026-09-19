@@ -38,7 +38,20 @@ def diarize_waveform(
     if max_speakers is not None:
         call_kwargs["max_speakers"] = max_speakers
 
-    annotation = pipeline(waveform_dict, **call_kwargs)
+    ergebnis = pipeline(waveform_dict, **call_kwargs)
+
+    # pyannote.audio 4.x liefert statt der Annotation ein 'DiarizeOutput'
+    # mit mehreren Feldern zurueck; die bisherige Annotation steckt darin
+    # unter 'speaker_diarization'. Ohne diese Abfrage bricht die
+    # Sprechertrennung ab ("'DiarizeOutput' object has no attribute
+    # 'itertracks'"). Aeltere Fassungen geben die Annotation direkt zurueck,
+    # deshalb beides behandeln.
+    #
+    # Bewusst 'speaker_diarization' und nicht
+    # 'exclusive_speaker_diarization': Letzteres laesst ueberlappende
+    # Sprechanteile weg. Das waere eine inhaltliche Aenderung an der
+    # Sprecherzuordnung und gehoert getrennt entschieden.
+    annotation = getattr(ergebnis, "speaker_diarization", ergebnis)
 
     turns = []
     for segment, _, speaker in annotation.itertracks(yield_label=True):

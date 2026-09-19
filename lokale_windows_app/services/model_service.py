@@ -255,6 +255,10 @@ def load_pyannote_pipeline(device: str = "cuda"):
     from pyannote.audio import Pipeline  # type: ignore
 
     token = get_hf_token_for_download()
-    pipeline = Pipeline.from_pretrained(PYANNOTE_MODEL_NAME, use_auth_token=token)
+    # pyannote.audio 4.x hat den Parameter von 'use_auth_token' in 'token'
+    # umbenannt. Mit dem alten Namen bricht das Laden ab:
+    # "Pipeline.from_pretrained() got an unexpected keyword argument
+    # 'use_auth_token'". Am 19.09.2026 auf echter Hardware aufgefallen.
+    pipeline = Pipeline.from_pretrained(PYANNOTE_MODEL_NAME, token=token)
     pipeline.to(torch.device(device))
     return pipeline
