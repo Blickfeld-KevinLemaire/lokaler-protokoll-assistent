@@ -97,6 +97,31 @@ brauchen. Die ganze Suite läuft in Sekunden; das soll so bleiben.
 * pytest läuft mit `--capture=sys`. Fängt pytest die Ausgabe auf Ebene der
   Dateideskriptoren ab, kann Tcl/Tk unter Windows die Theme-Datei von sv-ttk
   nicht mehr laden. Diese Einstellung nicht ändern.
+* **Keine Nebenfäden in Tests, die mit Fenstern zu tun haben.** Räumt Python
+  in einem Nebenfaden zufällig ein Tk-Objekt weg, bricht Tcl den gesamten
+  Prozess ab:
+
+  ```
+  Tcl_AsyncDelete: async handler deleted by the wrong thread
+  Windows fatal exception: code 0x80000003
+  ```
+
+  Ob das passiert, hängt vom Zeitpunkt der Speicherbereinigung ab — genau
+  deshalb ist der Fehler lokal und unter Python 3.10 durchgerutscht und erst
+  unter 3.11 in der CI aufgeschlagen. Wegen `--capture=sys` ging dabei auch
+  die ganze Testausgabe verloren; im Protokoll stand nur der Exit-Code.
+
+  Wartet eine Methode auf ein `threading.Event`, wird **nicht** per
+  `threading.Timer` geantwortet. Stattdessen das Warten selbst ersetzen
+  (`_SofortigesEreignis` in `tests/test_protokoll_assistent_gui_fenster.py`)
+  oder das Signal direkt mit seinem Empfänger verbinden, so wie es in der
+  Anwendung auch läuft. Im Testbestand gibt es bewusst keinen einzigen
+  `threading.Timer` mehr.
+
+**Wenn ein CI-Lauf ohne Testausgabe fehlschlägt**, ist das fast immer ein
+Absturz des Prozesses und keine fehlgeschlagene Zusicherung. Dann im
+Rohprotokoll des Jobs nach `fatal exception` oder `Tcl_AsyncDelete` suchen —
+die Zusammenfassung von pytest fehlt in dem Fall.
 
 ### 6. Zeilenenden bleiben LF
 
