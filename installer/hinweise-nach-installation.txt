@@ -1,0 +1,34 @@
+Protokoll-Assistent - Hinweise nach der Installation
+====================================================
+
+Gestartet wird ueber das Auswahlfenster "Protokoll-Assistent" (Startmenue
+bzw. Desktop). Dort waehlen Sie zwischen den beiden Arbeitsweisen:
+
+Sie muessen nichts weiter installieren - auch kein Python. Alles Noetige
+liegt im Programmordner.
+
+1. Schnittstelle nutzen (Cloud)
+   Laeuft sofort. Sie brauchen dafuer einen eigenen API-Schluessel
+   (Standard: OpenRouter) und FFmpeg auf dem Rechner.
+
+2. Lokal (vollstaendig offline)
+   Transkription und Sprechertrennung laufen komplett auf diesem Computer,
+   es werden keine Audio- oder Videodaten uebertragen.
+
+   Beim allerersten Start richtet sich die Anwendung selbst ein: sie legt
+   mit der mitgelieferten Python-Laufzeitumgebung eine eigene Umgebung an
+   und laedt PyTorch passend zu Ihrer Grafikkarte sowie die Sprachmodelle
+   herunter. Das dauert je nach Internetverbindung einige Minuten und
+   braucht mehrere Gigabyte Platz. Eine Internetverbindung ist dafuer
+   einmalig noetig.
+
+Wo liegen meine Dateien?
+------------------------
+Ergebnisse und Einstellungen werden im Programmordner abgelegt. Die
+Deinstallation entfernt sie NICHT - sie bleiben erhalten, bis Sie sie
+selbst loeschen.
+
+Lizenzen
+--------
+LICENSE und NOTICES.md liegen im Programmordner, die vollstaendigen
+Lizenztexte im Unterordner "lizenzen".

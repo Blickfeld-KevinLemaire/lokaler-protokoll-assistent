@@ -70,6 +70,23 @@ dieses Programm wird ausdruecklich die **LGPL-3.0** gewaehlt.
 * Lizenz: Python Software Foundation License, Version 2
 * Die Laufzeitumgebung wird mit ausgeliefert.
 
+Das gilt an zwei Stellen:
+
+1. **In den gebauten EXEs.** PyInstaller bettet die Laufzeitumgebung ein.
+2. **Als eigener Ordner `python\` im Installer** (CPython 3.11.16). Damit
+   muss der Anwender kein Python selbst installieren, um die vollstaendig
+   lokale Anwendung zu benutzen. Verwendet wird ein unveraenderter,
+   eigenstaendiger Build von
+   [python-build-standalone](https://github.com/astral-sh/python-build-standalone)
+   (dieselben Builds, die auch `uv` verteilt). Fassung und Pruefsumme stehen
+   fest eingetragen in
+   [`installer/python-laufzeit-holen.ps1`](installer/python-laufzeit-holen.ps1).
+   Der PSF-Lizenztext liegt als `python\LICENSE.txt` im Programmordner bei.
+
+Der mitgelieferte Build enthaelt ausserdem `pip` (MIT) mit seinen
+mitgelieferten Abhaengigkeiten; deren Lizenztexte liegen unveraendert in
+`python\Lib\site-packages\pip\_vendor\`.
+
 ---
 
 ## 2. Nur in der Cloud-Variante

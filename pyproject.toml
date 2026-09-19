@@ -169,7 +169,13 @@ mypy_path = "lokale_windows_app"
 files = ["."]
 # Tests uebergeben absichtlich falsche Typen, um Fehlerpfade zu pruefen -
 # eine Typpruefung waere dort nur Laerm.
-exclude = ['(^|/)(\.venv|build|dist|tests)/']
+#
+# 'dist[^/]*' deckt alle Build-Ordner ab: 'dist', 'dist-probe',
+# 'dist-installer' und 'dist-python'. Letzterer enthaelt die
+# heruntergeladene Python-Standardbibliothek fuer den Installer - ohne
+# diesen Ausschluss bricht mypy dort ab ("A user-defined top-level module
+# with name 'types' is not supported").
+exclude = ['(^|/)(\.venv|build|dist[^/]*|tests)/']
 ignore_missing_imports = true
 warn_redundant_casts = true
 no_implicit_optional = true

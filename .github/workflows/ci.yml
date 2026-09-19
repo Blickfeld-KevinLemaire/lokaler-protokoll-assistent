@@ -1,6 +1,6 @@
 name: CI
 
-# Laeuft bei jedem Push und bei jedem Pull Request.
+# Laeuft bei jedem Pull Request und bei jedem Push auf 'main'.
 #
 # Das Repository ist oeffentlich, Actions-Minuten sind damit unbegrenzt. Die
 # Aufteilung bleibt trotzdem: Linting, Typpruefung und Sicherheitspruefungen
@@ -9,19 +9,30 @@ name: CI
 # echte Fehler aufgefallen.
 
 on:
-  # Ohne Branch-Filter: JEDER Push auf JEDEN Branch wird geprueft, auch auf
-  # einen Branch, den es vorher noch nicht gab. So ist ein Stand schon
-  # geprueft, bevor daraus ein Pull Request wird.
+  # Der Push-Ausloeser gilt NUR fuer 'main'. Ohne diesen Filter gehoerten zu
+  # einem Branch mit offenem Pull Request zwei Laeufe (einer vom Push, einer
+  # vom Pull Request). Beide landen in derselben Gruppe unten, der aeltere
+  # wird sofort abgebrochen - und hinterlaesst einen abgebrochenen Eintrag
+  # in der Pruefliste des Pull Requests, den 'gh pr checks' sogar als
+  # "fail" anzeigt, obwohl nichts kaputt ist.
+  #
+  # Auf 'main' bleibt der Ausloeser, denn dorthin gibt es keinen Pull
+  # Request: Nach dem Zusammenfuehren wuerde der Stand von 'main' sonst von
+  # niemandem mehr geprueft. 'codeql.yml' ist genauso aufgebaut.
+  #
+  # Preis dieser Aufteilung: Ein Branch ohne Pull Request wird nicht mehr
+  # geprueft. Wer einen Zwischenstand pruefen lassen will, macht einen
+  # Entwurfs-Pull-Request auf oder startet den Lauf ueber "Run workflow".
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
-# Ein neuer Push auf denselben Branch bricht den vorherigen Lauf ab.
+# Ein neuer Push auf denselben Branch bricht den vorherigen Lauf ab, damit
+# nicht mehrere Laeufe desselben Branches nebeneinander laufen.
 #
-# Der Schluessel ist bewusst der Branchname und nicht 'github.ref': Zu einem
-# Branch mit offenem Pull Request gehoeren sonst zwei Laeufe (einer vom Push,
-# einer vom Pull Request), die beide Kontingent verbrauchen. So landen beide
-# in derselben Gruppe und der aeltere wird abgebrochen.
+# Der Schluessel ist bewusst der Branchname und nicht 'github.ref': Sonst
+# wuerden Push- und Pull-Request-Laeufe in verschiedenen Gruppen landen.
 concurrency:
   group: ci-${{ github.event.pull_request.head.ref || github.ref_name }}
   cancel-in-progress: true

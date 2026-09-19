@@ -27,6 +27,11 @@ htmlcov/
 build/
 dist/
 dist-probe/
+# Vom Inno-Setup-Skript erzeugter Installer
+dist-installer/
+# Heruntergeladene Python-Laufzeitumgebung fuer den Installer (~67 MB).
+# Wird von 'installer/python-laufzeit-holen.ps1' geholt, nie eingecheckt.
+dist-python/
 *.egg-info/
 
 # Von der CI erzeugte Liste fuer pip-audit
