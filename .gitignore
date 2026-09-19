@@ -1,13 +1,82 @@
+# ---------------------------------------------------------------------------
+# Python
+# ---------------------------------------------------------------------------
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+
+# Virtuelle Umgebungen (werden lokal erzeugt, nie mitliefern)
+.venv/
+.venv-*/
+venv/
+env/
+
+# Werkzeug-Zwischenspeicher
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Testabdeckung
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Build-Artefakte (PyInstaller, setuptools)
+build/
+dist/
+dist-probe/
+*.egg-info/
+
+# Von der CI erzeugte Liste fuer pip-audit
+abhaengigkeiten.txt
+
+# ---------------------------------------------------------------------------
+# Geheimnisse und persoenliche Einstellungen
+# ---------------------------------------------------------------------------
 .env
+.env.*
+!.env.example
+*.pem
+*.key
 .protokoll_assistent_ordner.txt
 
-eingabe/*
-!eingabe/.gitkeep
-ausgabe/*
-!ausgabe/.gitkeep
-zwischenstaende/*
-!zwischenstaende/.gitkeep
-Ergebnis des Meetings wie gewünscht/*
-!Ergebnis des Meetings wie gewünscht/.gitkeep
+# Fachbegriffe enthalten Projektnamen und Nachnamen echter Personen.
+# Die Vorlage liegt als 'fachbegriffe.beispiel.txt' bei.
+einstellungen/fachbegriffe.txt
+
+# ---------------------------------------------------------------------------
+# Nutzerdaten der Cloud-Variante (Aufnahmen, Transkripte, Protokolle).
+# Die Ordner werden beim Start automatisch angelegt und gehoeren deshalb
+# gar nicht erst ins Repository - auch nicht als leere Platzhalter.
+# ---------------------------------------------------------------------------
+eingabe/
+ausgabe/
+zwischenstaende/
+Ergebnis des Meetings wie gewünscht/
+
+# Sicherheitsnetz: Medien- und Protokolldateien gehoeren nie ins Repository,
+# egal in welchem Ordner sie auftauchen.
+*.mp3
+*.mp4
+*.m4a
+*.wav
+*.aac
+*.flac
+*.ogg
+*.opus
+*.wma
+*.srt
+*.vtt
+*.log
+
+# ---------------------------------------------------------------------------
+# Editoren und Betriebssystem
+# ---------------------------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini

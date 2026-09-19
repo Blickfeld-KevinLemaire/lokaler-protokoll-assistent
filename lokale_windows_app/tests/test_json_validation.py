@@ -52,6 +52,7 @@ def test_error_status_object_is_rejected():
     broken["error"] = "irgendein Fehler"
     ok, errors = validate_protocol_json(broken)
     assert ok is False
+    assert any("error" in message for message in errors)
 
 
 def test_extract_json_object_direct():
@@ -75,5 +76,7 @@ def test_extract_json_object_returns_none_for_garbage():
 def test_chunk_analysis_requires_at_least_one_content_field():
     ok, errors = validate_chunk_analysis_json({"kernaussagen": ["Punkt 1"]})
     assert ok is True
+    assert errors == []
     ok2, errors2 = validate_chunk_analysis_json({"irrelevantes_feld": []})
     assert ok2 is False
+    assert errors2

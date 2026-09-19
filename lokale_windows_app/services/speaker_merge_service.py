@@ -28,7 +28,7 @@ UNCERTAIN_MARGIN = 0.15
 def cosine_similarity(a: list[float], b: list[float]) -> float:
     if len(a) != len(b):
         raise ValueError("Embeddings muessen die gleiche Laenge haben.")
-    dot = sum(x * y for x, y in zip(a, b))
+    dot = sum(x * y for x, y in zip(a, b, strict=True))
     norm_a = math.sqrt(sum(x * x for x in a))
     norm_b = math.sqrt(sum(y * y for y in b))
     if norm_a == 0.0 or norm_b == 0.0:
@@ -102,11 +102,12 @@ def match_speakers_across_chunks(
                     best_similarity = similarity
                     best_id = global_id
 
-            if best_similarity >= threshold:
+            # 'best_id' bleibt None, solange es noch keine Zentroide gibt.
+            if best_id is not None and best_similarity >= threshold:
                 count = counts[best_id]
                 centroid = centroids[best_id]
                 centroids[best_id] = [
-                    (c * count + e) / (count + 1) for c, e in zip(centroid, embedding)
+                    (c * count + e) / (count + 1) for c, e in zip(centroid, embedding, strict=False)
                 ]
                 counts[best_id] = count + 1
                 mapping[(chunk_index, local_label)] = {

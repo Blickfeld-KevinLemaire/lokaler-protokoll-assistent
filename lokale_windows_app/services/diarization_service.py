@@ -43,7 +43,7 @@ def diarize_waveform(
     turns = []
     for segment, _, speaker in annotation.itertracks(yield_label=True):
         turns.append({"start": float(segment.start), "end": float(segment.end), "speaker": str(speaker)})
-    turns.sort(key=lambda turn: turn["start"])
+    turns.sort(key=lambda turn: float(turn["start"]))  # type: ignore[arg-type]
     return turns
 
 
@@ -60,7 +60,6 @@ def extract_speaker_embedding(
     benoetigt, wenn KEINE globale Diarisierung auf dem Gesamtaudio moeglich
     war.
     """
-    from pyannote.core import Segment  # type: ignore
 
     waveform = waveform_dict["waveform"]
     sample_rate = waveform_dict["sample_rate"]

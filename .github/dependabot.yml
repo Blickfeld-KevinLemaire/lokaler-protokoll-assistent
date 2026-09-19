@@ -1,0 +1,77 @@
+version: 2
+
+# Dependabot haelt Abhaengigkeiten aktuell und meldet Sicherheitsluecken.
+# Beides ist auch fuer private Repositories auf einem kostenlosen Konto
+# verfuegbar.
+#
+# Damit daraus keine Flut von Pull Requests wird, sind die Updates gebuendelt
+# ("groups") und auf einen Wochentag gelegt.
+
+updates:
+  # ---------------------------------------------------------------------
+  # Python-Werkzeuge fuer Entwicklung und CI (pyproject.toml / uv.lock)
+  # ---------------------------------------------------------------------
+  - package-ecosystem: uv
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Berlin
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps"
+    groups:
+      # Kleine Updates alle zusammen in einen Pull Request.
+      unkritische-updates:
+        update-types: [minor, patch]
+    labels:
+      - abhaengigkeiten
+
+  # ---------------------------------------------------------------------
+  # Die Pakete, die die Einrichtungsskripte bei den Anwendern installieren
+  # ---------------------------------------------------------------------
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Berlin
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps"
+    labels:
+      - abhaengigkeiten
+
+  - package-ecosystem: pip
+    directory: /lokale_windows_app
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Berlin
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps"
+    labels:
+      - abhaengigkeiten
+
+  # ---------------------------------------------------------------------
+  # Die Actions in den Workflows selbst
+  # ---------------------------------------------------------------------
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Berlin
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci"
+    groups:
+      github-actions:
+        patterns: ["*"]
+    labels:
+      - abhaengigkeiten

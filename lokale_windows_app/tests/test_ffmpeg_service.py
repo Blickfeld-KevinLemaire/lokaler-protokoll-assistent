@@ -1,5 +1,6 @@
 import os
 import zipfile
+from pathlib import Path
 
 import pytest
 
@@ -9,7 +10,9 @@ from services import ffmpeg_service
 def test_find_ffmpeg_uses_system_path_first(monkeypatch):
     monkeypatch.setattr(ffmpeg_service.shutil, "which", lambda name: "/usr/bin/ffmpeg" if "ffmpeg" in name else None)
     found = ffmpeg_service.find_ffmpeg()
-    assert str(found) == "/usr/bin/ffmpeg"
+    # Path-Vergleich statt String-Vergleich: unter Windows normalisiert
+    # pathlib die Trenner zu "\\", der Test soll aber ueberall laufen.
+    assert found == Path("/usr/bin/ffmpeg")
 
 
 def test_find_ffmpeg_falls_back_to_winget_dir(monkeypatch, tmp_path):

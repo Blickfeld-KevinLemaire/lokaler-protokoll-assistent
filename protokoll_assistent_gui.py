@@ -16,21 +16,22 @@ import os
 import queue
 import re
 import shutil
-import sys
 import subprocess
+import sys
 import tempfile
 import threading
 import tkinter as tk
 import urllib.error
 import urllib.request
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 from tkinter import filedialog, messagebox, scrolledtext, ttk
-from typing import Any, Callable
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import protokoll_assistent_v2 as kern  # Konsolenversion wird als Bibliothek wiederverwendet
 import oberflaeche_theme as theme
+import protokoll_assistent_v2 as kern  # Konsolenversion wird als Bibliothek wiederverwendet
 
 APP_DIR = kern.APP_DIR
 INPUT_DIR = kern.INPUT_DIR
@@ -587,7 +588,9 @@ def scan_audio_files(folder: Path) -> list[Path]:
 def open_in_file_manager(path: Path) -> None:
     try:
         if sys.platform.startswith("win"):
-            os.startfile(str(path))  # type: ignore[attr-defined]
+            # noqa: S606 - os.startfile ist unter Windows der vorgesehene Weg,
+            # den Explorer zu oeffnen; der Pfad stammt aus der Anwendung selbst.
+            os.startfile(str(path))  # type: ignore[attr-defined]  # noqa: S606
         elif sys.platform == "darwin":
             subprocess.run(["open", str(path)], check=False)
         else:
@@ -750,7 +753,7 @@ class ProtokollGUI:
         self.selected_folder: Path | None = None
         self.audio_files: list[Path] = []
         self.transkript_pfad: Path | None = None
-        self.message_queue: "queue.Queue[tuple[str, Any]]" = queue.Queue()
+        self.message_queue: queue.Queue[tuple[str, Any]] = queue.Queue()
         self.confirm_event = threading.Event()
         self.confirm_result = False
         self.sprecher_dialog_event = threading.Event()

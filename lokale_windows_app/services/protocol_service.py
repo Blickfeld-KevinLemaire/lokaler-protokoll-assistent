@@ -20,9 +20,10 @@ zu ueberschreiben.
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from services import ollama_service
 from utils.json_validation import validate_chunk_analysis_json, validate_protocol_json

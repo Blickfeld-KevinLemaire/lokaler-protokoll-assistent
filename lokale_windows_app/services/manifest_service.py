@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -31,7 +30,7 @@ SUBDIRS = ("chunks", "transkripte", "analysen", "zusammengefuehrt")
 def compute_file_hash(path: Path, chunk_size: int = 1 << 20) -> str:
     """Stabiler SHA-256-Hash ueber den vollstaendigen Dateiinhalt."""
     digest = hashlib.sha256()
-    with open(path, "rb") as file_obj:
+    with path.open("rb") as file_obj:
         while True:
             block = file_obj.read(chunk_size)
             if not block:
@@ -111,7 +110,7 @@ def save_manifest(work_dir: Path, manifest: dict[str, Any]) -> None:
     ) as tmp_file:
         json.dump(manifest, tmp_file, ensure_ascii=False, indent=2)
         temp_name = tmp_file.name
-    os.replace(temp_name, path)
+    Path(temp_name).replace(path)
 
 
 def update_chunk_status(

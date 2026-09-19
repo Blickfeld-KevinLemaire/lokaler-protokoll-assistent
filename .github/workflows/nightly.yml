@@ -1,0 +1,133 @@
+name: Naechtlicher Lauf
+
+# Jede Nacht um 02:30 UTC (03:30/04:30 deutscher Zeit).
+#
+# Zweck: Dinge finden, die ohne Code-Aenderung kaputtgehen -
+#   * neu veroeffentlichte Sicherheitsluecken in Abhaengigkeiten,
+#   * ein PyInstaller-Build, der nicht mehr durchlaeuft.
+#
+# Damit kein Kontingent fuer nichts verbraucht wird, bricht der Lauf ab, wenn
+# es in den letzten 24 Stunden keinen Commit gab. Die Schwachstellenpruefung
+# laeuft trotzdem - die ist billig (Linux) und genau dann interessant, wenn
+# sich am Code nichts geaendert hat.
+
+on:
+  schedule:
+    - cron: "30 2 * * *"
+  workflow_dispatch:
+    inputs:
+      trotzdem_bauen:
+        description: "Build auch ohne neue Commits ausfuehren"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  UV_FROZEN: "1"
+
+jobs:
+  aenderungen_pruefen:
+    name: Gab es neue Commits?
+    runs-on: ubuntu-latest
+    outputs:
+      neue_commits: ${{ steps.pruefung.outputs.neue_commits }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: pruefung
+        run: |
+          set -euo pipefail
+          if [ "${{ inputs.trotzdem_bauen }}" = "true" ]; then
+            echo "Manuell angefordert - Build laeuft."
+            echo "neue_commits=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          LETZTER=$(git log -1 --format=%ct)
+          JETZT=$(date +%s)
+          if [ $((JETZT - LETZTER)) -lt 86400 ]; then
+            echo "Commit innerhalb der letzten 24 Stunden - Build laeuft."
+            echo "neue_commits=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Kein neuer Commit - Build wird uebersprungen."
+            echo "neue_commits=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  schwachstellen:
+    name: Taegliche Schwachstellenpruefung
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - run: uv sync --python 3.11
+
+      - name: pip-audit
+        run: |
+          uv export --quiet --format requirements-txt --no-hashes --no-emit-project > abhaengigkeiten.txt
+          uv run pip-audit --requirement abhaengigkeiten.txt --strict
+          uv run pip-audit \
+            --requirement requirements.txt \
+            --requirement lokale_windows_app/requirements-local-gui.txt
+
+  tests:
+    name: Vollstaendige Tests (Windows)
+    needs: aenderungen_pruefen
+    if: needs.aenderungen_pruefen.outputs.neue_commits == 'true'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - run: uv sync --python 3.11
+
+      - name: Tests
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: uv run pytest --cov --cov-report=term-missing
+
+  build_probe:
+    name: PyInstaller-Build (Probelauf ohne KI-Pakete)
+    needs: aenderungen_pruefen
+    if: needs.aenderungen_pruefen.outputs.neue_commits == 'true'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - run: uv sync --python 3.11
+
+      - name: PyInstaller ausfuehren
+        # WhisperX/PyTorch/pyannote werden hier absichtlich NICHT installiert:
+        # sie sind mehrere Gigabyte gross und brauchen eine GPU-Umgebung. Die
+        # Spezifikationsdatei verkraftet fehlende Pakete (siehe das try/except
+        # um 'collect_all'). Dieser Probelauf beantwortet deshalb genau eine
+        # Frage: Laeuft der Build ueberhaupt noch durch, oder ist die
+        # Spezifikation/ein Import kaputt? Eine auslieferbare EXE entsteht erst
+        # im Release-Build auf einem Rechner mit vollstaendiger Umgebung.
+        working-directory: lokale_windows_app
+        run: uv run pyinstaller --noconfirm --distpath dist-probe protokoll_assistent_lokal.spec
+
+      - name: Ergebnis pruefen
+        working-directory: lokale_windows_app
+        shell: pwsh
+        run: |
+          $exe = "dist-probe\Protokoll-Assistent-Lokal\Protokoll-Assistent-Lokal.exe"
+          if (-not (Test-Path $exe)) {
+            Write-Error "Der Build hat keine EXE erzeugt: $exe"
+            exit 1
+          }
+          Write-Host "Build erfolgreich: $exe"

@@ -13,7 +13,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-
 APP_DIR = Path(__file__).resolve().parent
 INPUT_DIR = APP_DIR / "eingabe"
 OUTPUT_DIR = APP_DIR / "ausgabe"
@@ -267,6 +266,8 @@ def group_words_to_segments(words: list[dict[str, Any]]) -> list[dict[str, Any]]
                 "speaker": speaker,
             }
         else:
+            # 'starts_new' ist nur dann False, wenn 'current' gesetzt ist.
+            assert current is not None  # noqa: S101 - nur Typ-Einengung
             separator = "" if word[:1] in ",.;:!?" else " "
             current["text"] = f"{current['text']}{separator}{word}"
             current["end"] = end

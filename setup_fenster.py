@@ -17,13 +17,13 @@ import sys
 import threading
 import tkinter as tk
 import webbrowser
+from collections.abc import Callable
 from pathlib import Path
 from tkinter import messagebox, scrolledtext, ttk
-from typing import Callable
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import protokoll_assistent_gui as gui  # find_ffmpeg(), FFMPEG_SUCHPFADE, DEFAULT_LOCAL_MODEL
 import oberflaeche_theme as theme
+import protokoll_assistent_gui as gui  # find_ffmpeg(), FFMPEG_SUCHPFADE, DEFAULT_LOCAL_MODEL
 
 APP_DIR = Path(__file__).resolve().parent
 IST_WINDOWS = sys.platform.startswith("win")
@@ -91,7 +91,7 @@ class EinrichtungsFenster:
 
         self.aktuelles_theme = theme.anwenden(root)
 
-        self.message_queue: "queue.Queue[tuple[str, object]]" = queue.Queue()
+        self.message_queue: queue.Queue[tuple[str, object]] = queue.Queue()
         self.status_vars: dict[str, tk.StringVar] = {}
 
         self._build_widgets()
@@ -250,7 +250,7 @@ class EinrichtungsFenster:
                 encoding="utf-8",
                 errors="replace",
             )
-            assert prozess.stdout is not None
+            assert prozess.stdout is not None  # noqa: S101 - nur Typ-Einengung
             for zeile in prozess.stdout:
                 self._log(zeile.rstrip())
             prozess.wait()
@@ -305,7 +305,7 @@ class EinrichtungsFenster:
                 encoding="utf-8",
                 errors="replace",
             )
-            assert prozess.stdout is not None
+            assert prozess.stdout is not None  # noqa: S101 - nur Typ-Einengung
             for zeile in prozess.stdout:
                 self._log(zeile.rstrip())
             prozess.wait()
