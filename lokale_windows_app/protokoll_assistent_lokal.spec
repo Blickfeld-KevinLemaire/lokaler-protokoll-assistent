@@ -93,6 +93,13 @@ a = Analysis(
     datas=collected_datas
     + [
         ("einstellungen", "einstellungen"),
+        # Lizenzhinweise muessen mit ausgeliefert werden. Die LGPL-3.0 von Qt
+        # verlangt, dass der Lizenztext beiliegt - die Qt-Wheels selbst
+        # enthalten nur einen Verweis auf die kommerzielle Lizenz, nicht den
+        # LGPL-Text. Siehe NOTICES.md im Projektstamm.
+        ("../NOTICES.md", "."),
+        ("../LICENSE", "."),
+        ("../lizenzen", "lizenzen"),
     ],
     hiddenimports=collected_hiddenimports,
     hookspath=[],

@@ -324,6 +324,16 @@ Installation bei).
 Die Konsolenversion (`protokoll_assistent_v2.py`) teilt Aufnahmen bewusst
 nicht auf und bleibt unveraendert.
 
+## Lizenz und fremde Software
+
+Der Protokoll-Assistent selbst steht unter der Lizenz in [`LICENSE`](LICENSE):
+Der Quelltext ist einsehbar, aber nicht zur Nutzung freigegeben.
+
+Welche fremde Software mitgeliefert wird, unter welchen Lizenzen sie steht und
+welche Pflichten sich daraus ergeben, steht in [`NOTICES.md`](NOTICES.md). Die
+vollstaendigen Lizenztexte liegen in [`lizenzen/`](lizenzen/). Beides wird mit
+der fertigen Anwendung ausgeliefert.
+
 ## Fuer die Weiterentwicklung (Tests, Linting, CI)
 
 Dieser Abschnitt richtet sich an alle, die am Code selbst arbeiten. Fuer die

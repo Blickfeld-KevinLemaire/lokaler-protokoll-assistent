@@ -130,7 +130,24 @@ schreiben Dateien sonst mit CRLF zurück, und aus einer Zwei-Zeilen-Korrektur
 wird ein Diff über die ganze Datei. Nach einem Massenlauf eines Formatierers
 prüfen: `git diff --stat` darf nur die tatsächlich geänderten Zeilen zeigen.
 
-### 7. Die Installation der Anwender nicht anfassen
+### 7. Qt bleibt dynamisch eingebunden (LGPL)
+
+PySide6 wird unter der **LGPL-3.0** benutzt. Damit das zulässig bleibt, muss
+der Build ein **One-Directory-Build** bleiben: `exclude_binaries=True` plus
+`COLLECT`, dazu `upx=False` und `strip=False`. Die Qt-Bibliotheken liegen dann
+als eigene Dateien neben der EXE und lassen sich austauschen — genau das
+verlangt die LGPL.
+
+Nicht auf einen One-File-Build umstellen, nicht statisch linken, keine
+Integritäts- oder Signaturprüfung über die Qt-DLLs legen. Jede dieser
+Änderungen würde eine kommerzielle Qt-Lizenz nötig machen. Einzelheiten in
+`NOTICES.md`.
+
+Ebenfalls nicht tun: PySide6 durch **PyQt** ersetzen. PyQt gibt es nur unter
+GPL oder kommerziell — für ein proprietäres Produkt wäre das schlechter, nicht
+besser.
+
+### 8. Die Installation der Anwender nicht anfassen
 
 `Protokoll-Assistent-Einrichten.bat`, `lokale_windows_app/setup_lokal.ps1`,
 `requirements.txt` und `requirements-local-gui.txt` sind der Weg, auf dem
@@ -138,7 +155,7 @@ Anwender die Anwendung installieren. `pyproject.toml` steht **zusätzlich**
 daneben und gilt nur für Entwicklung und CI. Neue Laufzeit-Abhängigkeiten
 gehören in beide, sonst fehlen sie den Anwendern.
 
-### 8. Bestehendes nicht umbenennen oder durchformatieren
+### 9. Bestehendes nicht umbenennen oder durchformatieren
 
 Bezeichner und Kommentare sind auf Deutsch — das bleibt so, auch in neuem
 Code. Dateien, Funktionen und Ordner nicht umbenennen und die Projektstruktur
@@ -155,7 +172,7 @@ korrekt mit Argumentlisten statt `shell=True` aufgerufen) und `arg-type` für
 die tkinter-Module (`widget.pack(**pad)` lässt sich mit typeshed grundsätzlich
 nicht prüfen).
 
-### 9. Die CI kostet Geld
+### 10. Die CI kostet Geld
 
 Das Repository ist **öffentlich**. Damit sind GitHub-Actions-Minuten
 unbegrenzt und kostenlos, auch auf Windows-Läufern. Die Sparmaßnahmen von
@@ -224,6 +241,10 @@ Wer wirklich umstellen will, ändert beides zusammen.
   ausgeschlossenen Ordnern bitte dort nachziehen.
 * `LICENSE` — der Quelltext ist oeffentlich lesbar, aber **nicht** zur Nutzung
   freigegeben. Keine Lizenzhinweise entfernen.
+* `NOTICES.md` und `lizenzen/` — Hinweise zu fremder Software. Beide werden
+  vom PyInstaller-Build **mit ausgeliefert** (siehe `datas` in
+  `protokoll_assistent_lokal.spec`). Kommt eine Abhängigkeit dazu oder ändert
+  sich eine Version, gehört das dort nachgetragen.
 * `.github/CODEOWNERS`, `.github/pull_request_template.md` — Ablauf bei
   Pull Requests.
 * `.github/workflows/codeql.yml` — CodeQL laeuft nur, solange das Repository

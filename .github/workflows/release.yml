@@ -57,6 +57,17 @@ jobs:
             Write-Error "Build-Ergebnis fehlt: $quelle"
             exit 1
           }
+          # Lizenzhinweise aus '_internal' nach oben holen, damit sie im
+          # Archiv sofort sichtbar sind (LGPL-Pflicht, siehe NOTICES.md).
+          Copy-Item "$quelle\_internal\NOTICES.md" $quelle -Force
+          Copy-Item "$quelle\_internal\LICENSE"    $quelle -Force
+          Copy-Item "$quelle\_internal\lizenzen"   $quelle -Recurse -Force
+          foreach ($pflicht in @("NOTICES.md", "LICENSE", "lizenzen\lgpl-3.0.txt")) {
+            if (-not (Test-Path (Join-Path $quelle $pflicht))) {
+              Write-Error "Lizenzdatei fehlt im Build: $pflicht"
+              exit 1
+            }
+          }
           Compress-Archive -Path "$quelle\*" -DestinationPath "..\Protokoll-Assistent-Lokal-windows.zip"
 
       - name: Als Artefakt ablegen
