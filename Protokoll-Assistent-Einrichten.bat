@@ -2,7 +2,7 @@
 setlocal enabledelayedexpansion
 
 set "REPO_URL=https://github.com/kevinweisbrod/lokaler-protokoll-assistent.git"
-set "REPO_BRANCH=claude/dreamy-carson-ybtbg4"
+set "REPO_BRANCH=main"
 set "MERKDATEI=%~dp0.protokoll_assistent_ordner.txt"
 
 echo ============================================================

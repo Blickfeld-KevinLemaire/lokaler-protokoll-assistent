@@ -15,18 +15,78 @@ Prozess.
 
 from __future__ import annotations
 
+import re
+import shutil
 import subprocess
 import sys
 import tkinter as tk
 from pathlib import Path
 from tkinter import messagebox, scrolledtext, ttk
 
-APP_DIR = Path(__file__).resolve().parent
+# Wurde die Anwendung mit PyInstaller gebaut (Installer-Variante)? Dann liegen
+# neben dieser EXE keine .py-Dateien der Cloud-Variante, sondern eine zweite
+# EXE; und 'sys.executable' ist nicht mehr Python, sondern diese EXE selbst.
+IST_GEBUNDEN = bool(getattr(sys, "frozen", False))
+
+
+def _app_dir() -> Path:
+    if IST_GEBUNDEN:
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent
+
+
+APP_DIR = _app_dir()
 LOKAL_ENTRY = APP_DIR / "lokale_windows_app" / "app.py"
 API_ENTRY = APP_DIR / "protokoll_assistent_gui.py"
+# Nur in der Installer-Variante vorhanden: die gebaute Cloud-Anwendung.
+API_EXE = APP_DIR / "Protokoll-Assistent-Cloud.exe"
+
+# Dieselbe Reihenfolge wie in 'lokale_windows_app/Start-Protokoll-Assistent.ps1'.
+PYTHON_KANDIDATEN: tuple[list[str], ...] = (
+    ["py", "-3.11"],
+    ["py", "-3.10"],
+    ["python3.11"],
+    ["python3.10"],
+    ["python"],
+)
+
+PYTHON_DOWNLOAD_URL = "https://www.python.org/downloads/"
 
 sys.path.insert(0, str(APP_DIR))
 import oberflaeche_theme as theme  # noqa: E402
+
+
+def python_fuer_lokale_app() -> list[str] | None:
+    """Sucht ein Python 3.10/3.11 fuer die lokale Anwendung.
+
+    Nur fuer die Installer-Variante noetig: dort ist 'sys.executable' die
+    gebaute EXE und kann 'app.py' nicht ausfuehren. Die lokale Anwendung
+    richtet sich ihre eigene Umgebung ('runtime\\venv') selbst ein, braucht
+    dafuer aber ein vorhandenes Python -- genau wie beim Start ueber
+    'Start-Protokoll-Assistent.ps1'.
+
+    Gibt den Aufruf als Liste zurueck (z. B. ``["py", "-3.11"]``) oder
+    ``None``, wenn kein passendes Python gefunden wurde.
+    """
+    ohne_fenster = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    for kandidat in PYTHON_KANDIDATEN:
+        if shutil.which(kandidat[0]) is None:
+            continue
+        try:
+            ergebnis = subprocess.run(
+                [*kandidat, "--version"],
+                capture_output=True,
+                text=True,
+                timeout=20,
+                creationflags=ohne_fenster,
+            )
+        except (OSError, subprocess.SubprocessError):
+            continue
+        # 'py --version' schreibt je nach Version nach stdout oder stderr.
+        ausgabe = f"{ergebnis.stdout} {ergebnis.stderr}"
+        if re.search(r"Python 3\.(10|11)\b", ausgabe):
+            return list(kandidat)
+    return None
 
 
 class HauptanwendungFenster:
@@ -134,13 +194,44 @@ class HauptanwendungFenster:
                 f"Die lokale Anwendung wurde nicht gefunden:\n{LOKAL_ENTRY}",
             )
             return
+        if IST_GEBUNDEN:
+            python = python_fuer_lokale_app()
+            if python is None:
+                messagebox.showerror(
+                    "Python fehlt",
+                    "Fuer die lokale Anwendung wird Python 3.10 oder 3.11 "
+                    "benoetigt; auf diesem Computer wurde keines gefunden.\n\n"
+                    "Bitte von "
+                    f"{PYTHON_DOWNLOAD_URL} installieren (beim Installieren "
+                    '"Add python.exe to PATH" ankreuzen) und danach erneut '
+                    "versuchen.\n\n"
+                    "Die Schnittstellen-Variante laeuft auch ohne Python.",
+                )
+                return
+            befehl = [*python, str(LOKAL_ENTRY)]
+        else:
+            befehl = [sys.executable, str(LOKAL_ENTRY)]
         self._starte_prozess(
-            [sys.executable, str(LOKAL_ENTRY)],
+            befehl,
             cwd=LOKAL_ENTRY.parent,
             beschreibung="Lokale Anwendung (WhisperX)",
         )
 
     def starte_api(self) -> None:
+        if IST_GEBUNDEN:
+            # In der Installer-Variante ist die Cloud-Anwendung eine eigene EXE.
+            if not API_EXE.is_file():
+                messagebox.showerror(
+                    "Nicht gefunden",
+                    f"Die Schnittstellen-Anwendung wurde nicht gefunden:\n{API_EXE}",
+                )
+                return
+            self._starte_prozess(
+                [str(API_EXE)],
+                cwd=API_EXE.parent,
+                beschreibung="Schnittstellen-Anwendung (API)",
+            )
+            return
         if not API_ENTRY.is_file():
             messagebox.showerror(
                 "Nicht gefunden",

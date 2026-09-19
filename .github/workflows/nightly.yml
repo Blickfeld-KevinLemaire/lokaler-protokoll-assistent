@@ -131,3 +131,60 @@ jobs:
             exit 1
           }
           Write-Host "Build erfolgreich: $exe"
+
+  installer:
+    name: Installer bauen (Artefakt zum Ausprobieren)
+    needs: aenderungen_pruefen
+    if: needs.aenderungen_pruefen.outputs.neue_commits == 'true'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - run: uv sync --python 3.11
+
+      - name: Auswahlfenster und Cloud-Variante bauen
+        run: uv run pyinstaller --noconfirm protokoll_assistent_cloud.spec
+
+      - name: Inno Setup installieren
+        run: choco install innosetup --no-progress --yes
+
+      - name: Installer uebersetzen
+        shell: pwsh
+        run: |
+          # Naechtliche Builds bekommen bewusst eine Version, die man nicht
+          # mit einem Release verwechseln kann.
+          $version = "0.0.0-nightly-$(Get-Date -Format yyyyMMdd)"
+          "VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            Write-Error "ISCC.exe nicht gefunden: $iscc"
+            exit 1
+          }
+          & $iscc "/DMeineVersion=$version" "installer\protokoll-assistent.iss"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Ergebnis pruefen
+        shell: pwsh
+        run: |
+          $setup = "dist-installer\Protokoll-Assistent-Setup-$env:VERSION.exe"
+          if (-not (Test-Path $setup)) {
+            Write-Error "Installer wurde nicht erzeugt: $setup"
+            exit 1
+          }
+          $groesse = [math]::Round((Get-Item $setup).Length / 1MB, 1)
+          Write-Host "Installer erstellt: $setup ($groesse MB)"
+
+      - name: Als Artefakt ablegen
+        # Bewusst nur ein Artefakt und kein Pre-Release: dieser Build ist von
+        # niemandem ausprobiert worden. Herunterladen ueber die Seite des
+        # Laufs unter "Actions".
+        uses: actions/upload-artifact@v7
+        with:
+          name: Protokoll-Assistent-Setup-nightly
+          path: dist-installer\*.exe
+          retention-days: 14

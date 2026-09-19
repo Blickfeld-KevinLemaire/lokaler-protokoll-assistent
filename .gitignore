@@ -27,6 +27,8 @@ htmlcov/
 build/
 dist/
 dist-probe/
+# Vom Inno-Setup-Skript erzeugter Installer
+dist-installer/
 *.egg-info/
 
 # Von der CI erzeugte Liste fuer pip-audit
