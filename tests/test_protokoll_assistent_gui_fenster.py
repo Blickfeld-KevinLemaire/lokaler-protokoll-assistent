@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 import queue
-import threading
 import tkinter as tk
 from tkinter import ttk
 
@@ -57,6 +56,30 @@ def _dialog_fernsteuern(root, eingaben=None, knopf="Uebernehmen"):
         dialog.destroy()
 
     root.after(10, handler)
+
+
+class _SofortigesEreignis:
+    """Ersatz fuer threading.Event: 'wait' kehrt sofort zurueck.
+
+    Damit braucht kein Test einen zweiten Faden, nur um ein Ereignis zu setzen.
+    Das ist nicht nur schneller, sondern auch sicher: Wird ein Tk-Objekt im
+    Muell eines Nebenfadens eingesammelt, bricht Tcl den ganzen Prozess ab.
+    """
+
+    def __init__(self):
+        self._gesetzt = False
+
+    def clear(self):
+        self._gesetzt = False
+
+    def set(self):
+        self._gesetzt = True
+
+    def is_set(self):
+        return self._gesetzt
+
+    def wait(self, timeout=None):
+        return True
 
 
 @pytest.fixture
@@ -233,10 +256,13 @@ def test_sprecher_dialog_ueberspringen(fenster):
 
 
 def test_frage_sprecher_namen_geht_ueber_die_queue(fenster):
-    # Die Methode ruft zuerst 'clear()' und wartet dann - die Antwort muss also
-    # von aussen kommen, so wie sonst aus dem Tk-Hauptfaden.
+    # Die Methode ruft zuerst 'clear()' und wartet dann auf die Antwort aus dem
+    # Tk-Hauptfaden. Statt einen echten Faden zu starten, wird hier nur das
+    # Warten selbst ersetzt: Ein Timer-Faden koennte beim Aufraeumen ein
+    # Tk-Objekt einsammeln, und Tcl stuerzt ab, wenn das nicht im Hauptfaden
+    # passiert ("Tcl_AsyncDelete: async handler deleted by the wrong thread").
     fenster.sprecher_namen_ergebnis = {"Sprecher 1": "Mueller"}
-    threading.Timer(0.05, fenster.sprecher_dialog_event.set).start()
+    fenster.sprecher_dialog_event = _SofortigesEreignis()
 
     assert fenster._frage_sprecher_namen({}) == {"Sprecher 1": "Mueller"}
     assert fenster.message_queue.get_nowait()[0] == "sprecher_dialog"
@@ -469,7 +495,7 @@ def test_log_und_progress_landen_in_der_queue(fenster):
 @pytest.mark.parametrize("antwort", [True, False])
 def test_ask_confirmation(fenster, antwort):
     fenster.confirm_result = antwort
-    threading.Timer(0.05, fenster.confirm_event.set).start()
+    fenster.confirm_event = _SofortigesEreignis()
 
     assert fenster._ask_confirmation("wirklich?") is antwort
     assert fenster.message_queue.get_nowait() == ("confirm", "wirklich?")

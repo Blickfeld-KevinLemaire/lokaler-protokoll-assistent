@@ -6,8 +6,6 @@ entweder direkt (ohne Thread) aufgerufen oder durch Attrappen ersetzt.
 
 from __future__ import annotations
 
-import threading
-
 import pytest
 
 pytest.importorskip("PySide6", reason="PySide6 ist nicht installiert.")
@@ -70,9 +68,11 @@ def install_worker(qt_app):
 def test_install_worker_token_abfrage(install_worker):
     angefragt = []
     install_worker.request_token.connect(lambda: angefragt.append(True))
-
-    # Die Antwort kommt sonst aus dem Qt-Hauptfaden.
-    threading.Timer(0.05, lambda: install_worker.provide_token("geheim")).start()
+    # Genau so laeuft es in der Anwendung: 'request_token' ist mit
+    # 'InstallPage._ask_for_token' verbunden, das noch waehrend des 'emit'
+    # antwortet. Deshalb braucht es hier keinen zweiten Faden - der koennte
+    # beim Aufraeumen ein Widget einsammeln und den Prozess abbrechen.
+    install_worker.request_token.connect(lambda: install_worker.provide_token("geheim"))
 
     assert install_worker._get_token() == "geheim"
     assert angefragt == [True]
