@@ -20,8 +20,8 @@ import subprocess
 import tempfile
 import urllib.request
 import zipfile
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 from utils.paths import get_tools_ffmpeg_dir
 
@@ -107,7 +107,7 @@ def ensure_ffmpeg_on_path() -> Path | None:
 
 
 def _default_download(url: str, destination: Path) -> None:
-    with urllib.request.urlopen(url, timeout=300) as response, open(destination, "wb") as out_file:
+    with urllib.request.urlopen(url, timeout=300) as response, destination.open("wb") as out_file:
         shutil.copyfileobj(response, out_file)
 
 
@@ -123,7 +123,7 @@ def extract_ffmpeg_zip(zip_path: Path, target_dir: Path) -> Path:
             if member_name.lower() not in ("ffmpeg.exe", "ffprobe.exe"):
                 continue
             destination = target_dir / member_name
-            with archive.open(member) as source_file, open(destination, "wb") as out_file:
+            with archive.open(member) as source_file, destination.open("wb") as out_file:
                 shutil.copyfileobj(source_file, out_file)
             if member_name.lower() == "ffmpeg.exe":
                 extracted_ffmpeg = destination

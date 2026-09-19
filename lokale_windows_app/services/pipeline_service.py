@@ -17,10 +17,11 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Literal
+from typing import Any, Literal
 
 from services import (
     chunking_service,
@@ -128,7 +129,10 @@ def _build_protocol_chunk_texts(
         lines = []
         for segment in merged_segments:
             if plan.global_start <= segment["start"] < plan.global_end:
-                name = speaker_names.get(segment.get("sprecher_id"), "Sprecher unbekannt")
+                # 'sprecher_id' darf fehlen - dict.get(None) ist erlaubt
+                # und liefert dann den Standardwert.
+                sprecher_id = segment.get("sprecher_id")
+                name = speaker_names.get(sprecher_id, "Sprecher unbekannt")  # type: ignore[arg-type]
                 lines.append(f"[{format_timestamp(segment['start'])}] {name}: {segment['text']}")
         chunk_texts.append(
             {

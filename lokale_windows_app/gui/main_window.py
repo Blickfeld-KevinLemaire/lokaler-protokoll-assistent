@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from PySide6.QtCore import QTimer, QUrl, Qt
+from PySide6.QtCore import Qt, QTimer, QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -593,7 +593,7 @@ class MainWindow(QMainWindow):
         self.chunk_progress_bar.setFormat(f"Chunk {current} von {total}")
 
     def _on_overall_progress(self, fraction: float) -> None:
-        self.overall_progress_bar.setValue(int(round(fraction * 100)))
+        self.overall_progress_bar.setValue(round(fraction * 100))
 
     def _on_log_message(self, message: str) -> None:
         self.status_label.setToolTip(message)
@@ -648,10 +648,14 @@ class MainWindow(QMainWindow):
             return
         overrides: dict[str, str] = {}
         for row in range(self.speaker_table.rowCount()):
-            speaker_id = self.speaker_table.item(row, 0).text()
-            name = self.speaker_table.item(row, 3).text().strip()
+            # Eine Zelle kann leer sein - dann liefert "item" None.
+            id_zelle = self.speaker_table.item(row, 0)
+            namens_zelle = self.speaker_table.item(row, 3)
+            if id_zelle is None or namens_zelle is None:
+                continue
+            name = namens_zelle.text().strip()
             if name:
-                overrides[speaker_id] = name
+                overrides[id_zelle.text()] = name
         try:
             new_paths = export_service.reexport_with_new_names(self._last_result.export_paths.json, overrides)
         except OSError as error:

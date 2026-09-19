@@ -43,8 +43,6 @@ class HauptanwendungFenster:
     # ------------------------------------------------------------------ UI
 
     def _build_widgets(self) -> None:
-        pad = {"padx": 16, "pady": 8}
-
         kopfzeile = ttk.Frame(self.root)
         kopfzeile.pack(fill="x", padx=16, pady=(16, 0))
         ttk.Label(

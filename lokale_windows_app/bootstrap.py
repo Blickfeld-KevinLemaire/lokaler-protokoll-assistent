@@ -31,6 +31,7 @@ import subprocess
 import sys
 import venv
 from pathlib import Path
+from typing import Any
 
 MARKER_ENV_VAR = "PROTOKOLL_ASSISTENT_LOKAL_VENV"
 
@@ -52,7 +53,7 @@ class _TkSplash:
         self._root = root
         self._text = text_widget
         self._tk = tk_module
-        self._close_button = None
+        self._close_button: Any = None
 
     def log(self, message: str) -> None:
         print(message, flush=True)
@@ -60,30 +61,30 @@ class _TkSplash:
             self._text.insert(self._tk.END, message + "\n")
             self._text.see(self._tk.END)
             self._root.update()
-        except Exception:
-            pass
+        except Exception:  # noqa: S110 - ein kaputtes Splash-Fenster darf
+            pass          # die Einrichtung nicht abbrechen.
 
     def show_close_button(self, text: str = "Schließen") -> None:
         try:
             self._close_button = self._tk.Button(self._root, text=text, command=self._root.quit)
             self._close_button.pack(pady=8)
             self._root.update()
-        except Exception:
-            pass
+        except Exception:  # noqa: S110 - ein kaputtes Splash-Fenster darf
+            pass          # die Einrichtung nicht abbrechen.
 
     def wait_for_close(self) -> None:
         if self._close_button is None:
             return
         try:
             self._root.mainloop()
-        except Exception:
-            pass
+        except Exception:  # noqa: S110 - ein kaputtes Splash-Fenster darf
+            pass          # die Einrichtung nicht abbrechen.
 
     def close(self) -> None:
         try:
             self._root.destroy()
-        except Exception:
-            pass
+        except Exception:  # noqa: S110 - ein kaputtes Splash-Fenster darf
+            pass          # die Einrichtung nicht abbrechen.
 
 
 def _try_create_splash():
@@ -122,7 +123,8 @@ def _run_logged(command: list[str], splash) -> None:
     process = subprocess.Popen(
         command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1
     )
-    assert process.stdout is not None
+    assert process.stdout is not None  # noqa: S101 - nur Typ-Einengung,
+    # 'stdout' ist durch 'stdout=subprocess.PIPE' oben garantiert gesetzt.
     for line in process.stdout:
         splash.log(line.rstrip())
     return_code = process.wait()

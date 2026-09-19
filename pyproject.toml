@@ -1,0 +1,193 @@
+# ---------------------------------------------------------------------------
+# Entwickler- und CI-Konfiguration.
+#
+# Diese Datei aendert NICHTS an der Installation fuer Anwender: Die Skripte
+# 'Protokoll-Assistent-Einrichten.bat' und 'lokale_windows_app/setup_lokal.ps1'
+# benutzen weiterhin 'requirements.txt' bzw. 'requirements-local-gui.txt'.
+# Hier stehen nur die Werkzeuge fuer Tests, Linting und die GitHub-Pipeline.
+# ---------------------------------------------------------------------------
+[project]
+name = "lokaler-protokoll-assistent"
+version = "0.1.0"
+description = "Protokoll-Assistent: Cloud-Variante (tkinter) und vollstaendig lokale Windows-App (PySide6)"
+readme = "README.md"
+requires-python = ">=3.10,<3.12"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    # Laufzeitpakete, die zum Importieren der Module in Tests noetig sind.
+    # Absichtlich OHNE torch/whisperx/pyannote: die leben in '.venv-whisperx'
+    # und werden in den Tests durchgehend ueber Parameter ersetzt.
+    "sv-ttk>=2.6.0",
+    "PySide6>=6.6,<7",
+    "python-docx>=1.1",
+    # Wird fuer den Windows-Build und dessen Probelauf in der CI gebraucht.
+    "pyinstaller>=6.3",
+
+    # Testwerkzeuge
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "pytest-qt>=4.4",
+    "pytest-timeout>=2.3",
+
+    # Qualitaet und Sicherheit
+    "ruff>=0.6",
+    "mypy>=1.11",
+    "pip-audit>=2.7",
+]
+
+[tool.uv]
+# Kein installierbares Paket - das Projekt wird als Ordner gestartet.
+package = false
+
+# ---------------------------------------------------------------------------
+# pytest
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+minversion = "8.0"
+# Beide Anwendungen liegen nebeneinander und werden ohne Installation
+# importiert. 'lokale_windows_app' muss im Pfad stehen, damit dessen Tests
+# 'from services import ...' schreiben koennen - so wie bisher.
+pythonpath = [".", "lokale_windows_app"]
+testpaths = ["tests", "lokale_windows_app/tests"]
+# "--capture=sys": Tcl/Tk kann unter Windows die Theme-Datei von sv-ttk nicht
+# laden, wenn pytest die Ausgabe auf Ebene der Dateideskriptoren abfaengt
+# ("couldn't read file ...: No error"). Mit "sys" wird nur sys.stdout/stderr
+# ersetzt - capsys funktioniert weiter, die Deskriptoren bleiben intakt.
+addopts = "-q --strict-markers --strict-config --capture=sys --timeout=120"
+markers = [
+    "gui: Test braucht eine echte Fensterumgebung (tkinter oder Qt)",
+]
+filterwarnings = ["error::DeprecationWarning:services.*", "error::DeprecationWarning:utils.*"]
+
+# ---------------------------------------------------------------------------
+# Testabdeckung
+# ---------------------------------------------------------------------------
+[tool.coverage.run]
+branch = true
+source = [
+    "hauptanwendung",
+    "oberflaeche_theme",
+    "protokoll_assistent_gui",
+    "protokoll_assistent_v2",
+    "setup_fenster",
+    "lokale_windows_app/services",
+    "lokale_windows_app/utils",
+    "lokale_windows_app/gui",
+    "lokale_windows_app/bootstrap.py",
+]
+omit = ["*/tests/*", "*/__init__.py"]
+relative_files = true
+
+[tool.coverage.report]
+fail_under = 85
+show_missing = true
+skip_covered = false
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    '@(abc\.)?abstractmethod',
+]
+
+# ---------------------------------------------------------------------------
+# Ruff (Linting)
+# ---------------------------------------------------------------------------
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+extend-exclude = ["lokale_windows_app/tools"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",    # pycodestyle
+    "F",         # pyflakes - echte Fehler: ungenutzte Namen, Tippfehler
+    "I",         # isort - Importreihenfolge
+    "UP",        # pyupgrade
+    "B",         # bugbear - haeufige Fallstricke
+    "S",         # bandit - Sicherheitsregeln
+    "PTH",       # os.path -> pathlib
+    "RUF",       # ruff-spezifisch
+]
+ignore = [
+    "E501",      # Zeilenlaenge: 'ruff format' kuemmert sich darum, wenn gewuenscht
+    "B008",      # Funktionsaufruf im Default-Argument
+    "RUF001",    # deutsche Umlaute/Sonderzeichen in Strings sind Absicht
+    "RUF002",
+    "RUF003",
+    # Der Code ruft externe Programme grundsaetzlich mit Argumentlisten auf
+    # (nie 'shell=True') - genau das ist die sichere Variante. S603 meldet
+    # aber jeden subprocess-Aufruf, auch den richtigen.
+    "S603",
+    # 'ffmpeg'/'ollama' werden absichtlich ueber den PATH gesucht, damit eine
+    # vom Anwender installierte Version benutzt wird.
+    "S607",
+    # Alle Aufrufe gehen an https-Konstanten, an localhost (Ollama) oder an
+    # einen vom Anwender eingetragenen Endpunkt. Letzterer wird vor dem
+    # Aufruf auf http/https geprueft (siehe 'pruefe_endpunkt_schema').
+    "S310",
+    # Einige '# noqa'-Kommentare begruenden auf Deutsch, warum eine Stelle so
+    # aussieht, wie sie aussieht. Die bleiben stehen, auch wenn die Regel
+    # gerade nicht aktiv ist.
+    "RUF100",
+]
+
+[tool.ruff.lint.isort]
+# Ohne diese Liste haelt ruff die eigenen Pakete fuer Fremdpakete und sortiert
+# sie zwischen PySide6 und Co. ein.
+known-first-party = [
+    "gui",
+    "services",
+    "utils",
+    "hauptanwendung",
+    "oberflaeche_theme",
+    "protokoll_assistent_gui",
+    "protokoll_assistent_v2",
+    "setup_fenster",
+    "bootstrap",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# In Tests sind assert, Zufallswerte und harte Pfade voellig in Ordnung.
+"**/tests/*" = ["S101", "S105", "S106", "S108", "S311", "PTH"]
+# Diese beiden Dateien pruefen, ob der Anwender ueberhaupt eine passende
+# Python-Version hat - sie laufen also absichtlich auch unter aelteren
+# Interpretern als 3.10. UP036 wuerde genau diese Pruefung wegoptimieren.
+"setup_fenster.py" = ["UP036"]
+"lokale_windows_app/bootstrap.py" = ["UP036"]
+
+# ---------------------------------------------------------------------------
+# mypy (Typpruefung)
+# ---------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.10"
+mypy_path = "lokale_windows_app"
+files = ["."]
+# Tests uebergeben absichtlich falsche Typen, um Fehlerpfade zu pruefen -
+# eine Typpruefung waere dort nur Laerm.
+exclude = ['(^|/)(\.venv|build|dist|tests)/']
+ignore_missing_imports = true
+warn_redundant_casts = true
+no_implicit_optional = true
+check_untyped_defs = true
+# Bewusst NICHT gesetzt:
+#   warn_unused_ignores - die '# type: ignore' an den torch/whisperx-Importen
+#     werden in der echten '.venv-whisperx' gebraucht, hier fehlen die Pakete.
+#   warn_unreachable - der Code prueft absichtlich Typen von JSON-Antworten
+#     nach ("if not isinstance(daten, dict)"). Genau diese Vorsicht wuerde
+#     als "nicht erreichbar" gemeldet werden.
+
+[[tool.mypy.overrides]]
+# tkinter: typeshed beschreibt 'pack'/'grid' mit Literal-Overloads. Der im
+# Projekt uebliche Stil "pad = {'padx': 8}; widget.pack(**pad)" laesst sich
+# damit grundsaetzlich nicht pruefen - das sind keine echten Fehler.
+module = ["protokoll_assistent_gui", "setup_fenster", "hauptanwendung", "oberflaeche_theme"]
+disable_error_code = ["arg-type"]
+
+[[tool.mypy.overrides]]
+# PySide6 liefert unvollstaendige Typinformationen: Kurzschreibweisen wie
+# 'Qt.red' oder 'QDialogButtonBox.Save' funktionieren zur Laufzeit, fehlen
+# aber in den Stubs.
+module = ["gui.*"]
+disable_error_code = ["attr-defined"]

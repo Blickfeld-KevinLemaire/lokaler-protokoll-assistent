@@ -214,8 +214,8 @@ def get_gpu_description() -> str:
 def load_pyannote_pipeline(device: str = "cuda"):
     """Laedt die pyannote-Diarisierungspipeline. Der HF_TOKEN wird nur zur
     direkten Weitergabe verwendet und niemals geloggt."""
-    from pyannote.audio import Pipeline  # type: ignore
     import torch  # type: ignore
+    from pyannote.audio import Pipeline  # type: ignore
 
     token = get_hf_token_for_download()
     pipeline = Pipeline.from_pretrained(PYANNOTE_MODEL_NAME, use_auth_token=token)

@@ -30,7 +30,7 @@ def format_vtt_timestamp(seconds: float) -> str:
 
 def format_duration_human(seconds: float) -> str:
     """Kurze, fuer Menschen lesbare Dauer, z.B. ``1:04:12``."""
-    seconds = max(0, int(round(seconds)))
+    seconds = max(0, round(seconds))
     hours, remainder = divmod(seconds, 3600)
     minutes, secs = divmod(remainder, 60)
     if hours:

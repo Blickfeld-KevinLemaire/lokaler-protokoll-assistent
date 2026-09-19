@@ -9,7 +9,7 @@ Logik ist bewusst an dieser Stelle einmal implementiert.
 from __future__ import annotations
 
 import subprocess
-from typing import Callable
+from collections.abc import Callable
 
 from services import model_service, ollama_service
 from utils.hf_env import has_hf_token

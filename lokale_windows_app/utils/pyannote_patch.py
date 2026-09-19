@@ -119,7 +119,11 @@ def apply_patch(target_file: Path, dry_run: bool = False) -> PatchResult:
             target_file,
         )
 
-    indent = ORIGINAL_LINE_PATTERN.match(lines[match_index]).group(1)
+    # 'lines[match_index]' wurde oben ueber genau dieses Muster gefunden,
+    # ein Treffer ist hier also garantiert.
+    treffer = ORIGINAL_LINE_PATTERN.match(lines[match_index])
+    assert treffer is not None  # noqa: S101 - nur Typ-Einengung
+    indent = treffer.group(1)
 
     if dry_run:
         return PatchResult(

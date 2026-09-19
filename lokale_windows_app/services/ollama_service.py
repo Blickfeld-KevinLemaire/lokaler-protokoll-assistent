@@ -10,11 +10,11 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
-import tempfile
 import urllib.error
 import urllib.request
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from utils.json_validation import extract_json_object
 
@@ -122,7 +122,7 @@ def generate_json(
 
 
 def _default_download(url: str, destination: Path) -> None:
-    with urllib.request.urlopen(url, timeout=300) as response, open(destination, "wb") as out_file:
+    with urllib.request.urlopen(url, timeout=300) as response, destination.open("wb") as out_file:
         import shutil as _shutil
 
         _shutil.copyfileobj(response, out_file)

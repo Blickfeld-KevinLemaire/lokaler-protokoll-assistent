@@ -105,7 +105,7 @@ def merge_chunk_transcripts(
     ``overlap_with_previous``/``is_first``).
     """
     merged: list[dict[str, Any]] = []
-    for plan, local_segments in zip(chunk_plans, chunk_local_segments):
+    for plan, local_segments in zip(chunk_plans, chunk_local_segments, strict=False):
         global_segments = to_global_segments(local_segments, plan.global_start)
         if plan.is_first:
             merged.extend(global_segments)
