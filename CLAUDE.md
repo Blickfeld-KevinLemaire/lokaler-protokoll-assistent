@@ -192,6 +192,31 @@ Beide Administratoren können die Regeln umgehen (`enforce_admins` ist aus),
 damit sich niemand aussperrt. Das ist als Notausgang gedacht, nicht als
 Normalweg.
 
+### CodeQL: den Schalter „Code quality" in den Einstellungen NICHT umlegen
+
+Im Reiter *Security* steht „Code quality" als *nicht aktiviert*. Das ist
+**Absicht und kein Versäumnis.**
+
+GitHub kennt für CodeQL zwei Betriebsarten, und sie schließen sich gegenseitig
+aus:
+
+* **Default setup** — GitHub verwaltet die Analyse selbst. Dazu gehört der
+  Schalter „Code quality" in der Oberfläche.
+* **Advanced setup** — ein eigener Workflow im Repository. Genau den benutzen
+  wir: `.github/workflows/codeql.yml`, mit `queries: security-and-quality`.
+
+Die Qualitätsabfragen laufen also **bereits** — die 13 offenen Meldungen vom
+Typ `note` (`py/unnecessary-lambda`, `py/empty-except`,
+`py/unused-global-variable`) stammen genau daher. Der Schalter in der
+Oberfläche gehört nur zur anderen Betriebsart und ist über die API gar nicht
+erreichbar (`"code_quality" is not a permitted key`).
+
+Wird „Default setup" trotzdem eingeschaltet, übernimmt GitHub die Analyse und
+unser Workflow läuft nicht mehr. Dann fehlt die Prüfung **„Analyse (Python)"**,
+die für `main` erforderlich ist — und es lässt sich nichts mehr
+zusammenführen, bis die Liste der erforderlichen Prüfungen angepasst ist.
+Wer wirklich umstellen will, ändert beides zusammen.
+
 ## Weitere Dateien, die mitgepflegt werden wollen
 
 * `SECURITY.md` — was in diesem Projekt sicherheitsrelevant ist und wie man
