@@ -13,7 +13,22 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-APP_DIR = Path(__file__).resolve().parent
+
+def _app_dir() -> Path:
+    """Ordner, in dem die Ein- und Ausgabeordner angelegt werden.
+
+    Im Quellcode-Betrieb ist das der Ordner dieser Datei (wie bisher). In
+    einer mit PyInstaller gebauten EXE liegt diese Datei im Archiv unter
+    '_internal'; dort sollen die Ordner nicht landen, deshalb wird der
+    Ordner der EXE verwendet -- genauso wie es die lokale Anwendung in
+    'lokale_windows_app/utils/paths.py' bereits macht.
+    """
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent
+
+
+APP_DIR = _app_dir()
 INPUT_DIR = APP_DIR / "eingabe"
 OUTPUT_DIR = APP_DIR / "ausgabe"
 CHECKPOINT_DIR = APP_DIR / "zwischenstaende"

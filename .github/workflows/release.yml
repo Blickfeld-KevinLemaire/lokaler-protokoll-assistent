@@ -7,11 +7,20 @@ name: Release-Build
 #   git tag v0.1.0
 #   git push origin v0.1.0
 #
-# WICHTIG: Dieser Build enthaelt KEINE KI-Modelle und auch nicht PyTorch/
-# WhisperX. Die gebaute Anwendung setzt voraus, dass auf dem Zielrechner die
-# Einrichtung nach 'lokale_windows_app/README.md' bereits gelaufen ist. Sie
-# ersetzt also den Einrichtungsassistenten nicht, sondern spart nur den
-# Python-Start.
+# Es entstehen ZWEI Dateien:
+#
+#   Protokoll-Assistent-Setup-<Version>.exe   Installer fuer Anwender.
+#       Enthaelt das Auswahlfenster und die Cloud-Variante als fertige EXEs
+#       sowie die Programmdateien der lokalen Anwendung. Installiert ohne
+#       Administratorrechte pro Benutzer.
+#
+#   Protokoll-Assistent-Lokal-windows.zip     wie bisher: der reine
+#       PyInstaller-Build der lokalen Anwendung, fuer Rechner, auf denen die
+#       Einrichtung nach 'lokale_windows_app/README.md' schon gelaufen ist.
+#
+# WICHTIG: Keiner der beiden Builds enthaelt KI-Modelle oder PyTorch/WhisperX.
+# Die lokale Anwendung richtet sich diese Umgebung beim ersten Start selbst
+# ein und braucht dafuer ein installiertes Python 3.10/3.11.
 
 on:
   push:
@@ -26,7 +35,7 @@ env:
 
 jobs:
   bauen:
-    name: Windows-EXE bauen
+    name: Windows-EXE bauen (lokale Anwendung)
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
@@ -77,18 +86,112 @@ jobs:
           path: Protokoll-Assistent-Lokal-windows.zip
           retention-days: 30
 
+  installer:
+    name: Installer bauen
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - run: uv sync --python 3.11
+
+      - name: Tests vor dem Build
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: uv run pytest
+
+      - name: Auswahlfenster und Cloud-Variante bauen
+        run: uv run pyinstaller --noconfirm protokoll_assistent_cloud.spec
+
+      - name: Python-Laufzeitumgebung fuer den Installer holen
+        # Damit Anwender kein Python selbst installieren muessen.
+        shell: pwsh
+        run: pwsh -NoProfile -File installer/python-laufzeit-holen.ps1
+
+      - name: Inno Setup installieren
+        run: choco install innosetup --no-progress --yes
+
+      - name: Installer uebersetzen
+        shell: pwsh
+        run: |
+          # Version aus dem Tag ('v1.2.3' -> '1.2.3'). Ohne Tag (manueller
+          # Lauf) entsteht ein klar erkennbarer Testbuild.
+          $version = "0.0.0-test"
+          if ($env:GITHUB_REF -like "refs/tags/v*") {
+            $version = $env:GITHUB_REF_NAME.Substring(1)
+          }
+          Write-Host "Version: $version"
+          "VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            Write-Error "ISCC.exe nicht gefunden: $iscc"
+            exit 1
+          }
+          & $iscc "/DMeineVersion=$version" "installer\protokoll-assistent.iss"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Ergebnis pruefen
+        shell: pwsh
+        run: |
+          $setup = "dist-installer\Protokoll-Assistent-Setup-$env:VERSION.exe"
+          if (-not (Test-Path $setup)) {
+            Write-Error "Installer wurde nicht erzeugt: $setup"
+            exit 1
+          }
+          $groesse = [math]::Round((Get-Item $setup).Length / 1MB, 1)
+          Write-Host "Installer erstellt: $setup ($groesse MB)"
+
+      - name: Als Artefakt ablegen
+        uses: actions/upload-artifact@v7
+        with:
+          name: Protokoll-Assistent-Setup
+          path: dist-installer\*.exe
+          retention-days: 30
+
+  veroeffentlichen:
+    name: Release anlegen
+    needs: [bauen, installer]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Artefakte holen
+        uses: actions/download-artifact@v7
+        with:
+          path: artefakte
+          merge-multiple: true
+
       - name: Release anlegen
-        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v3
         with:
-          files: Protokoll-Assistent-Lokal-windows.zip
+          files: |
+            artefakte/Protokoll-Assistent-Setup-*.exe
+            artefakte/Protokoll-Assistent-Lokal-windows.zip
           generate_release_notes: true
           body: |
+            ## Was Sie herunterladen sollten
+
+            **`Protokoll-Assistent-Setup-*.exe`** - der Installer. Installiert
+            ohne Administratorrechte, legt einen Startmenue-Eintrag an und
+            laesst sich normal ueber "Apps & Features" wieder entfernen.
+
+            Die ZIP-Datei ist nur fuer Rechner gedacht, auf denen die
+            Einrichtung nach `lokale_windows_app/README.md` bereits gelaufen
+            ist.
+
             ## Hinweise zu diesem Build
 
-            * Die ZIP-Datei enthaelt **keine** KI-Modelle und kein PyTorch/WhisperX.
-            * Auf dem Zielrechner muss die Einrichtung nach
-              `lokale_windows_app/README.md` einmal gelaufen sein.
+            * Enthaelt **keine** KI-Modelle und kein PyTorch/WhisperX. Die
+              lokale Variante laedt diese beim ersten Start selbst nach und
+              braucht dafuer ein installiertes **Python 3.10 oder 3.11**.
+              Die Cloud-Variante laeuft ohne Python.
+            * Der Installer ist **nicht signiert**. Windows SmartScreen meldet
+              sich deshalb beim Start - ueber "Weitere Informationen" -
+              "Trotzdem ausfuehren" laesst er sich starten.
             * Der Build wurde automatisch erstellt und **nicht** auf echter
               Hardware mit GPU getestet. Bitte vor der Weitergabe einmal lokal
               ausprobieren.

@@ -26,10 +26,11 @@ Anwendung startet:
   `protokoll_assistent_gui.py`. Sie richten dafuer selbst einen API-Zugang
   ein (aktuell: OpenRouter) und geben Ihren eigenen API-Schluessel ein.
 
+Der Startmenue-Eintrag des [Installers](#installation-unter-windows-installer),
 `Protokoll-Assistent-Starten.bat` und die Desktop-Verknuepfung (siehe
-[Installation](#installation-unter-windows-ein-fenster-fuer-alles)) oeffnen
-dieses Auswahlfenster; Sie koennen die beiden Anwendungen darunter aber
-auch jederzeit direkt starten, ohne den Umweg ueber `hauptanwendung.py`.
+[Installation aus dem Quellcode](#installation-aus-dem-quellcode-ein-fenster-fuer-alles))
+oeffnen dieses Auswahlfenster; Sie koennen die beiden Anwendungen darunter
+aber auch jederzeit direkt starten, ohne den Umweg ueber `hauptanwendung.py`.
 
 Es gibt drei unabhaengige Programme in diesem Repository:
 
@@ -95,7 +96,47 @@ ermitteln ihren Ordner automatisch anhand ihres eigenen Speicherorts. Jeder
 Anwender kann sich also seinen eigenen Projektordner aussuchen, ohne Code
 anpassen zu muessen.
 
-## Installation unter Windows (ein Fenster fuer alles)
+## Installation unter Windows (Installer)
+
+*Der einfachste Weg fuer Anwender. Es wird kein Git und kein Projektordner
+gebraucht - der Installer legt ein normales Windows-Programm an.*
+
+1. Unter [Releases](https://github.com/Blickfeld-KevinLemaire/lokaler-protokoll-assistent/releases)
+   die Datei `Protokoll-Assistent-Setup-<Version>.exe` herunterladen.
+2. Doppelklicken. Der Installer braucht **keine Administratorrechte** und
+   installiert nach `%LOCALAPPDATA%\Programs\Protokoll-Assistent`.
+   Windows SmartScreen meldet sich, weil der Installer nicht signiert ist -
+   ueber "Weitere Informationen" - "Trotzdem ausfuehren" geht es weiter.
+3. Starten ueber den Startmenue-Eintrag "Protokoll-Assistent". Es oeffnet
+   sich dasselbe Auswahlfenster wie beim Start aus dem Quellcode.
+
+Was der Installer mitbringt:
+
+| | enthalten | Voraussetzung auf dem PC |
+|---|---|---|
+| Auswahlfenster | als EXE | - |
+| Cloud-Variante | als EXE | FFmpeg, eigener API-Schluessel |
+| Lokale Variante | als Programmdateien | - |
+| Python 3.11 | als eigener Ordner `python\` | - |
+
+**Python muss nicht installiert werden.** Der Installer bringt eine eigene
+Python-Laufzeitumgebung mit, die nur aus dem Programmordner heraus verwendet
+wird. Am System aendert sich dadurch nichts; eine bereits vorhandene
+Python-Installation bleibt unberuehrt.
+
+Die lokale Variante laedt PyTorch, WhisperX und die Sprachmodelle beim
+ersten Start selbst herunter (mehrere Gigabyte, je nach Grafikkarte
+unterschiedlich) - deshalb stecken sie nicht im Installer. Entfernen laesst
+sich alles ueber "Apps & Features"; die eigenen Ergebnisordner bleiben dabei
+absichtlich erhalten.
+
+Gebaut wird der Installer aus [`installer/protokoll-assistent.iss`](installer/protokoll-assistent.iss)
+(Inno Setup) - siehe [`installer/README.md`](installer/README.md).
+
+## Installation aus dem Quellcode (ein Fenster fuer alles)
+
+*Der bisherige Weg - unveraendert. Sinnvoll fuer die Entwicklung und fuer
+alle, die den Stand direkt aus dem Repository nutzen moechten.*
 
 *Richtet die Cloud-Variante (`protokoll_assistent_gui.py`) ein und erstellt
 eine Verknuepfung fuer `hauptanwendung.py` (das Auswahlfenster). Fuer die
