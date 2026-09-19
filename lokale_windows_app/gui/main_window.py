@@ -12,7 +12,7 @@ import json
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer, QUrl
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtGui import QDesktopServices, QDragEnterEvent, QDropEvent
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -70,6 +70,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("Protokoll-Assistent Lokal")
         self.resize(1100, 850)
+        self.setAcceptDrops(True)
 
         config = load_config()
         self._configured_whisper_model: str | None = config.get("whisper_modell")
@@ -456,10 +457,29 @@ class MainWindow(QMainWindow):
         )
         if not filename:
             return
+        self._set_source_file(Path(filename))
+
+    def _set_source_file(self, path: Path) -> None:
         self.file_list.clearSelection()
-        self._source_path = Path(filename)
+        self._source_path = path
         self.file_label.setText(f"Ausgewählt: {self._source_path.name}")
         self._refresh_resume_status()
+
+    def dragEnterEvent(self, event: QDragEnterEvent) -> None:
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+
+    def dropEvent(self, event: QDropEvent) -> None:
+        urls = event.mimeData().urls()
+        if not urls:
+            return
+        path = Path(urls[0].toLocalFile())
+        if path.is_dir():
+            self._set_input_folder(path)
+            event.acceptProposedAction()
+        elif path.is_file():
+            self._set_source_file(path)
+            event.acceptProposedAction()
 
     def _choose_output_dir(self) -> None:
         directory = QFileDialog.getExistingDirectory(self, "Ausgabeordner wählen", str(self._output_dir))

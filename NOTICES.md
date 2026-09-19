@@ -97,6 +97,16 @@ mitgelieferten Abhaengigkeiten; deren Lizenztexte liegen unveraendert in
 * Erscheinungsbild der tkinter-Oberflaeche. Optional: fehlt das Paket, laeuft
   die Anwendung mit dem Standard-Design weiter.
 
+### tkinterdnd2 (0.6.3)
+
+* Lizenz: MIT — Copyright (c) Philippe Gagné
+* Bindet die Tcl-Erweiterung `tkdnd` ein (Urheber: George Petasis, National
+  Centre for Scientific Research "Demokritos"; permissive, dem Tcl/Tk-Lizenztext
+  aehnliche Bedingungen), als vorkompilierte Bibliothek je Plattform mit
+  ausgeliefert.
+* Ermoeglicht Drag & Drop (Datei/Ordner ins Fenster ziehen). Optional: fehlt
+  das Paket, laeuft die Anwendung mit den Auswahl-Buttons weiter.
+
 ---
 
 ## 3. Vom Anwender selbst installiert (wird nicht mitgeliefert)

@@ -2,3 +2,7 @@
 # Light/Dark). Fehlt es, laeuft die Anwendung trotzdem - dann mit einem
 # schlichteren Standard-ttk-Design.
 sv-ttk>=2.6.0
+
+# Optionales Paket fuer Drag & Drop (Datei/Ordner ins Fenster ziehen). Fehlt
+# es, laeuft die Anwendung trotzdem weiter - dann nur mit den Auswahl-Buttons.
+tkinterdnd2>=0.4.2

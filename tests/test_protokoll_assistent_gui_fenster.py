@@ -205,6 +205,80 @@ def test_ordner_waehlen_ohne_passende_dateien(fenster, monkeypatch, tmp_path):
     assert "keine unterstuetzte Datei" in fenster.folder_label_var.get()
 
 
+def test_datei_waehlen_abgebrochen(fenster, monkeypatch):
+    monkeypatch.setattr(gui.filedialog, "askopenfilename", lambda **_k: "")
+    fenster.choose_file()
+    assert fenster.selected_folder is None
+
+
+def test_datei_waehlen_setzt_ordner_und_datei(fenster, monkeypatch, tmp_path):
+    ordner = tmp_path / "aufnahmen"
+    ordner.mkdir()
+    (ordner / "a.wav").write_bytes(b"\x00")
+    gewaehlte_datei = ordner / "b.mp3"
+    gewaehlte_datei.write_bytes(b"\x00")
+    monkeypatch.setattr(gui.filedialog, "askopenfilename", lambda **_k: str(gewaehlte_datei))
+
+    fenster.choose_file()
+
+    assert fenster.selected_folder == ordner
+    assert [p.name for p in fenster.audio_files] == ["a.wav", "b.mp3"]
+    assert fenster.file_var.get() == "b.mp3"
+    assert fenster.folder_label_var.get() == str(ordner)
+
+
+def test_datei_waehlen_datei_ausserhalb_der_ordner_erkennung(fenster, monkeypatch, tmp_path):
+    ordner = tmp_path / "aufnahmen"
+    ordner.mkdir()
+    gewaehlte_datei = ordner / "unbekannt.xyz"
+    gewaehlte_datei.write_bytes(b"\x00")
+    monkeypatch.setattr(gui.filedialog, "askopenfilename", lambda **_k: str(gewaehlte_datei))
+
+    fenster.choose_file()
+
+    assert fenster.file_var.get() == "unbekannt.xyz"
+    assert gewaehlte_datei in fenster.audio_files
+
+
+class _FakeDnDEvent:
+    """Bildet ein echtes tkdnd-Drop-Event nach: tkdnd umschliesst jeden
+    abgelegten Pfad in geschweifte Klammern, damit Tcl beim Zerlegen ueber
+    'splitlist' Backslashes (Windows-Pfade!) nicht als Escape-Zeichen
+    interpretiert. Ohne diese Klammern wuerde z. B. aus 'C:\\Temp' ein
+    zerstoertes 'C:Temp'."""
+
+    def __init__(self, data: str) -> None:
+        self.data = "{" + data + "}" if data else data
+
+
+def test_bei_datei_abgelegt_ordner(fenster, tmp_path):
+    ordner = tmp_path / "abgelegt"
+    ordner.mkdir()
+    (ordner / "a.wav").write_bytes(b"\x00")
+
+    fenster._bei_datei_abgelegt(_FakeDnDEvent(str(ordner)))
+
+    assert fenster.selected_folder == ordner
+    assert fenster.file_var.get() == "a.wav"
+
+
+def test_bei_datei_abgelegt_datei(fenster, tmp_path):
+    ordner = tmp_path / "abgelegt"
+    ordner.mkdir()
+    datei = ordner / "b.mp3"
+    datei.write_bytes(b"\x00")
+
+    fenster._bei_datei_abgelegt(_FakeDnDEvent(str(datei)))
+
+    assert fenster.selected_folder == ordner
+    assert fenster.file_var.get() == "b.mp3"
+
+
+def test_bei_datei_abgelegt_ohne_pfad(fenster):
+    fenster._bei_datei_abgelegt(_FakeDnDEvent(""))
+    assert fenster.selected_folder is None
+
+
 def test_transkript_waehlen_abgebrochen(fenster, monkeypatch):
     monkeypatch.setattr(gui.filedialog, "askopenfilename", lambda **_k: "")
     fenster.waehle_transkript()
