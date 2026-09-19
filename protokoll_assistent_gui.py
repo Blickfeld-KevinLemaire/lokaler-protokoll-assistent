@@ -29,6 +29,15 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, scrolledtext, ttk
 from typing import Any
 
+try:
+    from tkinterdnd2 import DND_FILES, TkinterDnD
+
+    HAT_TKINTERDND2 = True
+except ImportError:
+    TkinterDnD = None  # type: ignore[assignment]
+    DND_FILES = None  # type: ignore[assignment]
+    HAT_TKINTERDND2 = False
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import oberflaeche_theme as theme
 import protokoll_assistent_v2 as kern  # Konsolenversion wird als Bibliothek wiederverwendet
@@ -761,6 +770,14 @@ class ProtokollGUI:
         self.worker_thread: threading.Thread | None = None
         self.last_output_paths: list[Path] = []
 
+        self.dnd_aktiv = False
+        if HAT_TKINTERDND2:
+            try:
+                TkinterDnD._require(root)
+                self.dnd_aktiv = True
+            except tk.TclError:
+                self.dnd_aktiv = False
+
         for directory in (INPUT_DIR, OUTPUT_DIR, CHECKPOINT_DIR, SETTINGS_DIR, ERGEBNIS_DIR):
             directory.mkdir(parents=True, exist_ok=True)
 
@@ -795,6 +812,9 @@ class ProtokollGUI:
         ttk.Button(row1, text="Ordner auswaehlen ...", command=self.choose_folder).pack(
             side="left"
         )
+        ttk.Button(row1, text="Datei auswaehlen ...", command=self.choose_file).pack(
+            side="left", padx=(8, 0)
+        )
         self.folder_label_var = tk.StringVar(value="Kein Ordner ausgewaehlt")
         ttk.Label(row1, textvariable=self.folder_label_var).pack(side="left", padx=10)
 
@@ -806,6 +826,20 @@ class ProtokollGUI:
             row2, textvariable=self.file_var, state="readonly", width=60
         )
         self.file_combo.pack(side="left", padx=8, fill="x", expand=True)
+
+        if self.dnd_aktiv:
+            ttk.Label(
+                folder_frame,
+                text="Tipp: Datei oder Ordner koennen hier auch per Ziehen-und-Ablegen abgelegt werden.",
+                foreground="gray",
+            ).pack(anchor="w", padx=8, pady=(0, 6))
+            # tkinterdnd2 haengt diese Methoden erst zur Laufzeit an
+            # tkinter.BaseWidget an - nicht an tkinter.Tk (der Root), das
+            # nicht von BaseWidget erbt. Deshalb hier auf einem echten
+            # Widget registrieren, nicht auf self.root. typeshed kennt die
+            # Methoden ausserdem nicht.
+            folder_frame.drop_target_register(DND_FILES)  # type: ignore[attr-defined]
+            folder_frame.dnd_bind("<<Drop>>", self._bei_datei_abgelegt)  # type: ignore[attr-defined]
 
         api_frame = ttk.LabelFrame(self.root, text="2. Transkriptions-API")
         api_frame.pack(fill="x", **padding)
@@ -1116,18 +1150,53 @@ class ProtokollGUI:
         )
         if not folder:
             return
-        self.selected_folder = Path(folder)
-        self.audio_files = scan_audio_files(self.selected_folder)
+        self._setze_ordner(Path(folder))
+
+    def choose_file(self) -> None:
+        start_dir = str(INPUT_DIR) if INPUT_DIR.exists() else str(APP_DIR)
+        erweiterungen = " ".join(f"*{ext}" for ext in sorted(kern.SUPPORTED_EXTENSIONS))
+        datei = filedialog.askopenfilename(
+            title="Aufnahme auswaehlen",
+            initialdir=start_dir,
+            filetypes=[("Unterstuetzte Aufnahmen", erweiterungen), ("Alle Dateien", "*.*")],
+        )
+        if not datei:
+            return
+        self._setze_aufnahme(Path(datei))
+
+    def _bei_datei_abgelegt(self, event: Any) -> None:
+        pfade = self.root.tk.splitlist(event.data)
+        if not pfade:
+            return
+        pfad = Path(pfade[0])
+        if pfad.is_dir():
+            self._setze_ordner(pfad)
+        elif pfad.is_file():
+            self._setze_aufnahme(pfad)
+
+    def _setze_ordner(self, ordner: Path) -> None:
+        self.selected_folder = ordner
+        self.audio_files = scan_audio_files(ordner)
 
         if not self.audio_files:
-            self.folder_label_var.set(f"{self.selected_folder} (keine unterstuetzte Datei gefunden)")
+            self.folder_label_var.set(f"{ordner} (keine unterstuetzte Datei gefunden)")
             self.file_combo["values"] = []
             self.file_var.set("")
             return
 
-        self.folder_label_var.set(str(self.selected_folder))
+        self.folder_label_var.set(str(ordner))
         self.file_combo["values"] = [path.name for path in self.audio_files]
         self.file_var.set(self.audio_files[0].name)
+
+    def _setze_aufnahme(self, pfad: Path) -> None:
+        self.selected_folder = pfad.parent
+        self.audio_files = scan_audio_files(self.selected_folder)
+        if pfad not in self.audio_files:
+            self.audio_files = sorted([*self.audio_files, pfad])
+
+        self.folder_label_var.set(str(self.selected_folder))
+        self.file_combo["values"] = [path.name for path in self.audio_files]
+        self.file_var.set(pfad.name)
 
     def waehle_transkript(self) -> None:
         start_dir = str(OUTPUT_DIR) if OUTPUT_DIR.exists() else str(APP_DIR)

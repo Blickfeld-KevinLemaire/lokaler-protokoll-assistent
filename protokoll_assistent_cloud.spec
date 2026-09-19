@@ -7,9 +7,10 @@ gemeinsamen '_internal'-Ordner teilen:
     Protokoll-Assistent.exe         <- hauptanwendung.py (Auswahlfenster)
     Protokoll-Assistent-Cloud.exe   <- protokoll_assistent_gui.py
 
-Beide brauchen ausser 'tkinter' und dem optionalen 'sv_ttk' nichts, was nicht
-in der Standardbibliothek steht -- diese EXEs sind deshalb vollstaendig
-eigenstaendig und brauchen KEIN Python auf dem Zielrechner.
+Beide brauchen ausser 'tkinter' und den optionalen Paketen 'sv_ttk' und
+'tkinterdnd2' nichts, was nicht in der Standardbibliothek steht -- diese EXEs
+sind deshalb vollstaendig eigenstaendig und brauchen KEIN Python auf dem
+Zielrechner.
 
 Die vollstaendig lokale Anwendung ('lokale_windows_app/') wird hier bewusst
 NICHT gebaut: sie braucht PyTorch/WhisperX, die je nach Grafikkarte
@@ -32,6 +33,17 @@ sv_ttk_binaries: list = []
 sv_ttk_hiddenimports: list = []
 try:
     sv_ttk_datas, sv_ttk_binaries, sv_ttk_hiddenimports = collect_all("sv_ttk")
+except Exception:
+    pass
+
+# 'tkinterdnd2' ist ebenfalls optional (siehe requirements.txt) und wird nur
+# von 'protokoll_assistent_gui.py' benutzt. Es bringt eigene, plattform-
+# spezifische Binaerdateien mit ('tkdnd'), die 'collect_all' mit einsammelt.
+tkinterdnd2_datas: list = []
+tkinterdnd2_binaries: list = []
+tkinterdnd2_hiddenimports: list = []
+try:
+    tkinterdnd2_datas, tkinterdnd2_binaries, tkinterdnd2_hiddenimports = collect_all("tkinterdnd2")
 except Exception:
     pass
 
@@ -65,9 +77,9 @@ a_auswahl = Analysis(
 a_cloud = Analysis(
     ["protokoll_assistent_gui.py"],
     pathex=["."],
-    binaries=sv_ttk_binaries,
-    datas=sv_ttk_datas + LIZENZ_DATEN,
-    hiddenimports=GEMEINSAME_IMPORTE,
+    binaries=sv_ttk_binaries + tkinterdnd2_binaries,
+    datas=sv_ttk_datas + tkinterdnd2_datas + LIZENZ_DATEN,
+    hiddenimports=GEMEINSAME_IMPORTE + tkinterdnd2_hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

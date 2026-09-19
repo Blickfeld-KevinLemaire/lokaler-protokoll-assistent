@@ -13,6 +13,7 @@ import pytest
 
 pytest.importorskip("PySide6", reason="PySide6 ist nicht installiert.")
 
+from PySide6.QtCore import QMimeData, QUrl  # noqa: E402
 from PySide6.QtWidgets import QFileDialog, QMessageBox  # noqa: E402
 
 from gui import main_window as mw  # noqa: E402
@@ -259,6 +260,53 @@ def test_datei_ueber_dialog_abgebrochen(fenster, monkeypatch):
     monkeypatch.setattr(QFileDialog, "getOpenFileName", staticmethod(lambda *a, **k: ("", "")))
     fenster._choose_file()
     assert fenster._source_path is None
+
+
+class _FakeDropEvent:
+    """Sieht wie ein ``QDropEvent``/``QDragEnterEvent`` aus, ohne echte Drag-Session."""
+
+    def __init__(self, mime_data):
+        self._mime_data = mime_data
+        self.accepted = False
+
+    def mimeData(self):
+        return self._mime_data
+
+    def acceptProposedAction(self):
+        self.accepted = True
+
+
+def _mime_data_fuer(pfad):
+    mime_data = QMimeData()
+    mime_data.setUrls([QUrl.fromLocalFile(str(pfad))])
+    return mime_data
+
+
+def test_drag_enter_akzeptiert_urls(fenster, audio_datei):
+    event = _FakeDropEvent(_mime_data_fuer(audio_datei))
+    fenster.dragEnterEvent(event)
+    assert event.accepted
+
+
+def test_drag_enter_ohne_urls_wird_nicht_akzeptiert(fenster):
+    event = _FakeDropEvent(QMimeData())
+    fenster.dragEnterEvent(event)
+    assert not event.accepted
+
+
+def test_drop_datei_setzt_quelle(fenster, audio_datei):
+    event = _FakeDropEvent(_mime_data_fuer(audio_datei))
+    fenster.dropEvent(event)
+    assert fenster._source_path == audio_datei
+    assert event.accepted
+
+
+def test_drop_ordner_setzt_eingabeordner(fenster, audio_datei):
+    event = _FakeDropEvent(_mime_data_fuer(audio_datei.parent))
+    fenster.dropEvent(event)
+    assert fenster._input_folder == audio_datei.parent
+    assert fenster.file_list.count() == 1
+    assert event.accepted
 
 
 def test_ausgabeordner_waehlen(fenster, tmp_path, monkeypatch):
