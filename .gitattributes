@@ -1,0 +1,17 @@
+# Alle Textdateien werden im Repository mit LF gespeichert.
+#
+# Ohne diese Datei schreiben Windows-Werkzeuge (Editoren, Formatierer wie
+# 'ruff --fix') die Dateien mit CRLF zurueck. Git meldet dann jede einzelne
+# Zeile als geaendert, und aus einer Zwei-Zeilen-Korrektur wird ein
+# unlesbarer Riesen-Diff.
+* text=auto eol=lf
+
+# Windows-Skripte vertragen LF ebenfalls; sie liegen im Repository bereits so.
+*.bat text eol=lf
+*.ps1 text eol=lf
+
+# Binaerdateien nie anfassen.
+*.png binary
+*.ico binary
+*.zip binary
+*.exe binary
