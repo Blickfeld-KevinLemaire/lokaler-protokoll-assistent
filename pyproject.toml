@@ -66,18 +66,21 @@ filterwarnings = ["error::DeprecationWarning:services.*", "error::DeprecationWar
 # ---------------------------------------------------------------------------
 [tool.coverage.run]
 branch = true
-source = [
-    "hauptanwendung",
-    "oberflaeche_theme",
-    "protokoll_assistent_gui",
-    "protokoll_assistent_v2",
-    "setup_fenster",
-    "lokale_windows_app/services",
-    "lokale_windows_app/utils",
-    "lokale_windows_app/gui",
-    "lokale_windows_app/bootstrap.py",
+# Alles messen und nur gezielt ausnehmen. Eine Liste einzelner Dateien waere
+# hier falsch: coverage deutet Eintraege, die keine Ordner sind, als
+# Modulnamen - Dateien wie 'Modelle-herunterladen.py' fielen dabei stillschweigend
+# aus der Messung heraus.
+source = ["."]
+omit = [
+    "*/tests/*",
+    "*/.venv/*",
+    "*/.venv-*/*",
+    "*/build/*",
+    "*/dist/*",
+    "*/__init__.py",
+    "*/conftest.py",
+    "*/protokoll_assistent_lokal.spec",
 ]
-omit = ["*/tests/*", "*/__init__.py"]
 relative_files = true
 
 [tool.coverage.report]
