@@ -241,8 +241,14 @@ def test_datei_waehlen_datei_ausserhalb_der_ordner_erkennung(fenster, monkeypatc
 
 
 class _FakeDnDEvent:
+    """Bildet ein echtes tkdnd-Drop-Event nach: tkdnd umschliesst jeden
+    abgelegten Pfad in geschweifte Klammern, damit Tcl beim Zerlegen ueber
+    'splitlist' Backslashes (Windows-Pfade!) nicht als Escape-Zeichen
+    interpretiert. Ohne diese Klammern wuerde z. B. aus 'C:\\Temp' ein
+    zerstoertes 'C:Temp'."""
+
     def __init__(self, data: str) -> None:
-        self.data = data
+        self.data = "{" + data + "}" if data else data
 
 
 def test_bei_datei_abgelegt_ordner(fenster, tmp_path):
