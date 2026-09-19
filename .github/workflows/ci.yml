@@ -10,7 +10,14 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    # 'main' ist als Standardbranch vorgesehen; solange das Repository noch
+    # auf 'claude/dreamy-carson-ybtbg4' steht, wird dieser Branch ebenfalls
+    # geprueft - sonst laeuft auf dem Branch, auf dem tatsaechlich gearbeitet
+    # wird, ueberhaupt keine Pruefung. Nach dem Umstellen kann die zweite
+    # Zeile entfallen.
+    branches:
+      - main
+      - claude/dreamy-carson-ybtbg4
   pull_request:
   workflow_dispatch:
 
