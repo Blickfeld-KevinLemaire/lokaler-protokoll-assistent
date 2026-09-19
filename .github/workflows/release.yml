@@ -107,6 +107,11 @@ jobs:
       - name: Auswahlfenster und Cloud-Variante bauen
         run: uv run pyinstaller --noconfirm protokoll_assistent_cloud.spec
 
+      - name: Python-Laufzeitumgebung fuer den Installer holen
+        # Damit Anwender kein Python selbst installieren muessen.
+        shell: pwsh
+        run: pwsh -NoProfile -File installer/python-laufzeit-holen.ps1
+
       - name: Inno Setup installieren
         run: choco install innosetup --no-progress --yes
 

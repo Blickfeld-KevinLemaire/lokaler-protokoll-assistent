@@ -4,22 +4,23 @@ Protokoll-Assistent - Hinweise nach der Installation
 Gestartet wird ueber das Auswahlfenster "Protokoll-Assistent" (Startmenue
 bzw. Desktop). Dort waehlen Sie zwischen den beiden Arbeitsweisen:
 
+Sie muessen nichts weiter installieren - auch kein Python. Alles Noetige
+liegt im Programmordner.
+
 1. Schnittstelle nutzen (Cloud)
    Laeuft sofort. Sie brauchen dafuer einen eigenen API-Schluessel
-   (Standard: OpenRouter) und FFmpeg auf dem Rechner. Python wird NICHT
-   benoetigt.
+   (Standard: OpenRouter) und FFmpeg auf dem Rechner.
 
 2. Lokal (vollstaendig offline)
    Transkription und Sprechertrennung laufen komplett auf diesem Computer,
    es werden keine Audio- oder Videodaten uebertragen.
 
-   Voraussetzung: Python 3.10 oder 3.11 muss installiert sein
-   (https://www.python.org/downloads/ - beim Installieren "Add python.exe
-   to PATH" ankreuzen). Beim allerersten Start richtet sich die Anwendung
-   dann selbst ein: sie legt eine eigene Umgebung an und laedt PyTorch
-   passend zu Ihrer Grafikkarte sowie die Sprachmodelle herunter. Das
-   dauert je nach Internetverbindung einige Minuten und braucht mehrere
-   Gigabyte Platz.
+   Beim allerersten Start richtet sich die Anwendung selbst ein: sie legt
+   mit der mitgelieferten Python-Laufzeitumgebung eine eigene Umgebung an
+   und laedt PyTorch passend zu Ihrer Grafikkarte sowie die Sprachmodelle
+   herunter. Das dauert je nach Internetverbindung einige Minuten und
+   braucht mehrere Gigabyte Platz. Eine Internetverbindung ist dafuer
+   einmalig noetig.
 
 Wo liegen meine Dateien?
 ------------------------

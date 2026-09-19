@@ -1,7 +1,7 @@
 @echo off
 setlocal enabledelayedexpansion
 
-set "REPO_URL=https://github.com/kevinweisbrod/lokaler-protokoll-assistent.git"
+set "REPO_URL=https://github.com/Blickfeld-KevinLemaire/lokaler-protokoll-assistent.git"
 set "REPO_BRANCH=main"
 set "MERKDATEI=%~dp0.protokoll_assistent_ordner.txt"
 

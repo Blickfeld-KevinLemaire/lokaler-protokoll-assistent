@@ -101,7 +101,7 @@ anpassen zu muessen.
 *Der einfachste Weg fuer Anwender. Es wird kein Git und kein Projektordner
 gebraucht - der Installer legt ein normales Windows-Programm an.*
 
-1. Unter [Releases](https://github.com/kevinweisbrod/lokaler-protokoll-assistent/releases)
+1. Unter [Releases](https://github.com/Blickfeld-KevinLemaire/lokaler-protokoll-assistent/releases)
    die Datei `Protokoll-Assistent-Setup-<Version>.exe` herunterladen.
 2. Doppelklicken. Der Installer braucht **keine Administratorrechte** und
    installiert nach `%LOCALAPPDATA%\Programs\Protokoll-Assistent`.
@@ -116,7 +116,13 @@ Was der Installer mitbringt:
 |---|---|---|
 | Auswahlfenster | als EXE | - |
 | Cloud-Variante | als EXE | FFmpeg, eigener API-Schluessel |
-| Lokale Variante | als Programmdateien | **Python 3.10/3.11**, danach richtet sie sich selbst ein |
+| Lokale Variante | als Programmdateien | - |
+| Python 3.11 | als eigener Ordner `python\` | - |
+
+**Python muss nicht installiert werden.** Der Installer bringt eine eigene
+Python-Laufzeitumgebung mit, die nur aus dem Programmordner heraus verwendet
+wird. Am System aendert sich dadurch nichts; eine bereits vorhandene
+Python-Installation bleibt unberuehrt.
 
 Die lokale Variante laedt PyTorch, WhisperX und die Sprachmodelle beim
 ersten Start selbst herunter (mehrere Gigabyte, je nach Grafikkarte

@@ -6,12 +6,17 @@
 ;   ..\dist\Protokoll-Assistent\   die gebauten EXEs (Auswahlfenster + Cloud),
 ;                                  erzeugt von 'protokoll_assistent_cloud.spec'
 ;   ..\lokale_windows_app\         die Programmdateien der lokalen Anwendung
+;   ..\dist-python\python\         die mitgelieferte Python-Laufzeitumgebung,
+;                                  geholt von 'python-laufzeit-holen.ps1'
+;
+; Der Anwender muss NICHTS vorinstallieren - auch kein Python. Die
+; Cloud-Variante ist eine eigenstaendige EXE, und fuer die lokale Anwendung
+; liegt ein eigenes Python unter '{app}\python'.
 ;
 ; Die lokale Anwendung wird bewusst NICHT als EXE mitgeliefert: sie braucht
 ; PyTorch/WhisperX passend zur jeweiligen Grafikkarte (mehrere Gigabyte) und
-; richtet sich diese Umgebung beim ersten Start selbst ein. Dafuer braucht sie
-; weiterhin ein installiertes Python 3.10/3.11 - das Auswahlfenster weist
-; darauf hin, wenn keines gefunden wird. Die Cloud-Variante laeuft ohne Python.
+; richtet sich diese Umgebung beim ersten Start selbst ein - mit dem
+; mitgelieferten Python.
 ;
 ; Installiert wird ABSICHTLICH pro Benutzer (PrivilegesRequired=lowest, Ziel
 ; '%LOCALAPPDATA%\Programs\Protokoll-Assistent'):
@@ -29,7 +34,7 @@
 
 #define MeinName "Protokoll-Assistent"
 #define MeinHersteller "Kevin Lemaire"
-#define MeineUrl "https://github.com/kevinweisbrod/lokaler-protokoll-assistent"
+#define MeineUrl "https://github.com/Blickfeld-KevinLemaire/lokaler-protokoll-assistent"
 #define MeineExe "Protokoll-Assistent.exe"
 
 [Setup]
@@ -91,7 +96,16 @@ Source: "..\lokale_windows_app\*"; DestDir: "{app}\lokale_windows_app"; \
     Flags: ignoreversion recursesubdirs; \
     Excludes: "tests\*,__pycache__\*,*.pyc,runtime\*,logs\*,build\*,dist\*,dist-probe\*,.venv*\*,ausgabe\*"
 
-; 3) Lizenztexte sichtbar im Programmordner (LGPL-Pflicht, siehe NOTICES.md).
+; 3) Mitgelieferte Python-Laufzeitumgebung. Damit muss der Anwender kein
+;    Python selbst installieren. Es ist ein eigenstaendiger Build von
+;    'python-build-standalone'; er veraendert nichts am System und wird nur
+;    aus diesem Ordner heraus verwendet. Eine bereits vorhandene
+;    Python-Installation des Anwenders bleibt unberuehrt.
+;    Vorher einmal 'installer\python-laufzeit-holen.ps1' ausfuehren.
+Source: "..\dist-python\python\*"; DestDir: "{app}\python"; \
+    Flags: ignoreversion recursesubdirs createallsubdirs
+
+; 4) Lizenztexte sichtbar im Programmordner (LGPL-Pflicht, siehe NOTICES.md).
 Source: "..\NOTICES.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\lizenzen\*"; DestDir: "{app}\lizenzen"; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -111,4 +125,15 @@ Filename: "{app}\{#MeineExe}"; Description: "{cm:LaunchProgram,{#MeinName}}"; Fl
 ; 'einstellungen', 'zwischenstaende') werden ABSICHTLICH nicht geloescht.
 Type: filesandordirs; Name: "{app}\lokale_windows_app\runtime"
 Type: filesandordirs; Name: "{app}\lokale_windows_app\logs"
+; Python legt beim Ausfuehren in JEDEM Paketordner ein '__pycache__' an.
+; Inno kennt diese Dateien nicht (es hat sie nicht installiert) und wuerde
+; sie stehen lassen - dann bliebe der Programmordner nach dem
+; Deinstallieren zurueck. Kommt ein neuer Paketordner dazu, gehoert er
+; hier ebenfalls hinein.
 Type: filesandordirs; Name: "{app}\lokale_windows_app\__pycache__"
+Type: filesandordirs; Name: "{app}\lokale_windows_app\gui\__pycache__"
+Type: filesandordirs; Name: "{app}\lokale_windows_app\services\__pycache__"
+Type: filesandordirs; Name: "{app}\lokale_windows_app\tools\__pycache__"
+Type: filesandordirs; Name: "{app}\lokale_windows_app\utils\__pycache__"
+; Dasselbe fuer die mitgelieferte Python-Laufzeitumgebung.
+Type: filesandordirs; Name: "{app}\python"

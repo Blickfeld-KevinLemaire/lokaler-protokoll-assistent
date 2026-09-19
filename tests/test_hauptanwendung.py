@@ -144,6 +144,30 @@ class _LaufErgebnis:
         self.stderr = stderr
 
 
+@pytest.fixture
+def ohne_mitgeliefertes_python(monkeypatch, tmp_path):
+    """Zeigt auf eine nicht vorhandene Laufzeitumgebung.
+
+    So pruefen die Tests darunter wirklich die Suche nach einem installierten
+    Python und haengen nicht davon ab, ob im Projektordner zufaellig ein
+    Ordner 'python' liegt.
+    """
+    monkeypatch.setattr(ha, "MITGELIEFERTES_PYTHON", tmp_path / "python" / "python.exe")
+
+
+def test_python_suche_bevorzugt_mitgelieferte_laufzeit(monkeypatch, tmp_path):
+    mitgeliefert = tmp_path / "python" / "python.exe"
+    mitgeliefert.parent.mkdir(parents=True)
+    mitgeliefert.write_text("", encoding="utf-8")
+    monkeypatch.setattr(ha, "MITGELIEFERTES_PYTHON", mitgeliefert)
+    # Ein installiertes Python darf gar nicht erst gesucht werden.
+    monkeypatch.setattr(
+        ha.shutil, "which", lambda _name: pytest.fail("es darf nicht gesucht werden")
+    )
+
+    assert ha.python_fuer_lokale_app() == [str(mitgeliefert)]
+
+
 def test_app_dir_gebunden_nutzt_ordner_der_exe(monkeypatch, tmp_path):
     exe = tmp_path / "Protokoll-Assistent.exe"
     monkeypatch.setattr(ha, "IST_GEBUNDEN", True)
@@ -152,7 +176,7 @@ def test_app_dir_gebunden_nutzt_ordner_der_exe(monkeypatch, tmp_path):
     assert ha._app_dir() == tmp_path
 
 
-def test_python_suche_findet_passende_version(monkeypatch):
+def test_python_suche_findet_passende_version(monkeypatch, ohne_mitgeliefertes_python):
     monkeypatch.setattr(ha.shutil, "which", lambda _name: "C:/Windows/py.exe")
     monkeypatch.setattr(
         ha.subprocess, "run", lambda *_a, **_k: _LaufErgebnis(stdout="Python 3.11.9\n")
@@ -161,7 +185,7 @@ def test_python_suche_findet_passende_version(monkeypatch):
     assert ha.python_fuer_lokale_app() == ["py", "-3.11"]
 
 
-def test_python_suche_akzeptiert_ausgabe_auf_stderr(monkeypatch):
+def test_python_suche_akzeptiert_ausgabe_auf_stderr(monkeypatch, ohne_mitgeliefertes_python):
     # 'py --version' schreibt je nach Version nach stderr statt stdout.
     monkeypatch.setattr(ha.shutil, "which", lambda _name: "C:/Windows/py.exe")
     monkeypatch.setattr(
@@ -171,7 +195,7 @@ def test_python_suche_akzeptiert_ausgabe_auf_stderr(monkeypatch):
     assert ha.python_fuer_lokale_app() == ["py", "-3.11"]
 
 
-def test_python_suche_ueberspringt_falsche_version(monkeypatch):
+def test_python_suche_ueberspringt_falsche_version(monkeypatch, ohne_mitgeliefertes_python):
     monkeypatch.setattr(ha.shutil, "which", lambda _name: "C:/Windows/py.exe")
     monkeypatch.setattr(
         ha.subprocess, "run", lambda *_a, **_k: _LaufErgebnis(stdout="Python 3.13.0\n")
@@ -180,13 +204,13 @@ def test_python_suche_ueberspringt_falsche_version(monkeypatch):
     assert ha.python_fuer_lokale_app() is None
 
 
-def test_python_suche_ohne_python_im_pfad(monkeypatch):
+def test_python_suche_ohne_python_im_pfad(monkeypatch, ohne_mitgeliefertes_python):
     monkeypatch.setattr(ha.shutil, "which", lambda _name: None)
 
     assert ha.python_fuer_lokale_app() is None
 
 
-def test_python_suche_ueberspringt_kaputten_aufruf(monkeypatch):
+def test_python_suche_ueberspringt_kaputten_aufruf(monkeypatch, ohne_mitgeliefertes_python):
     def werfen(*_a, **_k):
         raise OSError("Aufruf fehlgeschlagen")
 
@@ -211,7 +235,7 @@ def test_starte_lokal_gebunden_nutzt_gefundenes_python(fenster, monkeypatch, tmp
     assert aufrufe[0][0] == ["py", "-3.11", str(eintrag)]
 
 
-def test_starte_lokal_gebunden_ohne_python_meldet_sich(fenster, monkeypatch, tmp_path):
+def test_starte_lokal_gebunden_ohne_laufzeit_meldet_sich(fenster, monkeypatch, tmp_path):
     eintrag = tmp_path / "app.py"
     eintrag.write_text("", encoding="utf-8")
     monkeypatch.setattr(ha, "IST_GEBUNDEN", True)
@@ -226,7 +250,7 @@ def test_starte_lokal_gebunden_ohne_python_meldet_sich(fenster, monkeypatch, tmp
 
     fenster.starte_lokal()
 
-    assert fehler[0][0] == "Python fehlt"
+    assert fehler[0][0] == "Laufzeitumgebung fehlt"
     assert ha.PYTHON_DOWNLOAD_URL in fehler[0][1]
 
 

@@ -40,6 +40,10 @@ LOKAL_ENTRY = APP_DIR / "lokale_windows_app" / "app.py"
 API_ENTRY = APP_DIR / "protokoll_assistent_gui.py"
 # Nur in der Installer-Variante vorhanden: die gebaute Cloud-Anwendung.
 API_EXE = APP_DIR / "Protokoll-Assistent-Cloud.exe"
+# Ebenfalls nur in der Installer-Variante: die mitgelieferte Python-Laufzeit-
+# umgebung fuer die lokale Anwendung. Sie liegt im Programmordner, damit der
+# Anwender kein Python selbst installieren muss.
+MITGELIEFERTES_PYTHON = APP_DIR / "python" / "python.exe"
 
 # Dieselbe Reihenfolge wie in 'lokale_windows_app/Start-Protokoll-Assistent.ps1'.
 PYTHON_KANDIDATEN: tuple[list[str], ...] = (
@@ -62,12 +66,21 @@ def python_fuer_lokale_app() -> list[str] | None:
     Nur fuer die Installer-Variante noetig: dort ist 'sys.executable' die
     gebaute EXE und kann 'app.py' nicht ausfuehren. Die lokale Anwendung
     richtet sich ihre eigene Umgebung ('runtime\\venv') selbst ein, braucht
-    dafuer aber ein vorhandenes Python -- genau wie beim Start ueber
+    dafuer aber ein Python.
+
+    Zuerst wird die mitgelieferte Laufzeitumgebung genommen: sie ist immer
+    eine unterstuetzte Version und aendert nichts am System des Anwenders.
+    Nur wenn sie fehlt (z. B. beim Start aus dem Quellcode oder wenn jemand
+    den Ordner geloescht hat), wird auf ein installiertes Python
+    ausgewichen -- dieselbe Reihenfolge wie in
     'Start-Protokoll-Assistent.ps1'.
 
     Gibt den Aufruf als Liste zurueck (z. B. ``["py", "-3.11"]``) oder
-    ``None``, wenn kein passendes Python gefunden wurde.
+    ``None``, wenn nichts Passendes gefunden wurde.
     """
+    if MITGELIEFERTES_PYTHON.is_file():
+        return [str(MITGELIEFERTES_PYTHON)]
+
     ohne_fenster = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     for kandidat in PYTHON_KANDIDATEN:
         if shutil.which(kandidat[0]) is None:
@@ -198,14 +211,17 @@ class HauptanwendungFenster:
             python = python_fuer_lokale_app()
             if python is None:
                 messagebox.showerror(
-                    "Python fehlt",
-                    "Fuer die lokale Anwendung wird Python 3.10 oder 3.11 "
-                    "benoetigt; auf diesem Computer wurde keines gefunden.\n\n"
-                    "Bitte von "
-                    f"{PYTHON_DOWNLOAD_URL} installieren (beim Installieren "
-                    '"Add python.exe to PATH" ankreuzen) und danach erneut '
-                    "versuchen.\n\n"
-                    "Die Schnittstellen-Variante laeuft auch ohne Python.",
+                    "Laufzeitumgebung fehlt",
+                    "Die mitgelieferte Python-Laufzeitumgebung wurde nicht "
+                    f"gefunden:\n{MITGELIEFERTES_PYTHON}\n\n"
+                    "Normalerweise bringt der Installer sie mit. Fehlt sie, "
+                    "ist die Installation unvollstaendig - am einfachsten "
+                    "den Installer noch einmal ausfuehren.\n\n"
+                    "Alternativ laeuft die lokale Anwendung auch mit einem "
+                    "selbst installierten Python 3.10 oder 3.11 "
+                    f"({PYTHON_DOWNLOAD_URL}, beim Installieren "
+                    '"Add python.exe to PATH" ankreuzen).\n\n'
+                    "Die Schnittstellen-Variante ist davon nicht betroffen.",
                 )
                 return
             befehl = [*python, str(LOKAL_ENTRY)]

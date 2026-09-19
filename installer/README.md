@@ -14,15 +14,22 @@ dass man das Ergebnis lokal ausprobieren will.
 | Auswahlfenster (`hauptanwendung.py`) | `Protokoll-Assistent.exe` | PyInstaller, `../protokoll_assistent_cloud.spec` |
 | Cloud-Variante (`protokoll_assistent_gui.py`) | `Protokoll-Assistent-Cloud.exe` | dieselbe Spezifikation, gemeinsamer `_internal`-Ordner |
 | Vollstaendig lokale Anwendung | Programmdateien | `../lokale_windows_app/` (ohne `tests`, `runtime`, `logs`, `__pycache__`) |
+| Python-Laufzeitumgebung | `python\` (CPython 3.11) | `python-laufzeit-holen.ps1` |
 | Lizenztexte | `LICENSE`, `NOTICES.md`, `lizenzen/` | Projektstamm |
 
 Die lokale Anwendung wird **nicht** als EXE mitgeliefert. Sie braucht
 PyTorch/WhisperX passend zur jeweiligen Grafikkarte - mehrere Gigabyte, je
 nach Rechner verschieden. Sie richtet sich diese Umgebung beim ersten Start
-wie bisher selbst ein (`lokale_windows_app/bootstrap.py`) und braucht dafuer
-ein installiertes Python 3.10/3.11. Findet das Auswahlfenster keines,
-erklaert es das und verweist auf python.org. Die Cloud-Variante laeuft ohne
-Python.
+wie bisher selbst ein (`lokale_windows_app/bootstrap.py`).
+
+**Der Anwender muss dafuer kein Python installieren.** Der Installer bringt
+unter `{app}\python` eine eigene Laufzeitumgebung mit; das Auswahlfenster
+startet die lokale Anwendung damit. Nur wenn dieser Ordner fehlt, sucht es
+ersatzweise nach einem installierten Python 3.10/3.11.
+
+`bootstrap.py` musste dafuer **nicht** angefasst werden: es nimmt ohnehin
+das Python entgegen, mit dem es gestartet wurde, und baut daraus
+`runtime\venv`.
 
 ## Selbst bauen
 
@@ -33,7 +40,10 @@ winget install --exact --id JRSoftware.InnoSetup --scope user
 # 2. Die beiden EXEs bauen (im Projektstamm)
 uv run pyinstaller --noconfirm protokoll_assistent_cloud.spec
 
-# 3. Installer uebersetzen
+# 3. Python-Laufzeitumgebung holen (~24 MB Download, einmalig)
+pwsh -NoProfile -File installer\python-laufzeit-holen.ps1
+
+# 4. Installer uebersetzen
 & "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe" `
     /DMeineVersion=0.0.0-test installer\protokoll-assistent.iss
 ```
@@ -63,6 +73,12 @@ C:\Temp\PA-Test\unins000.exe /VERYSILENT   # wieder entfernen
   Projektnamen und echten Nachnamen - die Datei ist aus gutem Grund auch in
   `.gitignore` und darf nicht in einen Installer geraten, nur weil jemand
   die Anwendung vor dem Bauen einmal gestartet hat.
+* **Die Python-Laufzeitumgebung ist fest eingetragen** (Version und
+  SHA256-Pruefsumme in `python-laufzeit-holen.ps1`). Ein Build soll immer
+  dasselbe Ergebnis liefern, und eine Laufzeitumgebung aus dem Netz wird nur
+  verwendet, wenn ihre Pruefsumme stimmt. Beim Aktualisieren beides
+  zusammen aendern - die Pruefsumme steht in der Datei `SHA256SUMS` der
+  jeweiligen Veroeffentlichung.
 * **Die `AppId` darf sich nie aendern.** An ihr erkennt ein neuer Installer
   eine vorhandene Installation. Mit einer neuen GUID entstuenden zwei
   Eintraege in "Apps & Features".
