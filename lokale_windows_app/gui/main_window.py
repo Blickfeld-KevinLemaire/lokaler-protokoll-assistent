@@ -379,7 +379,23 @@ class MainWindow(QMainWindow):
     def _update_whisper_model_hint(self, *_args) -> None:
         model_id = self.whisper_model_combo.currentData()
         option = model_service.get_whisper_model_option(model_id)
-        self.whisper_model_hint_label.setText(option.hinweis if option else "")
+        hinweis = option.hinweis if option else ""
+
+        # Reicht der Speicher knapp nicht, wird trotzdem das gute Modell
+        # empfohlen - der Nutzer kann Programme schließen und bekommt dann
+        # die volle Qualität. Deshalb hier ein Hinweis statt eines stillen
+        # Wechsels auf ein schwächeres Modell.
+        if model_id == model_service.WHISPER_MODEL_NAME:
+            from utils import diagnostics
+
+            warnung = model_service.speicherwarnung(
+                diagnostics.check_gpu_vram().extra.get("vram_gb"),
+                diagnostics.check_ram().extra.get("ram_gb"),
+            )
+            if warnung:
+                hinweis = f"{hinweis}\n\n⚠ {warnung}" if hinweis else f"⚠ {warnung}"
+
+        self.whisper_model_hint_label.setText(hinweis)
         if model_id:
             update_config(whisper_modell=model_id)
 

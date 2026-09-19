@@ -403,7 +403,16 @@ class ModelChoicePage(QWidget):
         empfehlung = model_service.whisper_empfehlung_aus_diagnose(diagnostics_results)
         option = model_service.get_whisper_model_option(empfehlung)
         label = option.label if option else empfehlung
-        self.recommendation_label.setText(f"Empfehlung für diesen Computer: {label}")
+        text = f"Empfehlung für diesen Computer: {label}"
+
+        # Reicht der Speicher knapp nicht, wird trotzdem das gute Modell
+        # empfohlen - der Nutzer kann Programme schließen und bekommt dann
+        # die volle Qualität. Ein stiller Wechsel auf ein schwächeres
+        # Modell würde ihm diese Wahl nehmen.
+        warnung = model_service.speicherwarnung_aus_diagnose(diagnostics_results)
+        if warnung:
+            text += f"\n\n⚠ {warnung}"
+        self.recommendation_label.setText(text)
 
         from utils.app_config import load_config
 
