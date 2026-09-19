@@ -45,7 +45,7 @@ WHISPER_MODELLE: list[WhisperModelOption] = [
     WhisperModelOption(
         id="large-v3",
         label="Large v3 (beste Qualitaet, am langsamsten)",
-        min_vram_gb=10.0,
+        min_vram_gb=6.0,
         hinweis=(
             "Hoechste Genauigkeit, auch bei Akzenten, Dialekten und Fachbegriffen. "
             "Benoetigt die meiste GPU-Leistung/-Speicher."
@@ -54,7 +54,7 @@ WHISPER_MODELLE: list[WhisperModelOption] = [
     WhisperModelOption(
         id="large-v3-turbo",
         label="Large v3 Turbo (empfohlener Standard: sehr gut & deutlich schneller)",
-        min_vram_gb=6.0,
+        min_vram_gb=3.0,
         hinweis=(
             "Fast so genau wie Large v3, aber deutlich schneller und genuegsamer. "
             "Guter Standard fuer die meisten PCs mit einer aktuellen Mittelklasse-GPU."
@@ -63,7 +63,7 @@ WHISPER_MODELLE: list[WhisperModelOption] = [
     WhisperModelOption(
         id="distil-large-v3",
         label="Distil-Large v3 (sehr schnell, primaer fuer Englisch optimiert)",
-        min_vram_gb=6.0,
+        min_vram_gb=3.0,
         hinweis=(
             "Sehr schnell und genuegsam. Fuer deutsche Aufnahmen kann die Genauigkeit "
             "spuerbar niedriger sein als bei Large v3(-Turbo), da das Modell primaer "
@@ -72,14 +72,18 @@ WHISPER_MODELLE: list[WhisperModelOption] = [
     ),
     WhisperModelOption(
         id="medium",
-        label="Medium (guter Kompromiss)",
-        min_vram_gb=5.0,
-        hinweis="Solide, mehrsprachige Qualitaet; laeuft auch auf kleineren GPUs.",
+        label="Medium (nicht mehr empfohlen)",
+        min_vram_gb=3.0,
+        hinweis=(
+            "Wird von Large v3 Turbo in jeder Hinsicht uebertroffen: gemessen "
+            "schlechter (11,2 % statt 5,2 % Abweichung), langsamer und mit mehr "
+            "Speicherbedarf. Nur noch der Vollstaendigkeit halber aufgefuehrt."
+        ),
     ),
     WhisperModelOption(
         id="small",
         label="Small (schnell, genuegsam)",
-        min_vram_gb=2.0,
+        min_vram_gb=1.5,
         hinweis=(
             "Deutlich schneller, aber spuerbar weniger genau. Gut geeignet fuer "
             "schwaechere GPUs oder reinen CPU-Betrieb."
@@ -88,48 +92,104 @@ WHISPER_MODELLE: list[WhisperModelOption] = [
     WhisperModelOption(
         id="base",
         label="Base (sehr genuegsam)",
-        min_vram_gb=1.0,
+        min_vram_gb=0.8,
         hinweis="Nur fuer einfache Aufnahmen oder sehr schwache Hardware; fehleranfaelliger.",
     ),
     WhisperModelOption(
         id="tiny",
         label="Tiny (minimal, nur zum Ausprobieren)",
-        min_vram_gb=0.0,
+        min_vram_gb=0.5,
         hinweis="Nur zum schnellen Ausprobieren geeignet, nicht fuer echte Protokolle empfohlen.",
     ),
 ]
 
-# CPU-Empfehlungen (kein GPU-Speicher erkannt), gestaffelt nach Arbeitsspeicher.
-_CPU_EMPFEHLUNG_MIT_VIEL_RAM = "small"
-_CPU_EMPFEHLUNG_STANDARD = "base"
-_CPU_RAM_SCHWELLE_GB = 16.0
+# Gemessener Bedarf von 'large-v3-turbo' (19.09.2026, NVIDIA RTX PRO 500,
+# Abschnitt von 10 Minuten -- also der laengste, der am Stueck verarbeitet
+# wird, siehe chunking_service.DEFAULT_CHUNK_LENGTH_SECONDS):
+#
+#   auf der GPU (float16):  2,26 GB Grafikspeicher
+#   auf der CPU  (int8)  :  2,04 GB Arbeitsspeicher
+#
+# Der Zuschlag deckt ab, was daneben noch Speicher braucht: die
+# Sprechertrennung (pyannote), der Desktop und andere Programme.
+TURBO_VRAM_BEDARF_GB = 2.26
+TURBO_RAM_BEDARF_GB = 2.04
+SPEICHER_ZUSCHLAG_GB = 1.5
 
 
 def empfehle_whisper_modell(vram_gb: float | None, ram_gb: float | None) -> str:
-    """Liefert die ID des empfohlenen Whisper-Modells anhand der erkannten
-    Hardware. Reine Heuristik, transparent nachvollziehbar -- der Nutzer
-    sieht diese Empfehlung in der Oberflaeche und kann sie jederzeit durch
-    ein anderes Modell aus ``WHISPER_MODELLE`` (oder eine freie Eingabe)
-    ersetzen."""
+    """Liefert die ID des empfohlenen Whisper-Modells.
+
+    Empfohlen wird IMMER ``large-v3-turbo`` -- unabhaengig von der Hardware.
+    Das ist keine Bequemlichkeit, sondern das Ergebnis von Messungen am
+    19.09.2026 auf einer echten deutschen Aufnahme:
+
+    * Turbo weicht nur **5,2 %** von ``large-v3`` ab, braucht aber statt
+      5,29 GB nur 2,26 GB und ist siebenmal schneller.
+    * ``medium`` ist durchgehend schlechter als ``small`` (11,2 % statt
+      10,0 % Abweichung), langsamer UND speicherhungriger -- es gibt keine
+      Hardware, auf der es die richtige Wahl waere.
+    * ``base`` (20,9 %) und ``tiny`` (30,9 %) sind fuer echte Protokolle
+      unbrauchbar: jedes fuenfte bzw. fast jedes dritte Wort weicht ab.
+    * Turbo laeuft auch ohne Grafikkarte schnell genug (3,8-fache
+      Echtzeit, 2,04 GB Arbeitsspeicher) -- der frueher uebliche Rueckgriff
+      auf kleinere Modelle im CPU-Betrieb ist damit hinfaellig.
+
+    Reicht der Speicher nicht, wird trotzdem Turbo empfohlen und der Nutzer
+    ueber ``speicherwarnung`` darauf hingewiesen, dass er Programme
+    schliessen sollte. Er kann in der Oberflaeche jederzeit ein anderes
+    Modell aus ``WHISPER_MODELLE`` waehlen (``small`` ist der genuegsame
+    Rueckfall, ``large-v3`` die Wahl fuer besonders schwieriges Material).
+
+    Die Parameter bleiben erhalten, damit die Aufrufer unveraendert
+    funktionieren; ausgewertet werden sie nur noch von
+    ``speicherwarnung``.
+    """
+    return WHISPER_MODEL_NAME
+
+
+def speicherwarnung(vram_gb: float | None, ram_gb: float | None) -> str | None:
+    """Warnt, wenn der Speicher fuer das empfohlene Modell knapp wird.
+
+    Gibt einen fertigen Hinweistext zurueck oder ``None``, wenn genug
+    Speicher da ist. Bewusst nur ein Hinweis und kein stiller Wechsel auf
+    ein schwaecheres Modell: Wer Programme schliesst, bekommt die volle
+    Qualitaet -- und wer das nicht will, waehlt selbst ein kleineres
+    Modell.
+    """
     if vram_gb is not None and vram_gb > 0:
-        for option in WHISPER_MODELLE:
-            if vram_gb >= option.min_vram_gb:
-                return option.id
-        return WHISPER_MODELLE[-1].id
+        noetig = TURBO_VRAM_BEDARF_GB + SPEICHER_ZUSCHLAG_GB
+        if vram_gb < noetig:
+            return (
+                f"Die Grafikkarte hat {vram_gb:.1f} GB Speicher. Fuer das "
+                f"empfohlene Modell '{WHISPER_MODEL_NAME}' werden rund "
+                f"{TURBO_VRAM_BEDARF_GB:.1f} GB gebraucht, dazu etwas Reserve "
+                "fuer die Sprechertrennung. Bitte andere Programme schliessen, "
+                "die die Grafikkarte belegen (Spiele, Videobearbeitung, "
+                "Browser mit vielen Registerkarten). Alternativ in der "
+                "Modellauswahl 'small' waehlen - das braucht deutlich weniger "
+                "Speicher, erkennt aber merklich ungenauer."
+            )
+        return None
 
-    # Keine GPU/kein VRAM erkannt -> CPU-Betrieb. Auf der CPU sind auch
-    # kleinere Modelle bereits deutlich langsamer als auf einer GPU; groessere
-    # Modelle werden hier bewusst nicht empfohlen (waeren zwar moeglich, aber
-    # in der Praxis zu langsam fuer eine ganze Aufnahme).
-    if ram_gb is not None and ram_gb >= _CPU_RAM_SCHWELLE_GB:
-        return _CPU_EMPFEHLUNG_MIT_VIEL_RAM
-    return _CPU_EMPFEHLUNG_STANDARD
+    if ram_gb is not None and ram_gb > 0:
+        noetig = TURBO_RAM_BEDARF_GB + SPEICHER_ZUSCHLAG_GB
+        if ram_gb < noetig:
+            return (
+                f"Der Rechner hat {ram_gb:.1f} GB Arbeitsspeicher. Fuer das "
+                f"empfohlene Modell '{WHISPER_MODEL_NAME}' werden rund "
+                f"{TURBO_RAM_BEDARF_GB:.1f} GB gebraucht. Bitte andere "
+                "Programme schliessen. Alternativ in der Modellauswahl "
+                "'small' waehlen - das braucht weniger Speicher, erkennt "
+                "aber merklich ungenauer."
+            )
+    return None
 
 
-def whisper_empfehlung_aus_diagnose(checks: list) -> str:
-    """Wie ``empfehle_whisper_modell``, liest die Werte aber direkt aus den
-    Ergebnissen von ``utils.diagnostics.run_diagnostics`` (Checks mit den
-    Schluesseln ``vram``/``ram`` und den Zahlenwerten in ``.extra``)."""
+def _speicher_aus_diagnose(checks: list) -> tuple[float | None, float | None]:
+    """Liest Grafik- und Arbeitsspeicher aus den Ergebnissen von
+    ``utils.diagnostics.run_diagnostics`` (Checks mit den Schluesseln
+    ``vram``/``ram`` und den Zahlenwerten in ``.extra``)."""
     vram_gb = None
     ram_gb = None
     for check in checks:
@@ -138,7 +198,20 @@ def whisper_empfehlung_aus_diagnose(checks: list) -> str:
             vram_gb = extra.get("vram_gb")
         elif getattr(check, "key", None) == "ram":
             ram_gb = extra.get("ram_gb")
+    return vram_gb, ram_gb
+
+
+def whisper_empfehlung_aus_diagnose(checks: list) -> str:
+    """Wie ``empfehle_whisper_modell``, aber mit den Werten aus der
+    Systemdiagnose."""
+    vram_gb, ram_gb = _speicher_aus_diagnose(checks)
     return empfehle_whisper_modell(vram_gb, ram_gb)
+
+
+def speicherwarnung_aus_diagnose(checks: list) -> str | None:
+    """Wie ``speicherwarnung``, aber mit den Werten aus der Systemdiagnose."""
+    vram_gb, ram_gb = _speicher_aus_diagnose(checks)
+    return speicherwarnung(vram_gb, ram_gb)
 
 
 def get_whisper_model_option(model_id: str) -> WhisperModelOption | None:

@@ -335,28 +335,40 @@ Im Einrichtungsassistenten (Schritt "Modell") und jederzeit im Hauptfenster
 (Dropdown "Whisper-Modell") stehen folgende Modelle zur Auswahl, absteigend
 nach Anspruch sortiert:
 
-| Modell-ID | Beschreibung | Empfohlen ab |
+| Modell-ID | Beschreibung | Braucht (gemessen) |
 |---|---|---|
-| `large-v3` | Beste Qualität, am langsamsten. Höchste Genauigkeit, auch bei Akzenten/Dialekten/Fachbegriffen. | ≥ 10 GB VRAM |
-| `large-v3-turbo` | **Empfohlener Standard.** Fast so genau wie Large v3, aber deutlich schneller und genügsamer. | ≥ 6 GB VRAM |
-| `distil-large-v3` | Sehr schnell und genügsam; primär für Englisch destilliert — für deutsche Aufnahmen ggf. spürbar ungenauer als Large v3(-Turbo). | ≥ 6 GB VRAM |
-| `medium` | Guter Kompromiss, solide mehrsprachige Qualität, läuft auch auf kleineren GPUs. | ≥ 5 GB VRAM |
-| `small` | Deutlich schneller, spürbar weniger genau. Auch für CPU-Betrieb geeignet. | ≥ 2 GB VRAM |
-| `base` | Sehr genügsam, nur für einfache Aufnahmen oder sehr schwache Hardware. | ≥ 1 GB VRAM |
-| `tiny` | Minimal, nur zum Ausprobieren, nicht für echte Protokolle empfohlen. | überall |
+| `large-v3` | Beste Qualität, am langsamsten. Für besonders schwieriges Material (starke Dialekte, viele Fachbegriffe) bewusst wählbar. | 5,29 GB VRAM |
+| `large-v3-turbo` | **Empfohlener Standard — immer.** Weicht nur 5,2 % von Large v3 ab, ist dabei rund siebenmal schneller. | 2,26 GB VRAM / 2,04 GB RAM |
+| `distil-large-v3` | Primär für Englisch destilliert — für deutsche Aufnahmen ungeeignet. | ~2 GB VRAM |
+| `medium` | **Nicht mehr empfohlen.** Gemessen schlechter als `small` (11,2 % statt 10,0 % Abweichung), dabei langsamer und speicherhungriger. | 2,29 GB VRAM |
+| `small` | Genügsamer Rückfall, wenn der Speicher wirklich nicht reicht. Spürbar ungenauer (10,0 %). | 0,85 GB VRAM / 1,23 GB RAM |
+| `base` | Für echte Protokolle unbrauchbar: jedes fünfte Wort weicht ab (20,9 %). | 0,35 GB VRAM |
+| `tiny` | Nur zum Ausprobieren: fast jedes dritte Wort weicht ab (30,9 %). | 0,23 GB VRAM |
 
-**Empfehlung ohne erkannte GPU (reiner CPU-Betrieb):** `small` bei ≥ 16 GB
-Arbeitsspeicher, sonst `base`.
+**Empfohlen wird immer `large-v3-turbo`** — auf jeder Grafikkarte und auch
+ohne Grafikkarte. Das ist keine Vereinfachung, sondern gemessen (19.09.2026,
+NVIDIA RTX PRO 500, echte deutsche Aufnahme von 10 Minuten, Abweichung
+jeweils gegenüber `large-v3`):
+
+* Turbo: **5,2 %** Abweichung, 2,26 GB, 26-fache Echtzeit auf der GPU
+* Ohne Grafikkarte läuft Turbo mit **3,8-facher Echtzeit** bei 2,04 GB
+  Arbeitsspeicher — der frühere Rückgriff auf kleinere Modelle im
+  CPU-Betrieb ist damit hinfällig.
+
+**Wenn der Speicher knapp ist**, wird trotzdem Turbo empfohlen und ein
+Hinweis angezeigt, andere Programme zu schließen. Es wird **nicht** still
+auf ein schwächeres Modell gewechselt: Wer Platz schafft, bekommt die volle
+Qualität, und wer das nicht will, wählt selbst `small`.
 
 Diese Liste ist eine kuratierte Auswahl bewährter Modelle, keine
 abschließende Einschränkung: Über "Eigene Modell-ID eingeben …" (im
 Einrichtungsassistenten) lässt sich jede andere gültige faster-whisper-/
 CTranslate2-Modell-ID verwenden (z. B. eine eigene Hugging-Face-Repo-ID).
 
-Die Empfehlung ist eine transparente, rein hardwarebasierte Heuristik
-(``services/model_service.py::empfehle_whisper_modell``) — sie entscheidet
-nichts automatisch endgültig, sondern schlägt nur vor; die Auswahl trifft
-immer der Nutzer. Die getroffene Wahl wird in `konfiguration.json`
+Die Empfehlung steht in ``services/model_service.py::empfehle_whisper_modell``,
+der Speicherhinweis in ``speicherwarnung`` — sie entscheiden nichts
+automatisch endgültig, sondern schlagen nur vor; die Auswahl trifft immer
+der Nutzer. Die getroffene Wahl wird in `konfiguration.json`
 gespeichert (Schlüssel `whisper_modell`) und bei jedem weiteren Start
 vorausgewählt, bis sie bewusst geändert wird.
 
@@ -535,7 +547,7 @@ mit dem CUDA-Index nicht mehr zusammenpasst.
 ```
 
 165 Tests decken u.a. ab: die hardwarebasierte Whisper-Modellempfehlung
-(VRAM-/RAM-Staffelung, CPU-Fallback, Diagnose-Auswertung), Chunk-Grenzen und
+(immer Turbo, Speicherhinweis, Diagnose-Auswertung), Chunk-Grenzen und
 10-Sekunden-Überlappung
 (inkl. des Beispiels aus dem Auftrag: Chunk 3 beginnt bei 00:19:40),
 Umrechnung lokaler in globale Zeitstempel, Entfernung eindeutiger

@@ -1,9 +1,12 @@
-"""Tests fuer die hardwarebasierte Whisper-Modellempfehlung.
+"""Tests fuer die Whisper-Modellempfehlung und die Speicherwarnung.
 
-Reine Entscheidungslogik (keine echte Hardware/kein Torch noetig) -- die
-Empfehlung soll bei mehr erkannter GPU-/VRAM-Leistung ein staerkeres
-Modell vorschlagen, bei weniger Leistung ein genuegsameres, und bei reinem
-CPU-Betrieb (kein VRAM erkannt) auf die RAM-Menge ausweichen."""
+Reine Entscheidungslogik (keine echte Hardware/kein Torch noetig).
+
+Seit den Messungen vom 19.09.2026 wird IMMER 'large-v3-turbo' empfohlen:
+Es weicht nur 5,2 % von 'large-v3' ab, braucht 2,26 statt 5,29 GB und
+laeuft selbst ohne Grafikkarte mit 3,8-facher Echtzeit. Reicht der
+Speicher knapp nicht, gibt es einen Hinweis statt eines stillen Wechsels
+auf ein schwaecheres Modell."""
 
 from __future__ import annotations
 
@@ -20,38 +23,50 @@ def test_whisper_modelle_katalog_hat_eindeutige_ids():
     assert len(ids) == len(set(ids))
 
 
-def test_empfehlung_bei_viel_vram_ist_das_staerkste_modell():
-    assert model_service.empfehle_whisper_modell(24.0, None) == "large-v3"
+def test_empfehlung_ist_immer_turbo_unabhaengig_von_der_hardware():
+    # Von der dicksten Karte bis zum Rechner ohne Grafikkarte: immer Turbo.
+    faelle = [(24.0, 64.0), (8.0, 32.0), (6.0, 16.0), (1.5, 8.0), (0.1, 4.0),
+              (None, 32.0), (None, 8.0), (None, None), (0.0, 32.0)]
+    for vram, ram in faelle:
+        assert model_service.empfehle_whisper_modell(vram, ram) == "large-v3-turbo", (vram, ram)
 
 
-def test_empfehlung_bei_mittlerem_vram_ist_turbo_variante():
-    assert model_service.empfehle_whisper_modell(8.0, None) == "large-v3-turbo"
+def test_empfehlung_entspricht_der_dokumentierten_standardkonstante():
+    # Frueher widersprachen sich beide: die Konstante sagte Turbo, die
+    # Heuristik empfahl ab 10 GB 'large-v3'.
+    assert model_service.empfehle_whisper_modell(24.0, 64.0) == model_service.WHISPER_MODEL_NAME
 
 
-def test_empfehlung_bei_wenig_vram_ist_ein_kleines_modell():
-    assert model_service.empfehle_whisper_modell(1.5, None) == "base"
+def test_keine_warnung_wenn_der_grafikspeicher_reicht():
+    assert model_service.speicherwarnung(6.0, 32.0) is None
 
 
-def test_empfehlung_bei_sehr_wenig_vram_ist_das_kleinste_modell():
-    assert model_service.empfehle_whisper_modell(0.1, None) == "tiny"
+def test_warnung_wenn_der_grafikspeicher_knapp_ist():
+    warnung = model_service.speicherwarnung(2.0, 32.0)
+    assert warnung is not None
+    assert "schliessen" in warnung
+    assert "small" in warnung
 
 
-def test_empfehlung_ohne_gpu_aber_viel_ram_ist_small():
-    assert model_service.empfehle_whisper_modell(None, 32.0) == "small"
+def test_keine_warnung_wenn_der_arbeitsspeicher_reicht():
+    assert model_service.speicherwarnung(None, 16.0) is None
 
 
-def test_empfehlung_ohne_gpu_und_wenig_ram_ist_base():
-    assert model_service.empfehle_whisper_modell(None, 8.0) == "base"
+def test_warnung_wenn_der_arbeitsspeicher_knapp_ist():
+    warnung = model_service.speicherwarnung(None, 3.0)
+    assert warnung is not None
+    assert "Arbeitsspeicher" in warnung
+    assert "schliessen" in warnung
 
 
-def test_empfehlung_ohne_jegliche_information_faellt_sicher_auf_base_zurueck():
-    assert model_service.empfehle_whisper_modell(None, None) == "base"
+def test_vorhandene_grafikkarte_hat_vorrang_vor_dem_arbeitsspeicher():
+    # Genug VRAM, wenig RAM -> die Transkription laeuft auf der GPU, also
+    # ist der Arbeitsspeicher nicht der Engpass.
+    assert model_service.speicherwarnung(8.0, 2.0) is None
 
 
-def test_empfehlung_null_vram_wird_wie_kein_gpu_behandelt():
-    # torch.cuda.get_device_properties liefert nie exakt 0, aber die
-    # Funktion soll auch mit diesem Randfall nicht abstuerzen.
-    assert model_service.empfehle_whisper_modell(0.0, 32.0) == "small"
+def test_ohne_jede_angabe_keine_warnung():
+    assert model_service.speicherwarnung(None, None) is None
 
 
 class _FakeCheck:
@@ -69,13 +84,23 @@ def test_empfehlung_aus_diagnose_liest_vram_und_ram_aus_den_checks():
     assert model_service.whisper_empfehlung_aus_diagnose(checks) == "large-v3-turbo"
 
 
-def test_empfehlung_aus_diagnose_ohne_vram_check_faellt_auf_ram_zurueck():
+def test_empfehlung_aus_diagnose_ohne_vram_check_bleibt_turbo():
     checks = [_FakeCheck("ram", {"ram_gb": 32.0})]
-    assert model_service.whisper_empfehlung_aus_diagnose(checks) == "small"
+    assert model_service.whisper_empfehlung_aus_diagnose(checks) == "large-v3-turbo"
 
 
 def test_empfehlung_aus_diagnose_ohne_jeden_hinweis_stuerzt_nicht_ab():
-    assert model_service.whisper_empfehlung_aus_diagnose([]) == "base"
+    assert model_service.whisper_empfehlung_aus_diagnose([]) == "large-v3-turbo"
+
+
+def test_warnung_aus_diagnose_liest_die_werte_aus_den_checks():
+    checks = [_FakeCheck("vram", {"vram_gb": 1.0}), _FakeCheck("ram", {"ram_gb": 32.0})]
+    warnung = model_service.speicherwarnung_aus_diagnose(checks)
+    assert warnung is not None and "1.0 GB" in warnung
+
+
+def test_warnung_aus_diagnose_ohne_checks_ist_still():
+    assert model_service.speicherwarnung_aus_diagnose([]) is None
 
 
 def test_get_whisper_model_option_findet_bekanntes_modell():

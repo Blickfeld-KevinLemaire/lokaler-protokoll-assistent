@@ -53,6 +53,15 @@ def load_whisper_model(
     die Aufrufer unveraendert bleiben; ausgewertet wird er in
     ``transcribe_audio_array``.
     """
+    # torch MUSS vor faster_whisper importiert werden. Erst der Import legt
+    # die CUDA-Bibliotheken von PyTorch in den Suchpfad; ohne ihn findet
+    # CTranslate2 'cublas64_12.dll' nicht und die Transkription bricht auf
+    # der GPU ab. Bisher ging das nur gut, weil 'pipeline_service' vorher
+    # zufaellig 'get_device_and_compute_type' aufruft, das torch importiert -
+    # eine unsichtbare Abhaengigkeit von der Aufrufreihenfolge.
+    # Am 19.09.2026 gemessen: ohne diesen Import scheitert die GPU, mit ihm
+    # laeuft sie.
+    import torch  # type: ignore  # noqa: F401
     from faster_whisper import WhisperModel  # type: ignore
 
     return WhisperModel(model_name, device=device, compute_type=compute_type)
