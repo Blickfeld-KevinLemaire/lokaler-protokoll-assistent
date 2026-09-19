@@ -157,14 +157,15 @@ nicht prüfen).
 
 ### 9. Die CI kostet Geld
 
-Privates Repository auf einem kostenlosen Konto: 2000 Minuten im Monat, und
-**Windows-Läufer zählen doppelt**. Deshalb laufen Linting, Typprüfung und die
-Sicherheitsprüfungen auf Linux, ein neuer Push bricht den vorherigen Lauf ab,
-und der nächtliche Build fällt aus, wenn es keine neuen Commits gab.
+Das Repository ist **öffentlich**. Damit sind GitHub-Actions-Minuten
+unbegrenzt und kostenlos, auch auf Windows-Läufern. Die Sparmaßnahmen von
+früher (Prüfungen auf Linux, Abbruch überholter Läufe, nächtlicher Build nur
+bei neuen Commits) sind trotzdem geblieben — sie machen die Rückmeldung
+schneller, nicht nur billiger. Bitte nicht ohne Grund rückgängig machen.
 
-Keine zusätzlichen Windows-Jobs ohne Not. CodeQL und die Geheimnis-Erkennung
-von GitHub sind auf diesem Tarif nicht verfügbar — diese Aufgabe übernehmen
-gitleaks, die `S`-Regeln von ruff und pip-audit.
+Wird das Repository jemals wieder auf privat gestellt, kippt das: dann gelten
+2000 Minuten im Monat, Windows zählt doppelt, und CodeQL, Secret Scanning und
+die Branch-Schutzregeln fallen weg.
 
 `ci.yml` läuft bei jedem Push auf **jeden** Branch, damit ein Stand schon
 geprüft ist, bevor daraus ein Pull Request wird. Damit ein Branch mit offenem
@@ -172,11 +173,24 @@ Pull Request nicht doppelt geprüft wird, ist die `concurrency`-Gruppe auf den
 Branchnamen geschlüsselt — nicht auf `github.ref`. Diese Gruppe bitte so
 lassen.
 
-**Die CI kann melden, aber nicht blockieren.** Erforderliche Statusprüfungen
-(„required status checks") sind Teil der Branch-Schutzregeln, und die gibt es
-für ein privates Repository auf einem kostenlosen Konto nicht. Ein roter Lauf
-verhindert das Zusammenführen also nicht automatisch — vor dem Merge selbst
-nachsehen.
+**Die CI blockiert das Zusammenführen.** Für `main` sind Branch-Schutzregeln
+aktiv; diese Prüfungen müssen grün sein:
+
+* Format, Linting und Typen
+* Tests (Windows, Python 3.10) und (Windows, Python 3.11)
+* Geheimnisse und Schwachstellen
+* Analyse (Python) — CodeQL
+
+Dazu kommt `strict`: Der Branch muss auf dem Stand von `main` sein, bevor er
+zusammengeführt werden darf. Das ist kein Schikane-Schalter — genau dieser Fall
+ist schon einmal schiefgegangen: Ein Pull Request war grün, in der Zwischenzeit
+kam auf `main` ein Test dazu, der einen Import benutzte, den der Pull Request
+entfernt hatte. Git hat beides konfliktfrei zusammengeführt, die Datei war
+trotzdem kaputt.
+
+Beide Administratoren können die Regeln umgehen (`enforce_admins` ist aus),
+damit sich niemand aussperrt. Das ist als Notausgang gedacht, nicht als
+Normalweg.
 
 ## Weitere Dateien, die mitgepflegt werden wollen
 

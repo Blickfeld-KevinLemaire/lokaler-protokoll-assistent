@@ -371,9 +371,15 @@ start htmlcov/index.html
 | Bei einem Versions-Tag `v*` (`.github/workflows/release.yml`) | Windows-Build und Veroeffentlichung als GitHub-Release |
 | Montags (`.github/dependabot.yml`) | Dependabot schlaegt Aktualisierungen der Abhaengigkeiten vor |
 
-Die Tests laufen unter Windows, weil die Anwendung nur dort eingesetzt wird.
-Linux-Laeufer verbrauchen weniger vom monatlichen Actions-Kontingent und
-uebernehmen deshalb die plattformunabhaengigen Pruefungen.
+Dazu kommt CodeQL (`.github/workflows/codeql.yml`): statische Codeanalyse von
+GitHub, bei jedem Pull Request und zusaetzlich montags.
+
+Die Tests laufen unter Windows, weil die Anwendung nur dort eingesetzt wird;
+die plattformunabhaengigen Pruefungen laufen auf Linux, weil die Laeufer dort
+schneller starten.
+
+**Fuer `main` gelten Branch-Schutzregeln.** Zusammenfuehren ist erst moeglich,
+wenn alle Pruefungen gruen sind und der Branch auf dem Stand von `main` ist.
 
 ### Wissenswertes
 

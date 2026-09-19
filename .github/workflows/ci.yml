@@ -2,11 +2,11 @@ name: CI
 
 # Laeuft bei jedem Push und bei jedem Pull Request.
 #
-# Kostenhinweis: Auf einem privaten Repository zaehlen Windows-Laeufer doppelt
-# (2 Minuten Kontingent pro Minute Laufzeit), Linux-Laeufer einfach. Deshalb
-# laufen Linting, Typpruefung und die Sicherheitspruefungen auf Linux; nur die
-# Tests laufen auf Windows - das ist die einzige Plattform, fuer die die
-# Anwendung gedacht ist, und genau dort sind zuletzt echte Fehler aufgefallen.
+# Das Repository ist oeffentlich, Actions-Minuten sind damit unbegrenzt. Die
+# Aufteilung bleibt trotzdem: Linting, Typpruefung und Sicherheitspruefungen
+# auf Linux (startet schneller), die Tests auf Windows - das ist die einzige
+# Plattform, fuer die die Anwendung gedacht ist, und genau dort sind zuletzt
+# echte Fehler aufgefallen.
 
 on:
   # Ohne Branch-Filter: JEDER Push auf JEDEN Branch wird geprueft, auch auf

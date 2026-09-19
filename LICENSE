@@ -45,12 +45,6 @@ damages arising from its use is excluded to the extent permitted by law.
 
 ---
 
-Hinweis fuer die Rechteinhaber: Bitte einmal pruefen, ob "Kevin Lemaire" die
-gewuenschte Bezeichnung ist - das Repository lief zuvor unter dem Konto
-"kevinweisbrod". Bei einer spaeteren Vermarktung lohnt sich hier ausserdem
-eine anwaltliche Durchsicht; dieser Text ist eine klare, aber einfache
-Formulierung und ersetzt keine Rechtsberatung.
-
 Fremde Abhaengigkeiten (PySide6, WhisperX, pyannote.audio, FFmpeg, Ollama und
 weitere) stehen unter ihren jeweils eigenen Lizenzen. Diese gelten unabhaengig
 von diesem Text weiter.
