@@ -1,6 +1,6 @@
 """Tests fuer die Ablaufsteuerung von pipeline_service.run_pipeline.
 
-Die schweren ML-Backends (WhisperX, pyannote, Ollama) werden durch
+Die schweren ML-Backends (faster-whisper, pyannote, Ollama) werden durch
 einfache Stub-Funktionen ersetzt, damit Resume-Verhalten und
 Fehlerbehandlung eines einzelnen Chunks ohne GPU/echte Modelle getestet
 werden koennen. FFmpeg-Aufrufe werden ebenfalls durch Stubs ersetzt, da in

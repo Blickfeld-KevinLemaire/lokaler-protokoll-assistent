@@ -3,7 +3,7 @@ selbsterklaerend nutzbar, ohne manuelle Vorbereitung:
 
 1. Willkommen -- kurze Erklaerung, Datenschutzhinweis.
 2. Einrichtung -- FFmpeg/Ollama werden bei Bedarf automatisch heruntergeladen,
-   danach WhisperX-/Alignment-/pyannote-/Ollama-Modell.
+   danach Whisper-/pyannote-/Ollama-Modell.
 3. Systemtest -- zeigt, ob alles vorhanden und einsatzbereit ist.
 4. Eingabeordner -- der Nutzer waehlt den Ordner mit seinen Aufnahmen.
 
@@ -73,7 +73,7 @@ class WelcomePage(QWidget):
         steps = QLabel(
             "So funktioniert die Einrichtung:\n\n"
             "1. Benötigte Programme und Modelle werden automatisch heruntergeladen\n"
-            "    (WhisperX, pyannote, ggf. FFmpeg/Ollama) -- passend zu diesem Rechner.\n"
+            "    (faster-whisper, pyannote, ggf. FFmpeg/Ollama) -- passend zu diesem Rechner.\n"
             "2. Ein Systemtest prüft, ob alles vorhanden und einsatzbereit ist.\n"
             "3. Sie wählen einen Ordner mit Ihren Aufnahmen aus.\n"
             "4. Danach können Sie sofort mit der Transkription beginnen.",
@@ -136,7 +136,7 @@ class InstallWorker(QThread):
                 "ollama_modell": model_download_service.download_ollama_model(self.log_line.emit),
             }
             self.log_line.emit(
-                "\nHinweis: Das WhisperX-Transkriptionsmodell wird im naechsten Schritt "
+                "\nHinweis: Das Transkriptionsmodell wird im naechsten Schritt "
                 "('Modell') anhand einer Hardware-Empfehlung ausgewaehlt und heruntergeladen."
             )
 
@@ -366,7 +366,7 @@ class ModelChoicePage(QWidget):
 
         self.custom_model_edit = QLineEdit(self)
         self.custom_model_edit.setPlaceholderText(
-            "z. B. eine eigene WhisperX-/CTranslate2-Modell-ID oder Hugging-Face-Repo-ID"
+            "z. B. eine eigene faster-whisper-/CTranslate2-Modell-ID oder Hugging-Face-Repo-ID"
         )
         self.custom_model_edit.setVisible(False)
         layout.addWidget(self.custom_model_edit)
@@ -420,7 +420,7 @@ class ModelChoicePage(QWidget):
         self.custom_model_edit.setVisible(is_custom)
         if is_custom:
             self.hinweis_label.setText(
-                "Freie Eingabe: Die Modell-ID muss von WhisperX (faster-whisper/"
+                "Freie Eingabe: Die Modell-ID muss von faster-whisper ("
                 "CTranslate2) unterstützt werden."
             )
         else:

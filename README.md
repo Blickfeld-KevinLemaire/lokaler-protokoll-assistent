@@ -42,7 +42,7 @@ Es gibt drei unabhaengige Programme in diesem Repository:
   die Konsolenversion und ergaenzt die separate Nachbearbeitung per
   Systemprompt (lokal oder per API-Modell).
 - **`lokale_windows_app/`** - eine komplett eigenstaendige, **vollstaendig
-  lokale** Windows-Anwendung (WhisperX + pyannote.audio statt OpenRouter):
+  lokale** Windows-Anwendung (faster-whisper + pyannote.audio statt OpenRouter):
   keinerlei Cloud-/API-Anbindung, keine Uebertragung von Audio- oder
   Videodaten. Eigene GUI (PySide6), eigener Installationsweg, eigene
   Ausgabedateien. Siehe [`lokale_windows_app/README.md`](lokale_windows_app/README.md)
@@ -56,7 +56,7 @@ gemeinsamen Ordner).
 
 | | `protokoll_assistent_gui.py` (Cloud) | `lokale_windows_app/` (vollstaendig lokal) |
 |---|---|---|
-| Transkription | frei waehlbarer API-Endpunkt (Standard: OpenRouter / `microsoft/mai-transcribe-2`) | WhisperX (lokal, GPU empfohlen) |
+| Transkription | frei waehlbarer API-Endpunkt (Standard: OpenRouter / `microsoft/mai-transcribe-2`) | faster-whisper (lokal, GPU empfohlen) |
 | Sprechertrennung | ueber den gewaehlten Cloud-Anbieter | pyannote.audio (lokal) |
 | Datenuebertragung | Audio wird an den gewaehlten Endpunkt gesendet | keine - alles laeuft auf dem Geraet |
 | Nachbearbeitung | lokal (Ollama) oder frei waehlbarer API-Endpunkt | lokal (Ollama), dreistufig |
@@ -393,7 +393,7 @@ uv sync --python 3.11
 ```
 
 Das legt eine `.venv` an - getrennt von der `.venv-whisperx`, in der die
-KI-Pakete (PyTorch, WhisperX, pyannote) liegen. Diese schweren Pakete sind
+KI-Pakete (PyTorch, faster-whisper, pyannote) liegen. Diese schweren Pakete sind
 bewusst **nicht** Teil der Entwicklungsumgebung: die Tests ersetzen sie
 durchgehend, damit sie ohne GPU in Sekunden laufen.
 

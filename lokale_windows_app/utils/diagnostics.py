@@ -3,7 +3,7 @@
 Diese Funktionen werden sowohl von der GUI ("Systemdiagnose"-Dialog) als
 auch vom eigenstaendigen Einrichtungsskript ``Systempruefung.py`` verwendet.
 Jede Pruefung ist einzeln gekapselt und faengt fehlende Abhaengigkeiten
-(z.B. Torch/WhisperX/pyannote/Ollama auf einem Entwicklungsrechner ohne
+(z.B. Torch/faster-whisper/pyannote/Ollama auf einem Entwicklungsrechner ohne
 GPU) ab, damit eine einzelne fehlende Komponente nie das gesamte
 Diagnoseergebnis zum Absturz bringt.
 
@@ -159,12 +159,22 @@ def check_ffprobe() -> DiagnosticCheck:
 
 
 def check_whisperx_import() -> DiagnosticCheck:
-    try:
-        import whisperx  # type: ignore  # noqa: F401
+    """Prueft die Transkriptionsbibliothek.
 
-        return DiagnosticCheck("whisperx", "WhisperX", True, "Import erfolgreich.", critical=True)
+    Der Name bleibt aus Ruecksicht auf bestehende Aufrufer und gespeicherte
+    Diagnoseberichte erhalten; geprueft wird seit dem Wegfall von WhisperX
+    'faster_whisper' (WhisperX war ohnehin nur eine Huelle darum).
+    """
+    try:
+        import faster_whisper  # type: ignore  # noqa: F401
+
+        return DiagnosticCheck(
+            "whisperx", "faster-whisper", True, "Import erfolgreich.", critical=True
+        )
     except ImportError as error:
-        return DiagnosticCheck("whisperx", "WhisperX", False, f"Import fehlgeschlagen: {error}", critical=True)
+        return DiagnosticCheck(
+            "whisperx", "faster-whisper", False, f"Import fehlgeschlagen: {error}", critical=True
+        )
 
 
 def check_pyannote_import() -> DiagnosticCheck:

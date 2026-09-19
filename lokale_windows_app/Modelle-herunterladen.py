@@ -1,5 +1,5 @@
 """Eigenstaendiges Konsolen-Skript zum einmaligen Herunterladen aller
-lokalen Modelle (WhisperX, Alignment, pyannote, Ollama).
+lokalen Modelle (Whisper-Modell, pyannote, Ollama).
 
 Die eigentliche Download-Logik lebt in
 ``services/model_download_service.py`` und wird identisch auch vom
@@ -31,7 +31,7 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         default=None,
         help=(
             f"Whisper-Modell-ID (Standard: {model_service.WHISPER_MODEL_NAME}). "
-            f"Kuratierte Auswahl: {modell_ids}. Andere gueltige WhisperX-/"
+            f"Kuratierte Auswahl: {modell_ids}. Andere gueltige faster-whisper-/"
             "CTranslate2-Modell-IDs sind ebenfalls erlaubt."
         ),
     )

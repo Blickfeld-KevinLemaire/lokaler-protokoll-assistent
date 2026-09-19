@@ -91,7 +91,7 @@ def find_ffprobe() -> Path | None:
 
 def ensure_ffmpeg_on_path() -> Path | None:
     """Stellt sicher, dass ``ffmpeg``/``ffprobe`` im PATH des aktuellen Prozesses
-    auffindbar sind (WhisperX ruft ``ffmpeg`` intern per Subprozessname auf).
+    auffindbar sind (die Normalisierung ruft ``ffmpeg`` per Subprozessname auf).
     Gibt den gefundenen ffmpeg-Pfad zurueck, oder ``None`` falls nicht gefunden.
     """
     global _last_path_extension

@@ -2,7 +2,7 @@ from services import model_download_service, ollama_service
 
 
 def test_download_whisper_and_alignment_reports_missing_import_cleanly():
-    # In dieser Testumgebung ist WhisperX nicht installiert -- die Funktion
+    # In dieser Testumgebung ist faster-whisper nicht installiert -- die Funktion
     # darf trotzdem nicht mit einem Traceback abstuerzen.
     messages = []
     result = model_download_service.download_whisper_and_alignment(messages.append)

@@ -81,7 +81,7 @@ def run_phase4_offline_check() -> bool:
 
     whisperx_check = diagnostics.check_whisperx_import()
     results["whisperx_import"] = whisperx_check.ok
-    print(f"WhisperX-Import: {'OK' if whisperx_check.ok else 'FEHLT'} -- {whisperx_check.detail}")
+    print(f"faster-whisper-Import: {'OK' if whisperx_check.ok else 'FEHLT'} -- {whisperx_check.detail}")
 
     pyannote_check = diagnostics.check_pyannote_import()
     results["pyannote_import"] = pyannote_check.ok

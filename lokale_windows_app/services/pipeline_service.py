@@ -9,7 +9,7 @@ Protokoll-Export -> Verarbeitungsbericht.
 Die eigentlichen ML-Aufrufe (Transkription, Diarisierung, Ollama) sind ueber
 Parameter austauschbar, damit die Ablaufsteuerung -- Fortsetzen nach Abbruch,
 Ueberspringen fertiger Chunks, Fehlerbehandlung eines einzelnen Chunks --
-unabhaengig von GPU/WhisperX/pyannote/Ollama getestet werden kann. Ohne
+unabhaengig von GPU/faster-whisper/pyannote/Ollama getestet werden kann. Ohne
 Angabe werden die echten lokalen Implementierungen verwendet.
 """
 
@@ -228,12 +228,11 @@ def run_pipeline(
             result = transcription_service.transcribe_audio_array(
                 whisper_model, audio_array, settings.batch_size, settings.language
             )
-            language_code = result.get("language", settings.language or "de")
-            align_model, metadata = transcription_service.load_align_model(language_code, device)
-            aligned = transcription_service.align_segments(
-                result["segments"], align_model, metadata, audio_array, device
-            )
-            return transcription_service.segments_to_plain(aligned)
+            # Frueher lief hier zusaetzlich 'whisperx.align'. Der Schritt ist
+            # mit dem Wegfall von WhisperX entfallen: faster-whisper liefert
+            # die Wortzeitstempel selbst, und die dabei erzeugten Wortdaten
+            # wurden im Projekt ohnehin nirgends gelesen.
+            return transcription_service.segments_to_plain(result)
 
     callbacks.on_stage("transkription", STAGE_LABELS["transkription"])
     chunk_segment_lists: list[list[dict[str, Any]]] = []
@@ -318,7 +317,7 @@ def run_pipeline(
         settings.source_path.stem,
         run_timestamp,
         created_iso,
-        f"WhisperX {settings.whisper_model}",
+        f"faster-whisper {settings.whisper_model}",
         settings.language or "automatisch erkannt",
         device_desc,
         processing_duration,

@@ -20,23 +20,24 @@ TokenProviderFn = Callable[[], str | None]
 
 def download_whisper_and_alignment(log: LogFn, model_name: str | None = None) -> bool:
     model_name = model_name or model_service.WHISPER_MODEL_NAME
-    log(f"WhisperX-Modell ({model_name}) und deutsches Alignment-Modell ...")
+    log(f"Whisper-Modell ({model_name}) ...")
     try:
-        import whisperx  # type: ignore
+        from faster_whisper import WhisperModel  # type: ignore
 
         device, compute_type = model_service.get_device_and_compute_type()
         log(f"Geraet: {device} ({compute_type})")
-        whisperx.load_model(model_name, device=device, compute_type=compute_type)
-        log("WhisperX-Modell verfuegbar.")
-
-        whisperx.load_align_model(language_code="de", device=device)
-        log("Alignment-Modell verfuegbar.")
+        # Das Anlegen laedt das Modell bei Bedarf herunter und legt es im
+        # Zwischenspeicher ab - genau das ist hier gewollt.
+        WhisperModel(model_name, device=device, compute_type=compute_type)
+        log("Whisper-Modell verfuegbar.")
+        # Ein eigenes Alignment-Modell wird nicht mehr gebraucht:
+        # faster-whisper liefert die Wortzeitstempel selbst.
         return True
     except ImportError as error:
-        log(f"FEHLER: WhisperX ist nicht installiert ({error}).")
+        log(f"FEHLER: faster-whisper ist nicht installiert ({error}).")
         return False
     except Exception as error:
-        log(f"FEHLER beim Laden von WhisperX/Alignment-Modell: {error}")
+        log(f"FEHLER beim Laden des Whisper-Modells: {error}")
         return False
 
 

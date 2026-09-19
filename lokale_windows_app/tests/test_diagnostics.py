@@ -1,4 +1,4 @@
-"""Diagnosepruefungen duerfen auch ohne GPU/WhisperX/pyannote/Ollama nicht
+"""Diagnosepruefungen duerfen auch ohne GPU/faster-whisper/pyannote/Ollama nicht
 abstuerzen -- fehlende Komponenten muessen als 'nicht verfuegbar' erkannt
 werden, statt eine Ausnahme auszuloesen."""
 

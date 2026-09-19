@@ -28,7 +28,7 @@ def test_txt_content_matches_expected_format():
     segments = export_service.attach_speaker_names(
         _sample_segments(), {"SPEAKER_00": "Sprecher 1", "SPEAKER_01": "Sprecher 2"}
     )
-    content = export_service.build_txt_content("aufnahme.mp3", "2026-01-01T10:00:00+01:00", "WhisperX large-v3-turbo", "de", 2, segments)
+    content = export_service.build_txt_content("aufnahme.mp3", "2026-01-01T10:00:00+01:00", "faster-whisper large-v3-turbo", "de", 2, segments)
     assert "PROTOKOLL-ASSISTENT" in content
     assert "[00:00:02.780 --> 00:00:17.180] Sprecher 1: Hallo zusammen." in content
     assert "[00:00:35.300 --> 00:00:37.160] Sprecher 2: Guten Tag." in content
@@ -61,7 +61,7 @@ def test_write_transcript_exports_creates_all_four_files_uniquely(tmp_path):
         "aufnahme",
         "20260101_100000",
         "2026-01-01T10:00:00+01:00",
-        "WhisperX large-v3-turbo",
+        "faster-whisper large-v3-turbo",
         "de",
         "cuda (RTX 3060 Ti)",
         12.5,
@@ -93,7 +93,7 @@ def test_reexport_with_new_names_does_not_require_retranscription(tmp_path):
     speaker_names = export_service.build_speaker_names(["SPEAKER_00", "SPEAKER_01"])
     paths = export_service.write_transcript_exports(
         tmp_path, "aufnahme.mp3", "aufnahme", "20260101_100000", "2026-01-01T10:00:00+01:00",
-        "WhisperX large-v3-turbo", "de", "cuda", 5.0, _sample_segments(), speaker_names,
+        "faster-whisper large-v3-turbo", "de", "cuda", 5.0, _sample_segments(), speaker_names,
     )
     new_paths = export_service.reexport_with_new_names(
         paths.json, {"SPEAKER_00": "Klaus Dauderstädt", "SPEAKER_01": "Tom Buhrow"}
@@ -117,7 +117,7 @@ def test_write_transcript_exports_with_diarization_disabled_omits_speakers(tmp_p
         "aufnahme",
         "20260101_100000",
         "2026-01-01T10:00:00+01:00",
-        "WhisperX large-v3-turbo",
+        "faster-whisper large-v3-turbo",
         "de",
         "cpu",
         5.0,

@@ -1,0 +1,40 @@
+# PyTorch fuer die selbstinstallierende Laufzeitumgebung der lokalen Anwendung.
+#
+# Diese Pakete kommen NICHT von PyPI, sondern von einem eigenen Index von
+# pytorch.org - je nach erkannter Karte (siehe select_torch_index_url in
+# 'services/environment_service.py'). Die Versionsnummern sind dort
+# dieselben wie auf PyPI, deshalb kann Dependabot diese Datei trotzdem
+# auswerten.
+#
+# WARUM HIER EINE VERSION STEHT
+# -----------------------------
+# Ohne Versionsangabe installiert der erste pip-Aufruf die neueste Fassung
+# aus dem CUDA-Index (zuletzt 2.14.0). Der zweite Aufruf installiert dann
+# WhisperX, das 'torch~=2.8.0' verlangt - und pip ersetzt den CUDA-Build
+# kommentarlos durch einen CPU-Build von PyPI. Danach ist die
+# GPU-Unterstuetzung weg, ohne jede Fehlermeldung.
+#
+# Gemessen am 19.09.2026 in einer echten Installation:
+#   nach Schritt 2:  torch 2.14.0+cu126
+#   nach Schritt 3:  torch 2.8.0+cpu     <- CUDA weg
+#
+# Die Fassungen hier muessen zu 'requirements-laufzeit.txt' passen.
+#
+# WARUM NICHT DIE NEUESTE FASSUNG
+# -------------------------------
+# CTranslate2 (ueber faster-whisper der Kern der Transkription) ist gegen
+# CUDA 12 gebaut und laedt 'cublas64_12.dll'. Ein PyTorch mit CUDA 13
+# (Index cu130) bringt stattdessen 'cublas64_13.dll' mit - die
+# Transkription bricht dann auf der GPU ab mit
+# 'Library cublas64_12.dll is not found or cannot be loaded'.
+# Am 19.09.2026 genau so gemessen.
+#
+# Es muss also ein CUDA-12-Build sein. Die neueste Fassung, die es in
+# beiden benutzten CUDA-12-Indizes gibt (cu126 und cu128), ist 2.11.0.
+#
+# Die Angabe hier muss deshalb zu dem passen, was die Pakete in
+# 'requirements-laufzeit.txt' verlangen. Genau das prueft
+# 'tools/laufzeit_pakete_pruefen.py' - und zwar fuer jeden der
+# eingestellten Indizes, damit alte wie neue Karten bedient werden.
+torch~=2.11.0
+torchaudio~=2.11.0

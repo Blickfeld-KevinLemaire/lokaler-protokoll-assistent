@@ -8,7 +8,7 @@ Ablauf beim allerersten Start auf einem neuen Rechner:
    weiterverwendet -- kein erneuter Download.
 2. Andernfalls wird unter 'runtime\\venv' eine eigene, private Python-
    Umgebung angelegt und dort automatisch alles Benoetigte installiert
-   (PyTorch passend zu erkannter GPU/CPU, WhisperX, pyannote.audio,
+   (PyTorch passend zu erkannter GPU/CPU, faster-whisper, pyannote.audio,
    PySide6, ...).
 3. Die Anwendung startet sich anschliessend in dieser Umgebung neu.
 

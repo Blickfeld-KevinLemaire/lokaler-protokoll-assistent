@@ -11,7 +11,7 @@ Zwei eigenständige Anwendungen, die sich nichts teilen außer der Sprache:
 | | Ordner | Technik |
 |---|---|---|
 | Cloud-Variante | Projektwurzel (`protokoll_assistent_gui.py`, `protokoll_assistent_v2.py`) | tkinter, Transkription über einen frei wählbaren API-Endpunkt |
-| Lokale Variante | `lokale_windows_app/` | PySide6, WhisperX + pyannote + Ollama, vollständig offline |
+| Lokale Variante | `lokale_windows_app/` | PySide6, faster-whisper + pyannote + Ollama, vollständig offline |
 
 Beide werden aktiv gepflegt. Die lokale Variante ist **kein** Nachfolger der
 Cloud-Variante — wer keine Daten aus der Hand geben will, nimmt die lokale;
@@ -73,7 +73,7 @@ gitleaks prüft in der CI auch die gesamte Versionsgeschichte.
 
 ### 4. Tests laufen ohne GPU, ohne Netz, ohne Modelle
 
-PyTorch, WhisperX und pyannote leben in `.venv-whisperx` und stehen
+PyTorch, faster-whisper und pyannote leben in `.venv-whisperx` und stehen
 absichtlich **nicht** in der `dev`-Gruppe von `pyproject.toml`. Die Dienste in
 `lokale_windows_app/services/` nehmen ihre ML-Aufrufe als Parameter entgegen,
 damit sie ersetzt werden können — dieses Muster beibehalten.

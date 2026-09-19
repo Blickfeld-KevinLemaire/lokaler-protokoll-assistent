@@ -6,7 +6,7 @@ manuell vorbereiteten Rechner:
 1. ``bootstrap.ensure_runtime_and_relaunch`` sorgt zuerst dafuer, dass eine
    lauffaehige Python-Umgebung existiert (vorhandene '.venv-whisperx' ODER
    automatisch angelegte 'runtime\\venv') und startet die Anwendung darin
-   neu. Diese Zeile MUSS vor jedem Import von PySide6/Torch/WhisperX stehen,
+   neu. Diese Zeile MUSS vor jedem Import von PySide6/Torch/faster-whisper stehen,
    da diese Pakete zum allerersten Start noch gar nicht installiert sein
    koennen.
 2. Danach zeigt die Anwendung einen Einrichtungsassistenten
