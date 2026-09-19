@@ -77,6 +77,11 @@ zwischenstaende/                         Rohantworten der Cloud-Transkription (W
 einstellungen/                           fachbegriffe.txt fuer Fachbegriffe/Eigennamen
 ```
 
+`einstellungen/fachbegriffe.txt` wird **nicht** ins Repository aufgenommen, weil
+dort Projektnamen und Nachnamen echter Personen stehen. Als Vorlage liegt
+`einstellungen/fachbegriffe.beispiel.txt` bei - einmal nach `fachbegriffe.txt`
+kopieren und ergaenzen.
+
 Diese Ordner gehoeren zur Cloud-Variante (`protokoll_assistent_v2.py` /
 `protokoll_assistent_gui.py`). `lokale_windows_app/` bringt eine eigene,
 vollstaendig getrennte Ordnerstruktur mit (siehe dort) und teilt sich
@@ -312,3 +317,65 @@ Installation bei).
 
 Die Konsolenversion (`protokoll_assistent_v2.py`) teilt Aufnahmen bewusst
 nicht auf und bleibt unveraendert.
+
+## Fuer die Weiterentwicklung (Tests, Linting, CI)
+
+Dieser Abschnitt richtet sich an alle, die am Code selbst arbeiten. Fuer die
+reine Benutzung der Anwendung wird davon nichts gebraucht - die Installation
+laeuft weiterhin ueber `Protokoll-Assistent-Einrichten.bat` bzw.
+`lokale_windows_app/setup_lokal.ps1`.
+
+### Einmalig einrichten
+
+Die Entwicklungswerkzeuge werden mit [uv](https://docs.astral.sh/uv/)
+verwaltet (`pyproject.toml` + `uv.lock`):
+
+```powershell
+winget install --id=astral-sh.uv       # falls uv noch fehlt
+uv sync --python 3.11
+```
+
+Das legt eine `.venv` an - getrennt von der `.venv-whisperx`, in der die
+KI-Pakete (PyTorch, WhisperX, pyannote) liegen. Diese schweren Pakete sind
+bewusst **nicht** Teil der Entwicklungsumgebung: die Tests ersetzen sie
+durchgehend, damit sie ohne GPU in Sekunden laufen.
+
+### Die drei Befehle
+
+```powershell
+uv run ruff check .      # Linting (mit --fix werden viele Funde direkt behoben)
+uv run mypy              # Typpruefung
+uv run pytest            # Tests inklusive Abdeckungsmessung
+```
+
+`uv run pytest` bricht ab, wenn die Testabdeckung unter 85 % faellt. Einen
+ausfuehrlichen Bericht als Webseite gibt es mit:
+
+```powershell
+uv run pytest --cov-report=html
+start htmlcov/index.html
+```
+
+### Was auf GitHub automatisch laeuft
+
+| Wann | Was |
+|---|---|
+| Bei jedem Push und Pull Request (`.github/workflows/ci.yml`) | Linting und Typpruefung (Linux), Tests unter Windows mit Python 3.10 **und** 3.11, Suche nach Zugangsdaten (gitleaks), Schwachstellenpruefung der Abhaengigkeiten (pip-audit) |
+| Jede Nacht (`.github/workflows/nightly.yml`) | Schwachstellenpruefung; zusaetzlich Tests und ein PyInstaller-Probelauf, falls es am Vortag Aenderungen gab |
+| Bei einem Versions-Tag `v*` (`.github/workflows/release.yml`) | Windows-Build und Veroeffentlichung als GitHub-Release |
+| Montags (`.github/dependabot.yml`) | Dependabot schlaegt Aktualisierungen der Abhaengigkeiten vor |
+
+Die Tests laufen unter Windows, weil die Anwendung nur dort eingesetzt wird.
+Linux-Laeufer verbrauchen weniger vom monatlichen Actions-Kontingent und
+uebernehmen deshalb die plattformunabhaengigen Pruefungen.
+
+### Wissenswertes
+
+* **Zeilenenden:** `.gitattributes` legt LF fest. Ohne das schreiben
+  Windows-Werkzeuge CRLF zurueck, und jede kleine Aenderung erscheint als
+  komplett neu geschriebene Datei.
+* **Fenstertests:** Die Tests oeffnen echte tkinter- und Qt-Fenster. Qt laeuft
+  dabei unsichtbar (`QT_QPA_PLATFORM=offscreen`).
+* **Geheimnisse:** Kein API-Schluessel und kein Hugging-Face-Token gehoert in
+  das Repository. Die Tests loeschen entsprechende Umgebungsvariablen
+  vorsorglich, und gitleaks prueft in der CI auch die Versionsgeschichte.

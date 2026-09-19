@@ -1,0 +1,83 @@
+name: Release-Build
+
+# Baut die Windows-Anwendung und haengt sie an ein GitHub-Release.
+#
+# Ausloeser: ein Tag der Form 'v1.2.3' - oder manuell ueber "Run workflow".
+#
+#   git tag v0.1.0
+#   git push origin v0.1.0
+#
+# WICHTIG: Dieser Build enthaelt KEINE KI-Modelle und auch nicht PyTorch/
+# WhisperX. Die gebaute Anwendung setzt voraus, dass auf dem Zielrechner die
+# Einrichtung nach 'lokale_windows_app/README.md' bereits gelaufen ist. Sie
+# ersetzt also den Einrichtungsassistenten nicht, sondern spart nur den
+# Python-Start.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write # noetig, um das Release anzulegen
+
+env:
+  UV_FROZEN: "1"
+
+jobs:
+  bauen:
+    name: Windows-EXE bauen
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - run: uv sync --python 3.11
+
+      - name: Tests vor dem Build
+        # Ein Release soll nie aus einem roten Stand entstehen.
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: uv run pytest
+
+      - name: PyInstaller ausfuehren
+        working-directory: lokale_windows_app
+        run: uv run pyinstaller --noconfirm protokoll_assistent_lokal.spec
+
+      - name: Archiv packen
+        working-directory: lokale_windows_app
+        shell: pwsh
+        run: |
+          $quelle = "dist\Protokoll-Assistent-Lokal"
+          if (-not (Test-Path $quelle)) {
+            Write-Error "Build-Ergebnis fehlt: $quelle"
+            exit 1
+          }
+          Compress-Archive -Path "$quelle\*" -DestinationPath "..\Protokoll-Assistent-Lokal-windows.zip"
+
+      - name: Als Artefakt ablegen
+        uses: actions/upload-artifact@v4
+        with:
+          name: Protokoll-Assistent-Lokal-windows
+          path: Protokoll-Assistent-Lokal-windows.zip
+          retention-days: 30
+
+      - name: Release anlegen
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: Protokoll-Assistent-Lokal-windows.zip
+          generate_release_notes: true
+          body: |
+            ## Hinweise zu diesem Build
+
+            * Die ZIP-Datei enthaelt **keine** KI-Modelle und kein PyTorch/WhisperX.
+            * Auf dem Zielrechner muss die Einrichtung nach
+              `lokale_windows_app/README.md` einmal gelaufen sein.
+            * Der Build wurde automatisch erstellt und **nicht** auf echter
+              Hardware mit GPU getestet. Bitte vor der Weitergabe einmal lokal
+              ausprobieren.

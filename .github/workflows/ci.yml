@@ -1,0 +1,133 @@
+name: CI
+
+# Laeuft bei jedem Push und bei jedem Pull Request.
+#
+# Kostenhinweis: Auf einem privaten Repository zaehlen Windows-Laeufer doppelt
+# (2 Minuten Kontingent pro Minute Laufzeit), Linux-Laeufer einfach. Deshalb
+# laufen Linting, Typpruefung und die Sicherheitspruefungen auf Linux; nur die
+# Tests laufen auf Windows - das ist die einzige Plattform, fuer die die
+# Anwendung gedacht ist, und genau dort sind zuletzt echte Fehler aufgefallen.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Ein neuer Push auf denselben Branch bricht den vorherigen Lauf ab.
+# Das spart spuerbar Kontingent.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Reproduzierbare Installation aus 'uv.lock'.
+  UV_FROZEN: "1"
+
+jobs:
+  qualitaet:
+    name: Format, Linting und Typen
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: uv einrichten
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Abhaengigkeiten installieren
+        run: uv sync --python 3.11
+
+      - name: Ruff (Linting)
+        run: uv run ruff check --output-format=github .
+
+      - name: Ruff (Formatierung pruefen)
+        # Nur ein Hinweis: Der bestehende Code wurde bewusst nicht komplett
+        # durchformatiert, damit die Versionsgeschichte lesbar bleibt.
+        continue-on-error: true
+        run: uv run ruff format --check --diff .
+
+      - name: mypy (Typpruefung)
+        run: uv run mypy
+
+  tests:
+    name: Tests (Windows, Python ${{ matrix.python-version }})
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Die Anwendung unterstuetzt ausdruecklich 3.10 und 3.11
+        # (siehe services/environment_service.py).
+        python-version: ["3.10", "3.11"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: uv einrichten
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Abhaengigkeiten installieren
+        run: uv sync --python ${{ matrix.python-version }}
+
+      - name: Tests mit Abdeckung
+        # Die Fenstertests brauchen eine Desktop-Sitzung; die haben die
+        # Windows-Laeufer von GitHub. Qt laeuft trotzdem unsichtbar.
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: uv run pytest --cov --cov-report=xml --cov-report=term-missing
+
+      - name: Abdeckungsbericht hochladen
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-py${{ matrix.python-version }}
+          path: coverage.xml
+          if-no-files-found: ignore
+          retention-days: 14
+
+  sicherheit:
+    name: Geheimnisse und Schwachstellen
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # gitleaks soll die ganze Historie sehen, nicht nur den letzten Commit.
+          fetch-depth: 0
+
+      - name: gitleaks (Suche nach Zugangsdaten im Code und in der Historie)
+        run: |
+          set -euo pipefail
+          VERSION=8.28.0
+          curl -sSfL -o gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/gitleaks_${VERSION}_linux_x64.tar.gz"
+          tar -xzf gitleaks.tar.gz gitleaks
+          ./gitleaks detect --source . --redact --verbose --exit-code 1
+
+      - name: uv einrichten
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Abhaengigkeiten installieren
+        run: uv sync --python 3.11
+
+      - name: pip-audit (bekannte Sicherheitsluecken in Abhaengigkeiten)
+        run: |
+          uv export --quiet --format requirements-txt --no-hashes --no-emit-project > abhaengigkeiten.txt
+          uv run pip-audit --requirement abhaengigkeiten.txt --strict
+
+      - name: pip-audit fuer die Anwender-Installation
+        # Das sind die Pakete, die die Einrichtungsskripte tatsaechlich
+        # installieren - sie stehen nicht in 'uv.lock'.
+        run: |
+          uv run pip-audit \
+            --requirement requirements.txt \
+            --requirement lokale_windows_app/requirements-local-gui.txt
