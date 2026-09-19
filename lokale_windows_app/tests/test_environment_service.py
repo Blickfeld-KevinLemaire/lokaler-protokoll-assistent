@@ -169,7 +169,12 @@ def test_paketlisten_sind_nicht_leer():
     # Ein Tippfehler im Dateinamen wuerde sonst still zu einer leeren
     # Installation fuehren.
     assert any(paket.startswith("torch") for paket in env.TORCH_PACKAGES)
-    assert any(paket.lower().startswith("whisperx") for paket in env.RUNTIME_PACKAGES)
+    assert any(paket.lower().startswith("faster-whisper") for paket in env.RUNTIME_PACKAGES)
+    assert any(paket.lower().startswith("pyannote") for paket in env.RUNTIME_PACKAGES)
+    # WhisperX hat den ganzen Abhaengigkeitsbaum festgenagelt und damit 17
+    # unbehebbare Sicherheitsluecken erzwungen - es darf nicht zurueckkehren,
+    # ohne dass das bewusst entschieden wird.
+    assert not any(paket.lower().startswith("whisperx") for paket in env.RUNTIME_PACKAGES)
 
 
 def test_pip_befehle_enthalten_die_pakete_aus_den_dateien():

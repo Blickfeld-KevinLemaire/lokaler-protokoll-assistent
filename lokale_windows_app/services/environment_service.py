@@ -27,7 +27,7 @@ SUPPORTED_PYTHON_VERSIONS = ((3, 10), (3, 11))
 #
 #   * cu126 fuer alles bis einschliesslich Ada/Hopper. Dieser Index bringt
 #     noch Kernel fuer aeltere Karten mit.
-#   * cu129 fuer Blackwell (Rechenfaehigkeit 12.0 und hoeher, also RTX 50xx
+#   * cu128 fuer Blackwell (Rechenfaehigkeit 12.0 und hoeher, also RTX 50xx
 #     und RTX PRO). Blackwell-Kernel (sm_120) gibt es erst ab CUDA 12.8 -
 #     cu126 kennt sie nicht. Umgekehrt lassen die neuen Indizes die
 #     aeltesten Karten fallen. Deshalb wird anhand der erkannten Karte
@@ -39,12 +39,17 @@ SUPPORTED_PYTHON_VERSIONS = ((3, 10), (3, 11))
 # durch einen PyPI-Build ersetzt - die GPU-Unterstuetzung war damit still
 # weg, ohne jede Fehlermeldung. 'tools/laufzeit_pakete_pruefen.py' prueft
 # genau das fuer beide Indizes.
+#
+# BEIDE Indizes muessen CUDA 12 sein: CTranslate2 (der Kern der
+# Transkription) laedt 'cublas64_12.dll'. Mit einem CUDA-13-Build (cu130)
+# bricht die Transkription auf der GPU ab - am 19.09.2026 gemessen.
 TORCH_CUDA_INDEX_URL = "https://download.pytorch.org/whl/cu126"
-TORCH_CUDA_BLACKWELL_INDEX_URL = "https://download.pytorch.org/whl/cu129"
+TORCH_CUDA_BLACKWELL_INDEX_URL = "https://download.pytorch.org/whl/cu128"
+
+TORCH_CPU_INDEX_URL = "https://download.pytorch.org/whl/cpu"
 
 # Ab dieser Rechenfaehigkeit ist eine Karte eine Blackwell-Karte.
 BLACKWELL_COMPUTE_CAPABILITY = (12, 0)
-TORCH_CPU_INDEX_URL = "https://download.pytorch.org/whl/cpu"
 
 # Die Paketlisten stehen bewusst in Textdateien neben der Anwendung und nicht
 # als Liste hier im Code: nur so sehen Dependabot und pip-audit sie. Als

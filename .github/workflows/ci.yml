@@ -165,4 +165,31 @@ jobs:
       - name: pip-audit auf den aufgeloesten Laufzeit-Paketen
         # '--no-deps': Die Liste ist bereits vollstaendig aufgeloest, es muss
         # nichts mehr nachgeschlagen werden.
-        run: uv run pip-audit --requirement laufzeit-aufgeloest.txt --no-deps
+        #
+        # Zwei Meldungen sind ausgenommen (Stand 19.09.2026). Beide lassen
+        # sich nicht beheben, und beide greifen in dieser Anwendung nicht.
+        # Der Schritt bleibt trotzdem blockierend, damit JEDE neue Meldung
+        # auffaellt - die Ausnahmen stehen hier sichtbar und nicht als
+        # stilles 'continue-on-error'.
+        #
+        # PYSEC-2025-194 (CVE-2025-3000, torch): Speicherfehler in
+        #   'torch.jit.script'. Behoben erst in torch 2.13.0 - die gibt es in
+        #   keinem CUDA-12-Index, und CUDA 12 ist Pflicht (CTranslate2 laedt
+        #   'cublas64_12.dll', siehe requirements-torch.txt). Nicht
+        #   erreichbar: Weder dieses Projekt noch faster-whisper, pyannote
+        #   oder speechbrain rufen 'jit.script' auf. Der Angriff setzt
+        #   ausserdem lokale Rechte voraus (CVSS AV:L/PR:L, Auswirkung
+        #   durchgehend "niedrig") - wer die hat, hat ohnehin alles, was die
+        #   Anwendung auch hat.
+        # PYSEC-2026-3447 (CVE-2026-59890, setuptools): Betrifft das BAUEN
+        #   von Quellpaketen ueber 'MANIFEST.in' unter macOS (APFS/HFS+,
+        #   Unicode-Normalisierung). Diese Anwendung laeuft nur unter Windows
+        #   und baut keine Quellpakete. Behoben in setuptools 83.0.0, aber
+        #   torch 2.11.0 verlangt selbst 'setuptools<82'.
+        #
+        # Beim naechsten PyTorch-Wechsel bitte pruefen, ob die Ausnahmen noch
+        # gebraucht werden.
+        run: >
+          uv run pip-audit --requirement laufzeit-aufgeloest.txt --no-deps
+          --ignore-vuln PYSEC-2025-194
+          --ignore-vuln PYSEC-2026-3447

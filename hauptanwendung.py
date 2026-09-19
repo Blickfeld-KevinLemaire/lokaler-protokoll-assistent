@@ -1,6 +1,6 @@
 """Hauptanwendung -- Startpunkt zur Auswahl zwischen den beiden Wegen:
 
-1. Lokal arbeiten: startet 'lokale_windows_app/app.py' (WhisperX + pyannote,
+1. Lokal arbeiten: startet 'lokale_windows_app/app.py' (faster-whisper + pyannote,
    vollstaendig offline). Beim allerersten Start dort laufen automatisch der
    Einrichtungsassistent (Systemtest, Modellempfehlung/-download) und die
    selbstinstallierende Laufzeitumgebung durch.
@@ -68,7 +68,7 @@ class HauptanwendungFenster:
             titel="Lokal (vollständig offline)",
             beschreibung=(
                 "Transkription und Sprechertrennung laufen komplett auf diesem "
-                "Computer (WhisperX + pyannote.audio). Es werden keine Audio- "
+                "Computer (faster-whisper + pyannote.audio). Es werden keine Audio- "
                 "oder Videodaten übertragen.\n\n"
                 "Beim allerersten Start richtet sich die Anwendung selbst ein: "
                 "Systemtest, Empfehlung eines passenden Whisper-Modells anhand "
@@ -137,7 +137,7 @@ class HauptanwendungFenster:
         self._starte_prozess(
             [sys.executable, str(LOKAL_ENTRY)],
             cwd=LOKAL_ENTRY.parent,
-            beschreibung="Lokale Anwendung (WhisperX)",
+            beschreibung="Lokale Anwendung (faster-whisper)",
         )
 
     def starte_api(self) -> None:

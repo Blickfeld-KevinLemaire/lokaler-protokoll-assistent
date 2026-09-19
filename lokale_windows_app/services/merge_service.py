@@ -77,7 +77,7 @@ def merge_chunk_into_result(
 
         # Beide Segmente liegen im gemeinsamen Ueberlappungsfenster -- das
         # allein macht sie zu Duplikat-Kandidaten. Eine zusaetzliche exakte
-        # Zeitueberschneidung wird nicht verlangt, da WhisperX denselben
+        # Zeitueberschneidung wird nicht verlangt, da das Transkriptionsmodell denselben
         # gesprochenen Inhalt in den beiden ueberlappenden Chunks nicht
         # zwingend auf identische Sekundenbruchteile schneidet.
         best_similarity = 0.0

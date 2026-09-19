@@ -3,14 +3,40 @@
 # 'services/environment_service.py'.
 #
 # Warum als Datei und nicht als Liste im Code: So sehen Dependabot und
-# pip-audit diese Abhaengigkeiten. Als Python-Liste waren sie fuer beide
-# unsichtbar - ausgerechnet die groessten und sicherheitsrelevantesten
-# Pakete des Projekts.
+# pip-audit diese Abhaengigkeiten. Als Python-Liste waren ausgerechnet die
+# groessten und sicherheitsrelevantesten Pakete des Projekts fuer beide
+# unsichtbar.
 #
-# PyTorch steht bewusst NICHT hier, sondern in 'requirements-torch.txt':
-# es wird von einem anderen Index installiert.
+# WARUM NICHT MEHR WhisperX
+# -------------------------
+# WhisperX ist nur eine Huelle um faster-whisper und hat den ganzen Rest
+# der Abhaengigkeiten festgenagelt: 'torch~=2.8.0' und
+# 'huggingface-hub<1.0.0'. Damit waren 17 bekannte Sicherheitsluecken
+# unvermeidbar (torch, transformers, nltk), und keine davon liess sich
+# beheben - WhisperX 3.8.6 ist die neueste Fassung.
+#
+# Ohne WhisperX loest derselbe Funktionsumfang auf torch 2.14 auf, und
+# 'transformers' sowie 'nltk' entfallen ganz. pip-audit meldet dann:
+# "No known vulnerabilities found".
+#
+# Was dabei wegfaellt: die Feinausrichtung der Wortzeitstempel
+# ('whisperx.align'). Die dabei erzeugten Wortdaten wurden im ganzen
+# Projekt nirgends gelesen; die Segmentzeiten liefert faster-whisper mit
+# 'word_timestamps=True' selbst. Die Sprechertrennung bleibt unveraendert -
+# sie laeuft ueber pyannote.audio und eigenen Code in
+# 'services/speaker_merge_service.py'.
+# PyTorch steht hier NOCH EINMAL - mit derselben Angabe wie in
+# 'requirements-torch.txt'. Das ist kein Versehen: Der zweite pip-Aufruf
+# sieht nur diese Datei. Ohne die Grenze hier wuerde pip das von
+# pyannote.audio verlangte, neuere PyTorch von PyPI nachziehen und damit
+# den im ersten Schritt installierten CUDA-Build ersetzen - die
+# GPU-Unterstuetzung waere still weg. 'tools/laufzeit_pakete_pruefen.py'
+# prueft, dass beide Angaben uebereinstimmen.
+torch~=2.11.0
+torchaudio~=2.11.0
+
 PySide6>=6.6,<7
-whisperx>=3.1
-pyannote.audio>=3.1
+faster-whisper>=1.2
+pyannote.audio>=4.0
 huggingface_hub>=0.23
 python-docx>=1.1

@@ -52,7 +52,7 @@ aufgebaut — ähnlich wie man es von heutiger Desktop-Software gewohnt ist:
    Anwendung **automatisch selbst ein**: sie legt eine eigene, private
    Umgebung an (`runtime\venv`) und installiert dort PyTorch passend zur
    erkannten Grafikkarte (oder für reinen CPU-Betrieb, falls keine
-   NVIDIA-GPU gefunden wird), WhisperX, pyannote.audio, PySide6 usw. Dabei
+   NVIDIA-GPU gefunden wird), faster-whisper, pyannote.audio, PySide6 usw. Dabei
    erscheint ein kleines Fortschrittsfenster mit Protokoll — das kann beim
    allerersten Mal je nach Internetverbindung einige Minuten dauern.
 2. Danach öffnet sich der **Einrichtungsassistent** in der Anwendung selbst:
@@ -88,7 +88,7 @@ Einzige echte Voraussetzung auf einem **neuen** PC:
   (<https://www.python.org/downloads/> — beim Installieren „Add python.exe
   to PATH" aktivieren).
 
-Alles Weitere (FFmpeg, PyTorch, WhisperX, pyannote.audio, PySide6, Ollama
+Alles Weitere (FFmpeg, PyTorch, faster-whisper, pyannote.audio, PySide6, Ollama
 inkl. Modell) wird von der Anwendung selbst automatisch eingerichtet, wie
 oben beschrieben. Für gute Geschwindigkeit wird eine NVIDIA-GPU mit
 aktuellem Treiber empfohlen (erfolgreich getestet z.B. mit RTX 3060 Ti,
@@ -100,13 +100,19 @@ die Anwendung auf der CPU weiter (deutlich langsamer, aber funktionsfähig).
 | Karte | Beschleunigung | Woher PyTorch kommt |
 |---|---|---|
 | NVIDIA bis Ada/Hopper (Rechenfähigkeit < 12.0) | ja | Index `cu126` |
-| NVIDIA Blackwell (RTX 50xx, RTX PRO, Rechenfähigkeit ≥ 12.0) | ja | Index `cu129` |
+| NVIDIA Blackwell (RTX 50xx, RTX PRO, Rechenfähigkeit ≥ 12.0) | ja | Index `cu128` |
 | AMD, Intel, keine Grafikkarte | nein — CPU | Index `cpu` |
 
 Die Anwendung fragt die Rechenfähigkeit beim Treiber ab (`nvidia-smi`) und
 wählt den passenden Index selbst. Das ist nötig, weil **kein einziger
 CUDA-Index alle Karten bedient**: Blackwell-Kernel (`sm_120`) gibt es erst
 ab CUDA 12.8, ältere Karten fallen in den neuen Indizes dagegen weg.
+
+Beide Indizes sind **CUDA 12** — das ist Pflicht, kein Zufall: CTranslate2
+(über faster-whisper der Kern der Transkription) lädt `cublas64_12.dll`.
+Mit einem CUDA-13-Build läuft die Installation sauber durch, und erst die
+erste Transkription bricht ab mit „Library cublas64_12.dll is not found or
+cannot be loaded".
 
 **AMD-Grafikkarten können hier nicht beschleunigen**, und das lässt sich
 auch nicht nachrüsten:
@@ -133,7 +139,8 @@ der Installer angeboten, falls Ollama fehlt.
 
 **Referenzrechner mit bereits vorhandener `.venv-whisperx`:** Wurde auf
 diesem PC bereits manuell eine virtuelle Umgebung mit WhisperX 3.8.6,
-PyTorch 2.8.0+cu128, CUDA 12.8 und pyannote.audio eingerichtet und liegt sie
+PyTorch 2.8.0+cu128, CUDA 12.8 und pyannote.audio eingerichtet (so hiess
+die Umgebung, als die Anwendung noch WhisperX benutzte) und liegt sie
 NEBEN dem Anwendungsordner, erkennt die Anwendung dies automatisch und
 verwendet sie direkt weiter (kein erneuter Download):
 
@@ -171,7 +178,7 @@ lokale_windows_app\
         chunking_service.py         Zehn-Minuten-Chunk-Planung
         manifest_service.py         Arbeitsordner/Manifest, Fortsetzbarkeit
         ffmpeg_service.py           FFmpeg/ffprobe-Suche, -Download, Normalisierung
-        transcription_service.py    WhisperX-Python-API
+        transcription_service.py    faster-whisper-Python-API
         diarization_service.py      pyannote (In-Memory-Waveform)
         merge_service.py            Globale Zeitstempel, Overlap-Dedup
         speaker_merge_service.py    Sprecherzuordnung über Chunk-Grenzen
@@ -209,7 +216,7 @@ lokale_windows_app\
     Einrichtung-Lokal.ps1           Fortgeschrittener Weg: gefuehrte 5-Phasen-Einrichtung
     Anwendung-starten.ps1           Fortgeschrittener Weg: Start nur nach vollständiger Einrichtung
     Systempruefung.py               Phase 1 + Phase 4 (Systemcheck/Offline-Check)
-    Modelle-herunterladen.py        Phase 3 (WhisperX/Alignment/pyannote/Ollama)
+    Modelle-herunterladen.py        Phase 3 (Whisper-Modell/pyannote/Ollama)
     Einrichtungsstatus.json         wird von 'Einrichtung-Lokal.ps1' erzeugt (kein Bestandteil des ZIP)
 
     setup_lokal.ps1                 Nur Python-Umgebung, setzt vorhandene '.venv-whisperx' voraus
@@ -233,7 +240,7 @@ lokale_windows_app\
    ```
 3. **Einrichtung abwarten**: Beim allerersten Start richtet sich die
    Anwendung automatisch ein (private Python-Umgebung, PyTorch passend zu
-   GPU/CPU, WhisperX, pyannote.audio, PySide6). Ein Fortschrittsfenster
+   GPU/CPU, faster-whisper, pyannote.audio, PySide6). Ein Fortschrittsfenster
    zeigt den Verlauf.
 4. Im sich öffnenden **Einrichtungsassistenten**: FFmpeg/Ollama werden bei
    Bedarf automatisch heruntergeladen, danach die KI-Modelle. Fehlt ein
@@ -278,7 +285,7 @@ lokale_windows_app\
 - **Systemprompt bearbeiten**: öffnet `einstellungen\systemprompt_protokoll.txt`
   zur Bearbeitung, mit Reset-Funktion auf den mitgelieferten Standard.
 - **Systemdiagnose**: prüft Python, PyTorch, CUDA/GPU (informativ — CPU
-  funktioniert auch), FFmpeg, WhisperX-/pyannote-Import, Modell-Cache,
+  funktioniert auch), FFmpeg, faster-whisper-/pyannote-Import, Modell-Cache,
   HF_TOKEN (nur Ja/Nein), Ollama, Schreibzugriff.
 - **Start/Abbrechen**: Verarbeitung läuft in einem Hintergrund-Thread, die
   Oberfläche friert nicht ein. Abbruch wirkt nach dem aktuellen Chunk.
@@ -311,7 +318,7 @@ TXT-Format-Beispiel:
 PROTOKOLL-ASSISTENT – LOKALES VOLLTRANSKRIPT MIT SPRECHERTRENNUNG
 Quelldatei: dbb_TEST_10_Minuten.mp3
 Erstellt: 2026-01-01T10:00:00+01:00
-Transkriptionsmodell: WhisperX large-v3-turbo
+Transkriptionsmodell: large-v3-turbo (faster-whisper)
 Verarbeitung: vollständig lokal
 Erkannte Sprache: de
 Erkannte Sprecher: 5
@@ -343,7 +350,7 @@ Arbeitsspeicher, sonst `base`.
 
 Diese Liste ist eine kuratierte Auswahl bewährter Modelle, keine
 abschließende Einschränkung: Über "Eigene Modell-ID eingeben …" (im
-Einrichtungsassistenten) lässt sich jede andere gültige WhisperX-/
+Einrichtungsassistenten) lässt sich jede andere gültige faster-whisper-/
 CTranslate2-Modell-ID verwenden (z. B. eine eigene Hugging-Face-Repo-ID).
 
 Die Empfehlung ist eine transparente, rein hardwarebasierte Heuristik
@@ -417,7 +424,7 @@ jeder Auswertung angesehen, geändert und zurückgesetzt werden.
 powershell -ExecutionPolicy Bypass -File .\build_windows.ps1
 ```
 
-Erstellt einen **One-Directory-Build** (kein One-File, da WhisperX/PyTorch/CUDA
+Erstellt einen **One-Directory-Build** (kein One-File, da faster-whisper/PyTorch/CUDA
 dafür ungeeignet groß sind) unter `dist\Protokoll-Assistent-Lokal\`. Startpunkt:
 `Protokoll-Assistent-Lokal.exe`. Modelldateien werden **nicht** in den Build
 kopiert — die EXE verwendet Ihren vorhandenen Hugging-Face-/Ollama-Cache. In
@@ -427,21 +434,21 @@ Eingabeordner-Auswahl.
 
 **Wichtig:** Diese EXE konnte in der Entwicklungsumgebung dieses Auftrags
 **nicht** mit echten Modellen getestet werden (kein Windows, keine
-NVIDIA-GPU, WhisperX/pyannote nicht installierbar). Was tatsächlich geprüft
+NVIDIA-GPU, faster-whisper/pyannote nicht installierbar). Was tatsächlich geprüft
 wurde: Die PyInstaller-Spezifikation wurde probeweise mit PySide6 (ohne
-WhisperX/PyTorch) gebaut — der Build lief fehlerfrei durch, und die
+faster-whisper/PyTorch) gebaut — der Build lief fehlerfrei durch, und die
 resultierende Anwendung startete tatsächlich bis zur vollständigen
 Oberfläche (Bootstrap wurde dabei korrekt als „bereits gebündelt"
 übersprungen). Bitte auf Ihrem Rechner nach dem Build zusätzlich prüfen:
 
 1. `dist\Protokoll-Assistent-Lokal\Protokoll-Assistent-Lokal.exe` startet und
    zeigt Einrichtungsassistent bzw. Datenschutzhinweis.
-2. Systemdiagnose in der Oberfläche zeigt PyTorch/WhisperX/pyannote als „OK".
+2. Systemdiagnose in der Oberfläche zeigt PyTorch/faster-whisper/pyannote als „OK".
 3. Ein-Minuten-Testdatei (`dbb_TEST_1_Minute.mp3`) läuft vollständig durch.
 4. Zehn-Minuten-Testdatei (`dbb_TEST_10_Minuten.mp3`) läuft vollständig durch
    inkl. Chunking, Zusammenführung und Ollama-Protokoll.
 
-Meldet PyInstaller `ModuleNotFoundError` für ein WhisperX-/pyannote-
+Meldet PyInstaller `ModuleNotFoundError` für ein faster-whisper-/pyannote-
 Zusatzpaket, ergänzen Sie es in der Liste `PACKAGES_TO_COLLECT` am Anfang von
 `protokoll_assistent_lokal.spec`.
 
@@ -465,7 +472,7 @@ powershell -ExecutionPolicy Bypass -File .\Anwendung-starten.ps1
 - **Phase 2** (`setup_lokal.ps1`): setzt eine bereits vorhandene
   `.venv-whisperx` voraus und installiert dort nur die GUI-/Build-Extras
   (`requirements-local-gui.txt`) sowie die pyannote-Korrektur.
-- **Phase 3** (`Modelle-herunterladen.py`): WhisperX (Standard:
+- **Phase 3** (`Modelle-herunterladen.py`): faster-whisper (Standard:
   `large-v3-turbo`, mit `--modell <id>` anpassbar -- siehe
   [Verfügbare Whisper-Modelle](#verfügbare-whisper-modelle)), Alignment,
   pyannote, `ollama pull qwen3:8b`.
@@ -572,7 +579,7 @@ künstlich erzeugte Testdaten verwendet — **keine echten Sprachaufnahmen**.
 | FFmpeg nicht gefunden | Wird automatisch heruntergeladen; sonst Meldung |
 | Kein Python 3.10/3.11 gefunden | Klare Meldung mit Download-Link, kein Absturz |
 | CUDA nicht verfügbar | Kein Fehler — Verarbeitung läuft auf der CPU weiter |
-| GPU-Speicher reicht nicht | Fehlermeldung aus WhisperX/pyannote, keine Rohdaten geloggt |
+| GPU-Speicher reicht nicht | Fehlermeldung aus faster-whisper/pyannote, keine Rohdaten geloggt |
 | Modell fehlt im Offline-Modus | Meldung; einmaliger Download nur nach bewusster Freigabe |
 | HF_TOKEN fehlt bei Download | Verdeckte Abfrage, keine Speicherung |
 | Ollama fehlt | Installer wird heruntergeladen und geöffnet, Nutzer schließt ihn ab |
@@ -598,7 +605,7 @@ dieses Skript **nicht** automatisch bei jedem Start auf.
 ## Was hier bereits geprüft wurde und was Sie selbst prüfen müssen
 
 **In dieser Entwicklungsumgebung geprüft** (Linux, ohne GPU, ohne
-WhisperX/PyTorch/pyannote/Ollama vorinstalliert):
+faster-whisper/PyTorch/pyannote/Ollama vorinstalliert):
 
 - Alle Python-Module kompilieren fehlerfrei (`py_compile`).
 - 165 automatisierte pytest-Tests laufen grün (reine Logik: Chunking,
@@ -628,19 +635,19 @@ WhisperX/PyTorch/pyannote/Ollama vorinstalliert):
   gebaute EXE überspringt den Bootstrap vollständig, ein fehlgeschlagener
   Installationsschritt bricht sauber ab statt weiterzumachen.
 - Die PyInstaller-Spezifikation wurde probeweise gebaut (mit PySide6, ohne
-  WhisperX/PyTorch) und die daraus gebaute Anwendung startete fehlerfrei bis
+  faster-whisper/PyTorch) und die daraus gebaute Anwendung startete fehlerfrei bis
   zur Oberfläche, mit korrekt übersprungenem Bootstrap.
 
 **Nur auf einem echten Windows-Rechner testbar** (nicht behauptet, hier
 getestet worden zu sein):
 
 - Der tatsächliche automatische Download/Installation von PyTorch (GPU- oder
-  CPU-Variante), WhisperX, pyannote.audio auf einem wirklich neuen PC ohne
+  CPU-Variante), faster-whisper, pyannote.audio auf einem wirklich neuen PC ohne
   vorbereitete Umgebung.
-- Tatsächliche WhisperX-Transkription, pyannote-Diarisierung und
+- Tatsächliche faster-whisper-Transkription, pyannote-Diarisierung und
   Ollama-Protokollerstellung mit echten Audiodateien.
 - Der automatische FFmpeg- und Ollama-Installer-Download.
-- Die gebaute `.exe` selbst (PyInstaller-Bündelung von WhisperX/PyTorch/CUDA).
+- Die gebaute `.exe` selbst (PyInstaller-Bündelung von faster-whisper/PyTorch/CUDA).
 - Alle PowerShell-Skripte (`Start-Protokoll-Assistent.ps1`,
   `Einrichtung-Lokal.ps1`, `Anwendung-starten.ps1`, `setup_lokal.ps1`,
   `start_lokal.ps1`, `check_pyannote_fix.ps1`, `build_windows.ps1`) —

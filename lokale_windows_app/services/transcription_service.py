@@ -1,15 +1,23 @@
-"""WhisperX-Transkription ueber die Python-API (kein Kommandozeilen-Aufruf).
+"""Transkription ueber faster-whisper (Python-API, kein Kommandozeilenaufruf).
 
-Audio wird bewusst vorab per ``whisperx.load_audio`` in den Speicher
-geladen (numpy-Array, 16kHz mono). Dieses Array wird sowohl fuer die
-Transkription als auch -- als Torch-Tensor verpackt -- fuer die
-Sprechertrennung (``diarization_service``) verwendet. Dadurch muss
-pyannote die Datei nicht selbst ueber TorchCodec oeffnen, was die im
-Auftrag beschriebene FFmpeg-9/TorchCodec-Inkompatibilitaet umgeht.
+Audio wird bewusst vorab in den Speicher geladen (numpy-Array, 16kHz mono).
+Dieses Array wird sowohl fuer die Transkription als auch -- als Torch-Tensor
+verpackt -- fuer die Sprechertrennung (``diarization_service``) verwendet.
+Dadurch muss pyannote die Datei nicht selbst ueber TorchCodec oeffnen, was
+die im Auftrag beschriebene FFmpeg-9/TorchCodec-Inkompatibilitaet umgeht.
 
-Alle schweren Importe (torch, whisperx) erfolgen lazy innerhalb der
-Funktionen, damit dieses Modul auf einem Rechner ohne diese
-Abhaengigkeiten wenigstens importiert werden kann.
+Frueher lief das ueber WhisperX. WhisperX ist aber nur eine Huelle um
+faster-whisper und hat den ganzen Abhaengigkeitsbaum festgenagelt
+('torch~=2.8.0', 'huggingface-hub<1.0.0'); dadurch waren 17 bekannte
+Sicherheitsluecken unvermeidbar. Seit dem direkten Aufruf von
+faster-whisper meldet pip-audit keine Luecken mehr. Die Feinausrichtung
+der Wortzeitstempel ('whisperx.align') faellt damit weg -- die dabei
+erzeugten Wortdaten wurden im Projekt nirgends gelesen, und die
+Wortzeitstempel liefert faster-whisper mit 'word_timestamps=True' selbst.
+
+Alle schweren Importe erfolgen lazy innerhalb der Funktionen, damit dieses
+Modul auf einem Rechner ohne diese Abhaengigkeiten wenigstens importiert
+werden kann.
 """
 
 from __future__ import annotations
@@ -20,10 +28,16 @@ from typing import Any
 
 def load_audio_array(path: Path):
     """Laedt eine (bereits normalisierte oder chunk-geschnittene) WAV-Datei
-    als 16kHz-Mono-numpy-Array -- identisch zu WhisperX' eigenem Loader."""
-    import whisperx  # type: ignore
+    als 16kHz-Mono-numpy-Array.
 
-    return whisperx.load_audio(str(path))
+    ``decode_audio`` gehoert zu faster-whisper und benutzt PyAV, also die
+    mitgelieferten Bibliotheken -- es wird KEIN ffmpeg-Programm auf dem
+    Rechner gebraucht. Das Ergebnis entspricht dem frueheren
+    ``whisperx.load_audio``.
+    """
+    from faster_whisper.audio import decode_audio  # type: ignore
+
+    return decode_audio(str(path), sampling_rate=16000)
 
 
 def load_whisper_model(
@@ -32,14 +46,16 @@ def load_whisper_model(
     compute_type: str,
     language: str | None,
 ):
-    import whisperx  # type: ignore
+    """Laedt das Whisper-Modell.
 
-    return whisperx.load_model(
-        model_name,
-        device=device,
-        compute_type=compute_type,
-        language=language,
-    )
+    ``language`` gehoert bei faster-whisper nicht zum Modell, sondern zum
+    einzelnen Transkriptionsaufruf. Der Parameter bleibt erhalten, damit
+    die Aufrufer unveraendert bleiben; ausgewertet wird er in
+    ``transcribe_audio_array``.
+    """
+    from faster_whisper import WhisperModel  # type: ignore
+
+    return WhisperModel(model_name, device=device, compute_type=compute_type)
 
 
 def transcribe_audio_array(
@@ -48,41 +64,51 @@ def transcribe_audio_array(
     batch_size: int = 4,
     language: str | None = None,
 ) -> dict[str, Any]:
-    kwargs: dict[str, Any] = {"batch_size": batch_size}
+    """Transkribiert ein Audio-Array und liefert die frueher von WhisperX
+    bekannte Ergebnisform ``{"segments": [...], "language": "de"}``.
+
+    faster-whisper gibt die Segmente als Generator zurueck; er wird hier
+    vollstaendig ausgewertet, damit die Aufrufer wie bisher eine Liste
+    bekommen. ``batch_size`` steuert die Stapelverarbeitung, sofern die
+    installierte Fassung sie unterstuetzt.
+    """
+    kwargs: dict[str, Any] = {
+        "word_timestamps": True,
+        "vad_filter": True,
+    }
     if language:
         kwargs["language"] = language
-    return model.transcribe(audio_array, **kwargs)
 
+    segments, info = model.transcribe(audio_array, **kwargs)
 
-def load_align_model(language_code: str, device: str):
-    import whisperx  # type: ignore
+    gesammelt: list[dict[str, Any]] = []
+    for segment in segments:
+        gesammelt.append(
+            {
+                "start": float(segment.start),
+                "end": float(segment.end),
+                "text": str(segment.text),
+                "words": [
+                    {
+                        "word": wort.word,
+                        "start": float(wort.start),
+                        "end": float(wort.end),
+                    }
+                    for wort in (segment.words or [])
+                ],
+            }
+        )
 
-    align_model, metadata = whisperx.load_align_model(language_code=language_code, device=device)
-    return align_model, metadata
-
-
-def align_segments(
-    segments: list[dict[str, Any]],
-    align_model,
-    metadata,
-    audio_array,
-    device: str,
-) -> dict[str, Any]:
-    import whisperx  # type: ignore
-
-    return whisperx.align(
-        segments,
-        align_model,
-        metadata,
-        audio_array,
-        device,
-        return_char_alignments=False,
-    )
+    return {
+        "segments": gesammelt,
+        "language": getattr(info, "language", language or "de"),
+    }
 
 
 def segments_to_plain(result: dict[str, Any]) -> list[dict[str, Any]]:
-    """Wandelt das WhisperX-Ergebnis in die interne, einfache Segmentform
-    ``{"start", "end", "text", "speaker"}`` um (lokale Chunk-Zeitstempel)."""
+    """Wandelt das Transkriptionsergebnis in die interne, einfache
+    Segmentform ``{"start", "end", "text", "speaker"}`` um (lokale
+    Chunk-Zeitstempel)."""
     plain = []
     for segment in result.get("segments", []):
         plain.append(

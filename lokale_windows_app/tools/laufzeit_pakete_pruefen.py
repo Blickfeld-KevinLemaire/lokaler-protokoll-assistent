@@ -152,6 +152,40 @@ def passt_torch_angabe(aufgeloest: str) -> bool:
     return passt
 
 
+def sind_cuda12_indizes() -> bool:
+    """Prueft, dass die CUDA-Indizes CUDA 12 sind.
+
+    CTranslate2 -- ueber faster-whisper der Kern der Transkription -- ist
+    gegen CUDA 12 gebaut und laedt 'cublas64_12.dll'. Ein PyTorch mit
+    CUDA 13 (Index 'cu130') bringt stattdessen 'cublas64_13.dll' mit; die
+    Transkription bricht dann auf der GPU ab mit "Library cublas64_12.dll
+    is not found or cannot be loaded". Am 19.09.2026 genau so gemessen --
+    die Installation lief sauber durch, erst die erste Transkription
+    scheiterte.
+    """
+    passt = True
+    for name, index_url in (
+        ("bis Ada/Hopper", env.TORCH_CUDA_INDEX_URL),
+        ("Blackwell", env.TORCH_CUDA_BLACKWELL_INDEX_URL),
+    ):
+        treffer = re.search(r"/cu(\d)(\d+)/?$", index_url)
+        if treffer is None:
+            passt = False
+            print(f"   UNKLAR: Aus '{index_url}' laesst sich die CUDA-Fassung nicht lesen.")
+        elif treffer.group(1) != "1" or not index_url.rstrip("/").endswith(
+            tuple(f"cu12{ziffer}" for ziffer in "0123456789")
+        ):
+            passt = False
+            print(
+                f"   FALSCH: Index {name} ist kein CUDA-12-Build ({index_url}).\n"
+                f"          CTranslate2 laedt 'cublas64_12.dll'; mit CUDA 13\n"
+                f"          bricht die Transkription auf der GPU ab."
+            )
+        else:
+            print(f"   {name}: {index_url} ist CUDA 12.")
+    return passt
+
+
 def main() -> int:
     zerleger = argparse.ArgumentParser(description=__doc__)
     zerleger.add_argument(
@@ -208,6 +242,10 @@ def main() -> int:
 
     print("\n3) Passt die Angabe in 'requirements-torch.txt' dazu?")
     if not passt_torch_angabe(aufgeloest):
+        fehlt = True
+
+    print("\n4) Sind die CUDA-Indizes CUDA 12?")
+    if not sind_cuda12_indizes():
         fehlt = True
 
     if fehlt:

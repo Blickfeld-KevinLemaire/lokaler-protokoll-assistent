@@ -1,6 +1,6 @@
-"""Modell-/Cache-Verwaltung fuer WhisperX und pyannote.
+"""Modell-/Cache-Verwaltung fuer faster-whisper und pyannote.
 
-Alle schweren Importe (torch, whisperx, huggingface_hub, pyannote) erfolgen
+Alle schweren Importe (torch, faster_whisper, huggingface_hub, pyannote) erfolgen
 bewusst erst innerhalb der Funktionen ("lazy import"), damit dieses Modul
 auch ohne installierte GPU-Abhaengigkeiten importiert und dessen reine
 Hilfsfunktionen getestet werden koennen.
@@ -34,11 +34,11 @@ class WhisperModelOption:
 
 # Absteigend sortiert nach Anspruch (staerkstes zuerst) -- die
 # Empfehlungslogik in ``empfehle_whisper_modell`` nutzt genau diese
-# Reihenfolge. Alle Eintraege sind Standard-Modellnamen, die WhisperX
-# (ueber faster-whisper/CTranslate2) direkt entgegennimmt; ein eigenes
+# Reihenfolge. Alle Eintraege sind Standard-Modellnamen, die
+# faster-whisper (ueber CTranslate2) direkt entgegennimmt; ein eigenes
 # Herunterladen/Konvertieren ist nicht noetig. Zusaetzlich zu dieser Liste
 # kann der Nutzer in der Oberflaeche auch eine beliebige andere gueltige
-# WhisperX-/CTranslate2-Modell-ID frei eingeben (z.B. eine eigene
+# faster-whisper-/CTranslate2-Modell-ID frei eingeben (z.B. eine eigene
 # Hugging-Face-Repo-ID) -- die Liste ist also eine kuratierte Auswahl
 # bewaehrter Modelle, keine abschliessende Einschraenkung.
 WHISPER_MODELLE: list[WhisperModelOption] = [
@@ -170,7 +170,7 @@ def check_model_cache() -> ModelAvailability:
         pyannote_ok = False
         missing.append(PYANNOTE_MODEL_NAME)
 
-    # WhisperX/faster-whisper verwaltet seinen eigenen Modell-Cache
+    # faster-whisper verwaltet seinen eigenen Modell-Cache
     # (typischerweise ueber ctranslate2); ein direkter Cache-Scan ist dort
     # nicht über huggingface_hub moeglich. Der tatsaechliche Ladeversuch in
     # transcription_service liefert im Fehlerfall eine verstaendliche

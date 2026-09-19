@@ -92,11 +92,19 @@ dem jeweiligen Urheber.
 |---|---|---|
 | FFmpeg | LGPL-2.1+ oder GPL-2.0+, je nach Build | Die ueblichen Windows-Builds sind GPL. Deshalb wird FFmpeg **nicht** mitgeliefert, sondern vom Anwender bereitgestellt oder auf seinen Wunsch heruntergeladen. |
 | PyTorch, torchaudio | BSD-3-Clause | in `.venv-whisperx` |
-| WhisperX | BSD-4-Clause | in `.venv-whisperx` |
-| faster-whisper, CTranslate2 | MIT | in `.venv-whisperx` |
+| faster-whisper, CTranslate2 | MIT | Transkription; ersetzt seit 19.09.2026 WhisperX (siehe unten) |
+| PyAV (`av`) | BSD-3-Clause | Audio-Dekodierung fuer faster-whisper |
 | pyannote.audio | MIT | in `.venv-whisperx` |
-| huggingface_hub, transformers | Apache-2.0 | in `.venv-whisperx` |
+| huggingface_hub | Apache-2.0 | Modell-Download |
 | Ollama | MIT | eigenstaendiges Programm |
+
+**Warum kein WhisperX mehr:** WhisperX ist eine Huelle um faster-whisper und
+hat den gesamten Abhaengigkeitsbaum festgenagelt (`torch~=2.8.0`,
+`huggingface-hub<1.0.0`). Dadurch waren 17 bekannte Sicherheitsluecken in
+`torch`, `transformers` und `nltk` unvermeidbar, und keine davon liess sich
+beheben -- WhisperX 3.8.6 ist die neueste Fassung. Ohne WhisperX loest
+derselbe Funktionsumfang auf `torch` 2.14 auf; `transformers` und `nltk`
+entfallen ganz, und `pip-audit` meldet keine Luecken mehr.
 
 ---
 
