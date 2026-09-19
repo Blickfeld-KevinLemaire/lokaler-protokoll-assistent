@@ -29,8 +29,9 @@ dist/
 dist-probe/
 *.egg-info/
 
-# Von der CI erzeugte Liste fuer pip-audit
+# Von der CI erzeugte Listen fuer pip-audit
 abhaengigkeiten.txt
+laufzeit-aufgeloest.txt
 
 # ---------------------------------------------------------------------------
 # Geheimnisse und persoenliche Einstellungen

@@ -137,3 +137,32 @@ jobs:
           uv run pip-audit \
             --requirement requirements.txt \
             --requirement lokale_windows_app/requirements-local-gui.txt
+
+  laufzeit_pakete:
+    name: Laufzeit-Pakete der lokalen Anwendung
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: uv einrichten
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Abhaengigkeiten installieren
+        run: uv sync --python 3.11
+
+      - name: Passen die Laufzeit-Pakete zusammen?
+        # Die lokale Anwendung installiert sich beim ersten Start selbst -
+        # aus zwei Quellen (pytorch.org und PyPI). Dieser Schritt prueft
+        # ohne Installation, ob die Pakete untereinander passen UND ob es
+        # die geforderte PyTorch-Fassung in den eingestellten Indizes gibt.
+        # Ohne diese Pruefung faellt erst beim Anwender auf, dass der
+        # CUDA-Build kommentarlos durch einen PyPI-Build ersetzt wurde.
+        run: uv run python lokale_windows_app/tools/laufzeit_pakete_pruefen.py --ausgabe laufzeit-aufgeloest.txt
+
+      - name: pip-audit auf den aufgeloesten Laufzeit-Paketen
+        # '--no-deps': Die Liste ist bereits vollstaendig aufgeloest, es muss
+        # nichts mehr nachgeschlagen werden.
+        run: uv run pip-audit --requirement laufzeit-aufgeloest.txt --no-deps

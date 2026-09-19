@@ -187,16 +187,37 @@ def prepare_offline_mode(allow_download: bool) -> None:
         enable_offline_mode()
 
 
-def get_device_and_compute_type(requested_device: str = "cuda") -> tuple[str, str]:
-    """Liefert (device, compute_type). Faellt kontrolliert auf CPU zurueck,
-    wenn CUDA angefordert, aber nicht verfuegbar ist."""
+def cuda_kann_wirklich_rechnen() -> bool:
+    """Prueft, ob auf der GPU tatsaechlich gerechnet werden kann.
+
+    ``torch.cuda.is_available()`` allein genuegt dafuer NICHT: Passt der
+    CUDA-Build nicht zur Kartengeneration -- etwa ein cu126-Build auf einer
+    Blackwell-Karte --, meldet es trotzdem ``True``. Erst die erste echte
+    Rechnung scheitert dann mit "no kernel image is available for execution
+    on the device", und zwar mitten in der Transkription.
+
+    Deshalb wird hier einmal wirklich gerechnet. Das kostet Millisekunden
+    und erspart einen Abbruch nach langer Laufzeit.
+    """
     try:
         import torch  # type: ignore
 
-        if requested_device == "cuda" and torch.cuda.is_available():
-            return "cuda", "float16"
-    except ImportError:
-        pass
+        if not torch.cuda.is_available():
+            return False
+        probe = torch.zeros(8, 8, device="cuda")
+        (probe + 1).sum().item()
+        return True
+    except Exception:
+        # Jede Art von Fehler bedeutet hier dasselbe: die GPU ist nicht
+        # benutzbar, also wird auf der CPU weitergearbeitet.
+        return False
+
+
+def get_device_and_compute_type(requested_device: str = "cuda") -> tuple[str, str]:
+    """Liefert (device, compute_type). Faellt kontrolliert auf CPU zurueck,
+    wenn CUDA angefordert, aber nicht benutzbar ist."""
+    if requested_device == "cuda" and cuda_kann_wirklich_rechnen():
+        return "cuda", "float16"
     return "cpu", "int8"
 
 
@@ -204,9 +225,25 @@ def get_gpu_description() -> str:
     try:
         import torch  # type: ignore
 
-        if torch.cuda.is_available():
-            return torch.cuda.get_device_name(0)
-        return "keine CUDA-GPU erkannt (CPU-Verarbeitung)"
+        if not torch.cuda.is_available():
+            # Auch der Fall "AMD- oder Intel-Grafikkarte vorhanden": Die
+            # Beschleunigung laeuft ueber CUDA, und CTranslate2 (ueber
+            # faster-whisper der Kern der Transkription) kann ausschliesslich
+            # CPU und CUDA. Fuer AMD gibt es unter Windows ausserdem gar
+            # keine PyTorch-Pakete. Deshalb rechnet hier die CPU - das
+            # funktioniert vollstaendig, nur langsamer.
+            return (
+                "keine nutzbare NVIDIA-GPU erkannt (CPU-Verarbeitung; "
+                "GPU-Beschleunigung ist nur mit NVIDIA/CUDA moeglich)"
+            )
+        name = torch.cuda.get_device_name(0)
+        if cuda_kann_wirklich_rechnen():
+            return name
+        # Karte da, aber der installierte PyTorch-Build passt nicht dazu.
+        return (
+            f"{name} - nicht benutzbar, der installierte PyTorch-Build passt "
+            "nicht zu dieser Kartengeneration (CPU-Verarbeitung)"
+        )
     except ImportError:
         return "PyTorch nicht installiert"
 

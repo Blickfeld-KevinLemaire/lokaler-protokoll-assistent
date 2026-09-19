@@ -1,0 +1,16 @@
+# Pakete, die die lokale Anwendung beim ersten Start in ihre eigene
+# Umgebung ('runtime\venv') installiert - siehe 'bootstrap.py' und
+# 'services/environment_service.py'.
+#
+# Warum als Datei und nicht als Liste im Code: So sehen Dependabot und
+# pip-audit diese Abhaengigkeiten. Als Python-Liste waren sie fuer beide
+# unsichtbar - ausgerechnet die groessten und sicherheitsrelevantesten
+# Pakete des Projekts.
+#
+# PyTorch steht bewusst NICHT hier, sondern in 'requirements-torch.txt':
+# es wird von einem anderen Index installiert.
+PySide6>=6.6,<7
+whisperx>=3.1
+pyannote.audio>=3.1
+huggingface_hub>=0.23
+python-docx>=1.1

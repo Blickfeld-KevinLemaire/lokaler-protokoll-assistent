@@ -92,8 +92,40 @@ Alles Weitere (FFmpeg, PyTorch, WhisperX, pyannote.audio, PySide6, Ollama
 inkl. Modell) wird von der Anwendung selbst automatisch eingerichtet, wie
 oben beschrieben. Für gute Geschwindigkeit wird eine NVIDIA-GPU mit
 aktuellem Treiber empfohlen (erfolgreich getestet z.B. mit RTX 3060 Ti,
-CUDA 12.8) — **zwingend** ist das aber nicht: ohne erkannte GPU verarbeitet
+CUDA 12.8) — **zwingend** ist das aber nicht: ohne nutzbare GPU verarbeitet
 die Anwendung auf der CPU weiter (deutlich langsamer, aber funktionsfähig).
+
+### Welche Grafikkarten beschleunigen?
+
+| Karte | Beschleunigung | Woher PyTorch kommt |
+|---|---|---|
+| NVIDIA bis Ada/Hopper (Rechenfähigkeit < 12.0) | ja | Index `cu126` |
+| NVIDIA Blackwell (RTX 50xx, RTX PRO, Rechenfähigkeit ≥ 12.0) | ja | Index `cu129` |
+| AMD, Intel, keine Grafikkarte | nein — CPU | Index `cpu` |
+
+Die Anwendung fragt die Rechenfähigkeit beim Treiber ab (`nvidia-smi`) und
+wählt den passenden Index selbst. Das ist nötig, weil **kein einziger
+CUDA-Index alle Karten bedient**: Blackwell-Kernel (`sm_120`) gibt es erst
+ab CUDA 12.8, ältere Karten fallen in den neuen Indizes dagegen weg.
+
+**AMD-Grafikkarten können hier nicht beschleunigen**, und das lässt sich
+auch nicht nachrüsten:
+
+1. PyTorch bietet ROCm (den AMD-Weg) **ausschließlich für Linux** an — für
+   Windows gibt es keine einzige ROCm-Paketdatei.
+2. Selbst mit PyTorch wäre nichts gewonnen: Die eigentliche Transkription
+   läuft über faster-whisper und damit über CTranslate2, und das
+   unterstützt nur CPU und CUDA.
+
+Auf AMD-Rechnern läuft die Anwendung deshalb vollständig, aber auf der CPU.
+Die Anwendung sagt das auch so: „keine nutzbare NVIDIA-GPU erkannt
+(CPU-Verarbeitung; GPU-Beschleunigung ist nur mit NVIDIA/CUDA möglich)".
+
+Ob die GPU wirklich rechnen kann, wird **nicht** allein an
+`torch.cuda.is_available()` festgemacht: Passt der CUDA-Build nicht zur
+Kartengeneration, meldet das fälschlich `True`, und erst die erste echte
+Rechnung scheitert — mitten in der Transkription. Die Anwendung rechnet
+deshalb einmal kurz zur Probe und wechselt sonst sauber auf die CPU.
 
 Für die lokale Protokollerstellung zusätzlich empfohlen: [Ollama](https://ollama.com)
 mit dem Modell `qwen3:8b` — wird ebenfalls automatisch heruntergeladen bzw.
@@ -443,6 +475,47 @@ powershell -ExecutionPolicy Bypass -File .\Anwendung-starten.ps1
 
 `check_pyannote_fix.ps1` prüft/korrigiert ausschließlich die
 pyannote-NaN-Absicherung, unabhängig vom gewählten Weg.
+
+### Welche Pakete beim ersten Start installiert werden
+
+Die Listen stehen in zwei Textdateien, nicht im Code:
+
+| Datei | Woher installiert |
+|---|---|
+| `requirements-torch.txt` | eigener Index von pytorch.org (CUDA oder CPU, je nach GPU) |
+| `requirements-laufzeit.txt` | PyPI |
+
+Das ist kein Schönheitsentscheid: Als Python-Liste waren ausgerechnet die
+größten und sicherheitsrelevantesten Pakete des Projekts (PyTorch,
+WhisperX, pyannote.audio) für Dependabot und `pip-audit` **unsichtbar** —
+sie tauchten in keinem Manifest auf. Als Datei werden sie erfasst.
+
+### Passen Aktualisierungen dieser Pakete zusammen?
+
+Die Installation läuft in **zwei** pip-Aufrufen aus **zwei** Quellen, und
+genau dazwischen liegt eine Falle: Der zweite Aufruf kann PyTorch wieder
+überschreiben. Verlangt WhisperX etwa `torch~=2.8.0`, der eingestellte
+CUDA-Index kennt aber nur 2.5.1, dann installiert pip beim zweiten Aufruf
+kommentarlos ein PyTorch von PyPI — und der CUDA-Build ist weg. Auf dem
+Rechner des Anwenders fällt das erst auf, wenn die GPU unerwartet nicht
+benutzt wird.
+
+Deshalb gibt es:
+
+```powershell
+uv run python lokale_windows_app/tools/laufzeit_pakete_pruefen.py
+```
+
+Das Skript installiert nichts und braucht keine GPU — es löst die Pakete
+nur auf (wenige Sekunden) und prüft zweierlei:
+
+1. Passen die Laufzeit-Pakete untereinander?
+2. Gibt es die dabei geforderte PyTorch-Fassung auch in den beiden
+   eingestellten pytorch.org-Indizes?
+
+Derselbe Lauf steckt in der CI (Ablauf „Laufzeit-Pakete der lokalen
+Anwendung"), damit ein Dependabot-Vorschlag auffällt, bevor er zusammen
+mit dem CUDA-Index nicht mehr zusammenpasst.
 
 ---
 
