@@ -1,0 +1,56 @@
+Copyright (c) 2026 Kevin Lemaire. Alle Rechte vorbehalten.
+Copyright (c) 2026 Kevin Lemaire. All rights reserved.
+
+DEUTSCH
+
+Der Quelltext dieses Projekts ist oeffentlich einsehbar. Er ist damit
+ausdruecklich NICHT freigegeben zur Nutzung, Vervielfaeltigung, Aenderung,
+Zusammenfuehrung, Veroeffentlichung, Weitergabe, Unterlizenzierung oder zum
+Verkauf - weder ganz noch in Teilen.
+
+Erlaubt ist allein das Lesen des Quelltextes zu Zwecken der Information,
+der Bewertung und der Sicherheitspruefung.
+
+Jede darueber hinausgehende Nutzung bedarf der vorherigen schriftlichen
+Zustimmung des Rechteinhabers.
+
+Beitraege (Pull Requests) sind willkommen. Mit dem Einreichen eines Beitrags
+raeumen Sie dem Rechteinhaber ein einfaches, unwiderrufliches, weltweites und
+unentgeltliches Recht ein, den Beitrag im Rahmen dieses Projekts zu nutzen,
+zu aendern und weiterzugeben.
+
+Die Software wird ohne jede Gewaehr bereitgestellt. Eine Haftung fuer Schaeden,
+die aus ihrer Nutzung entstehen, ist ausgeschlossen, soweit gesetzlich
+zulaessig.
+
+ENGLISH
+
+The source code of this project is publicly readable. It is expressly NOT
+licensed for use, copying, modification, merging, publication, distribution,
+sublicensing or sale - neither in whole nor in part.
+
+Permitted is solely the reading of the source code for the purposes of
+information, evaluation and security review.
+
+Any use beyond that requires the prior written consent of the copyright
+holder.
+
+Contributions (pull requests) are welcome. By submitting a contribution you
+grant the copyright holder a non-exclusive, irrevocable, worldwide,
+royalty-free right to use, modify and distribute the contribution as part of
+this project.
+
+The software is provided "as is", without warranty of any kind. Liability for
+damages arising from its use is excluded to the extent permitted by law.
+
+---
+
+Hinweis fuer die Rechteinhaber: Bitte einmal pruefen, ob "Kevin Lemaire" die
+gewuenschte Bezeichnung ist - das Repository lief zuvor unter dem Konto
+"kevinweisbrod". Bei einer spaeteren Vermarktung lohnt sich hier ausserdem
+eine anwaltliche Durchsicht; dieser Text ist eine klare, aber einfache
+Formulierung und ersetzt keine Rechtsberatung.
+
+Fremde Abhaengigkeiten (PySide6, WhisperX, pyannote.audio, FFmpeg, Ollama und
+weitere) stehen unter ihren jeweils eigenen Lizenzen. Diese gelten unabhaengig
+von diesem Text weiter.

@@ -178,6 +178,18 @@ für ein privates Repository auf einem kostenlosen Konto nicht. Ein roter Lauf
 verhindert das Zusammenführen also nicht automatisch — vor dem Merge selbst
 nachsehen.
 
+## Weitere Dateien, die mitgepflegt werden wollen
+
+* `SECURITY.md` — was in diesem Projekt sicherheitsrelevant ist und wie man
+  eine Luecke meldet. Bei Aenderungen an der Datenuebertragung oder an den
+  ausgeschlossenen Ordnern bitte dort nachziehen.
+* `LICENSE` — der Quelltext ist oeffentlich lesbar, aber **nicht** zur Nutzung
+  freigegeben. Keine Lizenzhinweise entfernen.
+* `.github/CODEOWNERS`, `.github/pull_request_template.md` — Ablauf bei
+  Pull Requests.
+* `.github/workflows/codeql.yml` — CodeQL laeuft nur, solange das Repository
+  oeffentlich ist.
+
 ## Wo was liegt
 
 ```

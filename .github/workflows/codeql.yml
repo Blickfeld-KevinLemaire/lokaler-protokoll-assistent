@@ -1,0 +1,51 @@
+name: CodeQL
+
+# Statische Codeanalyse von GitHub. Findet Muster, die ruff und mypy nicht
+# sehen - etwa Daten, die aus einer Eingabe bis in einen gefaehrlichen Aufruf
+# durchlaufen.
+#
+# Fuer oeffentliche Repositories ist CodeQL kostenlos. Wird das Repository
+# wieder auf privat gestellt, schlaegt dieser Workflow fehl; dann bitte hier
+# abschalten - die uebrigen Sicherheitspruefungen in 'ci.yml' (gitleaks,
+# pip-audit, die S-Regeln von ruff) laufen unabhaengig davon weiter.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Montags 04:15 UTC. CodeQL-Abfragen werden laufend verbessert, deshalb
+    # lohnt sich ein Lauf auch ohne Codeaenderung.
+    - cron: "15 4 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: codeql-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  analyse:
+    name: Analyse (Python)
+    # Linux: CodeQL braucht die Anwendung nicht auszufuehren, und Linux-Laeufer
+    # kosten nur einfach.
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write # zum Hochladen der Ergebnisse
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: CodeQL vorbereiten
+        uses: github/codeql-action/init@v4
+        with:
+          languages: python
+          # 'security-and-quality' enthaelt zusaetzlich zu den reinen
+          # Sicherheitsabfragen auch Hinweise auf Wartbarkeit.
+          queries: security-and-quality
+
+      - name: Analyse durchfuehren
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: "/language:python"

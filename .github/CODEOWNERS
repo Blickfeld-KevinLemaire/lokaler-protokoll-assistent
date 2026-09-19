@@ -1,0 +1,15 @@
+# Wer wird bei einem Pull Request automatisch um Durchsicht gebeten?
+#
+# Beide Eintraege sind Administratoren des Repositorys. Ohne
+# Branch-Schutzregeln ist das eine Einladung, keine Pflicht - GitHub traegt
+# die Genannten aber automatisch als Reviewer ein.
+
+*                       @kevinweisbrod @Jens-Fichter
+
+# Aenderungen an der Pipeline und an den Qualitaetsregeln moechten wir beide
+# sehen - dort faellt ein Fehler nicht sofort auf, wirkt aber auf alles.
+/.github/               @kevinweisbrod @Jens-Fichter
+/pyproject.toml         @kevinweisbrod @Jens-Fichter
+/CLAUDE.md              @kevinweisbrod @Jens-Fichter
+/SECURITY.md            @kevinweisbrod @Jens-Fichter
+/LICENSE                @kevinweisbrod @Jens-Fichter
