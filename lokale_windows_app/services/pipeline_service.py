@@ -79,6 +79,7 @@ class PipelineSettings:
     ollama_model: str = ollama_service.DEFAULT_MODEL
     whisper_model: str = model_service.WHISPER_MODEL_NAME
     protocol_group_size: int = 4
+    enable_diarization: bool = True
 
 
 @dataclass
@@ -196,6 +197,7 @@ def run_pipeline(
                 "min_sprecher": settings.min_speakers,
                 "max_sprecher": settings.max_speakers,
                 "modell": settings.whisper_model,
+                "sprechertrennung_aktiv": settings.enable_diarization,
             },
         )
         manifest_service.save_manifest(work_dir, manifest)
@@ -271,7 +273,12 @@ def run_pipeline(
         callbacks.on_overall_progress((plan.index + 1) / len(chunk_plans) * 0.5)
 
     callbacks.on_stage("diarisierung", STAGE_LABELS["diarisierung"])
-    if diarize_fn is None:
+    if not settings.enable_diarization:
+        callbacks.on_log(
+            "Sprechertrennung deaktiviert -- Transkript wird ohne Sprecherzuordnung erstellt."
+        )
+        diarization_turns: list[dict[str, Any]] = []
+    elif diarize_fn is None:
         pipeline = model_service.load_pyannote_pipeline(device)
         full_audio_array = transcription_service.load_audio_array(normalized_path)
         waveform_dict = diarization_service.build_waveform_dict(full_audio_array)
@@ -313,6 +320,7 @@ def run_pipeline(
         processing_duration,
         merged_segments,
         speaker_names,
+        settings.enable_diarization,
     )
 
     protocol_paths = None

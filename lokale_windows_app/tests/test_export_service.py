@@ -106,6 +106,37 @@ def test_reexport_with_new_names_does_not_require_retranscription(tmp_path):
     assert names["SPEAKER_00"] == "Klaus Dauderstädt"
 
 
+def test_write_transcript_exports_with_diarization_disabled_omits_speakers(tmp_path):
+    segments_without_speaker = [
+        {"nummer": 1, "start": 2.78, "end": 17.18, "sprecher_id": None, "text": "Hallo zusammen."},
+        {"nummer": 2, "start": 35.3, "end": 37.16, "sprecher_id": None, "text": "Guten Tag."},
+    ]
+    paths = export_service.write_transcript_exports(
+        tmp_path,
+        "aufnahme.mp3",
+        "aufnahme",
+        "20260101_100000",
+        "2026-01-01T10:00:00+01:00",
+        "WhisperX large-v3-turbo",
+        "de",
+        "cpu",
+        5.0,
+        segments_without_speaker,
+        {},
+        False,
+    )
+    data = json.loads(paths.json.read_text(encoding="utf-8"))
+    assert data["sprechertrennung_aktiv"] is False
+    assert data["anzahl_sprecher"] == 0
+    assert data["sprecher_zuordnung"] == []
+
+    txt_content = paths.txt.read_text(encoding="utf-8")
+    assert "OHNE SPRECHERTRENNUNG" in txt_content
+    assert "Sprechertrennung: deaktiviert" in txt_content
+    assert "[00:00:02.780 --> 00:00:17.180] Hallo zusammen." in txt_content
+    assert "Sprecher unbekannt" not in txt_content
+
+
 def test_render_protocol_markdown_includes_sections():
     protocol = {
         "titel": "Wochenmeeting",

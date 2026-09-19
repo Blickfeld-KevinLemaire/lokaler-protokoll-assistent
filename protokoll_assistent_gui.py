@@ -189,7 +189,11 @@ def split_audio_into_chunks(
 
 
 def build_transcription_request(
-    audio_path: Path, audio_format: str, model_name: str, provider_name: str
+    audio_path: Path,
+    audio_format: str,
+    model_name: str,
+    provider_name: str,
+    diarisierung_aktiv: bool = True,
 ) -> dict[str, Any]:
     """Wie kern.build_request, aber mit frei waehlbarem Modell und Anbieter
     statt der fest einprogrammierten Konsolen-Konstanten.
@@ -198,7 +202,12 @@ def build_transcription_request(
     diarization'-Feld) entspricht dem OpenRouter-Schema. Es funktioniert mit
     jedem Endpunkt, der dieses Format ebenfalls versteht - z. B. auch bei
     direkter Anbindung an Microsoft Azure oder einen anderen Anbieter, der
-    dieselbe Anfragestruktur akzeptiert."""
+    dieselbe Anfragestruktur akzeptiert.
+
+    Ist ``diarisierung_aktiv`` False, wird das Provider-/Diarisierungsfeld
+    unabhaengig vom eingetragenen Anbieter weggelassen - das Ergebnis enthaelt
+    dann keine Sprecherzuordnung, z. B. wenn nur der Inhalt zaehlen soll und
+    die Aussagen anonym bleiben sollen."""
     audio_base64 = base64.b64encode(audio_path.read_bytes()).decode("ascii")
     request_data: dict[str, Any] = {
         "model": model_name,
@@ -206,7 +215,7 @@ def build_transcription_request(
         "response_format": "verbose_json",
         "timestamp_granularities": ["segment"],
     }
-    if provider_name.strip():
+    if diarisierung_aktiv and provider_name.strip():
         request_data["provider"] = {
             "options": {provider_name.strip(): {"diarization": {"enabled": True}}}
         }
@@ -247,10 +256,17 @@ def call_transcription_endpoint(
 
 
 def save_transcript(
-    source: Path, api_result: dict[str, Any], model_name: str, endpoint_url: str
+    source: Path,
+    api_result: dict[str, Any],
+    model_name: str,
+    endpoint_url: str,
+    diarisierung_aktiv: bool = True,
 ) -> tuple[Path, Path]:
     """Wie kern.save_transcript, aber mit dem tatsaechlich verwendeten
-    Modell/Endpunkt statt der fest einprogrammierten Konsolen-Konstante."""
+    Modell/Endpunkt statt der fest einprogrammierten Konsolen-Konstante.
+
+    Ist ``diarisierung_aktiv`` False, enthaelt das Transkript bewusst keine
+    Sprecherzuordnung (anonymes Ergebnis - nur der Inhalt zaehlt)."""
     output_txt = OUTPUT_DIR / f"{source.stem}_mai2_transkript.txt"
     output_json = OUTPUT_DIR / f"{source.stem}_mai2_transkript.json"
     segments, words, speakers = kern.normalize_transcript(api_result)
@@ -265,18 +281,33 @@ def save_transcript(
     if not isinstance(usage, dict):
         usage = {}
 
-    transcript_lines = [
-        f"[{segment['start']} --> {segment['ende']}] {segment['text']}" for segment in segments
-    ]
+    if diarisierung_aktiv:
+        transcript_lines = [
+            f"[{segment['start']} --> {segment['ende']}] {segment['text']}" for segment in segments
+        ]
+        titel = "PROTOKOLL-ASSISTENT - VOLLTRANSKRIPT MIT SPRECHERTRENNUNG"
+        sprecher_zeile = f"Erkannte Sprecher: {len(speakers)}"
+        hinweis_zeile = "Hinweis: Sprecherbezeichnungen sind technische IDs und keine echten Namen."
+    else:
+        transcript_lines = [
+            f"[{segment['start']} --> {segment['ende']}] {segment['inhalt']}" for segment in segments
+        ]
+        titel = "PROTOKOLL-ASSISTENT - VOLLTRANSKRIPT (ANONYM, OHNE SPRECHERTRENNUNG)"
+        sprecher_zeile = "Sprechertrennung: deaktiviert - kein Sprecherbezug enthalten."
+        hinweis_zeile = (
+            "Hinweis: Auf Wunsch wurde keine Sprecherzuordnung angefragt - nur der "
+            "Inhalt wurde erfasst."
+        )
+
     header = [
-        "PROTOKOLL-ASSISTENT - VOLLTRANSKRIPT MIT SPRECHERTRENNUNG",
+        titel,
         f"Quelldatei: {source.name}",
         f"Erstellt: {datetime.now().astimezone().isoformat(timespec='seconds')}",
         f"Transkriptionsmodell: {model_name}",
         f"Endpunkt: {endpoint_url}",
         f"Erkannte Sprache: {language}",
-        f"Erkannte Sprecher: {len(speakers)}",
-        "Hinweis: Sprecherbezeichnungen sind technische IDs und keine echten Namen.",
+        sprecher_zeile,
+        hinweis_zeile,
         "",
     ]
     output_txt.write_text("\n".join(header + transcript_lines) + "\n", encoding="utf-8")
@@ -288,8 +319,9 @@ def save_transcript(
         "endpunkt": endpoint_url,
         "sprache": language,
         "dauer_sekunden": round(duration, 3),
-        "anzahl_sprecher": len(speakers),
-        "sprecher": speakers,
+        "sprechertrennung_aktiv": diarisierung_aktiv,
+        "anzahl_sprecher": len(speakers) if diarisierung_aktiv else 0,
+        "sprecher": speakers if diarisierung_aktiv else [],
         "anzahl_segmente": len(segments),
         "segmente": segments,
         "woerter": words,
@@ -308,6 +340,7 @@ def transcribe_in_chunks(
     provider_name: str,
     log: Callable[[str], None],
     progress: Callable[[float, str], None],
+    diarisierung_aktiv: bool = True,
 ) -> dict[str, Any]:
     """Teilt lange Aufnahmen in Abschnitte, transkribiert sie einzeln und fuegt
     das Ergebnis zeitlich sortiert wieder zusammen.
@@ -345,7 +378,7 @@ def transcribe_in_chunks(
                 api_result = json.loads(checkpoint.read_text(encoding="utf-8-sig"))
             else:
                 request_data = build_transcription_request(
-                    chunk_pfad, "mp3", model_name, provider_name
+                    chunk_pfad, "mp3", model_name, provider_name, diarisierung_aktiv
                 )
                 api_result = call_transcription_endpoint(endpoint_url, request_data, api_key)
                 checkpoint.write_text(
@@ -361,8 +394,11 @@ def transcribe_in_chunks(
                 eintrag["ende_sekunden"] = round(eintrag["ende_sekunden"] + versatz, 3)
                 eintrag["start"] = kern.format_timestamp(eintrag["start_sekunden"])
                 eintrag["ende"] = kern.format_timestamp(eintrag["ende_sekunden"])
-                eintrag["sprecher"] = f"{eintrag['sprecher']} (Teil {index})"
-                eintrag["text"] = f"{eintrag['sprecher']}: {eintrag['inhalt']}"
+                if diarisierung_aktiv:
+                    eintrag["sprecher"] = f"{eintrag['sprecher']} (Teil {index})"
+                    eintrag["text"] = f"{eintrag['sprecher']}: {eintrag['inhalt']}"
+                else:
+                    eintrag["text"] = eintrag["inhalt"]
                 eintrag["nummer"] = len(alle_segmente) + 1
                 alle_segmente.append(eintrag)
                 gesamtdauer = max(gesamtdauer, eintrag["ende_sekunden"])
@@ -370,16 +406,18 @@ def transcribe_in_chunks(
             for eintrag in woerter:
                 eintrag["start_sekunden"] = round(eintrag["start_sekunden"] + versatz, 3)
                 eintrag["ende_sekunden"] = round(eintrag["ende_sekunden"] + versatz, 3)
-                eintrag["sprecher"] = f"{eintrag['sprecher']} (Teil {index})"
+                if diarisierung_aktiv:
+                    eintrag["sprecher"] = f"{eintrag['sprecher']} (Teil {index})"
                 alle_woerter.append(eintrag)
 
-            for eintrag in sprecher:
-                alle_sprecher.append(
-                    {
-                        "sprecher_id": f"teil{index}:{eintrag['sprecher_id']}",
-                        "bezeichnung": f"{eintrag['bezeichnung']} (Teil {index})",
-                    }
-                )
+            if diarisierung_aktiv:
+                for eintrag in sprecher:
+                    alle_sprecher.append(
+                        {
+                            "sprecher_id": f"teil{index}:{eintrag['sprecher_id']}",
+                            "bezeichnung": f"{eintrag['bezeichnung']} (Teil {index})",
+                        }
+                    )
 
             checkpoint.unlink(missing_ok=True)
             log(f"Abschnitt {index}/{anzahl} fertig.")
@@ -396,7 +434,11 @@ def transcribe_in_chunks(
 
 
 def save_merged_transcript(
-    source: Path, zusammengefasst: dict[str, Any], model_name: str, endpoint_url: str
+    source: Path,
+    zusammengefasst: dict[str, Any],
+    model_name: str,
+    endpoint_url: str,
+    diarisierung_aktiv: bool = True,
 ) -> tuple[Path, Path]:
     segmente = zusammengefasst["segmente"]
     if not segmente:
@@ -408,8 +450,20 @@ def save_merged_transcript(
     transcript_lines = [
         f"[{segment['start']} --> {segment['ende']}] {segment['text']}" for segment in segmente
     ]
+    if diarisierung_aktiv:
+        titel = "PROTOKOLL-ASSISTENT - VOLLTRANSKRIPT MIT SPRECHERTRENNUNG"
+        hinweis_zeile = (
+            "Hinweis: Sprecherbezeichnungen sind technische IDs, keine echten Namen, und "
+            "nur innerhalb eines Abschnitts konsistent (siehe Klammerzusatz 'Teil N')."
+        )
+    else:
+        titel = "PROTOKOLL-ASSISTENT - VOLLTRANSKRIPT (ANONYM, OHNE SPRECHERTRENNUNG)"
+        hinweis_zeile = (
+            "Hinweis: Auf Wunsch wurde keine Sprecherzuordnung angefragt - nur der "
+            "Inhalt wurde erfasst."
+        )
     header = [
-        "PROTOKOLL-ASSISTENT - VOLLTRANSKRIPT MIT SPRECHERTRENNUNG",
+        titel,
         f"Quelldatei: {source.name}",
         f"Erstellt: {datetime.now().astimezone().isoformat(timespec='seconds')}",
         f"Transkriptionsmodell: {model_name}",
@@ -417,8 +471,7 @@ def save_merged_transcript(
         f"Erkannte Sprache: {zusammengefasst['sprache']}",
         f"Aufgeteilt in {zusammengefasst['anzahl_abschnitte']} Abschnitte "
         f"(je ca. {CHUNK_LAENGE_MINUTEN} Minuten)",
-        "Hinweis: Sprecherbezeichnungen sind technische IDs, keine echten Namen, und "
-        "nur innerhalb eines Abschnitts konsistent (siehe Klammerzusatz 'Teil N').",
+        hinweis_zeile,
         "",
     ]
     output_txt.write_text("\n".join(header + transcript_lines) + "\n", encoding="utf-8")
@@ -432,8 +485,9 @@ def save_merged_transcript(
         "dauer_sekunden": round(zusammengefasst["dauer_sekunden"], 3),
         "aufgeteilt_in_abschnitte": zusammengefasst["anzahl_abschnitte"],
         "abschnittslaenge_minuten": CHUNK_LAENGE_MINUTEN,
-        "anzahl_sprecher": len(zusammengefasst["sprecher"]),
-        "sprecher": zusammengefasst["sprecher"],
+        "sprechertrennung_aktiv": diarisierung_aktiv,
+        "anzahl_sprecher": len(zusammengefasst["sprecher"]) if diarisierung_aktiv else 0,
+        "sprecher": zusammengefasst["sprecher"] if diarisierung_aktiv else [],
         "anzahl_segmente": len(segmente),
         "segmente": segmente,
         "woerter": zusammengefasst["woerter"],
@@ -778,12 +832,32 @@ class ProtokollGUI:
         ttk.Entry(
             row_transkription_modell, textvariable=self.transkription_modell_var, width=30
         ).pack(side="left", padx=8)
-        ttk.Label(row_transkription_modell, text="Anbieter (Sprechertrennung):").pack(
-            side="left", padx=(16, 0)
+        self.transkription_anbieter_label = ttk.Label(
+            row_transkription_modell, text="Anbieter (Sprechertrennung):"
         )
+        self.transkription_anbieter_label.pack(side="left", padx=(16, 0))
         self.transkription_anbieter_var = tk.StringVar(value=DEFAULT_TRANSKRIPTION_ANBIETER)
-        ttk.Entry(
+        self.transkription_anbieter_entry = ttk.Entry(
             row_transkription_modell, textvariable=self.transkription_anbieter_var, width=12
+        )
+        self.transkription_anbieter_entry.pack(side="left", padx=8)
+
+        row_diarisierung = ttk.Frame(api_frame)
+        row_diarisierung.pack(fill="x", padx=8, pady=(0, 6))
+        self.diarisierung_aktiv_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(
+            row_diarisierung,
+            text="Sprechertrennung aktivieren",
+            variable=self.diarisierung_aktiv_var,
+            command=self._diarisierung_geaendert,
+        ).pack(side="left")
+        ttk.Label(
+            row_diarisierung,
+            text=(
+                "Deaktivieren, wenn nur der Inhalt zaehlt und die Aussagen anonym "
+                "bleiben sollen - das Transkript enthaelt dann keine Sprecherzuordnung."
+            ),
+            foreground="#555555",
         ).pack(side="left", padx=8)
 
         ttk.Label(
@@ -817,11 +891,12 @@ class ProtokollGUI:
         )
         self.open_output_button.pack(side="left", padx=8)
         self.sprecher_benennen_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(
+        self.sprecher_benennen_checkbox = ttk.Checkbutton(
             transkription_action,
             text="Sprecher danach benennen",
             variable=self.sprecher_benennen_var,
-        ).pack(side="left", padx=8)
+        )
+        self.sprecher_benennen_checkbox.pack(side="left", padx=8)
 
         ttk.Separator(self.root, orient="horizontal").pack(fill="x", padx=10, pady=(4, 0))
         ttk.Label(
@@ -1022,6 +1097,13 @@ class ProtokollGUI:
                 "verarbeitet nur Daten, die bereits auf diesem Geraet liegen."
             )
 
+    def _diarisierung_geaendert(self) -> None:
+        aktiv = self.diarisierung_aktiv_var.get()
+        self.transkription_anbieter_entry.config(state="normal" if aktiv else "disabled")
+        if not aktiv:
+            self.sprecher_benennen_var.set(False)
+        self.sprecher_benennen_checkbox.config(state="normal" if aktiv else "disabled")
+
     # ------------------------------------------------------------ Auswahl
 
     def choose_folder(self) -> None:
@@ -1192,9 +1274,10 @@ class ProtokollGUI:
             )
             return
         anbieter = self.transkription_anbieter_var.get().strip()
+        diarisierung_aktiv = self.diarisierung_aktiv_var.get()
 
         source = self.selected_folder / self.file_var.get()  # type: ignore[operator]
-        sprecher_benennen = self.sprecher_benennen_var.get()
+        sprecher_benennen = self.sprecher_benennen_var.get() and diarisierung_aktiv
 
         self.start_button.config(state="disabled")
         self.nachbearbeitung_button.config(state="disabled")
@@ -1204,7 +1287,7 @@ class ProtokollGUI:
 
         self.worker_thread = threading.Thread(
             target=self._run_transkription,
-            args=(source, api_key, endpoint_url, modell, anbieter, sprecher_benennen),
+            args=(source, api_key, endpoint_url, modell, anbieter, sprecher_benennen, diarisierung_aktiv),
             daemon=True,
         )
         self.worker_thread.start()
@@ -1290,10 +1373,15 @@ class ProtokollGUI:
         modell: str,
         anbieter: str,
         sprecher_benennen: bool,
+        diarisierung_aktiv: bool = True,
     ) -> None:
         try:
             self._log(f"Eingabedatei: {source.name}")
             self._log(f"Transkriptionsmodell: {modell} (Endpunkt: {endpoint_url})")
+            if diarisierung_aktiv:
+                self._log(f"Sprechertrennung: aktiviert (Anbieter: {anbieter or '-'})")
+            else:
+                self._log("Sprechertrennung: deaktiviert - Ergebnis bleibt anonym.")
 
             self._progress(0.05, "Datenschutzabfrage ...")
             nachricht = (
@@ -1336,10 +1424,11 @@ class ProtokollGUI:
                     anbieter,
                     self._log,
                     self._progress,
+                    diarisierung_aktiv,
                 )
                 self._progress(0.85, "Transkript wird gespeichert ...")
                 output_txt, output_json = save_merged_transcript(
-                    source, zusammengefasst, modell, endpoint_url
+                    source, zusammengefasst, modell, endpoint_url, diarisierung_aktiv
                 )
             else:
                 checkpoint = CHECKPOINT_DIR / f"{source.stem}_mai_transcribe_2_rohantwort.json"
@@ -1351,7 +1440,7 @@ class ProtokollGUI:
                     with tempfile.TemporaryDirectory(prefix="protokoll_audio_") as temp_name:
                         audio_path, audio_format = kern.prepare_audio(source, Path(temp_name))
                         request_data = build_transcription_request(
-                            audio_path, audio_format, modell, anbieter
+                            audio_path, audio_format, modell, anbieter, diarisierung_aktiv
                         )
                         self._progress(0.35, f"Uebertragung an {endpoint_url} ...")
                         self._log("Cloud-Transkription gestartet ...")
@@ -1361,7 +1450,9 @@ class ProtokollGUI:
                     )
 
                 self._progress(0.85, "Transkript wird gespeichert ...")
-                output_txt, output_json = save_transcript(source, api_result, modell, endpoint_url)
+                output_txt, output_json = save_transcript(
+                    source, api_result, modell, endpoint_url, diarisierung_aktiv
+                )
                 checkpoint.unlink(missing_ok=True)
 
             self._log(f"Transkript gespeichert: {output_txt.name}")

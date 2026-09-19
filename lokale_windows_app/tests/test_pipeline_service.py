@@ -74,6 +74,39 @@ def test_pipeline_completes_with_stubbed_backends(monkeypatch, tmp_path, source_
     assert manifest_service.is_fully_processed(result.manifest)
 
 
+def test_pipeline_skips_diarization_when_disabled(monkeypatch, tmp_path, source_file):
+    monkeypatch.setattr(utils_paths, "get_work_dir", lambda: tmp_path / "arbeitsdaten")
+    _patch_ffmpeg(monkeypatch, total_duration=300.0)
+
+    def transcribe(chunk_wav_path):
+        return [{"start": 1.0, "end": 5.0, "text": "Hallo Welt", "speaker": "SPEAKER_00"}]
+
+    diarize_calls = []
+
+    def diarize_fn_should_not_run(*args, **kwargs):
+        diarize_calls.append(args)
+        return [{"start": 0.0, "end": 100000.0, "speaker": "SPEAKER_00"}]
+
+    settings = _make_settings(source_file, tmp_path)
+    settings.enable_diarization = False
+
+    result = pipeline_service.run_pipeline(
+        settings,
+        transcribe_chunk_fn=transcribe,
+        diarize_fn=diarize_fn_should_not_run,
+    )
+    assert diarize_calls == []  # Diarisierung wurde nicht aufgerufen -- spart Rechenzeit.
+
+    json_data = json.loads(result.export_paths.json.read_text(encoding="utf-8"))
+    assert json_data["sprechertrennung_aktiv"] is False
+    assert json_data["anzahl_sprecher"] == 0
+    assert json_data["sprecher_zuordnung"] == []
+
+    txt_content = result.export_paths.txt.read_text(encoding="utf-8")
+    assert "Sprechertrennung: deaktiviert" in txt_content
+    assert "Hallo Welt" in txt_content
+
+
 def test_pipeline_stops_on_faulty_chunk_and_keeps_previous_progress(monkeypatch, tmp_path, source_file):
     monkeypatch.setattr(utils_paths, "get_work_dir", lambda: tmp_path / "arbeitsdaten")
     # 1300s -> 3 Chunks (0-600, 590-1190, 1180-1300).

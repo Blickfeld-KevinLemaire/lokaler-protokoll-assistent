@@ -198,7 +198,13 @@ zeitlich unabhaengig voneinander laufen koennen:
    der dasselbe Anfrageformat (JSON mit Base64-Audio) versteht. "Anbieter"
    leer lassen, wenn der Endpunkt keine Provider-Weiterleitung fuer die
    Sprechertrennung benoetigt.
-3. "Transkription starten" klicken.
+3. "Sprechertrennung aktivieren" steuert, ob ueberhaupt Sprecher erkannt
+   werden. Deaktiviert liefert die Transkription ein anonymes Ergebnis ohne
+   jede Sprecherzuordnung (weder technische ID noch Name) - sinnvoll, wenn
+   nur der Inhalt zaehlt und die Aussagen anonym bleiben sollen. Die
+   Sprecherbenennung (siehe unten) ist in diesem Fall ebenfalls deaktiviert,
+   da es keine Sprecher gibt, die benannt werden koennten.
+4. "Transkription starten" klicken.
 
 Nach Abschluss wird das fertige Transkript automatisch in Schritt 3 der
 Nachbearbeitung (siehe unten) eingetragen.

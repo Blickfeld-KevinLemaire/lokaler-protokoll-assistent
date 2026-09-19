@@ -92,22 +92,36 @@ def build_txt_content(
     language: str,
     speaker_count: int,
     segments: list[dict[str, Any]],
+    diarization_enabled: bool = True,
 ) -> str:
+    if diarization_enabled:
+        titel = "PROTOKOLL-ASSISTENT – LOKALES VOLLTRANSKRIPT MIT SPRECHERTRENNUNG"
+        sprecher_zeile = f"Erkannte Sprecher: {speaker_count}"
+    else:
+        titel = "PROTOKOLL-ASSISTENT – LOKALES VOLLTRANSKRIPT (ANONYM, OHNE SPRECHERTRENNUNG)"
+        sprecher_zeile = "Sprechertrennung: deaktiviert - kein Sprecherbezug enthalten."
     header = [
-        "PROTOKOLL-ASSISTENT – LOKALES VOLLTRANSKRIPT MIT SPRECHERTRENNUNG",
+        titel,
         f"Quelldatei: {source_name}",
         f"Erstellt: {created_iso}",
         f"Transkriptionsmodell: {model_name}",
         "Verarbeitung: vollständig lokal",
         f"Erkannte Sprache: {language}",
-        f"Erkannte Sprecher: {speaker_count}",
+        sprecher_zeile,
         "",
     ]
-    lines = [
-        f"[{format_timestamp(segment['start'])} --> {format_timestamp(segment['end'])}] "
-        f"{segment['sprecher']}: {segment['text']}"
-        for segment in segments
-    ]
+    if diarization_enabled:
+        lines = [
+            f"[{format_timestamp(segment['start'])} --> {format_timestamp(segment['end'])}] "
+            f"{segment['sprecher']}: {segment['text']}"
+            for segment in segments
+        ]
+    else:
+        lines = [
+            f"[{format_timestamp(segment['start'])} --> {format_timestamp(segment['end'])}] "
+            f"{segment['text']}"
+            for segment in segments
+        ]
     return "\n".join(header + lines) + "\n"
 
 
@@ -143,6 +157,7 @@ def build_json_result(
     segments: list[dict[str, Any]],
     speaker_names: dict[str, str],
     speaker_stats: dict[str, dict[str, Any]],
+    diarization_enabled: bool = True,
 ) -> dict[str, Any]:
     speakers_list = []
     for speaker_id, name in speaker_names.items():
@@ -185,8 +200,9 @@ def build_json_result(
         "verarbeitungsgeraet": device_desc,
         "verarbeitungsdauer_sekunden": round(processing_duration_seconds, 3),
         "verarbeitung": "vollständig lokal",
-        "anzahl_sprecher": len(speaker_names),
-        "sprecher_zuordnung": speakers_list,
+        "sprechertrennung_aktiv": diarization_enabled,
+        "anzahl_sprecher": len(speaker_names) if diarization_enabled else 0,
+        "sprecher_zuordnung": speakers_list if diarization_enabled else [],
         "anzahl_segmente": len(exported_segments),
         "segmente": exported_segments,
         "gesamttext": gesamttext,
@@ -236,6 +252,7 @@ def write_transcript_exports(
     processing_duration_seconds: float,
     segments_raw: list[dict[str, Any]],
     speaker_names: dict[str, str],
+    diarization_enabled: bool = True,
 ) -> ExportPaths:
     output_dir.mkdir(parents=True, exist_ok=True)
     enriched = attach_speaker_names(segments_raw, speaker_names)
@@ -254,10 +271,13 @@ def write_transcript_exports(
         enriched,
         speaker_names,
         stats,
+        diarization_enabled,
     )
 
     paths.txt.write_text(
-        build_txt_content(source_name, created_iso, model_name, language, len(speaker_names), enriched),
+        build_txt_content(
+            source_name, created_iso, model_name, language, len(speaker_names), enriched, diarization_enabled
+        ),
         encoding="utf-8",
     )
     paths.json.write_text(json.dumps(json_result, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -288,6 +308,7 @@ def reexport_with_new_names(json_path: Path, name_overrides: dict[str, str]) -> 
     Ueberschreibt bewusst dieselben (bereits vorhandenen) Dateien desselben
     Laufs, da dies eine explizite, vom Benutzer ausgeloeste Aktion ist."""
     data = json.loads(json_path.read_text(encoding="utf-8"))
+    diarization_enabled = data.get("sprechertrennung_aktiv", True)
     segments = rebuild_segments_from_json(data)
     order = speaker_ids_in_order_of_appearance(segments)
     speaker_names = build_speaker_names(order, name_overrides)
@@ -310,6 +331,7 @@ def reexport_with_new_names(json_path: Path, name_overrides: dict[str, str]) -> 
         enriched,
         speaker_names,
         stats,
+        diarization_enabled,
     )
 
     base = f"{source_stem}_lokal_transkript_{run_timestamp}"
@@ -321,7 +343,13 @@ def reexport_with_new_names(json_path: Path, name_overrides: dict[str, str]) -> 
     )
     paths.txt.write_text(
         build_txt_content(
-            data["quelldatei"], data["erstellt"], data["modell"], data["sprache"], len(speaker_names), enriched
+            data["quelldatei"],
+            data["erstellt"],
+            data["modell"],
+            data["sprache"],
+            len(speaker_names),
+            enriched,
+            diarization_enabled,
         ),
         encoding="utf-8",
     )

@@ -205,6 +205,19 @@ class MainWindow(QMainWindow):
         self.whisper_model_hint_label.setWordWrap(True)
         layout.addRow(self.whisper_model_hint_label)
 
+        self.diarization_checkbox = QCheckBox("Sprechertrennung aktivieren (Sprecher erkennen)", self)
+        self.diarization_checkbox.setChecked(True)
+        self.diarization_checkbox.toggled.connect(self._toggle_diarization)
+        layout.addRow(self.diarization_checkbox)
+
+        diarization_hint = QLabel(
+            "Deaktivieren, wenn nur der Inhalt zaehlt und die Aussagen anonym bleiben "
+            "sollen (keine Sprecherzuordnung im Ergebnis).",
+            self,
+        )
+        diarization_hint.setWordWrap(True)
+        layout.addRow(diarization_hint)
+
         self.limit_speakers_checkbox = QCheckBox("Sprecherzahl manuell begrenzen", self)
         self.limit_speakers_checkbox.toggled.connect(self._toggle_speaker_limits)
         layout.addRow(self.limit_speakers_checkbox)
@@ -374,6 +387,13 @@ class MainWindow(QMainWindow):
         self.min_speakers_spin.setEnabled(checked)
         self.max_speakers_spin.setEnabled(checked)
 
+    def _toggle_diarization(self, checked: bool) -> None:
+        self.limit_speakers_checkbox.setEnabled(checked)
+        if not checked:
+            self.limit_speakers_checkbox.setChecked(False)
+        self.min_speakers_spin.setEnabled(checked and self.limit_speakers_checkbox.isChecked())
+        self.max_speakers_spin.setEnabled(checked and self.limit_speakers_checkbox.isChecked())
+
     def _choose_input_folder(self) -> None:
         start_dir = str(self._input_folder) if self._input_folder else str(Path.home())
         directory = QFileDialog.getExistingDirectory(self, "Eingabeordner wählen", start_dir)
@@ -518,6 +538,7 @@ class MainWindow(QMainWindow):
             resume_mode=self.resume_combo.currentData(),
             run_protocol=self.protocol_checkbox.isChecked(),
             whisper_model=self.whisper_model_combo.currentData() or model_service.WHISPER_MODEL_NAME,
+            enable_diarization=self.diarization_checkbox.isChecked(),
         )
 
         self._set_controls_running(True)

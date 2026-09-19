@@ -233,7 +233,14 @@ lokale_windows_app\
 - **Ausgabeordner**: Standard ist `ausgabe\` neben der Anwendung, änderbar
   und wird gemerkt.
 - **Sprache**: Deutsch (Standard) oder automatische Erkennung.
+- **Sprechertrennung aktivieren**: standardmäßig aktiviert. Deaktiviert
+  überspringt die pyannote-Diarisierung komplett (schnellere Verarbeitung)
+  und liefert ein anonymes Transkript ganz ohne Sprecherzuordnung — sinnvoll,
+  wenn nur der Inhalt zählen und die Aussagen anonym bleiben sollen. Die
+  Sprecherzahl-Begrenzung und die Sprechertabelle sind in diesem Fall
+  ebenfalls deaktiviert, da es keine Sprecher gibt.
 - **Sprecherzahl**: automatisch (Standard) oder manuell mit Min./Max.
+  (nur bei aktivierter Sprechertrennung).
 - **Offline-Modus**: standardmäßig aktiviert.
 - **Lokales Protokoll erstellen (Ollama)**: standardmäßig aktiviert.
 - **Systemprompt bearbeiten**: öffnet `einstellungen\systemprompt_protokoll.txt`
