@@ -9,22 +9,21 @@ name: CI
 # Anwendung gedacht ist, und genau dort sind zuletzt echte Fehler aufgefallen.
 
 on:
+  # Ohne Branch-Filter: JEDER Push auf JEDEN Branch wird geprueft, auch auf
+  # einen Branch, den es vorher noch nicht gab. So ist ein Stand schon
+  # geprueft, bevor daraus ein Pull Request wird.
   push:
-    # 'main' ist als Standardbranch vorgesehen; solange das Repository noch
-    # auf 'claude/dreamy-carson-ybtbg4' steht, wird dieser Branch ebenfalls
-    # geprueft - sonst laeuft auf dem Branch, auf dem tatsaechlich gearbeitet
-    # wird, ueberhaupt keine Pruefung. Nach dem Umstellen kann die zweite
-    # Zeile entfallen.
-    branches:
-      - main
-      - claude/dreamy-carson-ybtbg4
   pull_request:
   workflow_dispatch:
 
 # Ein neuer Push auf denselben Branch bricht den vorherigen Lauf ab.
-# Das spart spuerbar Kontingent.
+#
+# Der Schluessel ist bewusst der Branchname und nicht 'github.ref': Zu einem
+# Branch mit offenem Pull Request gehoeren sonst zwei Laeufe (einer vom Push,
+# einer vom Pull Request), die beide Kontingent verbrauchen. So landen beide
+# in derselben Gruppe und der aeltere wird abgebrochen.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.event.pull_request.head.ref || github.ref_name }}
   cancel-in-progress: true
 
 permissions:

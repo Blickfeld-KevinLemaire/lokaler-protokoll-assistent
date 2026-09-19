@@ -366,7 +366,7 @@ start htmlcov/index.html
 
 | Wann | Was |
 |---|---|
-| Bei jedem Push und Pull Request (`.github/workflows/ci.yml`) | Linting und Typpruefung (Linux), Tests unter Windows mit Python 3.10 **und** 3.11, Suche nach Zugangsdaten (gitleaks), Schwachstellenpruefung der Abhaengigkeiten (pip-audit) |
+| Bei jedem Push auf **jeden** Branch und bei jedem Pull Request (`.github/workflows/ci.yml`) | Linting und Typpruefung (Linux), Tests unter Windows mit Python 3.10 **und** 3.11, Suche nach Zugangsdaten (gitleaks), Schwachstellenpruefung der Abhaengigkeiten (pip-audit) |
 | Jede Nacht (`.github/workflows/nightly.yml`) | Schwachstellenpruefung; zusaetzlich Tests und ein PyInstaller-Probelauf, falls es am Vortag Aenderungen gab |
 | Bei einem Versions-Tag `v*` (`.github/workflows/release.yml`) | Windows-Build und Veroeffentlichung als GitHub-Release |
 | Montags (`.github/dependabot.yml`) | Dependabot schlaegt Aktualisierungen der Abhaengigkeiten vor |

@@ -141,6 +141,18 @@ Keine zusätzlichen Windows-Jobs ohne Not. CodeQL und die Geheimnis-Erkennung
 von GitHub sind auf diesem Tarif nicht verfügbar — diese Aufgabe übernehmen
 gitleaks, die `S`-Regeln von ruff und pip-audit.
 
+`ci.yml` läuft bei jedem Push auf **jeden** Branch, damit ein Stand schon
+geprüft ist, bevor daraus ein Pull Request wird. Damit ein Branch mit offenem
+Pull Request nicht doppelt geprüft wird, ist die `concurrency`-Gruppe auf den
+Branchnamen geschlüsselt — nicht auf `github.ref`. Diese Gruppe bitte so
+lassen.
+
+**Die CI kann melden, aber nicht blockieren.** Erforderliche Statusprüfungen
+(„required status checks") sind Teil der Branch-Schutzregeln, und die gibt es
+für ein privates Repository auf einem kostenlosen Konto nicht. Ein roter Lauf
+verhindert das Zusammenführen also nicht automatisch — vor dem Merge selbst
+nachsehen.
+
 ## Wo was liegt
 
 ```
