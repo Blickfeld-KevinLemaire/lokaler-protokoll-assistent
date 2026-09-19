@@ -1,14 +1,18 @@
 # Lokaler Protokoll-Assistent
 
-Transkribiert Besprechungsaufnahmen (mit Sprechertrennung, ueber OpenRouter /
-`microsoft/mai-transcribe-2`) und erstellt daraus anschliessend - als
-getrennter, unabhaengiger Schritt - mit einem frei waehlbaren Sprachmodell
-ein Ergebnisdokument nach freier Wahl (Zusammenfassung, Agenda,
-Prioritaetenliste, ...). Fuer die Nachbearbeitung steht wahlweise ein
-**lokales** Modell (z. B. Ollama) oder ein **API-Modell** zur Verfuegung -
-Endpunkt (Basis-URL), Modellname und API-Schluessel dafuer sind frei
-eintragbar, z. B. OpenRouter, OpenAI, IONOS AI Model Hub oder jeder andere
-Anbieter mit OpenAI-kompatibler `/chat/completions`-Schnittstelle.
+Transkribiert Besprechungsaufnahmen (mit Sprechertrennung) und erstellt
+daraus anschliessend - als getrennter, unabhaengiger Schritt - mit einem
+frei waehlbaren Sprachmodell ein Ergebnisdokument nach freier Wahl
+(Zusammenfassung, Agenda, Prioritaetenliste, ...).
+
+Sowohl die **Transkription** als auch die **Nachbearbeitung** verwenden
+einen frei eintragbaren API-Endpunkt (Basis-URL), Modellnamen und
+API-Schluessel - Standard ist jeweils OpenRouter (Transkription:
+`microsoft/mai-transcribe-2` mit Azure-Sprechertrennung; Nachbearbeitung:
+z. B. `openai/gpt-4o-mini`), es funktioniert aber ebenso mit einer direkten
+Anbindung an Microsoft Azure oder jeden anderen Anbieter, der dasselbe
+Anfrageformat versteht. Fuer die Nachbearbeitung steht zusaetzlich ein
+**lokales** Modell (z. B. Ollama) zur Verfuegung, das keine Daten uebertraegt.
 
 **Einstiegspunkt: `hauptanwendung.py`** - ein kleines Auswahlfenster, mit dem
 Sie entscheiden, wie Sie arbeiten moechten, und das dann die passende
@@ -51,11 +55,11 @@ gemeinsamen Ordner).
 
 | | `protokoll_assistent_gui.py` (Cloud) | `lokale_windows_app/` (vollstaendig lokal) |
 |---|---|---|
-| Transkription | OpenRouter / `microsoft/mai-transcribe-2` | WhisperX (lokal, GPU empfohlen) |
-| Sprechertrennung | ueber den Cloud-Anbieter | pyannote.audio (lokal) |
-| Datenuebertragung | Audio wird an OpenRouter/Azure gesendet | keine - alles laeuft auf dem Geraet |
-| Nachbearbeitung | lokal (Ollama) oder API-Modell | lokal (Ollama), dreistufig |
-| Voraussetzungen | OpenRouter API-Schluessel, FFmpeg | Python, FFmpeg, optional NVIDIA-GPU (sonst CPU) |
+| Transkription | frei waehlbarer API-Endpunkt (Standard: OpenRouter / `microsoft/mai-transcribe-2`) | WhisperX (lokal, GPU empfohlen) |
+| Sprechertrennung | ueber den gewaehlten Cloud-Anbieter | pyannote.audio (lokal) |
+| Datenuebertragung | Audio wird an den gewaehlten Endpunkt gesendet | keine - alles laeuft auf dem Geraet |
+| Nachbearbeitung | lokal (Ollama) oder frei waehlbarer API-Endpunkt | lokal (Ollama), dreistufig |
+| Voraussetzungen | API-Schluessel fuer den gewaehlten Endpunkt, FFmpeg | Python, FFmpeg, optional NVIDIA-GPU (sonst CPU) |
 | Installation | ein Fenster (siehe unten) | eigener Assistent, siehe `lokale_windows_app/README.md` |
 
 Kurz: Wer keine Daten aus der Hand geben will (und eine ausreichend
@@ -133,6 +137,13 @@ wie im Abschnitt "GUI benutzen" beschrieben starten.
   Standard-Windows-Pfade) und ueber die Umgebungsvariable `FFMPEG_PATH`. Wird
   FFmpeg gefunden, aber ist nicht in `PATH`, wird es fuer die laufende Sitzung
   automatisch ergaenzt. Download: https://ffmpeg.org/download.html
+- Fuer die Transkription: ein API-Schluessel fuer den gewaehlten Endpunkt
+  (Standard: OpenRouter, `https://openrouter.ai/api/v1/audio/transcriptions`
+  mit Modell `microsoft/mai-transcribe-2` und Anbieter `azure` fuer die
+  Sprechertrennung). Endpunkt, Modell und Anbieter sind in der GUI frei
+  aenderbar; Standardwerte auch per Umgebungsvariable vorbelegbar:
+  `PROTOKOLL_TRANSKRIPTION_ENDPUNKT`, `PROTOKOLL_TRANSKRIPTION_MODELL`,
+  `PROTOKOLL_TRANSKRIPTION_ANBIETER`.
 - Fuer die Nachbearbeitung des Transkripts, je nach gewaehlter Option:
   - **Lokal**: ein lokales KI-Modell, z. B. [Ollama](https://ollama.com).
     Nach der Installation ein Modell laden, z. B.:
@@ -150,21 +161,23 @@ wie im Abschnitt "GUI benutzen" beschrieben starten.
     aber mit jedem Anbieter, der dieselbe OpenAI-kompatible Schnittstelle
     bereitstellt (z. B. `https://api.openai.com/v1/chat/completions` bei
     OpenAI oder der entsprechende Endpunkt bei IONOS AI Model Hub - Details
-    beim jeweiligen Anbieter nachschlagen). Standard-Endpunkt/-Modell ueber
-    `PROTOKOLL_API_MODELL` anpassbar.
+    beim jeweiligen Anbieter nachschlagen). Standardwerte per
+    Umgebungsvariable vorbelegbar: `PROTOKOLL_API_ENDPUNKT`,
+    `PROTOKOLL_API_MODELL`.
 - Optional fuer ein moderneres Erscheinungsbild (Windows-11-Stil, Light/Dark):
   `pip install -r requirements.txt` (installiert `sv-ttk`). Fehlt das Paket,
   startet die GUI trotzdem, dann mit einem schlichteren Standard-ttk-Design.
 
 ## API-Schluessel
 
-Der OpenRouter API-Schluessel wird **niemals** im Code gespeichert.
+API-Schluessel werden **niemals** im Code gespeichert.
 
-- Konsolenversion: Umgebungsvariable `OPENROUTER_API_KEY` setzen, bevor das
-  Skript gestartet wird.
-- GUI: Schluessel in das dafuer vorgesehene Feld eintragen. Er wird nur fuer
-  die Dauer der Sitzung im Arbeitsspeicher gehalten und nicht auf die
-  Festplatte geschrieben.
+- Konsolenversion (fest auf OpenRouter eingestellt): Umgebungsvariable
+  `OPENROUTER_API_KEY` setzen, bevor das Skript gestartet wird.
+- GUI: Schluessel in die dafuer vorgesehenen Felder eintragen (Transkription,
+  und optional ein eigener fuer die Nachbearbeitung bei einem anderen
+  Endpunkt). Sie werden nur fuer die Dauer der Sitzung im Arbeitsspeicher
+  gehalten und nicht auf die Festplatte geschrieben.
 
 ## GUI benutzen
 
@@ -178,7 +191,13 @@ zeitlich unabhaengig voneinander laufen koennen:
 **A) Transkription**
 1. Ordner auswaehlen, in dem die Aufnahme liegt (bei mehreren passenden
    Dateien im Ordner erscheint eine Auswahlliste).
-2. OpenRouter API-Schluessel eintragen.
+2. API-Schluessel eintragen. Endpunkt (Basis-URL), Modellname und Anbieter
+   (fuer die Sprechertrennung) sind voreingestellt auf OpenRouter /
+   `microsoft/mai-transcribe-2` / `azure`, aber frei aenderbar - z. B. fuer
+   eine direkte Anbindung an Microsoft Azure oder einen anderen Anbieter,
+   der dasselbe Anfrageformat (JSON mit Base64-Audio) versteht. "Anbieter"
+   leer lassen, wenn der Endpunkt keine Provider-Weiterleitung fuer die
+   Sprechertrennung benoetigt.
 3. "Transkription starten" klicken.
 
 Nach Abschluss wird das fertige Transkript automatisch in Schritt 3 der
@@ -193,9 +212,10 @@ Transkript - unabhaengig von einer aktuellen Transkription):
    - **API-Modell** (frei waehlbarer Endpunkt) - Endpunkt (Basis-URL) und
      Modellname eintragen (Standard: OpenRouter, ebenso moeglich z. B.
      OpenAI, IONOS AI Model Hub, ...). Fuer den API-Schluessel gibt es ein
-     eigenes Feld direkt daneben; leer gelassen wird der OpenRouter-Schluessel
-     von Schritt A wiederverwendet. Das Transkript wird dabei an den
-     eingetragenen Endpunkt uebertragen.
+     eigenes Feld direkt daneben; leer gelassen wird der API-Schluessel aus
+     Schritt A wiederverwendet (nur sinnvoll, wenn dort ebenfalls OpenRouter
+     verwendet wird). Das Transkript wird dabei an den eingetragenen
+     Endpunkt uebertragen.
 3. Im Systemprompt-Feld beschreiben, was mit dem Transkript geschehen soll
    (Vorlagen fuer Zusammenfassung/Agenda/Prioritaetenliste stehen bereit,
    oder freier Text fuer jede andere Aufgabe).

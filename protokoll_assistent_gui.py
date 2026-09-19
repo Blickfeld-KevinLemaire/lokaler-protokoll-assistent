@@ -10,6 +10,7 @@ usw.), ohne dass dafuer weitere Daten das Geraet verlassen.
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import queue
@@ -44,9 +45,19 @@ LOCAL_MODEL_URL = os.environ.get(
 DEFAULT_LOCAL_MODEL = os.environ.get("PROTOKOLL_LOKALES_MODELL", "llama3.1")
 LOCAL_MODEL_TIMEOUT_SECONDS = 1800
 
-OPENROUTER_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions"
+OPENROUTER_CHAT_URL = os.environ.get(
+    "PROTOKOLL_API_ENDPUNKT", "https://openrouter.ai/api/v1/chat/completions"
+)
 DEFAULT_API_MODEL = os.environ.get("PROTOKOLL_API_MODELL", "openai/gpt-4o-mini")
 API_MODEL_TIMEOUT_SECONDS = 600
+
+DEFAULT_TRANSKRIPTION_ENDPUNKT = os.environ.get(
+    "PROTOKOLL_TRANSKRIPTION_ENDPUNKT", kern.OPENROUTER_URL
+)
+DEFAULT_TRANSKRIPTION_MODELL = os.environ.get("PROTOKOLL_TRANSKRIPTION_MODELL", kern.MODEL_NAME)
+DEFAULT_TRANSKRIPTION_ANBIETER = os.environ.get(
+    "PROTOKOLL_TRANSKRIPTION_ANBIETER", kern.PROVIDER_NAME
+)
 
 DEFAULT_SYSTEMPROMPT = (
     "Fasse das folgende Besprechungstranskript in klarer, gut strukturierter "
@@ -177,11 +188,124 @@ def split_audio_into_chunks(
     return chunks
 
 
+def build_transcription_request(
+    audio_path: Path, audio_format: str, model_name: str, provider_name: str
+) -> dict[str, Any]:
+    """Wie kern.build_request, aber mit frei waehlbarem Modell und Anbieter
+    statt der fest einprogrammierten Konsolen-Konstanten.
+
+    Das Format (JSON mit Base64-Audio, optionales 'provider.options.<name>.
+    diarization'-Feld) entspricht dem OpenRouter-Schema. Es funktioniert mit
+    jedem Endpunkt, der dieses Format ebenfalls versteht - z. B. auch bei
+    direkter Anbindung an Microsoft Azure oder einen anderen Anbieter, der
+    dieselbe Anfragestruktur akzeptiert."""
+    audio_base64 = base64.b64encode(audio_path.read_bytes()).decode("ascii")
+    request_data: dict[str, Any] = {
+        "model": model_name,
+        "input_audio": {"data": audio_base64, "format": audio_format},
+        "response_format": "verbose_json",
+        "timestamp_granularities": ["segment"],
+    }
+    if provider_name.strip():
+        request_data["provider"] = {
+            "options": {provider_name.strip(): {"diarization": {"enabled": True}}}
+        }
+    return request_data
+
+
+def call_transcription_endpoint(
+    endpoint_url: str, request_data: dict[str, Any], api_key: str
+) -> dict[str, Any]:
+    body = json.dumps(request_data, ensure_ascii=False).encode("utf-8")
+    request = urllib.request.Request(
+        endpoint_url,
+        data=body,
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json; charset=utf-8",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=kern.REQUEST_TIMEOUT_SECONDS) as response:
+            result = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as error:
+        details = error.read().decode("utf-8", errors="replace")[:1500]
+        raise RuntimeError(f"Transkriptions-Endpunkt-Fehler HTTP {error.code}: {details}") from error
+    except urllib.error.URLError as error:
+        raise RuntimeError(
+            f"Transkriptions-Endpunkt ist nicht erreichbar ({endpoint_url}): {error}"
+        ) from error
+    except TimeoutError as error:
+        raise RuntimeError("Die Transkription hat das Zeitlimit ueberschritten.") from error
+
+    if not isinstance(result, dict):
+        raise RuntimeError(f"{endpoint_url} hat kein JSON-Objekt geliefert.")
+    if result.get("error"):
+        raise RuntimeError(f"Der Endpunkt meldet einen Fehler: {result['error']}")
+    return result
+
+
+def save_transcript(
+    source: Path, api_result: dict[str, Any], model_name: str, endpoint_url: str
+) -> tuple[Path, Path]:
+    """Wie kern.save_transcript, aber mit dem tatsaechlich verwendeten
+    Modell/Endpunkt statt der fest einprogrammierten Konsolen-Konstante."""
+    output_txt = OUTPUT_DIR / f"{source.stem}_mai2_transkript.txt"
+    output_json = OUTPUT_DIR / f"{source.stem}_mai2_transkript.json"
+    segments, words, speakers = kern.normalize_transcript(api_result)
+    if not segments:
+        raise RuntimeError("Die Datei wurde verarbeitet, aber es wurde keine Sprache erkannt.")
+
+    duration = kern.value_float(api_result.get("duration"))
+    if not duration:
+        duration = max(kern.value_float(segment.get("ende_sekunden")) for segment in segments)
+    language = str(api_result.get("language", kern.LANGUAGE or "automatisch erkannt"))
+    usage = api_result.get("usage", {})
+    if not isinstance(usage, dict):
+        usage = {}
+
+    transcript_lines = [
+        f"[{segment['start']} --> {segment['ende']}] {segment['text']}" for segment in segments
+    ]
+    header = [
+        "PROTOKOLL-ASSISTENT - VOLLTRANSKRIPT MIT SPRECHERTRENNUNG",
+        f"Quelldatei: {source.name}",
+        f"Erstellt: {datetime.now().astimezone().isoformat(timespec='seconds')}",
+        f"Transkriptionsmodell: {model_name}",
+        f"Endpunkt: {endpoint_url}",
+        f"Erkannte Sprache: {language}",
+        f"Erkannte Sprecher: {len(speakers)}",
+        "Hinweis: Sprecherbezeichnungen sind technische IDs und keine echten Namen.",
+        "",
+    ]
+    output_txt.write_text("\n".join(header + transcript_lines) + "\n", encoding="utf-8")
+
+    result = {
+        "quelldatei": source.name,
+        "erstellt": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "modell": model_name,
+        "endpunkt": endpoint_url,
+        "sprache": language,
+        "dauer_sekunden": round(duration, 3),
+        "anzahl_sprecher": len(speakers),
+        "sprecher": speakers,
+        "anzahl_segmente": len(segments),
+        "segmente": segments,
+        "woerter": words,
+        "nutzung": usage,
+    }
+    output_json.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+    return output_txt, output_json
+
+
 def transcribe_in_chunks(
     source: Path,
     api_key: str,
-    terms: list[str],
     chunk_seconds: int,
+    endpoint_url: str,
+    model_name: str,
+    provider_name: str,
     log: Callable[[str], None],
     progress: Callable[[float, str], None],
 ) -> dict[str, Any]:
@@ -220,8 +344,10 @@ def transcribe_in_chunks(
                 log(f"Abschnitt {index}/{anzahl}: vorhandene Antwort wird weiterverwendet.")
                 api_result = json.loads(checkpoint.read_text(encoding="utf-8-sig"))
             else:
-                request_data = kern.build_request(chunk_pfad, "mp3", terms)
-                api_result = kern.call_openrouter(request_data, api_key)
+                request_data = build_transcription_request(
+                    chunk_pfad, "mp3", model_name, provider_name
+                )
+                api_result = call_transcription_endpoint(endpoint_url, request_data, api_key)
                 checkpoint.write_text(
                     json.dumps(api_result, ensure_ascii=False, indent=2), encoding="utf-8"
                 )
@@ -269,7 +395,9 @@ def transcribe_in_chunks(
         }
 
 
-def save_merged_transcript(source: Path, zusammengefasst: dict[str, Any]) -> tuple[Path, Path]:
+def save_merged_transcript(
+    source: Path, zusammengefasst: dict[str, Any], model_name: str, endpoint_url: str
+) -> tuple[Path, Path]:
     segmente = zusammengefasst["segmente"]
     if not segmente:
         raise RuntimeError("Die Aufnahme wurde verarbeitet, aber es wurde keine Sprache erkannt.")
@@ -284,7 +412,8 @@ def save_merged_transcript(source: Path, zusammengefasst: dict[str, Any]) -> tup
         "PROTOKOLL-ASSISTENT - VOLLTRANSKRIPT MIT SPRECHERTRENNUNG",
         f"Quelldatei: {source.name}",
         f"Erstellt: {datetime.now().astimezone().isoformat(timespec='seconds')}",
-        f"Transkriptionsmodell: {kern.MODEL_NAME}",
+        f"Transkriptionsmodell: {model_name}",
+        f"Endpunkt: {endpoint_url}",
         f"Erkannte Sprache: {zusammengefasst['sprache']}",
         f"Aufgeteilt in {zusammengefasst['anzahl_abschnitte']} Abschnitte "
         f"(je ca. {CHUNK_LAENGE_MINUTEN} Minuten)",
@@ -297,8 +426,8 @@ def save_merged_transcript(source: Path, zusammengefasst: dict[str, Any]) -> tup
     ergebnis = {
         "quelldatei": source.name,
         "erstellt": datetime.now().astimezone().isoformat(timespec="seconds"),
-        "modell": kern.MODEL_NAME,
-        "anbieter": "OpenRouter / Microsoft Azure",
+        "modell": model_name,
+        "endpunkt": endpoint_url,
         "sprache": zusammengefasst["sprache"],
         "dauer_sekunden": round(zusammengefasst["dauer_sekunden"], 3),
         "aufgeteilt_in_abschnitte": zusammengefasst["anzahl_abschnitte"],
@@ -621,7 +750,7 @@ class ProtokollGUI:
         )
         self.file_combo.pack(side="left", padx=8, fill="x", expand=True)
 
-        api_frame = ttk.LabelFrame(self.root, text="2. OpenRouter API-Schluessel")
+        api_frame = ttk.LabelFrame(self.root, text="2. Transkriptions-API")
         api_frame.pack(fill="x", **padding)
         row3 = ttk.Frame(api_frame)
         row3.pack(fill="x", padx=8, pady=6)
@@ -633,13 +762,42 @@ class ProtokollGUI:
         ttk.Checkbutton(
             row3, text="anzeigen", variable=self.show_key_var, command=self._toggle_key_visibility
         ).pack(side="left")
+
+        row_transkription_endpoint = ttk.Frame(api_frame)
+        row_transkription_endpoint.pack(fill="x", padx=8, pady=(0, 6))
+        ttk.Label(row_transkription_endpoint, text="Endpunkt (Basis-URL):").pack(side="left")
+        self.transkription_endpoint_var = tk.StringVar(value=DEFAULT_TRANSKRIPTION_ENDPUNKT)
+        ttk.Entry(
+            row_transkription_endpoint, textvariable=self.transkription_endpoint_var, width=45
+        ).pack(side="left", padx=8, fill="x", expand=True)
+
+        row_transkription_modell = ttk.Frame(api_frame)
+        row_transkription_modell.pack(fill="x", padx=8, pady=(0, 6))
+        ttk.Label(row_transkription_modell, text="Modellname:").pack(side="left")
+        self.transkription_modell_var = tk.StringVar(value=DEFAULT_TRANSKRIPTION_MODELL)
+        ttk.Entry(
+            row_transkription_modell, textvariable=self.transkription_modell_var, width=30
+        ).pack(side="left", padx=8)
+        ttk.Label(row_transkription_modell, text="Anbieter (Sprechertrennung):").pack(
+            side="left", padx=(16, 0)
+        )
+        self.transkription_anbieter_var = tk.StringVar(value=DEFAULT_TRANSKRIPTION_ANBIETER)
+        ttk.Entry(
+            row_transkription_modell, textvariable=self.transkription_anbieter_var, width=12
+        ).pack(side="left", padx=8)
+
         ttk.Label(
             api_frame,
             text=(
                 "Der Schluessel wird nur im Arbeitsspeicher dieser Sitzung gehalten, "
-                "niemals in eine Datei oder in den Code geschrieben. Er wird fuer die "
-                "Transkription (OpenRouter) verwendet und dient bei der Nachbearbeitung "
-                "als Standard-Schluessel, falls dort kein eigener eingetragen wird."
+                "niemals in eine Datei oder in den Code geschrieben. Endpunkt, Modell "
+                "und Anbieter sind frei aenderbar - Standard ist OpenRouter mit "
+                "microsoft/mai-transcribe-2, ebenso moeglich ist z. B. eine direkte "
+                "Anbindung an Microsoft Azure oder einen anderen Anbieter, der dasselbe "
+                "Anfrageformat (JSON mit Base64-Audio) versteht. 'Anbieter' leer lassen, "
+                "wenn der Endpunkt keine Provider-Weiterleitung fuer die Sprechertrennung "
+                "benoetigt. Der Schluessel dient bei der Nachbearbeitung ausserdem als "
+                "Standard-Schluessel, falls dort kein eigener eingetragen wird."
             ),
             foreground="#555555",
             wraplength=880,
@@ -1021,9 +1179,19 @@ class ProtokollGUI:
         api_key = self.api_key_var.get().strip()
         if not api_key:
             messagebox.showwarning(
-                "API-Schluessel fehlt", "Bitte den OpenRouter API-Schluessel eingeben."
+                "API-Schluessel fehlt", "Bitte den API-Schluessel fuer die Transkription eingeben."
             )
             return
+
+        endpoint_url = self.transkription_endpoint_var.get().strip()
+        modell = self.transkription_modell_var.get().strip()
+        if not endpoint_url or not modell:
+            messagebox.showwarning(
+                "Angaben fehlen",
+                "Bitte Endpunkt (Basis-URL) und Modellname fuer die Transkription eintragen.",
+            )
+            return
+        anbieter = self.transkription_anbieter_var.get().strip()
 
         source = self.selected_folder / self.file_var.get()  # type: ignore[operator]
         sprecher_benennen = self.sprecher_benennen_var.get()
@@ -1036,7 +1204,7 @@ class ProtokollGUI:
 
         self.worker_thread = threading.Thread(
             target=self._run_transkription,
-            args=(source, api_key, sprecher_benennen),
+            args=(source, api_key, endpoint_url, modell, anbieter, sprecher_benennen),
             daemon=True,
         )
         self.worker_thread.start()
@@ -1114,17 +1282,23 @@ class ProtokollGUI:
         self.confirm_event.wait()
         return self.confirm_result
 
-    def _run_transkription(self, source: Path, api_key: str, sprecher_benennen: bool) -> None:
+    def _run_transkription(
+        self,
+        source: Path,
+        api_key: str,
+        endpoint_url: str,
+        modell: str,
+        anbieter: str,
+        sprecher_benennen: bool,
+    ) -> None:
         try:
-            os.environ["OPENROUTER_API_KEY"] = api_key
             self._log(f"Eingabedatei: {source.name}")
-            self._log(f"Transkriptionsmodell: {kern.MODEL_NAME} (Sprechertrennung aktiviert)")
+            self._log(f"Transkriptionsmodell: {modell} (Endpunkt: {endpoint_url})")
 
             self._progress(0.05, "Datenschutzabfrage ...")
             nachricht = (
-                f"Die Aufnahme '{source.name}' wird zur Transkription an OpenRouter "
-                "und den Modellanbieter (Microsoft Azure) uebertragen.\n\n"
-                "Uebertragung jetzt starten?"
+                f"Die Aufnahme '{source.name}' wird zur Transkription an\n'{endpoint_url}'"
+                "\nuebertragen.\n\nUebertragung jetzt starten?"
             )
             if not self._ask_confirmation(nachricht):
                 self._log("Abbruch: Uebertragung wurde nicht bestaetigt. Es wurden keine Daten gesendet.")
@@ -1153,12 +1327,20 @@ class ProtokollGUI:
                     "Hinweis: Die Sprechernummerierung kann an Abschnittsgrenzen neu beginnen "
                     "(siehe Klammerzusatz 'Teil N' in den Sprecherbezeichnungen)."
                 )
-                terms = kern.load_terms()
                 zusammengefasst = transcribe_in_chunks(
-                    source, api_key, terms, CHUNK_LAENGE_SEKUNDEN, self._log, self._progress
+                    source,
+                    api_key,
+                    CHUNK_LAENGE_SEKUNDEN,
+                    endpoint_url,
+                    modell,
+                    anbieter,
+                    self._log,
+                    self._progress,
                 )
                 self._progress(0.85, "Transkript wird gespeichert ...")
-                output_txt, output_json = save_merged_transcript(source, zusammengefasst)
+                output_txt, output_json = save_merged_transcript(
+                    source, zusammengefasst, modell, endpoint_url
+                )
             else:
                 checkpoint = CHECKPOINT_DIR / f"{source.stem}_mai_transcribe_2_rohantwort.json"
                 if checkpoint.exists():
@@ -1166,19 +1348,20 @@ class ProtokollGUI:
                     api_result = json.loads(checkpoint.read_text(encoding="utf-8-sig"))
                 else:
                     self._progress(0.15, "Audio wird vorbereitet ...")
-                    terms = kern.load_terms()
                     with tempfile.TemporaryDirectory(prefix="protokoll_audio_") as temp_name:
                         audio_path, audio_format = kern.prepare_audio(source, Path(temp_name))
-                        request_data = kern.build_request(audio_path, audio_format, terms)
-                        self._progress(0.35, "Uebertragung an OpenRouter / Azure ...")
-                        self._log("Cloud-Transkription mit Sprechertrennung gestartet ...")
-                        api_result = kern.call_openrouter(request_data, api_key)
+                        request_data = build_transcription_request(
+                            audio_path, audio_format, modell, anbieter
+                        )
+                        self._progress(0.35, f"Uebertragung an {endpoint_url} ...")
+                        self._log("Cloud-Transkription gestartet ...")
+                        api_result = call_transcription_endpoint(endpoint_url, request_data, api_key)
                     checkpoint.write_text(
                         json.dumps(api_result, ensure_ascii=False, indent=2), encoding="utf-8"
                     )
 
                 self._progress(0.85, "Transkript wird gespeichert ...")
-                output_txt, output_json = kern.save_transcript(source, api_result)
+                output_txt, output_json = save_transcript(source, api_result, modell, endpoint_url)
                 checkpoint.unlink(missing_ok=True)
 
             self._log(f"Transkript gespeichert: {output_txt.name}")
@@ -1225,7 +1408,6 @@ class ProtokollGUI:
             self._log(f"FEHLER: {error}")
             self.message_queue.put(("error", str(error)))
         finally:
-            os.environ.pop("OPENROUTER_API_KEY", None)
             self.message_queue.put(("job_fertig", None))
 
     def _run_nachbearbeitung(
