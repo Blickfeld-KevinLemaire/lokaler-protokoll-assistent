@@ -590,7 +590,7 @@ def test_verstrichene_zeit(fenster, monkeypatch):
 # --------------------------------------------------------------------------
 # Ergebnisbehandlung
 # --------------------------------------------------------------------------
-def _ergebnis_bauen(tmp_path, eintraege):
+def _ergebnis_bauen(tmp_path, eintraege, protokoll_fehler=None):
     json_datei = tmp_path / "ergebnis.json"
     json_datei.write_text(
         json.dumps({"sprecher_zuordnung": eintraege}, ensure_ascii=False), encoding="utf-8"
@@ -604,7 +604,11 @@ def _ergebnis_bauen(tmp_path, eintraege):
 
     class _Ergebnis:
         export_paths = pfade
+        # Wie im echten PipelineResult: gesetzt, wenn nur die
+        # Protokollauswertung gescheitert ist.
+        protokoll_fehler = None
 
+    _Ergebnis.protokoll_fehler = protokoll_fehler
     return _Ergebnis()
 
 
@@ -748,3 +752,47 @@ def test_namen_uebernehmen_meldet_exportfehler(fenster, tmp_path, monkeypatch, g
     fenster._apply_speaker_names()
 
     assert gemeldete_fehler == ["Export fehlgeschlagen"]
+
+
+# --------------------------------------------------------------------------
+# Gescheiterte Protokollauswertung
+# --------------------------------------------------------------------------
+def test_gescheitertes_protokoll_bleibt_nach_abgeschlossen_sichtbar(fenster):
+    # Die Verarbeitung als Ganzes ist fertig, das Protokoll aber nicht
+    # entstanden. Die Stufe "abgeschlossen" darf den Fehlschlag nicht
+    # ueberschreiben - sonst sucht der Nutzer vergeblich nach der Datei.
+    fenster.protocol_checkbox.setChecked(True)
+    fenster._on_stage_changed("protokoll_fehlgeschlagen", "Protokollauswertung fehlgeschlagen: kaputt")
+    fenster._on_stage_changed("abgeschlossen", "fertig")
+
+    assert fenster.transcription_status_label.text() == "abgeschlossen"
+    assert "fehlgeschlagen" in fenster.protocol_status_label.text()
+    assert fenster.protocol_status_label.text() != "abgeschlossen"
+
+
+def test_neuer_lauf_setzt_den_fehlerzustand_zurueck(fenster):
+    fenster.protocol_checkbox.setChecked(True)
+    fenster._on_stage_changed("protokoll_fehlgeschlagen", "kaputt")
+    assert fenster._protokoll_fehlgeschlagen
+
+    fenster._protokoll_fehlgeschlagen = False
+    fenster._on_stage_changed("abgeschlossen", "fertig")
+    assert fenster.protocol_status_label.text() == "abgeschlossen"
+
+
+def test_abschlussmeldung_nennt_gescheitertes_protokoll(fenster, tmp_path, monkeypatch):
+    warnungen = []
+    infos = []
+    monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a: warnungen.append(a)))
+    monkeypatch.setattr(QMessageBox, "information", staticmethod(lambda *a: infos.append(a)))
+    ergebnis = _ergebnis_bauen(tmp_path, [], protokoll_fehler="Ollama ist nicht erreichbar")
+
+    fenster._on_finished_ok(ergebnis)
+
+    assert warnungen, "Es haette gewarnt werden muessen."
+    assert not infos, "Ein Erfolgsfenster waere hier irrefuehrend."
+    # QMessageBox.warning(parent, titel, text) -- der Text ist das dritte Argument.
+    assert "Ollama ist nicht erreichbar" in warnungen[0][2]
+    assert "fehlgeschlagen" in fenster.status_label.text()
+    # Das Transkript ist trotzdem da und die Sprechertabelle nutzbar.
+    assert fenster._last_result is ergebnis

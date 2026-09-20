@@ -62,7 +62,7 @@ TRANSCRIPT_STAGES = {
     "zusammenfuehrung",
     "export_transkript",
 }
-PROTOCOL_STAGES = {"protokoll_auswertung", "export_protokoll"}
+PROTOCOL_STAGES = {"protokoll_auswertung", "export_protokoll", "protokoll_fehlgeschlagen"}
 
 
 class MainWindow(QMainWindow):
@@ -95,6 +95,7 @@ class MainWindow(QMainWindow):
         self._start_time: float | None = None
         self._chunk_progress = (0, 0)
         self._last_result: pipeline_service.PipelineResult | None = None
+        self._protokoll_fehlgeschlagen = False
 
         self._elapsed_timer = QTimer(self)
         self._elapsed_timer.setInterval(1000)
@@ -578,6 +579,7 @@ class MainWindow(QMainWindow):
         )
 
         self._set_controls_running(True)
+        self._protokoll_fehlgeschlagen = False
         self.preview_edit.clear()
         self.speaker_table.setRowCount(0)
         self.apply_names_button.setEnabled(False)
@@ -638,9 +640,15 @@ class MainWindow(QMainWindow):
             self.transcription_status_label.setText(detail)
         if key in PROTOCOL_STAGES:
             self.protocol_status_label.setText(detail)
+        if key == "protokoll_fehlgeschlagen":
+            self._protokoll_fehlgeschlagen = True
+            self.protocol_status_label.setToolTip(detail)
         if key == "abgeschlossen":
             self.transcription_status_label.setText("abgeschlossen")
-            if self.protocol_checkbox.isChecked():
+            # Nicht ueberschreiben, wenn die Auswertung vorher gescheitert
+            # ist: Die Verarbeitung als Ganzes ist fertig, das Protokoll
+            # aber gerade nicht entstanden.
+            if self.protocol_checkbox.isChecked() and not self._protokoll_fehlgeschlagen:
                 self.protocol_status_label.setText("abgeschlossen")
 
     def _on_chunk_progress(self, current: int, total: int) -> None:
@@ -657,8 +665,25 @@ class MainWindow(QMainWindow):
 
     def _on_finished_ok(self, result: pipeline_service.PipelineResult) -> None:
         self._last_result = result
-        self.status_label.setText("Verarbeitung abgeschlossen.")
         self._populate_speaker_table(result)
+        if result.protokoll_fehler:
+            # Das Transkript ist da, das Protokoll nicht. Beides in einem
+            # Erfolgsfenster zusammenzufassen waere irrefuehrend -- der
+            # Nutzer wuerde vergeblich nach der Protokolldatei suchen.
+            self.status_label.setText("Transkript erstellt, Protokollauswertung fehlgeschlagen.")
+            QMessageBox.warning(
+                self,
+                "Protokollauswertung fehlgeschlagen",
+                "Das Transkript wurde vollständig erstellt in:\n"
+                f"{result.export_paths.txt.parent}\n\n"
+                "Die lokale Protokollauswertung ist fehlgeschlagen, es wurde "
+                "keine Protokolldatei geschrieben:\n"
+                f"{result.protokoll_fehler}\n\n"
+                "Das Transkript bleibt erhalten. Die Auswertung lässt sich "
+                "erneut starten, ohne dass neu transkribiert werden muss.",
+            )
+            return
+        self.status_label.setText("Verarbeitung abgeschlossen.")
         QMessageBox.information(
             self,
             "Verarbeitung abgeschlossen",

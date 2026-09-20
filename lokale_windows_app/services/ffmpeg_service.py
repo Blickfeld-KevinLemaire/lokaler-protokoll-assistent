@@ -182,6 +182,31 @@ def ensure_ffmpeg_available(
     return ensure_ffmpeg_on_path()
 
 
+def _unfertiger_pfad(ziel: Path) -> Path:
+    """Arbeitsname, unter dem FFmpeg waehrend des Schreibens ausgibt.
+
+    Die Endung bleibt erhalten, damit FFmpeg das Ausgabeformat weiterhin
+    daran erkennt.
+    """
+    return ziel.with_name(f"{ziel.stem}.unfertig{ziel.suffix}")
+
+
+def _fertigstellen(unfertig: Path, ziel: Path) -> None:
+    """Benennt die fertige Datei an ihren endgueltigen Platz um.
+
+    Erst nach diesem Schritt existiert der Zielpfad. Bricht der Rechner
+    vorher ab, bleibt nur die unfertige Datei liegen -- die Aufrufer
+    pruefen mit ``exists()``, ob ein Schritt schon erledigt ist, und
+    wuerden eine abgeschnittene Datei sonst stillschweigend
+    weiterverwenden (zu kurzes Transkript ohne jede Fehlermeldung).
+    """
+    unfertig.replace(ziel)
+
+
+def _unfertige_reste_entfernen(unfertig: Path) -> None:
+    unfertig.unlink(missing_ok=True)
+
+
 def get_tool_version(executable: Path) -> str:
     try:
         completed = subprocess.run(
@@ -229,6 +254,8 @@ def normalize_audio(
     if not ffmpeg_path:
         raise RuntimeError("FFmpeg wurde nicht gefunden.")
     destination_wav.parent.mkdir(parents=True, exist_ok=True)
+    unfertig = _unfertiger_pfad(destination_wav)
+    _unfertige_reste_entfernen(unfertig)
     command = [
         str(ffmpeg_path),
         "-hide_banner",
@@ -239,11 +266,13 @@ def normalize_audio(
         "-ac", "1",
         "-ar", str(sample_rate),
         "-c:a", "pcm_s16le",
-        str(destination_wav),
+        str(unfertig),
     ]
     completed = subprocess.run(command, capture_output=True, text=True, check=False, timeout=3600)
-    if completed.returncode != 0 or not destination_wav.exists():
+    if completed.returncode != 0 or not unfertig.exists():
+        _unfertige_reste_entfernen(unfertig)
         raise RuntimeError(f"FFmpeg konnte die Datei nicht normalisieren: {completed.stderr.strip()[-1000:]}")
+    _fertigstellen(unfertig, destination_wav)
     return destination_wav
 
 
@@ -266,6 +295,8 @@ def extract_chunk_wav(
     if not ffmpeg_path:
         raise RuntimeError("FFmpeg wurde nicht gefunden.")
     destination_wav.parent.mkdir(parents=True, exist_ok=True)
+    unfertig = _unfertiger_pfad(destination_wav)
+    _unfertige_reste_entfernen(unfertig)
     duration = end_seconds - start_seconds
     command = [
         str(ffmpeg_path),
@@ -278,9 +309,11 @@ def extract_chunk_wav(
         "-ac", "1",
         "-ar", str(sample_rate),
         "-c:a", "pcm_s16le",
-        str(destination_wav),
+        str(unfertig),
     ]
     completed = subprocess.run(command, capture_output=True, text=True, check=False, timeout=600)
-    if completed.returncode != 0 or not destination_wav.exists():
+    if completed.returncode != 0 or not unfertig.exists():
+        _unfertige_reste_entfernen(unfertig)
         raise RuntimeError(f"FFmpeg konnte den Chunk nicht erstellen: {completed.stderr.strip()[-1000:]}")
+    _fertigstellen(unfertig, destination_wav)
     return destination_wav

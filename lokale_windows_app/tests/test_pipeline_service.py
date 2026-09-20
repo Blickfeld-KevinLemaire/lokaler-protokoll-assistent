@@ -14,7 +14,7 @@ import json
 import pytest
 
 import utils.paths as utils_paths
-from services import manifest_service, pipeline_service
+from services import chunking_service, manifest_service, ollama_service, pipeline_service
 
 
 @pytest.fixture()
@@ -220,3 +220,224 @@ def test_pipeline_can_be_cancelled_between_chunks(monkeypatch, tmp_path, source_
             transcribe_chunk_fn=transcribe,
             diarize_fn=_fake_diarize,
         )
+
+
+# ---------------------------------------------------------------------------
+# Protokollauswertung: Ueberlappung, Neubeginn und Fehlerbehandlung
+# ---------------------------------------------------------------------------
+
+def _vollstaendiges_protokoll(titel: str = "Protokoll") -> dict:
+    return {
+        "titel": titel,
+        "kurzzusammenfassung": "",
+        "teilnehmende_oder_sprecher": [],
+        "themen": [],
+        "entscheidungen": [],
+        "aufgaben": [],
+        "termine": [],
+        "offene_fragen": [],
+        "wichtige_fakten": [],
+        "unsichere_transkriptstellen": [],
+        "quellenhinweise": [],
+        "kernaussagen": [],
+    }
+
+
+def _systemprompt_bereitstellen(monkeypatch, tmp_path):
+    prompt = tmp_path / "systemprompt.txt"
+    prompt.write_text("Du bist ein Protokollassistent.", encoding="utf-8")
+    monkeypatch.setattr(utils_paths, "get_system_prompt_file", lambda: prompt)
+
+
+def _einfaches_segment(_pfad):
+    return [{"start": 1.0, "end": 5.0, "text": "Hallo", "speaker": "SPEAKER_00"}]
+
+
+def test_ueberlappung_landet_nur_in_einem_protokoll_abschnitt():
+    # Die Chunks ueberlappen sich um 10 Sekunden. Wird ein Segment aus
+    # diesem Bereich beiden Abschnitten mitgegeben, zaehlt das Modell
+    # dieselbe Aussage zweimal - genau das hat merge_service vorher
+    # muehsam bereinigt.
+    plaene = chunking_service.plan_chunks(1200.0)
+    segmente = [
+        {"start": 100.0, "end": 105.0, "text": "frueh", "sprecher_id": "S0"},
+        {"start": 595.0, "end": 598.0, "text": "in der Ueberlappung", "sprecher_id": "S0"},
+        {"start": 700.0, "end": 705.0, "text": "spaet", "sprecher_id": "S0"},
+    ]
+
+    texte = pipeline_service._build_protocol_chunk_texts(plaene, segmente, {"S0": "Anna"})
+
+    gesamt = "\n".join(eintrag["text"] for eintrag in texte)
+    assert gesamt.count("in der Ueberlappung") == 1
+    assert gesamt.count("frueh") == 1
+    assert gesamt.count("spaet") == 1
+
+
+def test_protokoll_abschnitte_verlieren_kein_segment():
+    # Das verschobene Fenster darf nichts auslassen: Die Abschnitte muessen
+    # luecken- UND ueberschneidungsfrei aneinander anschliessen.
+    plaene = chunking_service.plan_chunks(1800.0)
+    segmente = [
+        {"start": float(s), "end": float(s) + 1.0, "text": f"segment{s}", "sprecher_id": "S0"}
+        for s in range(0, 1800, 20)
+    ]
+
+    texte = pipeline_service._build_protocol_chunk_texts(plaene, segmente, {"S0": "Anna"})
+
+    zeilen = [zeile for eintrag in texte for zeile in eintrag["text"].splitlines()]
+    assert len(zeilen) == len(segmente)
+
+
+def test_neu_beginnen_erzeugt_das_protokoll_wirklich_neu(monkeypatch, tmp_path, source_file):
+    monkeypatch.setattr(utils_paths, "get_work_dir", lambda: tmp_path / "arbeitsdaten")
+    _systemprompt_bereitstellen(monkeypatch, tmp_path)
+    _patch_ffmpeg(monkeypatch, total_duration=300.0)
+
+    def einstellungen(modus):
+        return pipeline_service.PipelineSettings(
+            source_path=source_file,
+            output_dir=tmp_path / "ausgabe",
+            run_protocol=True,
+            resume_mode=modus,
+        )
+
+    erster = pipeline_service.run_pipeline(
+        einstellungen("fortsetzen"),
+        transcribe_chunk_fn=_einfaches_segment,
+        diarize_fn=_fake_diarize,
+        protocol_generate_fn=lambda prompt, system: _vollstaendiges_protokoll("ALT"),
+    )
+    assert json.loads(erster.protocol_paths[0].read_text(encoding="utf-8"))["titel"] == "ALT"
+
+    aufrufe = []
+
+    def neues_modell(prompt, system):
+        aufrufe.append(prompt)
+        return _vollstaendiges_protokoll("NEU")
+
+    zweiter = pipeline_service.run_pipeline(
+        einstellungen("neu_beginnen"),
+        transcribe_chunk_fn=_einfaches_segment,
+        diarize_fn=_fake_diarize,
+        protocol_generate_fn=neues_modell,
+    )
+
+    assert aufrufe, "Bei 'neu beginnen' wurde das Modell gar nicht gefragt."
+    assert json.loads(zweiter.protocol_paths[0].read_text(encoding="utf-8"))["titel"] == "NEU"
+
+
+def test_neu_beginnen_transkribiert_alle_chunks_erneut(monkeypatch, tmp_path, source_file):
+    monkeypatch.setattr(utils_paths, "get_work_dir", lambda: tmp_path / "arbeitsdaten")
+    _patch_ffmpeg(monkeypatch, total_duration=300.0)
+    durchlaeufe = []
+
+    def transkribiere(pfad):
+        durchlaeufe.append(pfad)
+        return _einfaches_segment(pfad)
+
+    pipeline_service.run_pipeline(
+        _make_settings(source_file, tmp_path),
+        transcribe_chunk_fn=transkribiere,
+        diarize_fn=_fake_diarize,
+    )
+    assert len(durchlaeufe) == 1
+
+    pipeline_service.run_pipeline(
+        _make_settings(source_file, tmp_path, resume_mode="neu_beginnen"),
+        transcribe_chunk_fn=transkribiere,
+        diarize_fn=_fake_diarize,
+    )
+    assert len(durchlaeufe) == 2
+
+
+def test_fortsetzen_verwendet_fertige_chunks_weiterhin(monkeypatch, tmp_path, source_file):
+    # Gegenprobe zum Neubeginn: Fortsetzen darf gerade NICHT neu rechnen.
+    monkeypatch.setattr(utils_paths, "get_work_dir", lambda: tmp_path / "arbeitsdaten")
+    _patch_ffmpeg(monkeypatch, total_duration=300.0)
+    durchlaeufe = []
+
+    def transkribiere(pfad):
+        durchlaeufe.append(pfad)
+        return _einfaches_segment(pfad)
+
+    for _ in range(2):
+        pipeline_service.run_pipeline(
+            _make_settings(source_file, tmp_path),
+            transcribe_chunk_fn=transkribiere,
+            diarize_fn=_fake_diarize,
+        )
+
+    assert len(durchlaeufe) == 1
+
+
+def test_gescheiterte_protokollauswertung_wird_gemeldet(monkeypatch, tmp_path, source_file):
+    # Das Transkript ist fertig, nur die Auswertung nicht. Frueher meldete
+    # die Ablaufsteuerung trotzdem nur "abgeschlossen", und die Oberflaeche
+    # zeigte einen Erfolg an, obwohl keine Protokolldatei entstanden war.
+    monkeypatch.setattr(utils_paths, "get_work_dir", lambda: tmp_path / "arbeitsdaten")
+    _systemprompt_bereitstellen(monkeypatch, tmp_path)
+    _patch_ffmpeg(monkeypatch, total_duration=300.0)
+
+    stufen: list[str] = []
+    callbacks = pipeline_service.PipelineCallbacks(on_stage=lambda key, detail: stufen.append(key))
+
+    ergebnis = pipeline_service.run_pipeline(
+        pipeline_service.PipelineSettings(
+            source_path=source_file, output_dir=tmp_path / "ausgabe", run_protocol=True
+        ),
+        callbacks,
+        transcribe_chunk_fn=_einfaches_segment,
+        diarize_fn=_fake_diarize,
+        # Ein Fehlerobjekt statt der geforderten Struktur - so antwortet ein
+        # Modell, das die Anfrage nicht beantworten konnte.
+        protocol_generate_fn=lambda prompt, system: {"error": "Modell nicht geladen"},
+    )
+
+    assert "protokoll_fehlgeschlagen" in stufen
+    assert ergebnis.protocol_paths is None
+    assert ergebnis.protokoll_fehler
+    assert ergebnis.manifest["protokoll_status"] == manifest_service.STATUS_FEHLGESCHLAGEN
+    # Das Transkript bleibt nutzbar.
+    assert ergebnis.export_paths.txt.is_file()
+
+
+def test_nicht_erreichbares_ollama_bricht_die_verarbeitung_nicht_ab(
+    monkeypatch, tmp_path, source_file
+):
+    monkeypatch.setattr(utils_paths, "get_work_dir", lambda: tmp_path / "arbeitsdaten")
+    _systemprompt_bereitstellen(monkeypatch, tmp_path)
+    _patch_ffmpeg(monkeypatch, total_duration=300.0)
+
+    def ollama_ist_aus(prompt, system):
+        raise ollama_service.OllamaError("Ollama ist nicht erreichbar")
+
+    ergebnis = pipeline_service.run_pipeline(
+        pipeline_service.PipelineSettings(
+            source_path=source_file, output_dir=tmp_path / "ausgabe", run_protocol=True
+        ),
+        transcribe_chunk_fn=_einfaches_segment,
+        diarize_fn=_fake_diarize,
+        protocol_generate_fn=ollama_ist_aus,
+    )
+
+    assert ergebnis.export_paths.txt.is_file()
+    assert ergebnis.protocol_paths is None
+    assert "nicht erreichbar" in (ergebnis.protokoll_fehler or "")
+
+
+def test_erfolgreiche_auswertung_setzt_keinen_fehler(monkeypatch, tmp_path, source_file):
+    monkeypatch.setattr(utils_paths, "get_work_dir", lambda: tmp_path / "arbeitsdaten")
+    _systemprompt_bereitstellen(monkeypatch, tmp_path)
+    _patch_ffmpeg(monkeypatch, total_duration=300.0)
+
+    ergebnis = pipeline_service.run_pipeline(
+        pipeline_service.PipelineSettings(
+            source_path=source_file, output_dir=tmp_path / "ausgabe", run_protocol=True
+        ),
+        transcribe_chunk_fn=_einfaches_segment,
+        diarize_fn=_fake_diarize,
+        protocol_generate_fn=lambda prompt, system: _vollstaendiges_protokoll("Fertig"),
+    )
+
+    assert ergebnis.protokoll_fehler is None
+    assert ergebnis.protocol_paths is not None

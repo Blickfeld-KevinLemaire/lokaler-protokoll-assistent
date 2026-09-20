@@ -138,3 +138,91 @@ def test_ensure_ffmpeg_available_handles_download_failure_gracefully(monkeypatch
     result = ffmpeg_service.ensure_ffmpeg_available(auto_download=True, progress_cb=messages.append)
     assert result is None
     assert any("fehlgeschlagen" in message for message in messages)
+
+
+class _FFmpegAttrappe:
+    """Ersetzt den FFmpeg-Aufruf und merkt sich den Ausgabepfad.
+
+    Der letzte Eintrag der Argumentliste ist bei beiden Aufrufen der
+    Zielpfad -- daran laesst sich pruefen, dass FFmpeg NICHT direkt auf die
+    endgueltige Datei schreibt.
+    """
+
+    def __init__(self, returncode: int = 0, schreibt: bool = True) -> None:
+        self.returncode = returncode
+        self._schreibt = schreibt
+        self.ausgabepfad: Path | None = None
+
+    def __call__(self, command, **kwargs):
+        self.ausgabepfad = Path(command[-1])
+        if self._schreibt:
+            self.ausgabepfad.write_bytes(b"RIFF-testdaten")
+        return type("Abgeschlossen", (), {"returncode": self.returncode, "stderr": "fehler"})()
+
+
+def test_normalize_audio_schreibt_erst_unter_arbeitsnamen(monkeypatch, tmp_path):
+    # Bricht der Rechner mitten im Schreiben ab, darf keine abgeschnittene
+    # 'audio_normalisiert.wav' zurueckbleiben: Der naechste Lauf pruefte nur
+    # mit exists() und wuerde sie stillschweigend weiterverwenden.
+    ffmpeg = _FFmpegAttrappe()
+    monkeypatch.setattr(ffmpeg_service.subprocess, "run", ffmpeg)
+    ziel = tmp_path / "audio_normalisiert.wav"
+
+    ffmpeg_service.normalize_audio(tmp_path / "quelle.mp3", ziel, ffmpeg_path=Path("ffmpeg"))
+
+    assert ffmpeg.ausgabepfad is not None
+    assert ffmpeg.ausgabepfad != ziel
+    assert ffmpeg.ausgabepfad.suffix == ".wav"  # FFmpeg erkennt das Format an der Endung
+    assert ziel.is_file()
+    assert not ffmpeg.ausgabepfad.exists()  # umbenannt, nicht kopiert
+
+
+def test_normalize_audio_hinterlaesst_bei_fehler_keine_zieldatei(monkeypatch, tmp_path):
+    ffmpeg = _FFmpegAttrappe(returncode=1)
+    monkeypatch.setattr(ffmpeg_service.subprocess, "run", ffmpeg)
+    ziel = tmp_path / "audio_normalisiert.wav"
+
+    with pytest.raises(RuntimeError):
+        ffmpeg_service.normalize_audio(tmp_path / "quelle.mp3", ziel, ffmpeg_path=Path("ffmpeg"))
+
+    assert not ziel.exists()
+    assert not (tmp_path / "audio_normalisiert.unfertig.wav").exists()
+
+
+def test_extract_chunk_wav_schreibt_erst_unter_arbeitsnamen(monkeypatch, tmp_path):
+    ffmpeg = _FFmpegAttrappe()
+    monkeypatch.setattr(ffmpeg_service.subprocess, "run", ffmpeg)
+    ziel = tmp_path / "chunk_0001.wav"
+
+    ffmpeg_service.extract_chunk_wav(
+        tmp_path / "quelle.wav", ziel, 0.0, 600.0, ffmpeg_path=Path("ffmpeg")
+    )
+
+    assert ffmpeg.ausgabepfad != ziel
+    assert ziel.is_file()
+
+
+def test_extract_chunk_wav_hinterlaesst_bei_fehler_keine_zieldatei(monkeypatch, tmp_path):
+    ffmpeg = _FFmpegAttrappe(returncode=1)
+    monkeypatch.setattr(ffmpeg_service.subprocess, "run", ffmpeg)
+    ziel = tmp_path / "chunk_0001.wav"
+
+    with pytest.raises(RuntimeError):
+        ffmpeg_service.extract_chunk_wav(
+            tmp_path / "quelle.wav", ziel, 0.0, 600.0, ffmpeg_path=Path("ffmpeg")
+        )
+
+    assert not ziel.exists()
+
+
+def test_alte_unfertige_datei_wird_vor_dem_schreiben_entfernt(monkeypatch, tmp_path):
+    # Rest eines abgebrochenen Laufs: darf den neuen Lauf nicht stoeren.
+    rest = tmp_path / "audio_normalisiert.unfertig.wav"
+    rest.write_bytes(b"abgeschnittener Rest")
+    ffmpeg = _FFmpegAttrappe()
+    monkeypatch.setattr(ffmpeg_service.subprocess, "run", ffmpeg)
+    ziel = tmp_path / "audio_normalisiert.wav"
+
+    ffmpeg_service.normalize_audio(tmp_path / "quelle.mp3", ziel, ffmpeg_path=Path("ffmpeg"))
+
+    assert ziel.read_bytes() == b"RIFF-testdaten"
