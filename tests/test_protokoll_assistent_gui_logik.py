@@ -312,6 +312,32 @@ def test_save_transcript_kaputtes_usage_feld(gui_ordner):
     assert json.loads(js.read_text(encoding="utf-8"))["nutzung"] == {}
 
 
+def test_save_transcript_ohne_diarisierung_keine_zeitstempel(gui_ordner):
+    txt, _js = gui.save_transcript(
+        Path("a.mp3"),
+        {"segments": [{"start": 0, "end": 1, "text": "Hallo Welt", "speaker": "A"}]},
+        "m",
+        "e",
+        diarisierung_aktiv=False,
+    )
+    inhalt = txt.read_text(encoding="utf-8")
+    assert "Hallo Welt" in inhalt
+    assert "-->" not in inhalt
+    assert "OHNE SPRECHERTRENNUNG" in inhalt
+
+
+def test_save_transcript_mit_diarisierung_zeigt_zeitstempel(gui_ordner):
+    txt, _js = gui.save_transcript(
+        Path("a.mp3"),
+        {"segments": [{"start": 0, "end": 1, "text": "Hallo Welt", "speaker": "A"}]},
+        "m",
+        "e",
+        diarisierung_aktiv=True,
+    )
+    inhalt = txt.read_text(encoding="utf-8")
+    assert "-->" in inhalt
+
+
 # --------------------------------------------------------------------------
 # transcribe_in_chunks
 # --------------------------------------------------------------------------
@@ -447,6 +473,26 @@ def test_save_merged_transcript(gui_ordner):
 def test_save_merged_transcript_ohne_segmente(gui_ordner):
     with pytest.raises(RuntimeError, match="keine Sprache erkannt"):
         gui.save_merged_transcript(Path("a.mp3"), {"segmente": []}, "m", "e")
+
+
+def test_save_merged_transcript_ohne_diarisierung_keine_zeitstempel(gui_ordner):
+    zusammengefasst = {
+        "segmente": [
+            {"start": "00:00:00.000", "ende": "00:00:05.000", "text": "Hallo Welt"}
+        ],
+        "woerter": [],
+        "sprecher": [],
+        "dauer_sekunden": 5.0,
+        "sprache": "de",
+        "anzahl_abschnitte": 1,
+    }
+    txt, _js = gui.save_merged_transcript(
+        Path("lang.mp3"), zusammengefasst, "m", "https://e", diarisierung_aktiv=False
+    )
+    inhalt = txt.read_text(encoding="utf-8")
+    assert "Hallo Welt" in inhalt
+    assert "-->" not in inhalt
+    assert "OHNE SPRECHERTRENNUNG" in inhalt
 
 
 # --------------------------------------------------------------------------

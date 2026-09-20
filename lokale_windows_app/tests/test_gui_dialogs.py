@@ -294,3 +294,195 @@ def test_worker_zeigt_bei_unerwartetem_fehler_keinen_traceback(worker, monkeypat
     assert len(fehler) == 1
     assert "Logdatei" in fehler[0]
     assert "Traceback" not in fehler[0]
+
+
+# --------------------------------------------------------------------------
+# TranscriptionWorker
+# --------------------------------------------------------------------------
+@pytest.fixture
+def transkriptions_arbeiter(qt_app):
+    return worker_modul.TranscriptionWorker(settings=object())
+
+
+def test_transkriptions_arbeiter_abbruch_wird_gemerkt(transkriptions_arbeiter):
+    assert transkriptions_arbeiter._should_cancel() is False
+    transkriptions_arbeiter.request_cancel()
+    assert transkriptions_arbeiter._should_cancel() is True
+
+
+def test_transkriptions_arbeiter_meldet_erfolg(transkriptions_arbeiter, monkeypatch):
+    ergebnis = {"fertig": True}
+    monkeypatch.setattr(pipeline_service, "run_transcription", lambda s, c: ergebnis)
+
+    empfangen = []
+    transkriptions_arbeiter.finished_ok.connect(empfangen.append)
+
+    transkriptions_arbeiter.run()
+
+    assert empfangen == [ergebnis]
+
+
+def test_transkriptions_arbeiter_reicht_rueckrufe_als_signale_durch(transkriptions_arbeiter, monkeypatch):
+    def fake_run(settings, callbacks):
+        callbacks.on_stage("transkription", "laeuft")
+        callbacks.on_chunk_progress(2, 5)
+        callbacks.on_overall_progress(0.4)
+        callbacks.on_preview("Vorschau")
+        callbacks.on_log("Eine Zeile")
+        assert callbacks.should_cancel() is False
+        return "fertig"
+
+    monkeypatch.setattr(pipeline_service, "run_transcription", fake_run)
+
+    stufen, chunks, fortschritt, vorschau, protokoll = [], [], [], [], []
+    transkriptions_arbeiter.stage_changed.connect(lambda k, d: stufen.append((k, d)))
+    transkriptions_arbeiter.chunk_progress.connect(lambda c, t: chunks.append((c, t)))
+    transkriptions_arbeiter.overall_progress.connect(fortschritt.append)
+    transkriptions_arbeiter.preview_updated.connect(vorschau.append)
+    transkriptions_arbeiter.log_message.connect(protokoll.append)
+
+    transkriptions_arbeiter.run()
+
+    assert stufen == [("transkription", "laeuft")]
+    assert chunks == [(2, 5)]
+    assert fortschritt == [pytest.approx(0.4)]
+    assert vorschau == ["Vorschau"]
+    assert protokoll == ["Eine Zeile"]
+
+
+def test_transkriptions_arbeiter_meldet_abbruch(transkriptions_arbeiter, monkeypatch):
+    def abbrechen(_s, _c):
+        raise pipeline_service.PipelineCancelled()
+
+    monkeypatch.setattr(pipeline_service, "run_transcription", abbrechen)
+
+    abgebrochen = []
+    transkriptions_arbeiter.cancelled.connect(lambda: abgebrochen.append(True))
+
+    transkriptions_arbeiter.run()
+
+    assert abgebrochen == [True]
+
+
+def test_transkriptions_arbeiter_meldet_pipeline_fehler(transkriptions_arbeiter, monkeypatch):
+    def werfen(_s, _c):
+        raise pipeline_service.PipelineError("Modell fehlt")
+
+    monkeypatch.setattr(pipeline_service, "run_transcription", werfen)
+
+    fehler = []
+    transkriptions_arbeiter.failed.connect(fehler.append)
+
+    transkriptions_arbeiter.run()
+
+    assert fehler == ["Modell fehlt"]
+
+
+def test_transkriptions_arbeiter_zeigt_bei_unerwartetem_fehler_keinen_traceback(
+    transkriptions_arbeiter, monkeypatch
+):
+    def werfen(_s, _c):
+        raise ZeroDivisionError("division by zero")
+
+    monkeypatch.setattr(pipeline_service, "run_transcription", werfen)
+
+    fehler = []
+    transkriptions_arbeiter.failed.connect(fehler.append)
+
+    transkriptions_arbeiter.run()
+
+    assert len(fehler) == 1
+    assert "Logdatei" in fehler[0]
+    assert "Traceback" not in fehler[0]
+
+
+# --------------------------------------------------------------------------
+# ProtocolWorker
+# --------------------------------------------------------------------------
+@pytest.fixture
+def protokoll_arbeiter(qt_app):
+    return worker_modul.ProtocolWorker(settings=object())
+
+
+def test_protokoll_arbeiter_abbruch_wird_gemerkt(protokoll_arbeiter):
+    assert protokoll_arbeiter._should_cancel() is False
+    protokoll_arbeiter.request_cancel()
+    assert protokoll_arbeiter._should_cancel() is True
+
+
+def test_protokoll_arbeiter_meldet_erfolg(protokoll_arbeiter, monkeypatch):
+    ergebnis = {"fertig": True}
+    monkeypatch.setattr(pipeline_service, "run_protocol", lambda s, c: ergebnis)
+
+    empfangen = []
+    protokoll_arbeiter.finished_ok.connect(empfangen.append)
+
+    protokoll_arbeiter.run()
+
+    assert empfangen == [ergebnis]
+
+
+def test_protokoll_arbeiter_reicht_rueckrufe_als_signale_durch(protokoll_arbeiter, monkeypatch):
+    def fake_run(settings, callbacks):
+        callbacks.on_stage("protokoll_auswertung", "laeuft")
+        callbacks.on_overall_progress(0.7)
+        callbacks.on_log("Eine Zeile")
+        assert callbacks.should_cancel() is False
+        return "fertig"
+
+    monkeypatch.setattr(pipeline_service, "run_protocol", fake_run)
+
+    stufen, fortschritt, protokoll = [], [], []
+    protokoll_arbeiter.stage_changed.connect(lambda k, d: stufen.append((k, d)))
+    protokoll_arbeiter.overall_progress.connect(fortschritt.append)
+    protokoll_arbeiter.log_message.connect(protokoll.append)
+
+    protokoll_arbeiter.run()
+
+    assert stufen == [("protokoll_auswertung", "laeuft")]
+    assert fortschritt == [pytest.approx(0.7)]
+    assert protokoll == ["Eine Zeile"]
+
+
+def test_protokoll_arbeiter_meldet_abbruch(protokoll_arbeiter, monkeypatch):
+    def abbrechen(_s, _c):
+        raise pipeline_service.PipelineCancelled()
+
+    monkeypatch.setattr(pipeline_service, "run_protocol", abbrechen)
+
+    abgebrochen = []
+    protokoll_arbeiter.cancelled.connect(lambda: abgebrochen.append(True))
+
+    protokoll_arbeiter.run()
+
+    assert abgebrochen == [True]
+
+
+def test_protokoll_arbeiter_meldet_pipeline_fehler(protokoll_arbeiter, monkeypatch):
+    def werfen(_s, _c):
+        raise pipeline_service.PipelineError("Ollama nicht erreichbar")
+
+    monkeypatch.setattr(pipeline_service, "run_protocol", werfen)
+
+    fehler = []
+    protokoll_arbeiter.failed.connect(fehler.append)
+
+    protokoll_arbeiter.run()
+
+    assert fehler == ["Ollama nicht erreichbar"]
+
+
+def test_protokoll_arbeiter_zeigt_bei_unerwartetem_fehler_keinen_traceback(protokoll_arbeiter, monkeypatch):
+    def werfen(_s, _c):
+        raise ZeroDivisionError("division by zero")
+
+    monkeypatch.setattr(pipeline_service, "run_protocol", werfen)
+
+    fehler = []
+    protokoll_arbeiter.failed.connect(fehler.append)
+
+    protokoll_arbeiter.run()
+
+    assert len(fehler) == 1
+    assert "Logdatei" in fehler[0]
+    assert "Traceback" not in fehler[0]

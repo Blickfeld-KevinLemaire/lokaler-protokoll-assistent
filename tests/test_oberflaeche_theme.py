@@ -64,6 +64,18 @@ def test_anwenden_ohne_sv_ttk_nutzt_clam(tk_wurzel, monkeypatch):
     assert theme.anwenden(tk_wurzel, "light") == "light"
 
 
+def test_anwenden_ohne_sv_ttk_faerbt_accent_button(tk_wurzel, monkeypatch):
+    # Ohne sv-ttk (reines 'clam') laesst sich die Akzentfarbe tatsaechlich
+    # setzen - anders als mit sv-ttk, dessen Stile aus fest eingefaerbten
+    # Bilddateien bestehen (siehe '_falls_ohne_sv_ttk_einrichten').
+    from tkinter import ttk
+
+    monkeypatch.setattr(theme, "HAT_SV_TTK", False)
+    theme.anwenden(tk_wurzel, "light")
+    style = ttk.Style(tk_wurzel)
+    assert style.lookup("Accent.TButton", "background") == theme.AKZENTFARBE
+
+
 def test_anwenden_uebersteht_fehlendes_clam_theme(tk_wurzel, monkeypatch):
     from tkinter import ttk
 
@@ -75,6 +87,12 @@ def test_anwenden_uebersteht_fehlendes_clam_theme(tk_wurzel, monkeypatch):
 
         def theme_use(self, _name):
             raise tk.TclError("kein clam")
+
+        def configure(self, *_args, **_kwargs):
+            pass
+
+        def map(self, *_args, **_kwargs):
+            pass
 
     monkeypatch.setattr(ttk, "Style", _Style)
     assert theme.anwenden(tk_wurzel, "light") == "light"

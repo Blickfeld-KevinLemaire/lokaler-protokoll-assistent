@@ -308,9 +308,10 @@ def save_transcript(
         sprecher_zeile = f"Erkannte Sprecher: {len(speakers)}"
         hinweis_zeile = "Hinweis: Sprecherbezeichnungen sind technische IDs und keine echten Namen."
     else:
-        transcript_lines = [
-            f"[{segment['start']} --> {segment['ende']}] {segment['inhalt']}" for segment in segments
-        ]
+        # Ohne Sprechertrennung gibt es keine Sprecher zuzuordnen - dann sind
+        # sekundengenaue Zeitstempel pro Satz keine hilfreiche Information
+        # mehr, nur reiner Fliesstext.
+        transcript_lines = [segment["inhalt"] for segment in segments]
         titel = "PROTOKOLL-ASSISTENT - VOLLTRANSKRIPT (ANONYM, OHNE SPRECHERTRENNUNG)"
         sprecher_zeile = "Sprechertrennung: deaktiviert - kein Sprecherbezug enthalten."
         hinweis_zeile = (
@@ -476,16 +477,21 @@ def save_merged_transcript(
     output_txt = OUTPUT_DIR / f"{source.stem}_mai2_transkript.txt"
     output_json = OUTPUT_DIR / f"{source.stem}_mai2_transkript.json"
 
-    transcript_lines = [
-        f"[{segment['start']} --> {segment['ende']}] {segment['text']}" for segment in segmente
-    ]
     if diarisierung_aktiv:
+        transcript_lines = [
+            f"[{segment['start']} --> {segment['ende']}] {segment['text']}" for segment in segmente
+        ]
         titel = "PROTOKOLL-ASSISTENT - VOLLTRANSKRIPT MIT SPRECHERTRENNUNG"
         hinweis_zeile = (
             "Hinweis: Sprecherbezeichnungen sind technische IDs, keine echten Namen, und "
             "nur innerhalb eines Abschnitts konsistent (siehe Klammerzusatz 'Teil N')."
         )
     else:
+        # Ohne Sprechertrennung gibt es keine Sprecher zuzuordnen - dann sind
+        # sekundengenaue Zeitstempel pro Satz keine hilfreiche Information
+        # mehr, nur reiner Fliesstext. 'text' enthaelt in diesem Fall bereits
+        # nur den Inhalt ohne Sprecherpraefix (siehe 'transcribe_in_chunks').
+        transcript_lines = [segment["text"] for segment in segmente]
         titel = "PROTOKOLL-ASSISTENT - VOLLTRANSKRIPT (ANONYM, OHNE SPRECHERTRENNUNG)"
         hinweis_zeile = (
             "Hinweis: Auf Wunsch wurde keine Sprecherzuordnung angefragt - nur der "
@@ -954,7 +960,10 @@ class ProtokollGUI:
         transkription_action = ttk.Frame(self.root)
         transkription_action.pack(fill="x", **padding)
         self.start_button = ttk.Button(
-            transkription_action, text="Transkription starten", command=self.start_transkription
+            transkription_action,
+            text="Transkription starten",
+            command=self.start_transkription,
+            style="Accent.TButton",
         )
         self.start_button.pack(side="left")
         self.open_output_button = ttk.Button(
@@ -1089,6 +1098,7 @@ class ProtokollGUI:
             nachbearbeitung_action,
             text="Nachbearbeitung starten",
             command=self.start_nachbearbeitung,
+            style="Accent.TButton",
         )
         self.nachbearbeitung_button.pack(side="left")
         self.open_ergebnis_button = ttk.Button(

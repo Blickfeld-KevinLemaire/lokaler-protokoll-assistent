@@ -18,7 +18,7 @@ from __future__ import annotations
 import json
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
@@ -51,6 +51,7 @@ STAGE_LABELS = {
     "diarisierung": "Sprecher werden getrennt",
     "zusammenfuehrung": "Chunks werden zusammengeführt",
     "export_transkript": "Ausgabedateien werden erstellt",
+    "transkript_laden": "Transkript wird geladen",
     "protokoll_auswertung": "Lokale Protokollauswertung läuft",
     "export_protokoll": "Protokolldateien werden erstellt",
     "protokoll_fehlgeschlagen": "Protokollauswertung fehlgeschlagen",
@@ -130,6 +131,46 @@ class PipelineResult:
     protokoll_fehler: str | None = None
 
 
+@dataclass
+class TranscriptionResult:
+    """Ergebnis des ersten, eigenstaendigen Schritts (nur Transkription).
+
+    Kann direkt an 'run_protocol' weitergereicht werden (ueber
+    'export_paths.json'), oder die Oberflaeche laesst den Anwender
+    stattdessen ein anderes, frueher erzeugtes Transkript auswaehlen -
+    genau wie bei der Cloud-Variante."""
+
+    work_dir: Path
+    export_paths: export_service.ExportPaths
+    speaker_names: dict[str, str]
+    segments: list[dict[str, Any]]
+    manifest: dict[str, Any]
+    total_duration: float
+    run_timestamp: str
+    timings: dict[str, float]
+    # Nur gesetzt, wenn ueber 'run_transcription' (eigenstaendiger Schritt)
+    # aufgerufen - 'run_pipeline' schreibt den gemeinsamen Bericht erst nach
+    # der anschliessenden Protokollauswertung und laesst dieses Feld leer.
+    report_paths: tuple[Path, Path] | None = None
+
+
+@dataclass
+class ProtocolSettings:
+    transcript_json_path: Path
+    output_dir: Path
+    ollama_model: str = ollama_service.DEFAULT_MODEL
+    protocol_group_size: int = 4
+
+
+@dataclass
+class ProtocolResult:
+    work_dir: Path
+    protocol_paths: tuple[Path, Path] | None
+    report_paths: tuple[Path, Path]
+    # Gesetzt, wenn die Protokollauswertung fehlgeschlagen ist.
+    protokoll_fehler: str | None = None
+
+
 def _check_cancel(callbacks: PipelineCallbacks) -> None:
     if callbacks.should_cancel():
         raise PipelineCancelled("Verarbeitung durch Benutzer abgebrochen.")
@@ -148,6 +189,7 @@ def _build_protocol_chunk_texts(
     chunk_plans: list[chunking_service.ChunkPlan],
     merged_segments: list[dict[str, Any]],
     speaker_names: dict[str, str],
+    diarization_enabled: bool = True,
 ) -> list[dict[str, Any]]:
     """Baut je Chunk den zugehoerigen (bereits global datierten und
     deduplizierten) Transkriptausschnitt fuer die Ollama-Auswertung.
@@ -160,6 +202,10 @@ def _build_protocol_chunk_texts(
     Aussagen, Entscheidungen und Aufgaben doppelt. Deshalb beginnt das
     Fenster jedes Folge-Chunks erst hinter der Ueberlappung; die Fenster
     schliessen luecken- und ueberschneidungsfrei aneinander an.
+
+    Ohne Sprechertrennung gibt es keine Sprecher zuzuordnen - dann sind
+    weder Sprecherangabe noch sekundengenaue Zeitstempel eine hilfreiche
+    Information, nur reiner Fliesstext (genau wie in 'build_preview_text').
     """
     chunk_texts = []
     for plan in chunk_plans:
@@ -167,11 +213,14 @@ def _build_protocol_chunk_texts(
         lines = []
         for segment in merged_segments:
             if fenster_start <= segment["start"] < plan.global_end:
-                # 'sprecher_id' darf fehlen - dict.get(None) ist erlaubt
-                # und liefert dann den Standardwert.
-                sprecher_id = segment.get("sprecher_id")
-                name = speaker_names.get(sprecher_id, "Sprecher unbekannt")  # type: ignore[arg-type]
-                lines.append(f"[{format_timestamp(segment['start'])}] {name}: {segment['text']}")
+                if diarization_enabled:
+                    # 'sprecher_id' darf fehlen - dict.get(None) ist erlaubt
+                    # und liefert dann den Standardwert.
+                    sprecher_id = segment.get("sprecher_id")
+                    name = speaker_names.get(sprecher_id, "Sprecher unbekannt")  # type: ignore[arg-type]
+                    lines.append(f"[{format_timestamp(segment['start'])}] {name}: {segment['text']}")
+                else:
+                    lines.append(segment["text"])
         if not lines:
             # Ein Chunk ohne eigenen Text (Stille, oder vollstaendig von der
             # Ueberlappung des Vorgaengers abgedeckt) wird nicht angefragt --
@@ -188,14 +237,20 @@ def _build_protocol_chunk_texts(
     return chunk_texts
 
 
-def run_pipeline(
+def _run_transcription_stage(
     settings: PipelineSettings,
-    callbacks: PipelineCallbacks | None = None,
-    transcribe_chunk_fn: Callable[[Path], list[dict[str, Any]]] | None = None,
-    diarize_fn: Callable[[Path, int | None, int | None], list[dict[str, Any]]] | None = None,
-    protocol_generate_fn: Callable[[str, str], dict[str, Any]] | None = None,
-) -> PipelineResult:
-    callbacks = callbacks or PipelineCallbacks()
+    callbacks: PipelineCallbacks,
+    transcribe_chunk_fn: Callable[[Path], list[dict[str, Any]]] | None,
+    diarize_fn: Callable[[Path, int | None, int | None], list[dict[str, Any]]] | None,
+) -> TranscriptionResult:
+    """Kern der Transkription: Datei pruefen bis Export der Transkript-
+    Dateien (TXT/JSON/SRT/VTT). Emittiert absichtlich KEIN 'abgeschlossen'
+    und schreibt KEINEN Verarbeitungsbericht - das entscheidet der
+    jeweilige oeffentliche Einstiegspunkt: 'run_transcription' fuer sich
+    allein, 'run_pipeline' erst nach der anschliessenden
+    Protokollauswertung. 'TranscriptionResult.report_paths' bleibt hier
+    deshalb None.
+    """
     started_at = time.monotonic()
     timings: dict[str, float] = {}
 
@@ -369,17 +424,228 @@ def run_pipeline(
         speaker_names,
         settings.enable_diarization,
     )
+    manifest["protokoll_status"] = manifest_service.STATUS_AUSSTEHEND
+    manifest_service.save_manifest(work_dir, manifest)
+
+    return TranscriptionResult(
+        work_dir=work_dir,
+        export_paths=export_paths,
+        speaker_names=speaker_names,
+        segments=merged_segments,
+        manifest=manifest,
+        total_duration=total_duration,
+        run_timestamp=run_timestamp,
+        timings=timings,
+    )
+
+
+def run_transcription(
+    settings: PipelineSettings,
+    callbacks: PipelineCallbacks | None = None,
+    transcribe_chunk_fn: Callable[[Path], list[dict[str, Any]]] | None = None,
+    diarize_fn: Callable[[Path, int | None, int | None], list[dict[str, Any]]] | None = None,
+) -> TranscriptionResult:
+    """Eigenstaendiger erster Schritt: nur Transkription (+ optionale
+    Diarisierung), ohne Ollama-Protokollauswertung.
+
+    Das Ergebnis (TXT/JSON/SRT/VTT) kann direkt an 'run_protocol'
+    weitergereicht werden, oder die Oberflaeche laesst den Anwender
+    stattdessen ein anderes, frueher erzeugtes Transkript auswaehlen -
+    genau wie bei der Cloud-Variante (erst Transkription, dann getrennt
+    eine - auch andere - Transkriptdatei zur Nachbearbeitung waehlen).
+    """
+    callbacks = callbacks or PipelineCallbacks()
+    started_at = time.monotonic()
+    result = _run_transcription_stage(settings, callbacks, transcribe_chunk_fn, diarize_fn)
+
+    timings = {**result.timings, "gesamt": time.monotonic() - started_at}
+    report = export_service.build_processing_report(
+        result.manifest, {"whisperx": settings.whisper_model, "ollama": None}, timings
+    )
+    report_paths = export_service.write_processing_report(result.work_dir, report)
+
+    callbacks.on_stage("abgeschlossen", STAGE_LABELS["abgeschlossen"])
+    callbacks.on_overall_progress(1.0)
+
+    return replace(result, report_paths=report_paths)
+
+
+def load_transcript_for_protocol(
+    transcript_json_path: Path,
+) -> tuple[list[dict[str, Any]], dict[str, str], bool, str]:
+    """Liest ein von dieser Anwendung exportiertes Transkript-JSON wieder
+    ein (siehe 'export_service.build_json_result').
+
+    Liefert (segments, speaker_names, diarization_enabled, source_stem).
+    'segments' bekommt dieselben Schluessel wie waehrend einer laufenden
+    Transkription ('start'/'end' statt 'start_sekunden'/'ende_sekunden'),
+    damit '_build_protocol_chunk_texts' unveraendert wiederverwendet
+    werden kann.
+    """
+    try:
+        daten = json.loads(transcript_json_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise PipelineError(f"Transkript konnte nicht gelesen werden: {error}") from error
+
+    rohsegmente = daten.get("segmente", [])
+    if not rohsegmente:
+        raise PipelineError(f"Transkript enthaelt keine Segmente: {transcript_json_path.name}")
+
+    segments = [
+        {
+            "start": segment["start_sekunden"],
+            "end": segment["ende_sekunden"],
+            "sprecher_id": segment.get("sprecher_id"),
+            "text": segment["text"],
+        }
+        for segment in rohsegmente
+    ]
+    speaker_names = {
+        eintrag["sprecher_id"]: eintrag["anzeigename"] for eintrag in daten.get("sprecher_zuordnung", [])
+    }
+    diarization_enabled = bool(daten.get("sprechertrennung_aktiv", True))
+    source_stem = str(daten.get("quelldatei_stamm") or transcript_json_path.stem)
+    return segments, speaker_names, diarization_enabled, source_stem
+
+
+def run_protocol(
+    settings: ProtocolSettings,
+    callbacks: PipelineCallbacks | None = None,
+    protocol_generate_fn: Callable[[str, str], dict[str, Any]] | None = None,
+) -> ProtocolResult:
+    """Eigenstaendiger zweiter Schritt: Ollama-Protokollauswertung eines
+    bereits vorliegenden Transkripts (siehe 'load_transcript_for_protocol').
+
+    Unabhaengig davon, ob das Transkript gerade eben ueber
+    'run_transcription' entstanden ist oder ueber die Dateiauswahl ein
+    frueherer Lauf geladen wurde: Der Zwischenspeicher-Ordner fuer die
+    Ollama-Teilanalysen wird ueber den Hash der TRANSKRIPT-Datei selbst
+    bestimmt (nicht der urspruenglichen Audiodatei) - das macht die
+    Nachbearbeitung vollstaendig eigenstaendig fortsetzbar, auch wenn die
+    Audiodatei gar nicht mehr vorliegt.
+    """
+    callbacks = callbacks or PipelineCallbacks()
+    started_at = time.monotonic()
+
+    callbacks.on_stage("transkript_laden", STAGE_LABELS["transkript_laden"])
+    segments, speaker_names, diarization_enabled, source_stem = load_transcript_for_protocol(
+        settings.transcript_json_path
+    )
+    _check_cancel(callbacks)
+
+    from utils.paths import get_work_dir
+
+    file_hash = manifest_service.compute_file_hash(settings.transcript_json_path)
+    work_dir = manifest_service.get_work_dir_for_file(get_work_dir(), file_hash)
+
+    total_duration = max((segment["end"] for segment in segments), default=0.0)
+    chunk_plans = chunking_service.plan_chunks(max(total_duration, 1.0))
+
+    callbacks.on_stage("protokoll_auswertung", STAGE_LABELS["protokoll_auswertung"])
+    from utils.paths import get_system_prompt_file
+
+    system_prompt = get_system_prompt_file().read_text(encoding="utf-8")
+    chunk_texts = _build_protocol_chunk_texts(chunk_plans, segments, speaker_names, diarization_enabled)
+
+    def default_ollama_generate(prompt: str, system: str) -> dict[str, Any]:
+        return ollama_service.generate_json(prompt, system, model=settings.ollama_model)
+
+    generate_fn = protocol_generate_fn or default_ollama_generate
 
     protocol_paths = None
     protokoll_fehler: str | None = None
-    manifest["protokoll_status"] = manifest_service.STATUS_AUSSTEHEND
+    protokoll_status = manifest_service.STATUS_AUSSTEHEND
+    run_timestamp = export_service.make_run_timestamp()
+    try:
+        protocol = protocol_service.run_full_protocol_pipeline(
+            chunk_texts,
+            work_dir,
+            system_prompt,
+            generate_fn,
+            settings.protocol_group_size,
+            progress_cb=lambda stage, current, total: callbacks.on_stage(
+                "protokoll_auswertung",
+                f"{STAGE_LABELS['protokoll_auswertung']} ({stage}: {current + 1}/{max(total, 1)})",
+            ),
+        )
+        protokoll_status = manifest_service.STATUS_ABGESCHLOSSEN
+        callbacks.on_stage("export_protokoll", STAGE_LABELS["export_protokoll"])
+        protocol_paths = export_service.write_protocol_exports(
+            settings.output_dir, protocol, source_stem, run_timestamp
+        )
+    except (protocol_service.ProtocolValidationError, ollama_service.OllamaError) as error:
+        # Das Transkript bleibt in jedem Fall erhalten -- nur die
+        # Protokollauswertung ist gescheitert.
+        protokoll_fehler = str(error)
+        protokoll_status = manifest_service.STATUS_FEHLGESCHLAGEN
+        callbacks.on_stage(
+            "protokoll_fehlgeschlagen",
+            f"{STAGE_LABELS['protokoll_fehlgeschlagen']}: {protokoll_fehler}",
+        )
+        callbacks.on_log(f"Protokollauswertung fehlgeschlagen: {error}")
+
+    timings = {"gesamt": time.monotonic() - started_at}
+    report = export_service.build_processing_report(
+        {
+            "quelldatei_name": settings.transcript_json_path.name,
+            "anzahl_chunks": len(chunk_plans),
+            "chunks": [
+                {"index": plan.index, "status": manifest_service.STATUS_ABGESCHLOSSEN, "fehler": None}
+                for plan in chunk_plans
+            ],
+            "diarisierung_status": manifest_service.STATUS_ABGESCHLOSSEN if diarization_enabled else None,
+            "protokoll_status": protokoll_status,
+        },
+        {"ollama": settings.ollama_model},
+        timings,
+    )
+    report_paths = export_service.write_processing_report(work_dir, report)
+
+    callbacks.on_stage("abgeschlossen", STAGE_LABELS["abgeschlossen"])
+    callbacks.on_overall_progress(1.0)
+
+    return ProtocolResult(
+        work_dir=work_dir,
+        protocol_paths=protocol_paths,
+        report_paths=report_paths,
+        protokoll_fehler=protokoll_fehler,
+    )
+
+
+def run_pipeline(
+    settings: PipelineSettings,
+    callbacks: PipelineCallbacks | None = None,
+    transcribe_chunk_fn: Callable[[Path], list[dict[str, Any]]] | None = None,
+    diarize_fn: Callable[[Path, int | None, int | None], list[dict[str, Any]]] | None = None,
+    protocol_generate_fn: Callable[[str, str], dict[str, Any]] | None = None,
+) -> PipelineResult:
+    """Kombinierter Einschritt-Ablauf: Transkription direkt gefolgt von der
+    Protokollauswertung desselben Laufs, im selben Arbeitsordner. Bleibt
+    fuer bestehende Aufrufer erhalten; die Oberflaeche nutzt seit der
+    Trennung in zwei Schritte stattdessen 'run_transcription' und
+    'run_protocol' einzeln (siehe deren Docstrings)."""
+    callbacks = callbacks or PipelineCallbacks()
+    started_at = time.monotonic()
+    stage_result = _run_transcription_stage(settings, callbacks, transcribe_chunk_fn, diarize_fn)
+    work_dir = stage_result.work_dir
+    export_paths = stage_result.export_paths
+    speaker_names = stage_result.speaker_names
+    merged_segments = stage_result.segments
+    manifest = stage_result.manifest
+    chunk_plans = chunking_service.plan_chunks(stage_result.total_duration)
+    run_timestamp = stage_result.run_timestamp
+
+    protocol_paths = None
+    protokoll_fehler: str | None = None
     if settings.run_protocol:
         callbacks.on_stage("protokoll_auswertung", STAGE_LABELS["protokoll_auswertung"])
         _check_cancel(callbacks)
         from utils.paths import get_system_prompt_file
 
         system_prompt = get_system_prompt_file().read_text(encoding="utf-8")
-        chunk_texts = _build_protocol_chunk_texts(chunk_plans, merged_segments, speaker_names)
+        chunk_texts = _build_protocol_chunk_texts(
+            chunk_plans, merged_segments, speaker_names, settings.enable_diarization
+        )
 
         def default_ollama_generate(prompt: str, system: str) -> dict[str, Any]:
             return ollama_service.generate_json(prompt, system, model=settings.ollama_model)
@@ -419,7 +685,7 @@ def run_pipeline(
 
     manifest_service.save_manifest(work_dir, manifest)
 
-    timings["gesamt"] = time.monotonic() - started_at
+    timings = {**stage_result.timings, "gesamt": time.monotonic() - started_at}
     report = export_service.build_processing_report(
         manifest,
         {

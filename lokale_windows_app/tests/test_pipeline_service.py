@@ -484,3 +484,180 @@ def test_erfolgreiche_auswertung_setzt_keinen_fehler(monkeypatch, tmp_path, sour
 
     assert ergebnis.protokoll_fehler is None
     assert ergebnis.protocol_paths is not None
+
+
+# ---------------------------------------------------------------------------
+# Zweistufiger Ablauf: eigenstaendige Transkription und eigenstaendige
+# Protokollauswertung eines bereits vorliegenden Transkripts.
+# ---------------------------------------------------------------------------
+
+
+def test_run_transcription_completes_without_protocol(monkeypatch, tmp_path, source_file):
+    monkeypatch.setattr(utils_paths, "get_work_dir", lambda: tmp_path / "arbeitsdaten")
+    _patch_ffmpeg(monkeypatch, total_duration=300.0)
+
+    stufen: list[str] = []
+    callbacks = pipeline_service.PipelineCallbacks(on_stage=lambda key, detail: stufen.append(key))
+
+    ergebnis = pipeline_service.run_transcription(
+        _make_settings(source_file, tmp_path),
+        callbacks,
+        transcribe_chunk_fn=_einfaches_segment,
+        diarize_fn=_fake_diarize,
+    )
+
+    assert ergebnis.export_paths.txt.is_file()
+    assert ergebnis.export_paths.json.is_file()
+    assert ergebnis.report_paths is not None
+    assert ergebnis.report_paths[0].is_file()
+    assert manifest_service.is_fully_processed(ergebnis.manifest)
+    assert "protokoll_auswertung" not in stufen  # bewusst kein Protokollschritt
+    assert "abgeschlossen" in stufen
+
+
+def test_run_protocol_liest_export_und_erzeugt_protokoll(monkeypatch, tmp_path, source_file):
+    monkeypatch.setattr(utils_paths, "get_work_dir", lambda: tmp_path / "arbeitsdaten")
+    _systemprompt_bereitstellen(monkeypatch, tmp_path)
+    _patch_ffmpeg(monkeypatch, total_duration=300.0)
+
+    transkript = pipeline_service.run_transcription(
+        _make_settings(source_file, tmp_path),
+        transcribe_chunk_fn=_einfaches_segment,
+        diarize_fn=_fake_diarize,
+    )
+
+    ergebnis = pipeline_service.run_protocol(
+        pipeline_service.ProtocolSettings(
+            transcript_json_path=transkript.export_paths.json, output_dir=tmp_path / "ausgabe"
+        ),
+        protocol_generate_fn=lambda prompt, system: _vollstaendiges_protokoll("NEU"),
+    )
+
+    assert ergebnis.protokoll_fehler is None
+    assert ergebnis.protocol_paths is not None
+    assert json.loads(ergebnis.protocol_paths[0].read_text(encoding="utf-8"))["titel"] == "NEU"
+    assert ergebnis.report_paths[0].is_file()
+
+
+def test_run_protocol_funktioniert_ohne_diarisierung(monkeypatch, tmp_path, source_file):
+    monkeypatch.setattr(utils_paths, "get_work_dir", lambda: tmp_path / "arbeitsdaten")
+    _systemprompt_bereitstellen(monkeypatch, tmp_path)
+    _patch_ffmpeg(monkeypatch, total_duration=300.0)
+
+    settings = _make_settings(source_file, tmp_path)
+    settings.enable_diarization = False
+    transkript = pipeline_service.run_transcription(
+        settings, transcribe_chunk_fn=_einfaches_segment, diarize_fn=_fake_diarize
+    )
+
+    aufgezeichnete_prompts = []
+
+    def protokoll_generieren(prompt, system):
+        aufgezeichnete_prompts.append(prompt)
+        return _vollstaendiges_protokoll("Ohne Sprecher")
+
+    ergebnis = pipeline_service.run_protocol(
+        pipeline_service.ProtocolSettings(
+            transcript_json_path=transkript.export_paths.json, output_dir=tmp_path / "ausgabe"
+        ),
+        protocol_generate_fn=protokoll_generieren,
+    )
+
+    assert ergebnis.protokoll_fehler is None
+    gesamt_prompt = "\n".join(aufgezeichnete_prompts)
+    assert "Sprecher unbekannt" not in gesamt_prompt
+    assert "SPEAKER_00" not in gesamt_prompt
+
+
+def test_load_transcript_for_protocol_liest_export_korrekt(monkeypatch, tmp_path, source_file):
+    monkeypatch.setattr(utils_paths, "get_work_dir", lambda: tmp_path / "arbeitsdaten")
+    _patch_ffmpeg(monkeypatch, total_duration=300.0)
+
+    transkript = pipeline_service.run_transcription(
+        _make_settings(source_file, tmp_path),
+        transcribe_chunk_fn=_einfaches_segment,
+        diarize_fn=_fake_diarize,
+    )
+
+    segments, speaker_names, diarization_enabled, source_stem = pipeline_service.load_transcript_for_protocol(
+        transkript.export_paths.json
+    )
+
+    assert diarization_enabled is True
+    assert source_stem == source_file.stem
+    assert len(segments) == 1
+    assert segments[0]["text"] == "Hallo"
+    assert segments[0]["start"] == 1.0
+    assert segments[0]["end"] == 5.0
+    assert speaker_names == transkript.speaker_names
+
+
+def test_load_transcript_for_protocol_wirft_bei_leeren_segmenten(tmp_path):
+    datei = tmp_path / "leer.json"
+    datei.write_text(json.dumps({"segmente": []}), encoding="utf-8")
+    with pytest.raises(pipeline_service.PipelineError):
+        pipeline_service.load_transcript_for_protocol(datei)
+
+
+def test_load_transcript_for_protocol_wirft_bei_kaputter_datei(tmp_path):
+    datei = tmp_path / "kaputt.json"
+    datei.write_text("das ist kein JSON", encoding="utf-8")
+    with pytest.raises(pipeline_service.PipelineError):
+        pipeline_service.load_transcript_for_protocol(datei)
+
+
+def test_run_protocol_ist_unabhaengig_von_der_audioquelle(monkeypatch, tmp_path, source_file):
+    # Die Nachbearbeitung wird ueber den Hash der TRANSKRIPT-Datei
+    # fortsetzbar gemacht, nicht ueber den Hash der Audiodatei - sie muss
+    # also auch dann funktionieren, wenn die Audioquelle laengst nicht mehr
+    # vorliegt.
+    monkeypatch.setattr(utils_paths, "get_work_dir", lambda: tmp_path / "arbeitsdaten")
+    _systemprompt_bereitstellen(monkeypatch, tmp_path)
+    _patch_ffmpeg(monkeypatch, total_duration=300.0)
+
+    transkript = pipeline_service.run_transcription(
+        _make_settings(source_file, tmp_path),
+        transcribe_chunk_fn=_einfaches_segment,
+        diarize_fn=_fake_diarize,
+    )
+    source_file.unlink()
+
+    ergebnis = pipeline_service.run_protocol(
+        pipeline_service.ProtocolSettings(
+            transcript_json_path=transkript.export_paths.json, output_dir=tmp_path / "ausgabe"
+        ),
+        protocol_generate_fn=lambda prompt, system: _vollstaendiges_protokoll("Ohne Audio"),
+    )
+
+    assert ergebnis.protokoll_fehler is None
+    erwarteter_work_dir = manifest_service.get_work_dir_for_file(
+        tmp_path / "arbeitsdaten", manifest_service.compute_file_hash(transkript.export_paths.json)
+    )
+    assert ergebnis.work_dir == erwarteter_work_dir
+    assert ergebnis.work_dir != transkript.work_dir
+
+
+def test_run_protocol_meldet_ollama_fehler(monkeypatch, tmp_path, source_file):
+    monkeypatch.setattr(utils_paths, "get_work_dir", lambda: tmp_path / "arbeitsdaten")
+    _systemprompt_bereitstellen(monkeypatch, tmp_path)
+    _patch_ffmpeg(monkeypatch, total_duration=300.0)
+
+    transkript = pipeline_service.run_transcription(
+        _make_settings(source_file, tmp_path),
+        transcribe_chunk_fn=_einfaches_segment,
+        diarize_fn=_fake_diarize,
+    )
+
+    def ollama_ist_aus(prompt, system):
+        raise ollama_service.OllamaError("Ollama ist nicht erreichbar")
+
+    ergebnis = pipeline_service.run_protocol(
+        pipeline_service.ProtocolSettings(
+            transcript_json_path=transkript.export_paths.json, output_dir=tmp_path / "ausgabe"
+        ),
+        protocol_generate_fn=ollama_ist_aus,
+    )
+
+    assert ergebnis.protocol_paths is None
+    assert "nicht erreichbar" in (ergebnis.protokoll_fehler or "")
+    assert ergebnis.report_paths[0].is_file()
