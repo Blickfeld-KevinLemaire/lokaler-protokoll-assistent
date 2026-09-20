@@ -67,20 +67,46 @@ def check_torch_installed() -> DiagnosticCheck:
 def check_cuda() -> DiagnosticCheck:
     """Informativ, NICHT kritisch: die Anwendung unterstuetzt bewusst auch
     reinen CPU-Betrieb (deutlich langsamer, aber lauffaehig), damit sie auch
-    auf einem PC ohne NVIDIA-GPU funktioniert."""
+    auf einem PC ohne NVIDIA-GPU funktioniert.
+
+    Geprueft wird mit ``model_service.cuda_kann_wirklich_rechnen()``, also
+    mit einer echten kleinen Rechnung auf der Karte --
+    ``torch.cuda.is_available()`` allein genuegt nicht: Passt der
+    CUDA-Build nicht zur Kartengeneration (etwa ein cu126-Build auf einer
+    Blackwell-Karte), meldet es trotzdem ``True`` und erst die
+    Transkription bricht ab. Genau dafuer gibt es die Funktion in
+    ``model_service`` bereits; die Diagnose hat sie bisher nicht benutzt
+    und deshalb "CUDA verfuegbar" gemeldet, waehrend das Hauptfenster im
+    selben Lauf "nicht benutzbar ... CPU-Verarbeitung" anzeigte.
+    """
+    from services import model_service
+
     try:
         import torch  # type: ignore
 
-        available = bool(torch.cuda.is_available())
-        if available:
-            name = torch.cuda.get_device_name(0)
-            detail = f"CUDA verfuegbar: {name}"
-        else:
-            detail = (
+        if not torch.cuda.is_available():
+            return DiagnosticCheck(
+                "cuda",
+                "GPU-Beschleunigung (CUDA)",
+                False,
                 "Keine CUDA-GPU erkannt -- die Verarbeitung laeuft auf der CPU "
-                "(funktioniert, ist aber deutlich langsamer)."
+                "(funktioniert, ist aber deutlich langsamer).",
+                critical=False,
             )
-        return DiagnosticCheck("cuda", "GPU-Beschleunigung (CUDA)", available, detail, critical=False)
+        name = torch.cuda.get_device_name(0)
+        if model_service.cuda_kann_wirklich_rechnen():
+            return DiagnosticCheck(
+                "cuda", "GPU-Beschleunigung (CUDA)", True, f"CUDA verfuegbar: {name}", critical=False
+            )
+        return DiagnosticCheck(
+            "cuda",
+            "GPU-Beschleunigung (CUDA)",
+            False,
+            f"{name} erkannt, aber nicht benutzbar: Der installierte PyTorch-Build "
+            "passt nicht zu dieser Kartengeneration. Die Verarbeitung laeuft auf "
+            "der CPU (funktioniert, ist aber deutlich langsamer).",
+            critical=False,
+        )
     except ImportError:
         return DiagnosticCheck(
             "cuda", "GPU-Beschleunigung (CUDA)", False, "PyTorch ist nicht installiert.", critical=False

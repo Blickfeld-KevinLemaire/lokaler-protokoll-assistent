@@ -31,6 +31,9 @@ IST_WINDOWS = sys.platform.startswith("win")
 FFMPEG_DOWNLOAD_URL = "https://ffmpeg.org/download.html"
 OLLAMA_DOWNLOAD_URL = "https://ollama.com/download"
 PYTHON_DOWNLOAD_URL = "https://www.python.org/downloads/"
+# Obergrenze fuer den PowerShell-Aufruf beim Anlegen der Verknuepfung.
+# Ohne Grenze wuerde ein haengendes PowerShell das Fenster blockieren.
+POWERSHELL_TIMEOUT_SECONDS = 60
 
 
 def check_python() -> tuple[bool, str]:
@@ -52,6 +55,26 @@ def find_ollama() -> str | None:
     return None
 
 
+def ps_zeichenkette(wert: object) -> str:
+    """Verpackt einen Wert als einfach gefuehrte PowerShell-Zeichenkette.
+
+    PowerShell wertet in DOPPELT gefuehrten Zeichenketten alles nach einem
+    ``$`` als Variable aus. Ein Projektordner wie ``C:\\Daten\\Ablage$2026``
+    -- ``$`` ist in Windows-Dateinamen erlaubt -- wurde dadurch beim
+    Anlegen der Verknuepfung zu ``C:\\Daten\\Ablage``, und die Verknuepfung
+    zeigte auf einen Ort, den es nicht gibt. Am 20.09.2026 nachgestellt.
+
+    In EINFACH gefuehrten Zeichenketten findet keine Auswertung statt; dort
+    muss lediglich ein enthaltenes Hochkomma verdoppelt werden.
+
+    Die Werte als eigene Argumente hinter ``-Command`` zu haengen, geht
+    NICHT: Anders als bei ``-File`` fuellt PowerShell ``$args`` dabei nicht,
+    sondern haengt sie an den Befehlstext an (nachgemessen:
+    ``$args.Count`` ist 0).
+    """
+    return "'" + str(wert).replace("'", "''") + "'"
+
+
 def create_desktop_shortcut(app_dir: Path, log: Callable[[str], None]) -> Path:
     if not IST_WINDOWS:
         raise RuntimeError("Die Desktop-Verknuepfung kann nur unter Windows erstellt werden.")
@@ -64,11 +87,11 @@ def create_desktop_shortcut(app_dir: Path, log: Callable[[str], None]) -> Path:
 
     powershell_befehl = (
         "$WshShell = New-Object -ComObject WScript.Shell; "
-        f'$Shortcut = $WshShell.CreateShortcut("{shortcut_path}"); '
-        f'$Shortcut.TargetPath = "{target}"; '
-        f'$Shortcut.WorkingDirectory = "{app_dir}"; '
-        f'$Shortcut.IconLocation = "{icon_source},0"; '
-        '$Shortcut.Description = "Lokalen Protokoll-Assistenten starten"; '
+        f"$Shortcut = $WshShell.CreateShortcut({ps_zeichenkette(shortcut_path)}); "
+        f"$Shortcut.TargetPath = {ps_zeichenkette(target)}; "
+        f"$Shortcut.WorkingDirectory = {ps_zeichenkette(app_dir)}; "
+        f"$Shortcut.IconLocation = {ps_zeichenkette(f'{icon_source},0')}; "
+        f"$Shortcut.Description = {ps_zeichenkette('Lokalen Protokoll-Assistenten starten')}; "
         "$Shortcut.Save()"
     )
     log("Erstelle Desktop-Verknuepfung ueber PowerShell ...")
@@ -76,6 +99,7 @@ def create_desktop_shortcut(app_dir: Path, log: Callable[[str], None]) -> Path:
         ["powershell", "-NoProfile", "-NonInteractive", "-Command", powershell_befehl],
         capture_output=True,
         text=True,
+        timeout=POWERSHELL_TIMEOUT_SECONDS,
     )
     if result.returncode != 0:
         raise RuntimeError(result.stderr.strip() or "PowerShell konnte die Verknuepfung nicht erstellen.")

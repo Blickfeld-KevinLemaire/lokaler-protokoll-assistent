@@ -92,7 +92,7 @@ def test_verknuepfung_wird_erstellt(monkeypatch, tmp_path):
     monkeypatch.setenv("USERPROFILE", str(tmp_path))
     befehle = []
 
-    def fake_run(command, capture_output, text):
+    def fake_run(command, capture_output, text, timeout=None):
         befehle.append(command)
         return type("R", (), {"returncode": 0, "stderr": ""})()
 
@@ -103,7 +103,8 @@ def test_verknuepfung_wird_erstellt(monkeypatch, tmp_path):
 
     assert pfad.name == "Protokoll-Assistent.lnk"
     assert befehle[0][0] == "powershell"
-    assert "CreateShortcut" in befehle[0][-1]
+    # Das Skript steht hinter "-Command"; die Pfade folgen als eigene Argumente.
+    assert "CreateShortcut" in befehle[0][4]
     assert meldungen
 
 
@@ -420,3 +421,62 @@ def test_main_startet_und_beendet(monkeypatch):
     finally:
         if "root" in erzeugt:
             erzeugt["root"].destroy()
+
+
+def test_ps_zeichenkette_schuetzt_vor_variablen_auswertung():
+    """Ein '$' im Pfad darf nicht als PowerShell-Variable ausgewertet werden.
+
+    '$' ist in Windows-Dateinamen erlaubt. Stand der Pfad frueher in einer
+    DOPPELT gefuehrten Zeichenkette im Skript, machte PowerShell aus
+    'Ablage$2026' die leere Variable '$2026' -- die Verknuepfung zeigte
+    dann auf einen Ort ohne diesen Namensteil. Einfach gefuehrte
+    Zeichenketten werten nichts aus.
+    """
+    assert sf.ps_zeichenkette("C:/Daten/Ablage$2026") == "'C:/Daten/Ablage$2026'"
+
+
+def test_ps_zeichenkette_verdoppelt_hochkommas():
+    # In einer einfach gefuehrten Zeichenkette beendet ein Hochkomma sie --
+    # O'Brien waere sonst ein Syntaxfehler. Verdoppelt ist es ein Zeichen.
+    assert sf.ps_zeichenkette("C:/Nutzer/O'Brien") == "'C:/Nutzer/O''Brien'"
+
+
+def test_verknuepfung_fuehrt_pfade_einfach_statt_doppelt(monkeypatch, tmp_path):
+    befehle = []
+
+    def fake_run(command, capture_output, text, timeout=None):
+        befehle.append(command)
+        return type("R", (), {"returncode": 0, "stderr": ""})()
+
+    monkeypatch.setattr(sf.subprocess, "run", fake_run)
+    monkeypatch.setattr(sf, "IST_WINDOWS", True)
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    projektordner = tmp_path / "Ablage$2026"
+    projektordner.mkdir()
+
+    sf.create_desktop_shortcut(projektordner, lambda _m: None)
+
+    # Der Befehl besteht weiterhin nur aus Schalter und Skript: Werte hinter
+    # '-Command' landen NICHT in $args, sondern werden an den Befehlstext
+    # angehaengt (nachgemessen: $args.Count ist dort 0).
+    assert len(befehle[0]) == 5
+    skript = befehle[0][4]
+    assert "Ablage$2026" in skript
+    assert f"'{projektordner}'" in skript
+    assert f'"{projektordner}"' not in skript
+
+
+def test_verknuepfung_hat_eine_zeitgrenze(monkeypatch, tmp_path):
+    gesehen = {}
+
+    def fake_run(command, capture_output, text, timeout=None):
+        gesehen["timeout"] = timeout
+        return type("R", (), {"returncode": 0, "stderr": ""})()
+
+    monkeypatch.setattr(sf.subprocess, "run", fake_run)
+    monkeypatch.setattr(sf, "IST_WINDOWS", True)
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+
+    sf.create_desktop_shortcut(tmp_path, lambda _m: None)
+
+    assert gesehen["timeout"] == sf.POWERSHELL_TIMEOUT_SECONDS
