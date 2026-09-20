@@ -554,7 +554,6 @@ def run_protocol(
 
     protocol_paths = None
     protokoll_fehler: str | None = None
-    protokoll_status = manifest_service.STATUS_AUSSTEHEND
     run_timestamp = export_service.make_run_timestamp()
     try:
         protocol = protocol_service.run_full_protocol_pipeline(
