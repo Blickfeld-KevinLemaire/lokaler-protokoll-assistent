@@ -25,8 +25,6 @@ from pathlib import Path
 
 from utils.paths import get_tools_ffmpeg_dir
 
-_last_path_extension: str | None = None
-
 # Stabiler "latest"-Redirect-Link (aendert sich inhaltlich, aber nicht in
 # der URL selbst) auf einen offiziellen, statisch gelinkten Windows-Build.
 # Wird NUR verwendet, wenn auf dem Zielrechner weder im PATH, noch ueber
@@ -94,7 +92,6 @@ def ensure_ffmpeg_on_path() -> Path | None:
     auffindbar sind (die Normalisierung ruft ``ffmpeg`` per Subprozessname auf).
     Gibt den gefundenen ffmpeg-Pfad zurueck, oder ``None`` falls nicht gefunden.
     """
-    global _last_path_extension
     found = find_ffmpeg()
     if not found:
         return None
@@ -102,7 +99,6 @@ def ensure_ffmpeg_on_path() -> Path | None:
     current_path = os.environ.get("PATH", "")
     if directory not in current_path.split(os.pathsep):
         os.environ["PATH"] = directory + os.pathsep + current_path
-        _last_path_extension = directory
     return found
 
 

@@ -222,11 +222,17 @@ aus:
 * **Advanced setup** — ein eigener Workflow im Repository. Genau den benutzen
   wir: `.github/workflows/codeql.yml`, mit `queries: security-and-quality`.
 
-Die Qualitätsabfragen laufen also **bereits** — die 13 offenen Meldungen vom
-Typ `note` (`py/unnecessary-lambda`, `py/empty-except`,
-`py/unused-global-variable`) stammen genau daher. Der Schalter in der
-Oberfläche gehört nur zur anderen Betriebsart und ist über die API gar nicht
-erreichbar (`"code_quality" is not a permitted key`).
+Die Qualitätsabfragen laufen also **bereits** — daher stammen die offenen
+Meldungen vom Typ `note`. Der Schalter in der Oberfläche gehört nur zur
+anderen Betriebsart und ist über die API gar nicht erreichbar
+(`"code_quality" is not a permitted key`).
+
+Die Anzahl dieser Meldungen stand hier früher als feste Zahl. Das ist
+bewusst entfernt: Sie ändert sich mit jedem Commit, der ein `except: pass`
+hinzufügt oder entfernt, und eine veraltete Zahl in der Anleitung ist
+schlechter als gar keine. Der aktuelle Stand steht im Reiter *Security*
+oder kommt aus
+`gh api repos/<owner>/<repo>/code-scanning/alerts?state=open`.
 
 Wird „Default setup" trotzdem eingeschaltet, übernimmt GitHub die Analyse und
 unser Workflow läuft nicht mehr. Dann fehlt die Prüfung **„Analyse (Python)"**,
