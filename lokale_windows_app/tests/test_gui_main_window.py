@@ -64,6 +64,28 @@ class _Signal:
             funktion(*args)
 
 
+class _HashWorkerAttrappe:
+    """Wie DateiHashWorker, aber ohne Nebenfaden.
+
+    Die Fenstertests kommen bewusst ohne echte Threads aus (siehe
+    CLAUDE.md). Der Hash wird deshalb sofort in 'start()' berechnet und
+    das Ergebnis direkt gemeldet.
+    """
+
+    def __init__(self, pfad, parent=None):
+        self._pfad = pfad
+        self.fertig = _Signal()
+        self.fehlgeschlagen = _Signal()
+
+    def start(self):
+        try:
+            hashwert = manifest_service.compute_file_hash(self._pfad)
+        except OSError as fehler:
+            self.fehlgeschlagen.emit(str(self._pfad), str(fehler))
+            return
+        self.fertig.emit(str(self._pfad), hashwert)
+
+
 @pytest.fixture
 def isolierte_konfiguration(tmp_path, monkeypatch):
     """Konfiguration, Arbeits- und Ausgabeordner liegen im Temp-Verzeichnis."""
@@ -91,6 +113,7 @@ def isolierte_konfiguration(tmp_path, monkeypatch):
 def fenster(qt_widgets, isolierte_konfiguration, monkeypatch):
     _WorkerAttrappe.instanzen.clear()
     monkeypatch.setattr(mw, "PipelineWorker", _WorkerAttrappe)
+    monkeypatch.setattr(mw, "DateiHashWorker", _HashWorkerAttrappe)
     return qt_widgets(mw.MainWindow())
 
 
@@ -125,6 +148,7 @@ def test_datenschutzhinweis_ist_sichtbar(fenster):
 
 def test_fenster_uebernimmt_startordner(qt_widgets, isolierte_konfiguration, audio_datei, monkeypatch):
     monkeypatch.setattr(mw, "PipelineWorker", _WorkerAttrappe)
+    monkeypatch.setattr(mw, "DateiHashWorker", _HashWorkerAttrappe)
     fenster = qt_widgets(mw.MainWindow(initial_folder=audio_datei.parent, initial_file="sitzung.mp3"))
 
     assert fenster._source_path == audio_datei
@@ -135,6 +159,7 @@ def test_fenster_ignoriert_unbekannte_startdatei(
     qt_widgets, isolierte_konfiguration, audio_datei, monkeypatch
 ):
     monkeypatch.setattr(mw, "PipelineWorker", _WorkerAttrappe)
+    monkeypatch.setattr(mw, "DateiHashWorker", _HashWorkerAttrappe)
     fenster = qt_widgets(mw.MainWindow(initial_folder=audio_datei.parent, initial_file="fehlt.mp3"))
     assert fenster._source_path is None
 
@@ -590,7 +615,7 @@ def test_verstrichene_zeit(fenster, monkeypatch):
 # --------------------------------------------------------------------------
 # Ergebnisbehandlung
 # --------------------------------------------------------------------------
-def _ergebnis_bauen(tmp_path, eintraege):
+def _ergebnis_bauen(tmp_path, eintraege, protokoll_fehler=None):
     json_datei = tmp_path / "ergebnis.json"
     json_datei.write_text(
         json.dumps({"sprecher_zuordnung": eintraege}, ensure_ascii=False), encoding="utf-8"
@@ -604,7 +629,11 @@ def _ergebnis_bauen(tmp_path, eintraege):
 
     class _Ergebnis:
         export_paths = pfade
+        # Wie im echten PipelineResult: gesetzt, wenn nur die
+        # Protokollauswertung gescheitert ist.
+        protokoll_fehler = None
 
+    _Ergebnis.protokoll_fehler = protokoll_fehler
     return _Ergebnis()
 
 
@@ -748,3 +777,147 @@ def test_namen_uebernehmen_meldet_exportfehler(fenster, tmp_path, monkeypatch, g
     fenster._apply_speaker_names()
 
     assert gemeldete_fehler == ["Export fehlgeschlagen"]
+
+
+# --------------------------------------------------------------------------
+# Gescheiterte Protokollauswertung
+# --------------------------------------------------------------------------
+def test_gescheitertes_protokoll_bleibt_nach_abgeschlossen_sichtbar(fenster):
+    # Die Verarbeitung als Ganzes ist fertig, das Protokoll aber nicht
+    # entstanden. Die Stufe "abgeschlossen" darf den Fehlschlag nicht
+    # ueberschreiben - sonst sucht der Nutzer vergeblich nach der Datei.
+    fenster.protocol_checkbox.setChecked(True)
+    fenster._on_stage_changed("protokoll_fehlgeschlagen", "Protokollauswertung fehlgeschlagen: kaputt")
+    fenster._on_stage_changed("abgeschlossen", "fertig")
+
+    assert fenster.transcription_status_label.text() == "abgeschlossen"
+    assert "fehlgeschlagen" in fenster.protocol_status_label.text()
+    assert fenster.protocol_status_label.text() != "abgeschlossen"
+
+
+def test_neuer_lauf_setzt_den_fehlerzustand_zurueck(fenster):
+    fenster.protocol_checkbox.setChecked(True)
+    fenster._on_stage_changed("protokoll_fehlgeschlagen", "kaputt")
+    assert fenster._protokoll_fehlgeschlagen
+
+    fenster._protokoll_fehlgeschlagen = False
+    fenster._on_stage_changed("abgeschlossen", "fertig")
+    assert fenster.protocol_status_label.text() == "abgeschlossen"
+
+
+def test_abschlussmeldung_nennt_gescheitertes_protokoll(fenster, tmp_path, monkeypatch):
+    warnungen = []
+    infos = []
+    monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a: warnungen.append(a)))
+    monkeypatch.setattr(QMessageBox, "information", staticmethod(lambda *a: infos.append(a)))
+    ergebnis = _ergebnis_bauen(tmp_path, [], protokoll_fehler="Ollama ist nicht erreichbar")
+
+    fenster._on_finished_ok(ergebnis)
+
+    assert warnungen, "Es haette gewarnt werden muessen."
+    assert not infos, "Ein Erfolgsfenster waere hier irrefuehrend."
+    # QMessageBox.warning(parent, titel, text) -- der Text ist das dritte Argument.
+    assert "Ollama ist nicht erreichbar" in warnungen[0][2]
+    assert "fehlgeschlagen" in fenster.status_label.text()
+    # Das Transkript ist trotzdem da und die Sprechertabelle nutzbar.
+    assert fenster._last_result is ergebnis
+
+
+# --------------------------------------------------------------------------
+# Dateihash laeuft im Hintergrund
+# --------------------------------------------------------------------------
+def test_hash_wird_je_datei_nur_einmal_berechnet(fenster, audio_datei, monkeypatch):
+    # Bei mehrstuendigen Aufnahmen kostet SHA-256 Sekunden. Wer in der
+    # Liste hin- und herklickt, darf das nicht jedes Mal bezahlen.
+    aufrufe = []
+    echte_funktion = manifest_service.compute_file_hash
+
+    def zaehlend(pfad, *args, **kwargs):
+        aufrufe.append(pfad)
+        return echte_funktion(pfad, *args, **kwargs)
+
+    monkeypatch.setattr(manifest_service, "compute_file_hash", zaehlend)
+    fenster._source_path = audio_datei
+
+    fenster._refresh_resume_status()
+    fenster._refresh_resume_status()
+    fenster._refresh_resume_status()
+
+    assert len(aufrufe) == 1
+
+
+def test_geaenderte_datei_wird_neu_gehasht(fenster, audio_datei, monkeypatch):
+    aufrufe = []
+    echte_funktion = manifest_service.compute_file_hash
+
+    def zaehlend(pfad, *args, **kwargs):
+        aufrufe.append(pfad)
+        return echte_funktion(pfad, *args, **kwargs)
+
+    monkeypatch.setattr(manifest_service, "compute_file_hash", zaehlend)
+    fenster._source_path = audio_datei
+    fenster._refresh_resume_status()
+
+    # Andere Groesse -> der gemerkte Wert gilt nicht mehr.
+    audio_datei.write_bytes(b"\x01" * 128)
+    fenster._refresh_resume_status()
+
+    assert len(aufrufe) == 2
+
+
+def test_spaetes_hash_ergebnis_ueberschreibt_die_anzeige_nicht(fenster, audio_datei):
+    # Waehrend der Berechnung kann laengst eine andere Datei gewaehlt sein.
+    fenster._source_path = audio_datei
+    fenster.resume_status_label.setText("Anzeige der neuen Datei")
+
+    fenster._zeige_fortsetzbarkeit(str(audio_datei.parent / "andere.mp3"), "egal")
+
+    assert fenster.resume_status_label.text() == "Anzeige der neuen Datei"
+
+
+def test_spaeter_hash_fehler_ueberschreibt_die_anzeige_nicht(fenster, audio_datei):
+    fenster._source_path = audio_datei
+    fenster.resume_status_label.setText("Anzeige der neuen Datei")
+
+    fenster._hash_fehlgeschlagen(str(audio_datei.parent / "andere.mp3"), "Zugriff verweigert")
+
+    assert fenster.resume_status_label.text() == "Anzeige der neuen Datei"
+
+
+def test_zwischenordner_nutzt_den_gemerkten_hash(fenster, audio_datei, monkeypatch):
+    fenster._source_path = audio_datei
+    fenster._refresh_resume_status()  # fuellt den Zwischenspeicher
+
+    def darf_nicht_aufgerufen_werden(_pfad, *args, **kwargs):
+        raise AssertionError("Der Hash war bereits bekannt.")
+
+    monkeypatch.setattr(manifest_service, "compute_file_hash", darf_nicht_aufgerufen_werden)
+    monkeypatch.setattr(mw.QDesktopServices, "openUrl", staticmethod(lambda url: None))
+
+    fenster._open_intermediate_folder()  # darf nicht werfen
+
+
+def test_hash_arbeiter_meldet_ergebnis(qt_app, audio_datei):
+    # Die echte Klasse -- 'run()' wird direkt aufgerufen, damit in einem
+    # Fenstertest kein zusaetzlicher Faden laeuft (siehe CLAUDE.md).
+    from gui.worker import DateiHashWorker
+
+    ergebnisse = []
+    arbeiter = DateiHashWorker(audio_datei)
+    arbeiter.fertig.connect(lambda pfad, wert: ergebnisse.append((pfad, wert)))
+
+    arbeiter.run()
+
+    assert ergebnisse == [(str(audio_datei), manifest_service.compute_file_hash(audio_datei))]
+
+
+def test_hash_arbeiter_meldet_lesefehler(qt_app, tmp_path):
+    from gui.worker import DateiHashWorker
+
+    fehler = []
+    arbeiter = DateiHashWorker(tmp_path / "gibtesnicht.mp3")
+    arbeiter.fehlgeschlagen.connect(lambda pfad, text: fehler.append(text))
+
+    arbeiter.run()
+
+    assert len(fehler) == 1

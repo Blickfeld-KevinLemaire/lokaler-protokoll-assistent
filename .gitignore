@@ -86,3 +86,12 @@ Ergebnis des Meetings wie gewünscht/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# ---------------------------------------------------------------------------
+# Rechnerspezifische Claude-Code-Skills
+# ---------------------------------------------------------------------------
+# '.claude/skills/' beschreibt, wie dieser eine Arbeitsplatz an GitHub kommt.
+# Das ist von Rechner zu Rechner verschieden - wer regulaer an github.com
+# angemeldet ist, braucht nichts davon. Versioniert wuerde die Datei andere
+# Mitarbeitende in die Irre fuehren. CLAUDE.md bleibt versioniert.
+.claude/skills/

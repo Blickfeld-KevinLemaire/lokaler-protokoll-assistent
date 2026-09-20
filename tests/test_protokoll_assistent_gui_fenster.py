@@ -929,3 +929,35 @@ def test_main_startet_und_beendet(monkeypatch, tmp_path):
     finally:
         if "root" in erzeugt:
             erzeugt["root"].destroy()
+
+
+def test_zwischenstaende_werden_erst_nach_dem_speichern_geloescht(
+    fenster, transkription_vorbereitet, monkeypatch
+):
+    # Gegenstueck zum Erhalt bei einem Fehler: Liegt das Transkript
+    # wirklich auf der Platte, sind die Rohantworten entbehrlich.
+    erledigt = gui.CHECKPOINT_DIR / "sitzung_teil01_rohantwort.json"
+    erledigt.parent.mkdir(parents=True, exist_ok=True)
+    erledigt.write_text("{}", encoding="utf-8")
+
+    monkeypatch.setattr(gui, "get_audio_duration_seconds", lambda _p: 99999.0)
+    monkeypatch.setattr(
+        gui,
+        "transcribe_in_chunks",
+        lambda *a, **k: {
+            "segmente": [
+                {"start": "00:00:00.000", "ende": "00:00:01.000", "text": "Sprecher 1 (Teil 1): Hi"}
+            ],
+            "woerter": [],
+            "sprecher": [],
+            "dauer_sekunden": 1.0,
+            "sprache": "de",
+            "anzahl_abschnitte": 1,
+            "zwischenstaende": [erledigt],
+        },
+    )
+
+    fenster._run_transkription(transkription_vorbereitet, "k", "https://e", "m", "azure", False)
+
+    assert (gui.OUTPUT_DIR / "sitzung_mai2_transkript.txt").exists()
+    assert not erledigt.exists()

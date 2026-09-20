@@ -364,7 +364,9 @@ def transcribe_in_chunks(
     with tempfile.TemporaryDirectory(prefix="protokoll_audio_") as temp_name:
         temp_dir = Path(temp_name)
         progress(0.12, "Audio wird vorbereitet ...")
-        vorbereitetes_audio, _ = kern.prepare_audio(source, temp_dir)
+        # Die Groessenpruefung greift hier nicht fuer die Gesamtdatei -- sie
+        # wird ja gleich zerlegt. Geprueft wird stattdessen jeder Abschnitt.
+        vorbereitetes_audio, _ = kern.prepare_audio(source, temp_dir, groesse_pruefen=False)
         chunk_pfade = split_audio_into_chunks(vorbereitetes_audio, temp_dir, chunk_seconds, log)
         anzahl = len(chunk_pfade)
         log(f"{anzahl} Abschnitte werden einzeln transkribiert.")
@@ -372,6 +374,7 @@ def transcribe_in_chunks(
         alle_segmente: list[dict[str, Any]] = []
         alle_woerter: list[dict[str, Any]] = []
         alle_sprecher: list[dict[str, str]] = []
+        benutzte_zwischenstaende: list[Path] = []
         gesamtdauer = 0.0
         sprache: str | None = None
 
@@ -383,10 +386,12 @@ def transcribe_in_chunks(
             )
 
             checkpoint = CHECKPOINT_DIR / f"{source.stem}_teil{index:02d}_rohantwort.json"
+            benutzte_zwischenstaende.append(checkpoint)
             if checkpoint.exists():
                 log(f"Abschnitt {index}/{anzahl}: vorhandene Antwort wird weiterverwendet.")
                 api_result = json.loads(checkpoint.read_text(encoding="utf-8-sig"))
             else:
+                kern.pruefe_uebertragungsgroesse(chunk_pfad, f"Abschnitt {index} von {anzahl}")
                 request_data = build_transcription_request(
                     chunk_pfad, "mp3", model_name, provider_name, diarisierung_aktiv
                 )
@@ -429,7 +434,11 @@ def transcribe_in_chunks(
                         }
                     )
 
-            checkpoint.unlink(missing_ok=True)
+            # Der Zwischenstand bleibt bis zum fertigen Transkript liegen.
+            # Frueher wurde er hier geloescht: Scheiterte Abschnitt 5 von 10,
+            # waren die Antworten 1 bis 4 weg und mussten samt Upload noch
+            # einmal bezahlt werden -- obwohl es die Zwischenstaende genau
+            # dafuer gibt.
             log(f"Abschnitt {index}/{anzahl} fertig.")
 
         progress(0.72, "Abschnitte werden zusammengefuegt ...")
@@ -440,6 +449,7 @@ def transcribe_in_chunks(
             "dauer_sekunden": gesamtdauer,
             "sprache": sprache or kern.LANGUAGE or "automatisch erkannt",
             "anzahl_abschnitte": anzahl,
+            "zwischenstaende": benutzte_zwischenstaende,
         }
 
 
@@ -1502,6 +1512,10 @@ class ProtokollGUI:
                 output_txt, output_json = save_merged_transcript(
                     source, zusammengefasst, modell, endpoint_url, diarisierung_aktiv
                 )
+                # Erst jetzt, wo das Transkript wirklich auf der Platte
+                # liegt, sind die Rohantworten entbehrlich.
+                for zwischenstand in zusammengefasst.get("zwischenstaende", []):
+                    Path(zwischenstand).unlink(missing_ok=True)
             else:
                 checkpoint = CHECKPOINT_DIR / f"{source.stem}_mai_transcribe_2_rohantwort.json"
                 if checkpoint.exists():

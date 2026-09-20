@@ -46,18 +46,20 @@ def build_speaker_names(
     speaker_ids_in_order: list[str], name_overrides: dict[str, str] | None = None
 ) -> dict[str, str]:
     """Weist Anzeigenamen zu. Manuell vergebene Namen bleiben erhalten;
-    nicht benannte IDs werden fortlaufend als 'Sprecher 1', 'Sprecher 2', ...
-    ausgegeben."""
+    nicht benannte IDs heissen nach ihrem Platz in der Reihenfolge des
+    ersten Auftretens 'Sprecher 1', 'Sprecher 2', ...
+
+    Die Nummer haengt bewusst NICHT davon ab, wie viele andere Sprecher
+    benannt wurden: Ein eigener Zaehler nur fuer die unbenannten haette
+    aus 'Sprecher 2' ein 'Sprecher 1' gemacht, sobald der erste Sprecher
+    einen echten Namen bekommt. Wer einen von fuenf Sprechern benennt,
+    findet die uebrigen vier danach unter unveraenderten Nummern wieder.
+    """
     name_overrides = name_overrides or {}
     names: dict[str, str] = {}
-    counter = 0
-    for speaker_id in speaker_ids_in_order:
+    for position, speaker_id in enumerate(speaker_ids_in_order, start=1):
         override = name_overrides.get(speaker_id, "").strip()
-        if override:
-            names[speaker_id] = override
-        else:
-            counter += 1
-            names[speaker_id] = f"Sprecher {counter}"
+        names[speaker_id] = override or f"Sprecher {position}"
     return names
 
 
@@ -125,22 +127,35 @@ def build_txt_content(
     return "\n".join(header + lines) + "\n"
 
 
-def build_srt_content(segments: list[dict[str, Any]]) -> str:
+def _untertitelzeile(segment: dict[str, Any], diarization_enabled: bool) -> str:
+    """Textzeile eines Untertitels -- mit Sprecher nur dann, wenn die
+    Sprechertrennung ueberhaupt gelaufen ist.
+
+    Ohne diese Unterscheidung stand in SRT und VTT vor jedem Satz
+    'Sprecher unbekannt: ', waehrend die TXT-Datei im Kopf ausdruecklich
+    "kein Sprecherbezug enthalten" versprach.
+    """
+    if not diarization_enabled:
+        return str(segment["text"])
+    return f"{segment['sprecher']}: {segment['text']}"
+
+
+def build_srt_content(segments: list[dict[str, Any]], diarization_enabled: bool = True) -> str:
     blocks = []
     for index, segment in enumerate(segments, start=1):
         blocks.append(
             f"{index}\n"
             f"{format_srt_timestamp(segment['start'])} --> {format_srt_timestamp(segment['end'])}\n"
-            f"{segment['sprecher']}: {segment['text']}\n"
+            f"{_untertitelzeile(segment, diarization_enabled)}\n"
         )
     return "\n".join(blocks) + "\n"
 
 
-def build_vtt_content(segments: list[dict[str, Any]]) -> str:
+def build_vtt_content(segments: list[dict[str, Any]], diarization_enabled: bool = True) -> str:
     lines = ["WEBVTT", ""]
     for segment in segments:
         lines.append(f"{format_vtt_timestamp(segment['start'])} --> {format_vtt_timestamp(segment['end'])}")
-        lines.append(f"{segment['sprecher']}: {segment['text']}")
+        lines.append(_untertitelzeile(segment, diarization_enabled))
         lines.append("")
     return "\n".join(lines) + "\n"
 
@@ -281,8 +296,8 @@ def write_transcript_exports(
         encoding="utf-8",
     )
     paths.json.write_text(json.dumps(json_result, ensure_ascii=False, indent=2), encoding="utf-8")
-    paths.srt.write_text(build_srt_content(enriched), encoding="utf-8")
-    paths.vtt.write_text(build_vtt_content(enriched), encoding="utf-8")
+    paths.srt.write_text(build_srt_content(enriched, diarization_enabled), encoding="utf-8")
+    paths.vtt.write_text(build_vtt_content(enriched, diarization_enabled), encoding="utf-8")
     return paths
 
 
@@ -354,8 +369,8 @@ def reexport_with_new_names(json_path: Path, name_overrides: dict[str, str]) -> 
         encoding="utf-8",
     )
     paths.json.write_text(json.dumps(json_result, ensure_ascii=False, indent=2), encoding="utf-8")
-    paths.srt.write_text(build_srt_content(enriched), encoding="utf-8")
-    paths.vtt.write_text(build_vtt_content(enriched), encoding="utf-8")
+    paths.srt.write_text(build_srt_content(enriched, diarization_enabled), encoding="utf-8")
+    paths.vtt.write_text(build_vtt_content(enriched, diarization_enabled), encoding="utf-8")
     return paths
 
 

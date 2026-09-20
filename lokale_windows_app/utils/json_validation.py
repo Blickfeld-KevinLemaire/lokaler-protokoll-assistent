@@ -56,23 +56,55 @@ def extract_json_object(text: str) -> dict[str, Any] | None:
         except json.JSONDecodeError:
             pass
 
-    start = text.find("{")
-    if start == -1:
-        return None
+    suchstart = 0
+    while True:
+        start = text.find("{", suchstart)
+        if start == -1:
+            return None
+        ende = _ende_der_klammerung(text, start)
+        if ende is not None:
+            try:
+                parsed = json.loads(text[start : ende + 1])
+                if isinstance(parsed, dict):
+                    return parsed
+            except json.JSONDecodeError:
+                pass
+        # Diese Klammerung war es nicht -- hinter der oeffnenden Klammer
+        # weitersuchen, statt aufzugeben. Modelle stellen ihrer Antwort
+        # gern noch einen erklaerenden Satz mit Klammern voran.
+        suchstart = start + 1
+
+
+def _ende_der_klammerung(text: str, start: int) -> int | None:
+    """Sucht zu der Klammer an ``start`` die passende schliessende Klammer.
+
+    Zeichenketten werden dabei uebersprungen. Ohne das zaehlte eine
+    geschweifte Klammer INNERHALB eines Wertes mit -- eine Modellantwort
+    wie ``{"hinweis": "schliess die } Klammer"}`` galt dann als zu Ende,
+    der Ausschnitt liess sich nicht lesen, und die ganze Auswertung
+    scheiterte samt Reparaturversuch.
+    """
     depth = 0
+    in_zeichenkette = False
+    maskiert = False
     for index in range(start, len(text)):
-        if text[index] == "{":
+        zeichen = text[index]
+        if in_zeichenkette:
+            if maskiert:
+                maskiert = False
+            elif zeichen == "\\":
+                maskiert = True
+            elif zeichen == '"':
+                in_zeichenkette = False
+            continue
+        if zeichen == '"':
+            in_zeichenkette = True
+        elif zeichen == "{":
             depth += 1
-        elif text[index] == "}":
+        elif zeichen == "}":
             depth -= 1
             if depth == 0:
-                candidate = text[start : index + 1]
-                try:
-                    parsed = json.loads(candidate)
-                    if isinstance(parsed, dict):
-                        return parsed
-                except json.JSONDecodeError:
-                    return None
+                return index
     return None
 
 

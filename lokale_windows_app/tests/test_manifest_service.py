@@ -116,3 +116,40 @@ def test_update_unknown_chunk_raises(tmp_path, sample_file):
     manifest = _make_manifest(sample_file, work_dir)
     with pytest.raises(KeyError):
         manifest_service.update_chunk_status(manifest, 99, manifest_service.STATUS_ABGESCHLOSSEN)
+
+
+def test_verwerfe_zwischenstaende_raeumt_alles_weg(tmp_path):
+    work_dir = manifest_service.get_work_dir_for_file(tmp_path, "abc123")
+    (work_dir / "manifest.json").write_text("{}", encoding="utf-8")
+    (work_dir / "audio_normalisiert.wav").write_bytes(b"RIFF")
+    (work_dir / "transkripte" / "chunk_0001.json").write_text("[]", encoding="utf-8")
+    (work_dir / "analysen" / "chunk_0001_analyse.json").write_text("{}", encoding="utf-8")
+    (work_dir / "zusammengefuehrt" / "protokoll.json").write_text("{}", encoding="utf-8")
+    (work_dir / "chunks" / "chunk_0001.wav").write_bytes(b"RIFF")
+
+    manifest_service.verwerfe_zwischenstaende(work_dir)
+
+    assert not (work_dir / "manifest.json").exists()
+    assert not (work_dir / "audio_normalisiert.wav").exists()
+    assert not (work_dir / "zusammengefuehrt" / "protokoll.json").exists()
+    assert not (work_dir / "analysen" / "chunk_0001_analyse.json").exists()
+    # Die Unterordner selbst bleiben bestehen, damit der naechste Lauf ohne
+    # Sonderbehandlung hineinschreiben kann.
+    for sub in manifest_service.SUBDIRS:
+        assert (work_dir / sub).is_dir()
+
+
+def test_verwerfe_zwischenstaende_laesst_fremde_dateien_in_ruhe(tmp_path):
+    work_dir = manifest_service.get_work_dir_for_file(tmp_path, "abc123")
+    fremd = work_dir / "notiz_des_nutzers.txt"
+    fremd.write_text("nicht anfassen", encoding="utf-8")
+
+    manifest_service.verwerfe_zwischenstaende(work_dir)
+
+    assert fremd.read_text(encoding="utf-8") == "nicht anfassen"
+
+
+def test_verwerfe_zwischenstaende_auf_leerem_ordner(tmp_path):
+    # Erster Lauf ueberhaupt: Es gibt noch nichts zu verwerfen.
+    manifest_service.verwerfe_zwischenstaende(tmp_path / "neu")
+    assert (tmp_path / "neu" / "chunks").is_dir()

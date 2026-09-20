@@ -266,3 +266,52 @@ def test_torch_hat_eine_versionsangabe():
     echten Installation gemessen: 2.14.0+cu126 wurde zu 2.8.0+cpu."""
     for paket in env.TORCH_PACKAGES:
         assert any(zeichen in paket for zeichen in "~=<>"), paket
+
+
+# ---------------------------------------------------------------------------
+# Kennung der abgeschlossenen Einrichtung
+# ---------------------------------------------------------------------------
+def test_kennung_ist_fuer_gleiche_eingaben_gleich():
+    erste = env.einrichtungs_kennung("https://example.invalid/cpu")
+    zweite = env.einrichtungs_kennung("https://example.invalid/cpu")
+    assert erste == zweite
+
+
+def test_kennung_unterscheidet_die_paket_indizes():
+    # Wechselt der Rechner von CPU auf GPU (oder auf eine Blackwell-Karte),
+    # muss neu installiert werden - sonst bliebe der falsche Torch-Build
+    # liegen.
+    cpu = env.einrichtungs_kennung(env.TORCH_CPU_INDEX_URL)
+    cuda = env.einrichtungs_kennung(env.TORCH_CUDA_INDEX_URL)
+    blackwell = env.einrichtungs_kennung(
+        env.TORCH_CUDA_BLACKWELL_INDEX_URL
+    )
+    assert len({cpu, cuda, blackwell}) == 3
+
+
+def test_kennung_aendert_sich_mit_den_anforderungen(monkeypatch):
+    vorher = env.einrichtungs_kennung("index")
+    monkeypatch.setattr(
+        env, "RUNTIME_PACKAGES", [*env.RUNTIME_PACKAGES, "neu>=1"]
+    )
+    assert env.einrichtungs_kennung("index") != vorher
+
+
+def test_einrichtung_gilt_ohne_kennungsdatei_als_unfertig(tmp_path):
+    assert env.einrichtung_ist_aktuell(tmp_path, "index") is False
+
+
+def test_festgehaltene_kennung_gilt_als_aktuell(tmp_path):
+    env.kennung_festhalten(tmp_path, "index")
+    assert env.einrichtung_ist_aktuell(tmp_path, "index") is True
+    # Anderer Index -> die Einrichtung passt nicht mehr.
+    assert env.einrichtung_ist_aktuell(tmp_path, "anderer-index") is False
+
+
+def test_pip_befehle_uebernehmen_den_vorgegebenen_index(tmp_path):
+    befehle = env.build_pip_install_commands(
+        tmp_path / "python.exe", gpu_available=True, index_url="https://example.invalid/cu999"
+    )
+    torch_befehl = befehle[1]
+    assert "--index-url" in torch_befehl
+    assert torch_befehl[torch_befehl.index("--index-url") + 1] == "https://example.invalid/cu999"

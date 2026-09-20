@@ -9,6 +9,7 @@ Die tatsaechliche Ausfuehrung uebernimmt ``bootstrap.py``.
 
 from __future__ import annotations
 
+import hashlib
 import shutil
 import subprocess
 import sys
@@ -205,11 +206,50 @@ def select_torch_index_url(
     return TORCH_CUDA_INDEX_URL
 
 
-def build_pip_install_commands(python_exe: Path, gpu_available: bool) -> list[list[str]]:
+EINRICHTUNGS_KENNUNG_DATEI = "einrichtung.kennung"
+
+
+def einrichtungs_kennung(index_url: str) -> str:
+    """Kennzeichnet, WAS zuletzt erfolgreich installiert wurde.
+
+    Geht in die Kennung ein: der gewaehlte Paket-Index (also GPU/CPU und
+    Kartengeneration) sowie beide Anforderungslisten. Aendert sich eine
+    davon -- neue Grafikkarte, aktualisierte requirements-Datei --, passt
+    die Kennung nicht mehr und die Einrichtung laeuft erneut.
+    """
+    bestandteile = [index_url, *TORCH_PACKAGES, *RUNTIME_PACKAGES]
+    return hashlib.sha256("\n".join(bestandteile).encode("utf-8")).hexdigest()
+
+
+def kennungsdatei(venv_dir: Path) -> Path:
+    """Liegt IN der Umgebung: Wird sie geloescht, ist auch die Kennung weg."""
+    return venv_dir / EINRICHTUNGS_KENNUNG_DATEI
+
+
+def einrichtung_ist_aktuell(venv_dir: Path, index_url: str) -> bool:
+    datei = kennungsdatei(venv_dir)
+    try:
+        return datei.read_text(encoding="utf-8").strip() == einrichtungs_kennung(index_url)
+    except OSError:
+        return False
+
+
+def kennung_festhalten(venv_dir: Path, index_url: str) -> None:
+    kennungsdatei(venv_dir).write_text(einrichtungs_kennung(index_url), encoding="utf-8")
+
+
+def build_pip_install_commands(
+    python_exe: Path, gpu_available: bool, index_url: str | None = None
+) -> list[list[str]]:
     """Baut die auszufuehrenden pip-Befehle als Liste von Argumentlisten
-    (keine Shell-Interpolation, keine ungeprueften Benutzereingaben)."""
+    (keine Shell-Interpolation, keine ungeprueften Benutzereingaben).
+
+    ``index_url`` kann uebergeben werden, damit der Aufrufer die Auswahl
+    nicht zweimal treffen muss (sie fragt ueber ``nvidia-smi`` die
+    Kartengeneration ab).
+    """
     python_str = str(python_exe)
-    index_url = select_torch_index_url(gpu_available)
+    index_url = index_url or select_torch_index_url(gpu_available)
 
     commands = [
         [python_str, "-m", "pip", "install", "--upgrade", "pip"],

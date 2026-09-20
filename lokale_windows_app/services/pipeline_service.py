@@ -53,6 +53,7 @@ STAGE_LABELS = {
     "export_transkript": "Ausgabedateien werden erstellt",
     "protokoll_auswertung": "Lokale Protokollauswertung läuft",
     "export_protokoll": "Protokolldateien werden erstellt",
+    "protokoll_fehlgeschlagen": "Protokollauswertung fehlgeschlagen",
     "abgeschlossen": "Verarbeitung abgeschlossen",
 }
 
@@ -102,6 +103,10 @@ class PipelineResult:
     speaker_names: dict[str, str]
     segments: list[dict[str, Any]]
     manifest: dict[str, Any]
+    # Gesetzt, wenn die Protokollauswertung angefordert war, aber
+    # fehlgeschlagen ist. 'protocol_paths' ist dann None, und das Transkript
+    # steht trotzdem zur Verfuegung.
+    protokoll_fehler: str | None = None
 
 
 def _check_cancel(callbacks: PipelineCallbacks) -> None:
@@ -124,21 +129,37 @@ def _build_protocol_chunk_texts(
     speaker_names: dict[str, str],
 ) -> list[dict[str, Any]]:
     """Baut je Chunk den zugehoerigen (bereits global datierten und
-    deduplizierten) Transkriptausschnitt fuer die Ollama-Auswertung."""
+    deduplizierten) Transkriptausschnitt fuer die Ollama-Auswertung.
+
+    Die Chunks ueberlappen sich um ``overlap_with_previous`` Sekunden. Ein
+    Segment aus diesem Ueberlappungsfenster gehoert bereits zum
+    VORHERIGEN Chunk -- ``merge_service`` hat dort gerade erst die
+    Dubletten entfernt. Wuerde hier schlicht auf ``global_start`` geprueft,
+    bekaeme das Modell dieselben Saetze zweimal vorgelegt und zaehlte
+    Aussagen, Entscheidungen und Aufgaben doppelt. Deshalb beginnt das
+    Fenster jedes Folge-Chunks erst hinter der Ueberlappung; die Fenster
+    schliessen luecken- und ueberschneidungsfrei aneinander an.
+    """
     chunk_texts = []
     for plan in chunk_plans:
+        fenster_start = plan.global_start + plan.overlap_with_previous
         lines = []
         for segment in merged_segments:
-            if plan.global_start <= segment["start"] < plan.global_end:
+            if fenster_start <= segment["start"] < plan.global_end:
                 # 'sprecher_id' darf fehlen - dict.get(None) ist erlaubt
                 # und liefert dann den Standardwert.
                 sprecher_id = segment.get("sprecher_id")
                 name = speaker_names.get(sprecher_id, "Sprecher unbekannt")  # type: ignore[arg-type]
                 lines.append(f"[{format_timestamp(segment['start'])}] {name}: {segment['text']}")
+        if not lines:
+            # Ein Chunk ohne eigenen Text (Stille, oder vollstaendig von der
+            # Ueberlappung des Vorgaengers abgedeckt) wird nicht angefragt --
+            # das Modell haette dazu nichts zu sagen.
+            continue
         chunk_texts.append(
             {
                 "index": plan.index,
-                "start_str": format_timestamp(plan.global_start),
+                "start_str": format_timestamp(fenster_start),
                 "end_str": format_timestamp(plan.global_end),
                 "text": "\n".join(lines),
             }
@@ -168,8 +189,15 @@ def run_pipeline(
     work_dir = manifest_service.get_work_dir_for_file(base_work_dir, file_hash)
 
     existing_manifest = manifest_service.load_manifest(work_dir)
-    if existing_manifest is not None and settings.resume_mode == "neu_beginnen":
+    if settings.resume_mode == "neu_beginnen":
+        # Nur das Manifest zu vergessen genuegt nicht: Die Chunk-Transkripte,
+        # die Ollama-Teilanalysen und das fertige Protokoll werden ueber
+        # ihren Dateinamen wiederverwendet. Ohne dieses Aufraeumen liefert
+        # "Vollstaendig neu beginnen" das alte Protokoll zurueck, ohne das
+        # Modell auch nur einmal zu fragen.
+        manifest_service.verwerfe_zwischenstaende(work_dir)
         existing_manifest = None
+        callbacks.on_log("Vollstaendiger Neubeginn -- vorhandene Zwischenstaende wurden verworfen.")
 
     callbacks.on_stage("audio_normalisierung", STAGE_LABELS["audio_normalisierung"])
     ffmpeg_service.ensure_ffmpeg_on_path()
@@ -327,6 +355,7 @@ def run_pipeline(
     )
 
     protocol_paths = None
+    protokoll_fehler: str | None = None
     manifest["protokoll_status"] = manifest_service.STATUS_AUSSTEHEND
     if settings.run_protocol:
         callbacks.on_stage("protokoll_auswertung", STAGE_LABELS["protokoll_auswertung"])
@@ -357,9 +386,19 @@ def run_pipeline(
             protocol_paths = export_service.write_protocol_exports(
                 settings.output_dir, protocol, settings.source_path.stem, run_timestamp
             )
-        except protocol_service.ProtocolValidationError as error:
+        except (protocol_service.ProtocolValidationError, ollama_service.OllamaError) as error:
+            # Das Transkript ist fertig und bleibt erhalten -- nur die
+            # Protokollauswertung ist gescheitert. Das muss die Oberflaeche
+            # erfahren: 'on_log' landet dort lediglich in einem Tooltip, und
+            # die Stufe "abgeschlossen" weiter unten wuerde den Fehlschlag
+            # sonst als Erfolg darstellen.
+            protokoll_fehler = str(error)
             manifest["protokoll_status"] = manifest_service.STATUS_FEHLGESCHLAGEN
             manifest_service.save_manifest(work_dir, manifest)
+            callbacks.on_stage(
+                "protokoll_fehlgeschlagen",
+                f"{STAGE_LABELS['protokoll_fehlgeschlagen']}: {protokoll_fehler}",
+            )
             callbacks.on_log(f"Protokollauswertung fehlgeschlagen: {error}")
 
     manifest_service.save_manifest(work_dir, manifest)
@@ -386,4 +425,5 @@ def run_pipeline(
         speaker_names=speaker_names,
         segments=merged_segments,
         manifest=manifest,
+        protokoll_fehler=protokoll_fehler,
     )

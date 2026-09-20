@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -87,6 +88,32 @@ def create_manifest(
         "diarisierung_status": STATUS_AUSSTEHEND,
         "protokoll_status": STATUS_AUSSTEHEND,
     }
+
+
+# Dateien im Arbeitsordner, die NICHT in einem der Unterordner aus SUBDIRS
+# liegen und beim vollstaendigen Neubeginn ebenfalls weg muessen.
+EINZELDATEIEN = (MANIFEST_FILENAME, "audio_normalisiert.wav")
+
+
+def verwerfe_zwischenstaende(work_dir: Path) -> None:
+    """Loescht alle Zwischenergebnisse einer Quelldatei.
+
+    Wird fuer "Vollstaendig neu beginnen" gebraucht. Ohne diesen Schritt
+    bleiben die Ollama-Teilanalysen und das fertige Protokoll liegen, und
+    ``protocol_service._load_or_compute`` gibt sie beim naechsten Lauf
+    unveraendert zurueck -- der Nutzer bekaeme trotz Neubeginn das alte
+    Protokoll, ohne dass das Modell ueberhaupt gefragt wurde.
+
+    Es werden ausschliesslich die von der Anwendung selbst angelegten
+    Namen entfernt (``SUBDIRS`` und ``EINZELDATEIEN``); alles andere im
+    Ordner bleibt unangetastet.
+    """
+    for sub in SUBDIRS:
+        shutil.rmtree(work_dir / sub, ignore_errors=True)
+    for name in EINZELDATEIEN:
+        (work_dir / name).unlink(missing_ok=True)
+    for sub in SUBDIRS:
+        (work_dir / sub).mkdir(parents=True, exist_ok=True)
 
 
 def manifest_path(work_dir: Path) -> Path:

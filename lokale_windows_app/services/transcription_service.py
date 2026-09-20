@@ -22,6 +22,7 @@ werden kann.
 
 from __future__ import annotations
 
+import inspect
 from pathlib import Path
 from typing import Any
 
@@ -67,6 +68,23 @@ def load_whisper_model(
     return WhisperModel(model_name, device=device, compute_type=compute_type)
 
 
+def _unterstuetzt_stapelverarbeitung(model) -> bool:
+    """Nimmt ``model.transcribe`` ueberhaupt ein ``batch_size`` entgegen?
+
+    ``faster_whisper.WhisperModel`` tut das nicht,
+    ``faster_whisper.BatchedInferencePipeline`` schon. Blind uebergeben
+    wuerde die Transkription beim ersten Chunk mit einem TypeError
+    abbrechen, deshalb wird die Signatur gefragt statt geraten.
+    """
+    try:
+        parameter = inspect.signature(model.transcribe).parameters
+    except (TypeError, ValueError):
+        return False
+    if "batch_size" in parameter:
+        return True
+    return any(eintrag.kind is inspect.Parameter.VAR_KEYWORD for eintrag in parameter.values())
+
+
 def transcribe_audio_array(
     model,
     audio_array,
@@ -78,8 +96,14 @@ def transcribe_audio_array(
 
     faster-whisper gibt die Segmente als Generator zurueck; er wird hier
     vollstaendig ausgewertet, damit die Aufrufer wie bisher eine Liste
-    bekommen. ``batch_size`` steuert die Stapelverarbeitung, sofern die
-    installierte Fassung sie unterstuetzt.
+    bekommen.
+
+    ``batch_size`` wird nur uebergeben, wenn das Modell den Parameter
+    kennt. Das ist beim hier benutzten ``WhisperModel`` NICHT der Fall --
+    nur eine ``BatchedInferencePipeline`` wertet ihn aus. Bisher wurde der
+    Wert gar nicht verwendet, obwohl er von der Oberflaeche ueber
+    ``PipelineSettings`` bis hierher gereicht wird und die Beschreibung
+    etwas anderes behauptete.
     """
     kwargs: dict[str, Any] = {
         "word_timestamps": True,
@@ -87,6 +111,8 @@ def transcribe_audio_array(
     }
     if language:
         kwargs["language"] = language
+    if batch_size and _unterstuetzt_stapelverarbeitung(model):
+        kwargs["batch_size"] = batch_size
 
     segments, info = model.transcribe(audio_array, **kwargs)
 
