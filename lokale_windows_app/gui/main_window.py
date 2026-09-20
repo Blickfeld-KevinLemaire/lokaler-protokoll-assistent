@@ -39,7 +39,7 @@ from PySide6.QtWidgets import (
 
 from gui.dialogs import DiagnosticsDialog, SystemPromptDialog, show_error
 from gui.strings import PRIVACY_NOTICE
-from gui.worker import PipelineWorker
+from gui.worker import DateiHashWorker, PipelineWorker
 from services import export_service, manifest_service, model_service, pipeline_service
 from utils.app_config import load_config, update_config
 from utils.paths import get_default_output_dir, get_system_prompt_file, get_work_dir
@@ -96,6 +96,10 @@ class MainWindow(QMainWindow):
         self._chunk_progress = (0, 0)
         self._last_result: pipeline_service.PipelineResult | None = None
         self._protokoll_fehlgeschlagen = False
+        self._hash_worker: DateiHashWorker | None = None
+        # Der Dateihash bestimmt den Arbeitsordner. Er kostet bei langen
+        # Aufnahmen Sekunden, deshalb wird er je Datei nur einmal berechnet.
+        self._hash_zwischenspeicher: dict[tuple[str, int, int], str] = {}
 
         self._elapsed_timer = QTimer(self)
         self._elapsed_timer.setInterval(1000)
@@ -490,11 +494,54 @@ class MainWindow(QMainWindow):
         self.output_label.setText(str(self._output_dir))
         update_config(ausgabeordner=str(self._output_dir))
 
+    def _dateihash(self, pfad: Path) -> str | None:
+        """Gemerkter Hash der Datei, sofern er schon berechnet wurde.
+
+        Der Schluessel enthaelt Groesse und Aenderungszeit: Wird die Datei
+        ausgetauscht, faellt der gemerkte Wert automatisch weg.
+        """
+        try:
+            angaben = pfad.stat()
+        except OSError:
+            return None
+        return self._hash_zwischenspeicher.get((str(pfad), angaben.st_size, angaben.st_mtime_ns))
+
+    def _dateihash_merken(self, pfad: Path, hashwert: str) -> None:
+        try:
+            angaben = pfad.stat()
+        except OSError:
+            return
+        self._hash_zwischenspeicher[(str(pfad), angaben.st_size, angaben.st_mtime_ns)] = hashwert
+
     def _refresh_resume_status(self) -> None:
         if self._source_path is None or not self._source_path.is_file():
             return
+        bekannt = self._dateihash(self._source_path)
+        if bekannt is not None:
+            self._zeige_fortsetzbarkeit(str(self._source_path), bekannt)
+            return
+
+        # Der Hash einer mehrstuendigen Aufnahme dauert Sekunden -- das
+        # gehoert nicht in den Oberflaechen-Faden.
+        self.resume_status_label.setText("Datei wird geprüft …")
+        self._hash_worker = DateiHashWorker(self._source_path, self)
+        self._hash_worker.fertig.connect(self._zeige_fortsetzbarkeit)
+        self._hash_worker.fehlgeschlagen.connect(self._hash_fehlgeschlagen)
+        self._hash_worker.start()
+
+    def _hash_fehlgeschlagen(self, pfad: str, fehler: str) -> None:
+        if self._source_path is None or str(self._source_path) != pfad:
+            return
+        self.resume_status_label.setText(f"Datei konnte nicht gelesen werden: {fehler}")
+
+    def _zeige_fortsetzbarkeit(self, pfad: str, file_hash: str) -> None:
+        # Waehrend der Berechnung kann laengst eine andere Datei gewaehlt
+        # worden sein -- ein spaet eintreffendes Ergebnis darf die Anzeige
+        # dann nicht mehr ueberschreiben.
+        if self._source_path is None or str(self._source_path) != pfad:
+            return
+        self._dateihash_merken(self._source_path, file_hash)
         try:
-            file_hash = manifest_service.compute_file_hash(self._source_path)
             work_dir = manifest_service.get_work_dir_for_file(get_work_dir(), file_hash)
             manifest = manifest_service.load_manifest(work_dir)
         except OSError as error:
@@ -523,7 +570,10 @@ class MainWindow(QMainWindow):
         if self._source_path is None or not self._source_path.is_file():
             show_error(self, "Keine Datei ausgewählt", "Bitte zuerst eine Datei auswählen.")
             return
-        file_hash = manifest_service.compute_file_hash(self._source_path)
+        file_hash = self._dateihash(self._source_path) or manifest_service.compute_file_hash(
+            self._source_path
+        )
+        self._dateihash_merken(self._source_path, file_hash)
         work_dir = manifest_service.get_work_dir_for_file(get_work_dir(), file_hash)
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(work_dir)))
 

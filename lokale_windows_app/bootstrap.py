@@ -224,6 +224,19 @@ def ensure_runtime_and_relaunch(app_entry: Path) -> None:
             _report_python_diagnosis_and_exit()
             return
 
+    gpu_available = environment_service.detect_nvidia_gpu()
+    index_url = environment_service.select_torch_index_url(gpu_available)
+
+    # Nur die Umgebung ANZULEGEN wurde bisher uebersprungen, die
+    # pip-Aufrufe liefen bei JEDEM Start erneut. Weil die Anforderungen
+    # Spannen sind ('torch~=2.11.0', 'pyannote.audio>=4.0'), muss pip dafuer
+    # jedes Mal den Index befragen: Eine Anwendung, die ausdruecklich
+    # offline arbeiten soll, brauchte also bei jedem Start Internet -- und
+    # konnte sich nebenbei ungefragt neue Paketfassungen einziehen.
+    if python_exe.is_file() and environment_service.einrichtung_ist_aktuell(venv_dir, index_url):
+        _relaunch(python_exe, app_entry)
+        return
+
     splash = _try_create_splash()
     if alternate_python is not None:
         splash.log(
@@ -239,11 +252,16 @@ def ensure_runtime_and_relaunch(app_entry: Path) -> None:
             _create_venv(venv_dir, base_python=alternate_python)
             splash.log("Umgebung angelegt.\n")
 
-        gpu_available = environment_service.detect_nvidia_gpu()
         splash.log(environment_service.describe_plan(gpu_available) + "\n")
-        for command in environment_service.build_pip_install_commands(python_exe, gpu_available):
+        for command in environment_service.build_pip_install_commands(
+            python_exe, gpu_available, index_url
+        ):
             _run_logged(command, splash)
 
+        # Erst NACH dem letzten erfolgreichen pip-Aufruf festhalten: Ein
+        # abgebrochener Lauf soll beim naechsten Start wieder aufgenommen
+        # werden.
+        environment_service.kennung_festhalten(venv_dir, index_url)
         splash.log("\nEinrichtung der Python-Pakete abgeschlossen.")
     except Exception as error:
         splash.log(f"\nFEHLER waehrend der Einrichtung: {error}")

@@ -64,6 +64,28 @@ class _Signal:
             funktion(*args)
 
 
+class _HashWorkerAttrappe:
+    """Wie DateiHashWorker, aber ohne Nebenfaden.
+
+    Die Fenstertests kommen bewusst ohne echte Threads aus (siehe
+    CLAUDE.md). Der Hash wird deshalb sofort in 'start()' berechnet und
+    das Ergebnis direkt gemeldet.
+    """
+
+    def __init__(self, pfad, parent=None):
+        self._pfad = pfad
+        self.fertig = _Signal()
+        self.fehlgeschlagen = _Signal()
+
+    def start(self):
+        try:
+            hashwert = manifest_service.compute_file_hash(self._pfad)
+        except OSError as fehler:
+            self.fehlgeschlagen.emit(str(self._pfad), str(fehler))
+            return
+        self.fertig.emit(str(self._pfad), hashwert)
+
+
 @pytest.fixture
 def isolierte_konfiguration(tmp_path, monkeypatch):
     """Konfiguration, Arbeits- und Ausgabeordner liegen im Temp-Verzeichnis."""
@@ -91,6 +113,7 @@ def isolierte_konfiguration(tmp_path, monkeypatch):
 def fenster(qt_widgets, isolierte_konfiguration, monkeypatch):
     _WorkerAttrappe.instanzen.clear()
     monkeypatch.setattr(mw, "PipelineWorker", _WorkerAttrappe)
+    monkeypatch.setattr(mw, "DateiHashWorker", _HashWorkerAttrappe)
     return qt_widgets(mw.MainWindow())
 
 
@@ -125,6 +148,7 @@ def test_datenschutzhinweis_ist_sichtbar(fenster):
 
 def test_fenster_uebernimmt_startordner(qt_widgets, isolierte_konfiguration, audio_datei, monkeypatch):
     monkeypatch.setattr(mw, "PipelineWorker", _WorkerAttrappe)
+    monkeypatch.setattr(mw, "DateiHashWorker", _HashWorkerAttrappe)
     fenster = qt_widgets(mw.MainWindow(initial_folder=audio_datei.parent, initial_file="sitzung.mp3"))
 
     assert fenster._source_path == audio_datei
@@ -135,6 +159,7 @@ def test_fenster_ignoriert_unbekannte_startdatei(
     qt_widgets, isolierte_konfiguration, audio_datei, monkeypatch
 ):
     monkeypatch.setattr(mw, "PipelineWorker", _WorkerAttrappe)
+    monkeypatch.setattr(mw, "DateiHashWorker", _HashWorkerAttrappe)
     fenster = qt_widgets(mw.MainWindow(initial_folder=audio_datei.parent, initial_file="fehlt.mp3"))
     assert fenster._source_path is None
 
@@ -796,3 +821,103 @@ def test_abschlussmeldung_nennt_gescheitertes_protokoll(fenster, tmp_path, monke
     assert "fehlgeschlagen" in fenster.status_label.text()
     # Das Transkript ist trotzdem da und die Sprechertabelle nutzbar.
     assert fenster._last_result is ergebnis
+
+
+# --------------------------------------------------------------------------
+# Dateihash laeuft im Hintergrund
+# --------------------------------------------------------------------------
+def test_hash_wird_je_datei_nur_einmal_berechnet(fenster, audio_datei, monkeypatch):
+    # Bei mehrstuendigen Aufnahmen kostet SHA-256 Sekunden. Wer in der
+    # Liste hin- und herklickt, darf das nicht jedes Mal bezahlen.
+    aufrufe = []
+    echte_funktion = manifest_service.compute_file_hash
+
+    def zaehlend(pfad, *args, **kwargs):
+        aufrufe.append(pfad)
+        return echte_funktion(pfad, *args, **kwargs)
+
+    monkeypatch.setattr(manifest_service, "compute_file_hash", zaehlend)
+    fenster._source_path = audio_datei
+
+    fenster._refresh_resume_status()
+    fenster._refresh_resume_status()
+    fenster._refresh_resume_status()
+
+    assert len(aufrufe) == 1
+
+
+def test_geaenderte_datei_wird_neu_gehasht(fenster, audio_datei, monkeypatch):
+    aufrufe = []
+    echte_funktion = manifest_service.compute_file_hash
+
+    def zaehlend(pfad, *args, **kwargs):
+        aufrufe.append(pfad)
+        return echte_funktion(pfad, *args, **kwargs)
+
+    monkeypatch.setattr(manifest_service, "compute_file_hash", zaehlend)
+    fenster._source_path = audio_datei
+    fenster._refresh_resume_status()
+
+    # Andere Groesse -> der gemerkte Wert gilt nicht mehr.
+    audio_datei.write_bytes(b"\x01" * 128)
+    fenster._refresh_resume_status()
+
+    assert len(aufrufe) == 2
+
+
+def test_spaetes_hash_ergebnis_ueberschreibt_die_anzeige_nicht(fenster, audio_datei):
+    # Waehrend der Berechnung kann laengst eine andere Datei gewaehlt sein.
+    fenster._source_path = audio_datei
+    fenster.resume_status_label.setText("Anzeige der neuen Datei")
+
+    fenster._zeige_fortsetzbarkeit(str(audio_datei.parent / "andere.mp3"), "egal")
+
+    assert fenster.resume_status_label.text() == "Anzeige der neuen Datei"
+
+
+def test_spaeter_hash_fehler_ueberschreibt_die_anzeige_nicht(fenster, audio_datei):
+    fenster._source_path = audio_datei
+    fenster.resume_status_label.setText("Anzeige der neuen Datei")
+
+    fenster._hash_fehlgeschlagen(str(audio_datei.parent / "andere.mp3"), "Zugriff verweigert")
+
+    assert fenster.resume_status_label.text() == "Anzeige der neuen Datei"
+
+
+def test_zwischenordner_nutzt_den_gemerkten_hash(fenster, audio_datei, monkeypatch):
+    fenster._source_path = audio_datei
+    fenster._refresh_resume_status()  # fuellt den Zwischenspeicher
+
+    def darf_nicht_aufgerufen_werden(_pfad, *args, **kwargs):
+        raise AssertionError("Der Hash war bereits bekannt.")
+
+    monkeypatch.setattr(manifest_service, "compute_file_hash", darf_nicht_aufgerufen_werden)
+    monkeypatch.setattr(mw.QDesktopServices, "openUrl", staticmethod(lambda url: None))
+
+    fenster._open_intermediate_folder()  # darf nicht werfen
+
+
+def test_hash_arbeiter_meldet_ergebnis(qt_app, audio_datei):
+    # Die echte Klasse -- 'run()' wird direkt aufgerufen, damit in einem
+    # Fenstertest kein zusaetzlicher Faden laeuft (siehe CLAUDE.md).
+    from gui.worker import DateiHashWorker
+
+    ergebnisse = []
+    arbeiter = DateiHashWorker(audio_datei)
+    arbeiter.fertig.connect(lambda pfad, wert: ergebnisse.append((pfad, wert)))
+
+    arbeiter.run()
+
+    assert ergebnisse == [(str(audio_datei), manifest_service.compute_file_hash(audio_datei))]
+
+
+def test_hash_arbeiter_meldet_lesefehler(qt_app, tmp_path):
+    from gui.worker import DateiHashWorker
+
+    fehler = []
+    arbeiter = DateiHashWorker(tmp_path / "gibtesnicht.mp3")
+    arbeiter.fehlgeschlagen.connect(lambda pfad, text: fehler.append(text))
+
+    arbeiter.run()
+
+    assert len(fehler) == 1

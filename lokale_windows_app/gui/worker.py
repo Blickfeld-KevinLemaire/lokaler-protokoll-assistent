@@ -3,12 +3,40 @@ der Transkription/Diarisierung/Protokollauswertung nicht einfriert."""
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from PySide6.QtCore import QThread, Signal
 
-from services import pipeline_service
+from services import manifest_service, pipeline_service
 from utils.logging_setup import get_logger
 
 logger = get_logger()
+
+
+class DateiHashWorker(QThread):
+    """Berechnet den SHA-256 einer Quelldatei im Hintergrund.
+
+    Der Hash bestimmt den Arbeitsordner und damit, ob es zu einer Datei
+    schon einen Zwischenstand gibt. Er wurde bisher direkt im
+    Oberflaechen-Faden berechnet -- bei den mehrstuendigen Aufnahmen, fuer
+    die diese Anwendung gedacht ist, stand das Fenster dabei jedes Mal
+    mehrere Sekunden still, sobald jemand eine Datei anklickte.
+    """
+
+    fertig = Signal(str, str)  # (Dateipfad, Hash)
+    fehlgeschlagen = Signal(str, str)  # (Dateipfad, Fehlertext)
+
+    def __init__(self, pfad: Path, parent=None):
+        super().__init__(parent)
+        self._pfad = pfad
+
+    def run(self) -> None:
+        try:
+            hashwert = manifest_service.compute_file_hash(self._pfad)
+        except OSError as fehler:
+            self.fehlgeschlagen.emit(str(self._pfad), str(fehler))
+            return
+        self.fertig.emit(str(self._pfad), hashwert)
 
 
 class PipelineWorker(QThread):

@@ -128,3 +128,63 @@ def test_align_funktionen_gibt_es_nicht_mehr():
     """
     assert not hasattr(transcription_service, "load_align_model")
     assert not hasattr(transcription_service, "align_segments")
+
+
+class _StapelModellAttrappe:
+    """Bildet 'BatchedInferencePipeline' nach: kennt 'batch_size'."""
+
+    def __init__(self) -> None:
+        self.letzte_kwargs: dict = {}
+
+    def transcribe(self, _audio, word_timestamps=True, vad_filter=True, language=None, batch_size=8):
+        self.letzte_kwargs = {
+            "word_timestamps": word_timestamps,
+            "vad_filter": vad_filter,
+            "language": language,
+            "batch_size": batch_size,
+        }
+        return iter(()), _Info("de")
+
+
+class _EinfachesModellAttrappe:
+    """Bildet 'WhisperModel' nach: kennt 'batch_size' NICHT."""
+
+    def __init__(self) -> None:
+        self.letzte_kwargs: dict = {}
+
+    def transcribe(self, _audio, word_timestamps=True, vad_filter=True, language=None):
+        self.letzte_kwargs = {
+            "word_timestamps": word_timestamps,
+            "vad_filter": vad_filter,
+            "language": language,
+        }
+        return iter(()), _Info("de")
+
+
+def test_batch_size_wird_an_stapelfaehige_modelle_uebergeben():
+    # Der Wert kommt von der Oberflaeche ueber PipelineSettings bis
+    # hierher - bisher wurde er schlicht nicht benutzt.
+    modell = _StapelModellAttrappe()
+
+    transcription_service.transcribe_audio_array(modell, object(), batch_size=16)
+
+    assert modell.letzte_kwargs["batch_size"] == 16
+
+
+def test_batch_size_wird_einfachen_modellen_nicht_untergeschoben():
+    # 'WhisperModel.transcribe' kennt den Parameter nicht: Blind
+    # uebergeben braeche die Transkription beim ersten Chunk mit einem
+    # TypeError ab.
+    modell = _EinfachesModellAttrappe()
+
+    transcription_service.transcribe_audio_array(modell, object(), batch_size=16)
+
+    assert "batch_size" not in modell.letzte_kwargs
+
+
+def test_modell_mit_freier_signatur_bekommt_batch_size():
+    modell = _ModellAttrappe([])  # transcribe(self, _audio, **kwargs)
+
+    transcription_service.transcribe_audio_array(modell, object(), batch_size=4)
+
+    assert modell.letzte_kwargs["batch_size"] == 4
