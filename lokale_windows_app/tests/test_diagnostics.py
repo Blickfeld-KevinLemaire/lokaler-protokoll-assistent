@@ -119,3 +119,83 @@ def test_format_report_produces_readable_lines(tmp_path):
     report = diagnostics.format_report(results)
     assert isinstance(report, str)
     assert len(report.splitlines()) == len(results)
+
+
+# ---------------------------------------------------------------------------
+# CUDA-Meldung deckt sich mit dem, was die Verarbeitung tatsaechlich tut
+# ---------------------------------------------------------------------------
+class _TorchAttrappe:
+    """Bildet nur so viel von torch nach, wie check_cuda() anfasst."""
+
+    def __init__(self, verfuegbar: bool, name: str = "Testkarte") -> None:
+        self._verfuegbar = verfuegbar
+        self._name = name
+        self.cuda = self
+
+    def is_available(self) -> bool:
+        return self._verfuegbar
+
+    def get_device_name(self, _index: int) -> str:
+        return self._name
+
+
+def _torch_ersetzen(monkeypatch, torch_attrappe):
+    import sys
+
+    monkeypatch.setitem(sys.modules, "torch", torch_attrappe)
+
+
+def test_cuda_meldung_ohne_karte(monkeypatch):
+    _torch_ersetzen(monkeypatch, _TorchAttrappe(verfuegbar=False))
+
+    ergebnis = diagnostics.check_cuda()
+
+    assert ergebnis.ok is False
+    assert "Keine CUDA-GPU erkannt" in ergebnis.detail
+
+
+def test_cuda_meldung_mit_benutzbarer_karte(monkeypatch):
+    from services import model_service
+
+    _torch_ersetzen(monkeypatch, _TorchAttrappe(verfuegbar=True, name="RTX 4070"))
+    monkeypatch.setattr(model_service, "cuda_kann_wirklich_rechnen", lambda: True)
+
+    ergebnis = diagnostics.check_cuda()
+
+    assert ergebnis.ok is True
+    assert "RTX 4070" in ergebnis.detail
+
+
+def test_cuda_meldung_bei_unpassendem_torch_build(monkeypatch):
+    # Der Kernfall: 'torch.cuda.is_available()' sagt True, die Karte laesst
+    # sich aber nicht benutzen (cu126-Build auf einer Blackwell-Karte).
+    # Frueher meldete die Diagnose hier "CUDA verfuegbar", waehrend das
+    # Hauptfenster im selben Lauf "nicht benutzbar ... CPU-Verarbeitung"
+    # anzeigte - zwei Auskuenfte fuer denselben Rechner.
+    from services import model_service
+
+    _torch_ersetzen(monkeypatch, _TorchAttrappe(verfuegbar=True, name="RTX PRO 500"))
+    monkeypatch.setattr(model_service, "cuda_kann_wirklich_rechnen", lambda: False)
+
+    ergebnis = diagnostics.check_cuda()
+
+    assert ergebnis.ok is False
+    assert "RTX PRO 500" in ergebnis.detail
+    assert "nicht benutzbar" in ergebnis.detail
+    assert "CPU" in ergebnis.detail
+    # Weiterhin kein kritischer Fehler: CPU-Betrieb ist vorgesehen.
+    assert ergebnis.critical is False
+
+
+def test_cuda_meldung_deckt_sich_mit_der_geraetewahl(monkeypatch):
+    # Gegenprobe ueber beide Seiten: Was die Diagnose sagt, muss zu dem
+    # passen, was 'get_device_and_compute_type' danach tatsaechlich waehlt.
+    from services import model_service
+
+    _torch_ersetzen(monkeypatch, _TorchAttrappe(verfuegbar=True, name="RTX PRO 500"))
+    monkeypatch.setattr(model_service, "cuda_kann_wirklich_rechnen", lambda: False)
+
+    ergebnis = diagnostics.check_cuda()
+    geraet, _rechenart = model_service.get_device_and_compute_type("cuda")
+
+    assert ergebnis.ok is (geraet == "cuda")
