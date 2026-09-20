@@ -155,3 +155,109 @@ def test_render_protocol_markdown_includes_sections():
     assert "Budget freigegeben" in markdown
     assert "Bericht schreiben" in markdown
     assert "Wer uebernimmt die Praesentation?" in markdown
+
+
+# ---------------------------------------------------------------------------
+# Anonyme Ausgabe (Sprechertrennung abgeschaltet)
+# ---------------------------------------------------------------------------
+def _anonyme_segmente():
+    return export_service.attach_speaker_names(
+        [{"nummer": 1, "start": 0.0, "end": 2.0, "sprecher_id": None, "text": "Hallo Welt."}], {}
+    )
+
+
+def test_srt_ohne_sprechertrennung_nennt_keinen_sprecher():
+    # Die TXT-Datei verspricht im Kopf "kein Sprecherbezug enthalten" -
+    # dann darf in den Untertiteln nicht vor jedem Satz "Sprecher
+    # unbekannt:" stehen.
+    inhalt = export_service.build_srt_content(_anonyme_segmente(), diarization_enabled=False)
+    assert "Sprecher" not in inhalt
+    assert inhalt.endswith("Hallo Welt.\n\n")
+
+
+def test_vtt_ohne_sprechertrennung_nennt_keinen_sprecher():
+    inhalt = export_service.build_vtt_content(_anonyme_segmente(), diarization_enabled=False)
+    assert "Sprecher" not in inhalt
+    assert "Hallo Welt." in inhalt
+
+
+def test_srt_mit_sprechertrennung_nennt_den_sprecher_weiterhin():
+    segmente = export_service.attach_speaker_names(
+        _sample_segments()[:1], {"SPEAKER_00": "Anna"}
+    )
+    inhalt = export_service.build_srt_content(segmente, diarization_enabled=True)
+    assert "Anna: Hallo zusammen." in inhalt
+
+
+def test_export_reicht_die_einstellung_bis_in_srt_und_vtt(tmp_path):
+    # Vollstaendiger Weg durch write_transcript_exports: frueher kannten
+    # nur TXT und JSON die Einstellung.
+    pfade = export_service.write_transcript_exports(
+        tmp_path,
+        "aufnahme.mp3",
+        "aufnahme",
+        "20260101_120000",
+        "2026-01-01T12:00:00+01:00",
+        "faster-whisper large-v3-turbo",
+        "de",
+        "Testhardware",
+        12.5,
+        [{"nummer": 1, "start": 0.0, "end": 2.0, "sprecher_id": None, "text": "Hallo Welt."}],
+        {},
+        diarization_enabled=False,
+    )
+
+    assert "Sprecher" not in pfade.srt.read_text(encoding="utf-8")
+    assert "Sprecher" not in pfade.vtt.read_text(encoding="utf-8")
+    assert "kein Sprecherbezug enthalten" in pfade.txt.read_text(encoding="utf-8")
+
+
+# ---------------------------------------------------------------------------
+# Sprechernummern bleiben beim Umbenennen stabil
+# ---------------------------------------------------------------------------
+def test_umbenennen_eines_sprechers_nummeriert_die_uebrigen_nicht_um():
+    # Wer einen von drei Sprechern benennt, muss die anderen beiden
+    # danach unter denselben Nummern wiederfinden.
+    ohne = export_service.build_speaker_names(["S0", "S1", "S2"])
+    assert ohne == {"S0": "Sprecher 1", "S1": "Sprecher 2", "S2": "Sprecher 3"}
+
+    mit = export_service.build_speaker_names(["S0", "S1", "S2"], {"S0": "Anna"})
+    assert mit == {"S0": "Anna", "S1": "Sprecher 2", "S2": "Sprecher 3"}
+
+
+def test_umbenennen_in_der_mitte_laesst_die_nummern_stehen():
+    namen = export_service.build_speaker_names(["S0", "S1", "S2"], {"S1": "Bernd"})
+    assert namen == {"S0": "Sprecher 1", "S1": "Bernd", "S2": "Sprecher 3"}
+
+
+def test_leerer_name_gilt_nicht_als_vergeben():
+    namen = export_service.build_speaker_names(["S0", "S1"], {"S0": "   "})
+    assert namen == {"S0": "Sprecher 1", "S1": "Sprecher 2"}
+
+
+def test_reexport_behaelt_die_nummern_der_nicht_benannten_sprecher(tmp_path):
+    segmente = [
+        {"nummer": 1, "start": 0.0, "end": 1.0, "sprecher_id": "SPEAKER_00", "text": "eins"},
+        {"nummer": 2, "start": 1.0, "end": 2.0, "sprecher_id": "SPEAKER_01", "text": "zwei"},
+        {"nummer": 3, "start": 2.0, "end": 3.0, "sprecher_id": "SPEAKER_02", "text": "drei"},
+    ]
+    pfade = export_service.write_transcript_exports(
+        tmp_path,
+        "aufnahme.mp3",
+        "aufnahme",
+        "20260101_120000",
+        "2026-01-01T12:00:00+01:00",
+        "faster-whisper large-v3-turbo",
+        "de",
+        "Testhardware",
+        1.0,
+        segmente,
+        export_service.build_speaker_names(["SPEAKER_00", "SPEAKER_01", "SPEAKER_02"]),
+    )
+
+    neu = export_service.reexport_with_new_names(pfade.json, {"SPEAKER_00": "Anna"})
+    inhalt = neu.txt.read_text(encoding="utf-8")
+
+    assert "Anna: eins" in inhalt
+    assert "Sprecher 2: zwei" in inhalt
+    assert "Sprecher 3: drei" in inhalt
