@@ -68,12 +68,25 @@ def list_models(base_url: str = OLLAMA_BASE_URL, timeout: float = 5) -> list[str
 
 
 def is_model_available(model: str = DEFAULT_MODEL, base_url: str = OLLAMA_BASE_URL) -> bool:
+    """Prueft, ob genau dieses Modell bei Ollama liegt.
+
+    Ist eine Fassung angegeben ("qwen3:8b"), muss sie uebereinstimmen.
+    Frueher genuegte der Name vor dem Doppelpunkt: Mit einem
+    installierten 'qwen3:0.6b' galt auch 'qwen3:8b' als vorhanden. Der
+    Assistent liess den Download dann aus und die Systemdiagnose meldete
+    "Modell vorhanden" -- bis die Verarbeitung nach der fertigen
+    Transkription am ersten '/api/generate' scheiterte.
+
+    Ohne Fassung ("qwen3") zaehlt weiterhin jede installierte Fassung
+    dieses Namens: Dann hat der Aufrufer sich bewusst nicht festgelegt.
+    """
     try:
         available = list_models(base_url)
     except OllamaError:
         return False
-    target_base = model.split(":")[0]
-    return any(name == model or name.split(":")[0] == target_base for name in available)
+    if ":" in model:
+        return model in available
+    return any(name == model or name.split(":")[0] == model for name in available)
 
 
 def generate_json(

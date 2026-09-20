@@ -162,3 +162,35 @@ def test_download_ollama_installer_uses_injected_download_fn(tmp_path):
     result = ollama_service.download_ollama_installer(tmp_path, download_fn=fake_download)
     assert result == tmp_path / "OllamaSetup.exe"
     assert result.read_bytes() == b"fake-installer-bytes"
+
+
+def test_is_model_available_verlangt_die_angegebene_fassung(monkeypatch):
+    # Frueher genuegte der Name vor dem Doppelpunkt. Mit einem
+    # installierten 'qwen3:0.6b' galt auch 'qwen3:8b' als vorhanden -- der
+    # Einrichtungsassistent liess den Download aus, die Systemdiagnose
+    # meldete Erfolg, und erst nach der fertigen Transkription scheiterte
+    # die Protokollauswertung am ersten Modellaufruf.
+    monkeypatch.setattr(
+        ollama_service.urllib.request,
+        "urlopen",
+        lambda request, timeout=None: _FakeResponse({"models": [{"name": "qwen3:0.6b"}]}),
+    )
+    assert ollama_service.is_model_available("qwen3:8b") is False
+    assert ollama_service.is_model_available("qwen3:0.6b") is True
+    # Ohne Fassungsangabe legt sich der Aufrufer bewusst nicht fest.
+    assert ollama_service.is_model_available("qwen3") is True
+
+
+def test_generate_json_liest_antwort_mit_klammer_in_zeichenkette(monkeypatch):
+    # Durchgehender Weg: So kommt die Antwort wirklich bei
+    # protocol_service an -- als Fliesstext um das JSON herum.
+    rohantwort = 'Gerne:\n{"kernaussagen": ["Platzhalter } im Text"], "aufgaben": []}'
+    monkeypatch.setattr(
+        ollama_service.urllib.request,
+        "urlopen",
+        lambda request, timeout=None: _FakeResponse({"response": rohantwort}),
+    )
+
+    ergebnis = ollama_service.generate_json("Frage", "System")
+
+    assert ergebnis["kernaussagen"] == ["Platzhalter } im Text"]
