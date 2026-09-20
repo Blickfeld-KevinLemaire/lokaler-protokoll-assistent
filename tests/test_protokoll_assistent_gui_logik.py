@@ -317,7 +317,7 @@ def test_save_transcript_kaputtes_usage_feld(gui_ordner):
 # --------------------------------------------------------------------------
 def _chunk_umgebung(monkeypatch, gui_ordner, tmp_path, antworten):
     """Bereitet prepare_audio/split/call so vor, dass kein echtes FFmpeg noetig ist."""
-    monkeypatch.setattr(gui.kern, "prepare_audio", lambda q, d: (q, "mp3"))
+    monkeypatch.setattr(gui.kern, "prepare_audio", lambda q, d, **_k: (q, "mp3"))
 
     def fake_split(audio, work_dir, chunk_seconds, log):
         pfade = []
@@ -375,7 +375,7 @@ def test_transcribe_in_chunks_nutzt_zwischenstand(monkeypatch, gui_ordner, tmp_p
         encoding="utf-8",
     )
 
-    monkeypatch.setattr(gui.kern, "prepare_audio", lambda q, d: (q, "mp3"))
+    monkeypatch.setattr(gui.kern, "prepare_audio", lambda q, d, **_k: (q, "mp3"))
 
     def fake_split(audio, work_dir, chunk_seconds, log):
         p = Path(work_dir) / "abschnitt_0000.mp3"
@@ -393,7 +393,11 @@ def test_transcribe_in_chunks_nutzt_zwischenstand(monkeypatch, gui_ordner, tmp_p
         quelle, "k", 900, "https://e", "m", "azure", lambda _m: None, lambda _f, _t: None
     )
     assert ergebnis["segmente"][0]["inhalt"] == "aus Datei"
-    assert not zwischenstand.exists()
+    # Der Zwischenstand bleibt liegen, bis das Transkript geschrieben ist:
+    # Scheitert ein spaeterer Abschnitt, waeren die bereits bezahlten
+    # Antworten sonst verloren.
+    assert zwischenstand.exists()
+    assert zwischenstand in ergebnis["zwischenstaende"]
 
 
 def test_transcribe_in_chunks_uebernimmt_woerter_und_sprecher(monkeypatch, gui_ordner, tmp_path):
@@ -749,3 +753,113 @@ def test_save_processed_result_legt_ordner_an(tmp_path, monkeypatch):
     monkeypatch.setattr(gui, "ERGEBNIS_DIR", ziel)
     gui.save_processed_result("a", "a.mp3", "p", "lokal", "m", "text")
     assert ziel.is_dir()
+
+
+# --------------------------------------------------------------------------
+# Zwischenstaende ueberleben einen gescheiterten Abschnitt
+# --------------------------------------------------------------------------
+def test_zwischenstaende_bleiben_bei_fehler_in_spaeterem_abschnitt(
+    monkeypatch, gui_ordner, tmp_path
+):
+    # Scheitert Abschnitt 3 von 3, muessen die bereits bezahlten Antworten
+    # 1 und 2 erhalten bleiben -- genau dafuer gibt es die Zwischenstaende.
+    quelle = tmp_path / "lang.mp3"
+    quelle.write_bytes(b"\x00")
+
+    monkeypatch.setattr(gui.kern, "prepare_audio", lambda q, d, **_k: (q, "mp3"))
+
+    def fake_split(audio, work_dir, chunk_seconds, log):
+        pfade = []
+        for i in range(3):
+            p = Path(work_dir) / f"abschnitt_{i:04d}.mp3"
+            p.write_bytes(b"\x00")
+            pfade.append(p)
+        return pfade
+
+    monkeypatch.setattr(gui, "split_audio_into_chunks", fake_split)
+
+    aufrufe = {"n": 0}
+
+    def antworten(url, daten, key):
+        aufrufe["n"] += 1
+        if aufrufe["n"] == 3:
+            raise RuntimeError("Netz weg")
+        return {"segments": [{"start": 0, "end": 5, "text": f"Teil {aufrufe['n']}", "speaker": "A"}]}
+
+    monkeypatch.setattr(gui, "call_transcription_endpoint", antworten)
+
+    with pytest.raises(RuntimeError, match="Netz weg"):
+        gui.transcribe_in_chunks(
+            quelle, "k", 900, "https://e", "m", "azure", lambda _m: None, lambda _f, _t: None
+        )
+
+    ordner = gui_ordner["CHECKPOINT_DIR"]
+    assert (ordner / "lang_teil01_rohantwort.json").exists()
+    assert (ordner / "lang_teil02_rohantwort.json").exists()
+
+
+def test_zweiter_versuch_verwendet_die_erhaltenen_antworten(monkeypatch, gui_ordner, tmp_path):
+    quelle = tmp_path / "lang.mp3"
+    quelle.write_bytes(b"\x00")
+    ordner = gui_ordner["CHECKPOINT_DIR"]
+    for nummer in (1, 2):
+        (ordner / f"lang_teil{nummer:02d}_rohantwort.json").write_text(
+            json.dumps(
+                {"segments": [{"start": 0, "end": 5, "text": f"aus Datei {nummer}", "speaker": "A"}]}
+            ),
+            encoding="utf-8",
+        )
+
+    monkeypatch.setattr(gui.kern, "prepare_audio", lambda q, d, **_k: (q, "mp3"))
+
+    def fake_split(audio, work_dir, chunk_seconds, log):
+        pfade = []
+        for i in range(3):
+            p = Path(work_dir) / f"abschnitt_{i:04d}.mp3"
+            p.write_bytes(b"\x00")
+            pfade.append(p)
+        return pfade
+
+    monkeypatch.setattr(gui, "split_audio_into_chunks", fake_split)
+
+    uebertragen = []
+
+    def nur_der_dritte(url, daten, key):
+        uebertragen.append(daten)
+        return {"segments": [{"start": 0, "end": 5, "text": "frisch geholt", "speaker": "A"}]}
+
+    monkeypatch.setattr(gui, "call_transcription_endpoint", nur_der_dritte)
+
+    ergebnis = gui.transcribe_in_chunks(
+        quelle, "k", 900, "https://e", "m", "azure", lambda _m: None, lambda _f, _t: None
+    )
+
+    # Nur der fehlende Abschnitt wird noch einmal uebertragen.
+    assert len(uebertragen) == 1
+    inhalte = [s["inhalt"] for s in ergebnis["segmente"]]
+    assert inhalte == ["aus Datei 1", "aus Datei 2", "frisch geholt"]
+
+
+def test_zu_grosser_abschnitt_wird_vor_der_uebertragung_gemeldet(
+    monkeypatch, gui_ordner, tmp_path
+):
+    quelle = tmp_path / "lang.mp3"
+    quelle.write_bytes(b"\x00")
+    monkeypatch.setattr(gui.kern, "prepare_audio", lambda q, d, **_k: (q, "mp3"))
+
+    def fake_split(audio, work_dir, chunk_seconds, log):
+        p = Path(work_dir) / "abschnitt_0000.mp3"
+        p.write_bytes(b"\x00" * (gui.kern.MAX_DIRECT_AUDIO_SIZE + 1))
+        return [p]
+
+    monkeypatch.setattr(gui, "split_audio_into_chunks", fake_split)
+
+    def darf_nicht(*_a, **_k):
+        raise AssertionError("Es haette nichts uebertragen werden duerfen.")
+
+    monkeypatch.setattr(gui, "call_transcription_endpoint", darf_nicht)
+
+    with pytest.raises(RuntimeError, match="zu gross"):
+        gui.transcribe_in_chunks(
+            quelle, "k", 900, "https://e", "m", "azure", lambda _m: None, lambda _f, _t: None
+        )

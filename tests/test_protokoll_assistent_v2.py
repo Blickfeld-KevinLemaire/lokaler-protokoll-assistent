@@ -163,7 +163,7 @@ def test_prepare_audio_konvertiert_mit_ffmpeg(tmp_path, monkeypatch):
 
     aufrufe = []
 
-    def fake_run(command, capture_output, text, check):
+    def fake_run(command, capture_output, text, check, timeout=None):
         aufrufe.append(command)
         Path(command[-1]).write_bytes(b"mp3")
         return type("R", (), {"returncode": 0, "stderr": ""})()
@@ -544,3 +544,85 @@ def test_main_fehler(isolierte_app_ordner, monkeypatch, capsys):
     monkeypatch.setattr(kern, "transcribe", fehler)
     assert kern.main() == 1
     assert "etwas ging schief" in capsys.readouterr().out
+
+
+# --------------------------------------------------------------------------
+# Groessengrenze der Uebertragung
+# --------------------------------------------------------------------------
+def test_uebertragungsgroesse_laesst_kleine_dateien_durch(tmp_path):
+    klein = tmp_path / "klein.mp3"
+    klein.write_bytes(b"\x00" * 1024)
+    kern.pruefe_uebertragungsgroesse(klein)  # darf nicht werfen
+
+
+def test_uebertragungsgroesse_meldet_zu_grosse_dateien(tmp_path):
+    gross = tmp_path / "gross.mp3"
+    gross.write_bytes(b"\x00" * (kern.MAX_DIRECT_AUDIO_SIZE + 1))
+
+    with pytest.raises(RuntimeError, match="zu gross"):
+        kern.pruefe_uebertragungsgroesse(gross)
+
+
+def test_uebertragungsgroesse_nennt_den_abschnitt(tmp_path):
+    gross = tmp_path / "gross.mp3"
+    gross.write_bytes(b"\x00" * (kern.MAX_DIRECT_AUDIO_SIZE + 1))
+
+    with pytest.raises(RuntimeError, match="Abschnitt 3 von 7"):
+        kern.pruefe_uebertragungsgroesse(gross, "Abschnitt 3 von 7")
+
+
+def test_prepare_audio_meldet_zu_grosses_ergebnis(tmp_path, monkeypatch):
+    # Die Grenze galt bisher nur fuer "kleine MP3 unveraendert
+    # durchreichen". Eine lange Besprechung liegt auch nach der Umwandlung
+    # auf 32 kbit/s darueber - die Anfrage ging trotzdem hinaus und
+    # scheiterte beim Anbieter mit einer nichtssagenden HTTP-Meldung.
+    quelle = tmp_path / "lange_sitzung.mp4"
+    quelle.write_bytes(b"\x00")
+    monkeypatch.setattr(kern.shutil, "which", lambda _name: "ffmpeg")
+
+    def fake_run(command, capture_output, text, check, timeout=None):
+        Path(command[-1]).write_bytes(b"\x00" * (kern.MAX_DIRECT_AUDIO_SIZE + 1))
+        return type("R", (), {"returncode": 0, "stderr": ""})()
+
+    monkeypatch.setattr(kern.subprocess, "run", fake_run)
+
+    with pytest.raises(RuntimeError, match="zu gross"):
+        kern.prepare_audio(quelle, tmp_path)
+
+
+def test_prepare_audio_ohne_groessenpruefung_laesst_grosses_ergebnis_zu(tmp_path, monkeypatch):
+    # Der Weg ueber die Abschnitte prueft jeden Teil einzeln, die
+    # Gesamtdatei darf dort gross sein.
+    quelle = tmp_path / "lange_sitzung.mp4"
+    quelle.write_bytes(b"\x00")
+    monkeypatch.setattr(kern.shutil, "which", lambda _name: "ffmpeg")
+
+    def fake_run(command, capture_output, text, check, timeout=None):
+        Path(command[-1]).write_bytes(b"\x00" * (kern.MAX_DIRECT_AUDIO_SIZE + 1))
+        return type("R", (), {"returncode": 0, "stderr": ""})()
+
+    monkeypatch.setattr(kern.subprocess, "run", fake_run)
+
+    pfad, format_name = kern.prepare_audio(quelle, tmp_path, groesse_pruefen=False)
+
+    assert format_name == "mp3"
+    assert pfad.is_file()
+
+
+def test_prepare_audio_setzt_eine_zeitgrenze(tmp_path, monkeypatch):
+    # Ohne Zeitgrenze haengt ein blockiertes FFmpeg die Anwendung
+    # unbegrenzt auf.
+    quelle = tmp_path / "aufnahme.mp4"
+    quelle.write_bytes(b"\x00")
+    monkeypatch.setattr(kern.shutil, "which", lambda _name: "ffmpeg")
+    gesehen = {}
+
+    def fake_run(command, capture_output, text, check, timeout=None):
+        gesehen["timeout"] = timeout
+        Path(command[-1]).write_bytes(b"mp3")
+        return type("R", (), {"returncode": 0, "stderr": ""})()
+
+    monkeypatch.setattr(kern.subprocess, "run", fake_run)
+    kern.prepare_audio(quelle, tmp_path)
+
+    assert gesehen["timeout"] == kern.FFMPEG_TIMEOUT_SECONDS

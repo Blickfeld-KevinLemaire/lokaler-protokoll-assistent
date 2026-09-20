@@ -41,6 +41,9 @@ PROVIDER_NAME = "azure"
 LANGUAGE = os.environ.get("PROTOKOLL_SPRACHE", "de").strip()
 TRANSCRIBE_STYLE = "clean"
 REQUEST_TIMEOUT_SECONDS = 900
+# Obergrenze fuer die Audio-Umwandlung. Ohne Grenze haengt ein blockiertes
+# FFmpeg die Anwendung unbegrenzt auf; die lokale Variante setzt sie schon.
+FFMPEG_TIMEOUT_SECONDS = 3600
 MAX_DIRECT_AUDIO_SIZE = 36 * 1024 * 1024
 
 SUPPORTED_EXTENSIONS = {
@@ -151,7 +154,35 @@ def load_terms() -> list[str]:
     return terms[:1000]
 
 
-def prepare_audio(source: Path, temporary_dir: Path) -> tuple[Path, str]:
+def pruefe_uebertragungsgroesse(audio_path: Path, bezeichnung: str = "Die Aufnahme") -> None:
+    """Bricht ab, wenn die Datei fuer eine einzelne Anfrage zu gross ist.
+
+    Das Audio wird als Base64 in den JSON-Koerper geschrieben und dabei
+    rund ein Drittel groesser. Ohne diese Pruefung ging eine zu grosse
+    Anfrage trotzdem hinaus und scheiterte beim Anbieter mit einer
+    nichtssagenden HTTP-Meldung -- nach Minuten des Hochladens.
+    """
+    groesse = audio_path.stat().st_size
+    if groesse <= MAX_DIRECT_AUDIO_SIZE:
+        return
+    raise RuntimeError(
+        f"{bezeichnung} ist mit {groesse / 1024 / 1024:.0f} MB zu gross fuer eine "
+        f"einzelne Uebertragung (Grenze: {MAX_DIRECT_AUDIO_SIZE / 1024 / 1024:.0f} MB). "
+        "Die grafische Oberflaeche teilt lange Aufnahmen automatisch auf; "
+        "alternativ die Abschnittslaenge verkleinern "
+        "(Umgebungsvariable PROTOKOLL_CHUNK_LAENGE_MINUTEN) oder die lokale "
+        "Variante verwenden, die keine Groessengrenze kennt."
+    )
+
+
+def prepare_audio(
+    source: Path, temporary_dir: Path, groesse_pruefen: bool = True
+) -> tuple[Path, str]:
+    """Bereitet die Aufnahme fuer die Uebertragung vor.
+
+    ``groesse_pruefen=False`` setzt der Aufrufer, der die Datei danach
+    ohnehin in Abschnitte zerlegt und jeden einzeln prueft.
+    """
     suffix = source.suffix.lower()
     if suffix == ".mp3" and source.stat().st_size <= MAX_DIRECT_AUDIO_SIZE:
         return source, "mp3"
@@ -182,10 +213,17 @@ def prepare_audio(source: Path, temporary_dir: Path) -> tuple[Path, str]:
         "32k",
         str(converted),
     ]
-    completed = subprocess.run(command, capture_output=True, text=True, check=False)
+    completed = subprocess.run(
+        command, capture_output=True, text=True, check=False, timeout=FFMPEG_TIMEOUT_SECONDS
+    )
     if completed.returncode != 0 or not converted.exists():
         details = completed.stderr.strip()[-1000:]
         raise RuntimeError(f"FFmpeg konnte die Aufnahme nicht vorbereiten: {details}")
+    # Die Grenze galt bisher nur fuer den Fall "kleine MP3 unveraendert
+    # durchreichen". Das Ergebnis der Umwandlung wurde nie geprueft -- eine
+    # lange Besprechung liegt auch mit 32 kbit/s deutlich darueber.
+    if groesse_pruefen:
+        pruefe_uebertragungsgroesse(converted)
     return converted, "mp3"
 
 
