@@ -17,6 +17,49 @@ import utils.paths as utils_paths
 from services import chunking_service, manifest_service, ollama_service, pipeline_service
 
 
+# --------------------------------------------------------------------------
+# Live-Vorschau waehrend der Verarbeitung
+# --------------------------------------------------------------------------
+def test_build_preview_text_mit_diarisierung_zeigt_zeitstempel_und_sprecher():
+    segmente = [
+        {"start": 0.0, "sprecher_id": "SPEAKER_00", "text": "Hallo."},
+        {"start": 5.0, "sprecher_id": "SPEAKER_01", "text": "Und hallo zurueck."},
+    ]
+    text = pipeline_service.build_preview_text(segmente, diarization_enabled=True)
+    zeilen = text.splitlines()
+    assert len(zeilen) == 2
+    assert zeilen[0].startswith("[")
+    assert "SPEAKER_00: Hallo." in zeilen[0]
+
+
+def test_build_preview_text_ohne_diarisierung_zeigt_reinen_text_ohne_zeitstempel():
+    segmente = [
+        {"start": 0.0, "sprecher_id": None, "text": "Hallo."},
+        {"start": 5.0, "sprecher_id": None, "text": "Und hallo zurueck."},
+    ]
+    text = pipeline_service.build_preview_text(segmente, diarization_enabled=False)
+    assert text == "Hallo. Und hallo zurueck."
+    assert "None" not in text
+    assert "[" not in text
+
+
+def test_build_preview_text_begrenzt_auf_zwei_minuten():
+    segmente = [
+        {"start": 0.0, "sprecher_id": None, "text": "Frueh."},
+        {"start": 119.0, "sprecher_id": None, "text": "Noch drin."},
+        {"start": 121.0, "sprecher_id": None, "text": "Zu spaet."},
+    ]
+    text = pipeline_service.build_preview_text(segmente, diarization_enabled=False)
+    assert "Frueh." in text
+    assert "Noch drin." in text
+    assert "Zu spaet." not in text
+
+
+def test_build_preview_text_ohne_segmente():
+    assert pipeline_service.build_preview_text([], diarization_enabled=True) == ""
+    assert pipeline_service.build_preview_text([], diarization_enabled=False) == ""
+
+
 @pytest.fixture()
 def source_file(tmp_path):
     path = tmp_path / "aufnahme.wav"

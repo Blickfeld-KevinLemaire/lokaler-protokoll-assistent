@@ -46,6 +46,18 @@ dieses Programm wird ausdruecklich die **LGPL-3.0** gewaehlt.
 * Wird fuer den Export als Word-Datei benutzt
   (`lokale_windows_app/services/export_service.py`).
 
+### sounddevice (0.5.x) und PortAudio
+
+* sounddevice — Lizenz: MIT — Copyright (c) Matthias Geier
+* PortAudio — Lizenz: MIT — Copyright (c) Ross Bencina und Phil Burk
+* Das Windows-Wheel von sounddevice bringt vorkompilierte PortAudio-DLLs mit
+  (32-/64-Bit/ARM64, jeweils mit und ohne ASIO). Verwendet wird ausschliesslich
+  die Standardvariante ohne ASIO; die ASIO-DLL wird nicht angesprochen, die
+  proprietaere Steinberg-ASIO-SDK-Frage stellt sich damit nicht.
+* Wird fuer die Mikrofonaufnahme (Voice Recording) benutzt — Cloud-Variante
+  (`mikrofon_aufnahme.py`) und lokale Variante
+  (`lokale_windows_app/services/recording_service.py`).
+
 ### lxml (6.1.3)
 
 * Lizenz: BSD-3-Clause — Copyright (c) Infrae und Mitwirkende

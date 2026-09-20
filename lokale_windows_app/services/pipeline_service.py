@@ -57,6 +57,27 @@ STAGE_LABELS = {
     "abgeschlossen": "Verarbeitung abgeschlossen",
 }
 
+# Die Live-Vorschau waehrend der Verarbeitung ist nur ein erster Eindruck -
+# bei langen Aufnahmen waere der volle Text unhandlich, und fuer eine
+# Vorschau reichen die ersten zwei Minuten.
+PREVIEW_MAX_SECONDS = 120.0
+
+
+def build_preview_text(segments: list[dict[str, Any]], diarization_enabled: bool) -> str:
+    """Baut den Text fuer die Live-Vorschau (nicht die Export-Dateien).
+
+    Ohne Sprechertrennung gibt es keine Sprecher zuzuordnen - eine
+    Sprecherangabe waere dort nur 'None', und sekundengenaue Zeitstempel
+    pro Satz sind ohne Sprecherbezug ebenfalls keine hilfreiche Information.
+    Der Export (TXT/JSON/SRT/VTT) ist davon unberuehrt und bleibt
+    vollstaendig."""
+    begrenzt = [s for s in segments if s["start"] < PREVIEW_MAX_SECONDS]
+    if not diarization_enabled:
+        return " ".join(s["text"].strip() for s in begrenzt)
+    return "\n".join(
+        f"[{format_timestamp(s['start'])}] {s.get('sprecher_id')}: {s['text']}" for s in begrenzt
+    )
+
 
 class PipelineCancelled(RuntimeError):
     pass
@@ -325,12 +346,7 @@ def run_pipeline(
     callbacks.on_stage("zusammenfuehrung", STAGE_LABELS["zusammenfuehrung"])
     merged_segments = merge_service.merge_chunk_transcripts(chunk_plans, chunk_segment_lists)
     merged_segments = speaker_merge_service.assign_speakers_by_overlap(merged_segments, diarization_turns)
-    callbacks.on_preview(
-        "\n".join(
-            f"[{format_timestamp(s['start'])}] {s.get('sprecher_id')}: {s['text']}"
-            for s in merged_segments[:50]
-        )
-    )
+    callbacks.on_preview(build_preview_text(merged_segments, settings.enable_diarization))
 
     callbacks.on_stage("export_transkript", STAGE_LABELS["export_transkript"])
     speaker_order = export_service.speaker_ids_in_order_of_appearance(merged_segments)

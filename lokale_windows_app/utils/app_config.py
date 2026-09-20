@@ -23,6 +23,7 @@ DEFAULTS: dict[str, Any] = {
     "geraetepraeferenz": "auto",  # "auto" | "cuda" | "cpu"
     "einrichtung_abgeschlossen": False,
     "whisper_modell": None,  # None = noch keine bewusste Wahl getroffen
+    "aufnahmegeraet": None,  # Anzeigename des zuletzt gewaehlten Mikrofons
 }
 
 

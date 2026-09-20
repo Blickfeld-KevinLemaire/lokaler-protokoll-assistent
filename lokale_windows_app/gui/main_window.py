@@ -8,17 +8,19 @@ einfriert.
 
 from __future__ import annotations
 
+import contextlib
 import json
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer, QUrl
-from PySide6.QtGui import QDesktopServices, QDragEnterEvent, QDropEvent
+from PySide6.QtGui import QCloseEvent, QDesktopServices, QDragEnterEvent, QDropEvent
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
     QComboBox,
     QFileDialog,
     QFormLayout,
+    QFrame,
     QGroupBox,
     QHBoxLayout,
     QHeaderView,
@@ -29,6 +31,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
+    QScrollArea,
     QSpinBox,
     QSplitter,
     QTableWidget,
@@ -40,9 +43,9 @@ from PySide6.QtWidgets import (
 from gui.dialogs import DiagnosticsDialog, SystemPromptDialog, show_error
 from gui.strings import PRIVACY_NOTICE
 from gui.worker import DateiHashWorker, PipelineWorker
-from services import export_service, manifest_service, model_service, pipeline_service
+from services import export_service, manifest_service, model_service, pipeline_service, recording_service
 from utils.app_config import load_config, update_config
-from utils.paths import get_default_output_dir, get_system_prompt_file, get_work_dir
+from utils.paths import get_default_output_dir, get_recordings_dir, get_system_prompt_file, get_work_dir
 from utils.timeformat import format_duration_human
 
 SUPPORTED_EXTENSION_NAMES = [
@@ -69,7 +72,7 @@ class MainWindow(QMainWindow):
     def __init__(self, initial_folder: Path | None = None, initial_file: str | None = None) -> None:
         super().__init__()
         self.setWindowTitle("Protokoll-Assistent Lokal")
-        self.resize(1100, 850)
+        self.resize(1420, 900)
         self.setAcceptDrops(True)
 
         config = load_config()
@@ -105,6 +108,12 @@ class MainWindow(QMainWindow):
         self._elapsed_timer.setInterval(1000)
         self._elapsed_timer.timeout.connect(self._update_elapsed_label)
 
+        self._recording_devices: list[recording_service.Aufnahmegeraet] = []
+        self._recording: recording_service.MikrofonAufnahme | None = None
+        self._recording_timer = QTimer(self)
+        self._recording_timer.setInterval(100)
+        self._recording_timer.timeout.connect(self._update_recording_display)
+
         self._build_ui()
         self._refresh_hardware_label()
         self._init_whisper_model_selection()
@@ -131,9 +140,9 @@ class MainWindow(QMainWindow):
         root_layout.addWidget(splitter, stretch=1)
 
         left_panel = QWidget(self)
-        splitter.addWidget(left_panel)
         left_layout = QVBoxLayout(left_panel)
 
+        left_layout.addWidget(self._build_recording_group())
         left_layout.addWidget(self._build_file_group())
         left_layout.addWidget(self._build_settings_group())
         left_layout.addWidget(self._build_resume_group())
@@ -141,16 +150,184 @@ class MainWindow(QMainWindow):
         left_layout.addWidget(self._build_progress_group())
         left_layout.addStretch(1)
 
+        # Mit der Aufnahmegruppe stapeln sich links sechs Gruppen
+        # uebereinander - ohne Scrollbereich wuerden sie auf kleineren
+        # Bildschirmen zusammengequetscht oder abgeschnitten.
+        left_scroll = QScrollArea(self)
+        left_scroll.setWidget(left_panel)
+        left_scroll.setWidgetResizable(True)
+        left_scroll.setFrameShape(QFrame.NoFrame)
+        left_scroll.setMinimumWidth(480)
+        splitter.addWidget(left_scroll)
+
         right_panel = QWidget(self)
         splitter.addWidget(right_panel)
         right_layout = QVBoxLayout(right_panel)
         right_layout.addWidget(self._build_preview_group(), stretch=1)
         right_layout.addWidget(self._build_speaker_group(), stretch=1)
 
-        splitter.setSizes([420, 680])
+        splitter.setSizes([650, 770])
+
+    def _build_recording_group(self) -> QGroupBox:
+        """Baut die Gruppe '1. Aufnahmegeraet' auf (Voice Recording).
+
+        Die erzeugte WAV-Datei landet am Ende ueber '_set_source_file' in
+        genau demselben Auswahlmechanismus wie eine per Hand ausgewaehlte
+        oder per Drag & Drop abgelegte Datei.
+        """
+        group = QGroupBox("1. Aufnahmegerät", self)
+        layout = QVBoxLayout(group)
+
+        device_row = QHBoxLayout()
+        device_row.addWidget(QLabel("Aufnahmegerät:", self))
+        self.recording_device_combo = QComboBox(self)
+        self.recording_device_combo.currentIndexChanged.connect(self._on_recording_device_changed)
+        device_row.addWidget(self.recording_device_combo, stretch=1)
+        layout.addLayout(device_row)
+
+        self.recording_hint_label = QLabel("", self)
+        self.recording_hint_label.setWordWrap(True)
+        self.recording_hint_label.setObjectName("RecordingHint")
+        layout.addWidget(self.recording_hint_label)
+
+        status_row = QHBoxLayout()
+        self.recording_status_label = QLabel("", self)
+        status_row.addWidget(self.recording_status_label)
+        self.recording_duration_label = QLabel("", self)
+        status_row.addWidget(self.recording_duration_label)
+        status_row.addStretch(1)
+        layout.addLayout(status_row)
+
+        self.recording_level_bar = QProgressBar(self)
+        self.recording_level_bar.setRange(0, 100)
+        self.recording_level_bar.setTextVisible(False)
+        layout.addWidget(self.recording_level_bar)
+
+        button_row = QHBoxLayout()
+        self.recording_start_button = QPushButton("Voice Recording starten", self)
+        self.recording_start_button.clicked.connect(self._start_recording)
+        button_row.addWidget(self.recording_start_button)
+        self.recording_pause_button = QPushButton("Pause", self)
+        self.recording_pause_button.clicked.connect(self._toggle_recording_pause)
+        self.recording_pause_button.hide()
+        button_row.addWidget(self.recording_pause_button)
+        self.recording_stop_button = QPushButton("Aufnahme beenden", self)
+        self.recording_stop_button.clicked.connect(self._stop_recording)
+        self.recording_stop_button.hide()
+        button_row.addWidget(self.recording_stop_button)
+        button_row.addStretch(1)
+        layout.addLayout(button_row)
+
+        self._populate_recording_devices()
+        return group
+
+    def _populate_recording_devices(self) -> None:
+        try:
+            self._recording_devices = recording_service.liste_aufnahmegeraete()
+        except Exception as error:  # PortAudio-Fehler in ungewoehnlicher Umgebung
+            self._recording_devices = []
+            self.recording_hint_label.setText(f"Aufnahmegeräte konnten nicht ermittelt werden: {error}")
+            self.recording_start_button.setEnabled(False)
+            return
+
+        if not self._recording_devices:
+            self.recording_hint_label.setText("Keine Audioeingabegeräte gefunden.")
+            self.recording_start_button.setEnabled(False)
+            return
+
+        config = load_config()
+        saved = config.get("aufnahmegeraet")
+        standard_index = recording_service.standard_eingabe_index()
+        device, hint = recording_service.waehle_startgeraet(
+            self._recording_devices, saved, standard_index
+        )
+
+        self.recording_device_combo.blockSignals(True)
+        self.recording_device_combo.clear()
+        for eintrag in self._recording_devices:
+            self.recording_device_combo.addItem(eintrag.anzeigename)
+        if device is not None:
+            index = self.recording_device_combo.findText(device.anzeigename)
+            if index >= 0:
+                self.recording_device_combo.setCurrentIndex(index)
+        self.recording_device_combo.blockSignals(False)
+
+        self.recording_hint_label.setText(hint or "")
+        self.recording_start_button.setEnabled(True)
+
+    def _on_recording_device_changed(self, _index: int) -> None:
+        anzeigename = self.recording_device_combo.currentText()
+        if anzeigename:
+            update_config(aufnahmegeraet=anzeigename)
+            self.recording_hint_label.setText("")
+
+    def _start_recording(self) -> None:
+        anzeigename = self.recording_device_combo.currentText()
+        geraet = next((g for g in self._recording_devices if g.anzeigename == anzeigename), None)
+        if geraet is None:
+            show_error(self, "Kein Gerät ausgewählt", "Bitte zuerst ein Aufnahmegerät auswählen.")
+            return
+
+        zielpfad = get_recordings_dir() / recording_service.erzeuge_dateiname()
+        try:
+            aufnahme = recording_service.MikrofonAufnahme(geraet, zielpfad)
+            aufnahme.start()
+        except Exception as error:
+            show_error(
+                self,
+                "Aufnahme konnte nicht gestartet werden",
+                f"Das Gerät '{geraet.anzeigename}' konnte nicht geöffnet werden:\n{error}",
+            )
+            return
+        self._recording = aufnahme
+
+        self.recording_device_combo.setEnabled(False)
+        self.recording_start_button.hide()
+        self.recording_pause_button.setText("Pause")
+        self.recording_pause_button.show()
+        self.recording_stop_button.show()
+        self.recording_status_label.setText("🔴 Aufnahme läuft")
+        self._recording_timer.start()
+
+    def _toggle_recording_pause(self) -> None:
+        if self._recording is None:
+            return
+        if self._recording.ist_pausiert:
+            self._recording.fortsetzen()
+            self.recording_pause_button.setText("Pause")
+            self.recording_status_label.setText("🔴 Aufnahme läuft")
+        else:
+            self._recording.pause()
+            self.recording_pause_button.setText("Fortsetzen")
+            self.recording_status_label.setText("⏸ Aufnahme pausiert")
+
+    def _update_recording_display(self) -> None:
+        if self._recording is None:
+            self._recording_timer.stop()
+            return
+        duration = int(self._recording.dauer_sekunden)
+        self.recording_duration_label.setText(f"{duration // 60:02d}:{duration % 60:02d}")
+        self.recording_level_bar.setValue(int(self._recording.pegel * 100))
+
+    def _stop_recording(self) -> None:
+        if self._recording is None:
+            return
+        path = self._recording.stop()
+        self._recording = None
+        self._recording_timer.stop()
+
+        self.recording_device_combo.setEnabled(True)
+        self.recording_pause_button.hide()
+        self.recording_stop_button.hide()
+        self.recording_start_button.show()
+        self.recording_status_label.setText("")
+        self.recording_duration_label.setText("")
+        self.recording_level_bar.setValue(0)
+
+        self._set_source_file(path)
 
     def _build_file_group(self) -> QGroupBox:
-        group = QGroupBox("1. Eingabeordner und Datei", self)
+        group = QGroupBox("2. Eingabeordner und Datei", self)
         layout = QVBoxLayout(group)
 
         folder_row = QHBoxLayout()
@@ -193,8 +370,15 @@ class MainWindow(QMainWindow):
         return group
 
     def _build_settings_group(self) -> QGroupBox:
-        group = QGroupBox("2. Einstellungen", self)
+        group = QGroupBox("3. Einstellungen", self)
         layout = QFormLayout(group)
+        # Standardmaessig duerfen Formularfelder nicht ueber ihre sizeHint()
+        # hinaus wachsen - bei langen Modellbezeichnungen wuerde das Feld
+        # dann nur einen Bruchteil des Textes zeigen. AllNonFixedFieldsGrow
+        # laesst sie den verfuegbaren Platz tatsaechlich ausnutzen.
+        layout.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
+        layout.setHorizontalSpacing(12)
+        layout.setVerticalSpacing(8)
 
         self.language_combo = QComboBox(self)
         self.language_combo.addItem("Deutsch (de)", "de")
@@ -202,8 +386,11 @@ class MainWindow(QMainWindow):
         layout.addRow("Sprache:", self.language_combo)
 
         self.whisper_model_combo = QComboBox(self)
-        for option in model_service.WHISPER_MODELLE:
+        for index, option in enumerate(model_service.WHISPER_MODELLE):
             self.whisper_model_combo.addItem(option.label, option.id)
+            # Die Bezeichnungen sind teils laenger als die Box breit ist -
+            # per Tooltip bleibt der volle Text trotzdem einsehbar.
+            self.whisper_model_combo.setItemData(index, option.label, Qt.ToolTipRole)
         self.whisper_model_combo.currentIndexChanged.connect(self._update_whisper_model_hint)
         layout.addRow("Whisper-Modell:", self.whisper_model_combo)
 
@@ -262,7 +449,7 @@ class MainWindow(QMainWindow):
         return group
 
     def _build_resume_group(self) -> QGroupBox:
-        group = QGroupBox("3. Fortsetzen bei Langzeitaufnahmen", self)
+        group = QGroupBox("4. Fortsetzen bei Langzeitaufnahmen", self)
         layout = QVBoxLayout(group)
 
         self.resume_status_label = QLabel(
@@ -287,7 +474,7 @@ class MainWindow(QMainWindow):
         return group
 
     def _build_control_group(self) -> QGroupBox:
-        group = QGroupBox("4. Verarbeitung", self)
+        group = QGroupBox("5. Verarbeitung", self)
         layout = QHBoxLayout(group)
 
         self.start_button = QPushButton("Start", self)
@@ -402,6 +589,7 @@ class MainWindow(QMainWindow):
                 hinweis = f"{hinweis}\n\n⚠ {warnung}" if hinweis else f"⚠ {warnung}"
 
         self.whisper_model_hint_label.setText(hinweis)
+        self.whisper_model_combo.setToolTip(option.label if option else "")
         if model_id:
             update_config(whisper_modell=model_id)
 
@@ -485,6 +673,15 @@ class MainWindow(QMainWindow):
         elif path.is_file():
             self._set_source_file(path)
             event.acceptProposedAction()
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        """Beendet eine laufende Aufnahme sauber, statt sie beim Schliessen
+        des Fensters abzuwuergen - sonst fehlt der WAV-Datei der finale
+        Header und sie waere unbrauchbar."""
+        if self._recording is not None:
+            with contextlib.suppress(Exception):
+                self._recording.stop()
+        super().closeEvent(event)
 
     def _choose_output_dir(self) -> None:
         directory = QFileDialog.getExistingDirectory(self, "Ausgabeordner wählen", str(self._output_dir))

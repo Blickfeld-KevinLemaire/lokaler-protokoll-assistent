@@ -17,7 +17,7 @@ from PySide6.QtCore import QMimeData, QUrl  # noqa: E402
 from PySide6.QtWidgets import QFileDialog, QMessageBox  # noqa: E402
 
 from gui import main_window as mw  # noqa: E402
-from services import export_service, manifest_service, model_service  # noqa: E402
+from services import export_service, manifest_service, model_service, recording_service  # noqa: E402
 from utils import app_config, paths  # noqa: E402
 
 
@@ -94,19 +94,31 @@ def isolierte_konfiguration(tmp_path, monkeypatch):
 
     ausgabe = tmp_path / "ausgabe"
     arbeit = tmp_path / "arbeitsdaten"
+    aufnahmen = tmp_path / "mikrofon_aufnahmen"
     prompt = tmp_path / "systemprompt_protokoll.txt"
     prompt.write_text("Ein Prompt.", encoding="utf-8")
-    for ordner in (ausgabe, arbeit):
+    for ordner in (ausgabe, arbeit, aufnahmen):
         ordner.mkdir()
 
     for modul in (mw, paths):
         monkeypatch.setattr(modul, "get_default_output_dir", lambda: ausgabe, raising=False)
         monkeypatch.setattr(modul, "get_work_dir", lambda: arbeit, raising=False)
         monkeypatch.setattr(modul, "get_system_prompt_file", lambda: prompt, raising=False)
+        monkeypatch.setattr(modul, "get_recordings_dir", lambda: aufnahmen, raising=False)
 
     # Keine echte Hardware-Abfrage.
     monkeypatch.setattr(model_service, "get_gpu_description", lambda: "Testhardware")
-    return {"ausgabe": ausgabe, "arbeit": arbeit, "prompt": prompt, "konfig": konfig_datei}
+    # Keine echte Audiogeraete-Abfrage - Tests, die konkrete Geraete brauchen,
+    # patchen 'recording_service.liste_aufnahmegeraete' selbst um und rufen
+    # 'fenster._populate_recording_devices()' danach erneut auf.
+    monkeypatch.setattr(recording_service, "liste_aufnahmegeraete", lambda: [])
+    return {
+        "ausgabe": ausgabe,
+        "arbeit": arbeit,
+        "aufnahmen": aufnahmen,
+        "prompt": prompt,
+        "konfig": konfig_datei,
+    }
 
 
 @pytest.fixture
@@ -332,6 +344,158 @@ def test_drop_ordner_setzt_eingabeordner(fenster, audio_datei):
     assert fenster._input_folder == audio_datei.parent
     assert fenster.file_list.count() == 1
     assert event.accepted
+
+
+# --------------------------------------------------------------------------
+# Mikrofonaufnahme (Voice Recording)
+# --------------------------------------------------------------------------
+def _geraet(name, hostapi_name="WASAPI"):
+    return recording_service.Aufnahmegeraet(
+        index=0, name=name, hostapi_name=hostapi_name, default_samplerate=16000.0
+    )
+
+
+class _FakeMikrofonAufnahme:
+    """Ersetzt die echte Aufnahme - kein Geraet, kein Thread, keine Queue."""
+
+    def __init__(self, geraet, zielpfad, stream_klasse=None):
+        self.geraet = geraet
+        self.zielpfad = zielpfad
+        self.gestartet = False
+        self._pausiert = False
+        self._dauer = 0.0
+        self._pegel = 0.0
+
+    def start(self):
+        self.gestartet = True
+        self.zielpfad.write_bytes(b"RIFF....WAVEfmt ")
+
+    def pause(self):
+        self._pausiert = True
+
+    def fortsetzen(self):
+        self._pausiert = False
+
+    @property
+    def ist_pausiert(self):
+        return self._pausiert
+
+    @property
+    def dauer_sekunden(self):
+        return self._dauer
+
+    @property
+    def pegel(self):
+        return self._pegel
+
+    def stop(self):
+        return self.zielpfad
+
+
+def test_aufnahmegeraete_werden_geladen_und_vorausgewaehlt(fenster, monkeypatch):
+    geraete = [_geraet("ReSpeaker USB Mic Array"), _geraet("Headset-Mikrofon")]
+    monkeypatch.setattr(recording_service, "liste_aufnahmegeraete", lambda: geraete)
+    monkeypatch.setattr(recording_service, "standard_eingabe_index", lambda: None)
+
+    fenster._populate_recording_devices()
+
+    werte = [fenster.recording_device_combo.itemText(i) for i in range(fenster.recording_device_combo.count())]
+    assert werte == ["ReSpeaker USB Mic Array (WASAPI)", "Headset-Mikrofon (WASAPI)"]
+    assert fenster.recording_device_combo.currentText() == "ReSpeaker USB Mic Array (WASAPI)"
+    assert fenster.recording_hint_label.text() == ""
+    assert fenster.recording_start_button.isEnabled()
+
+
+def test_aufnahme_ohne_geraete_deaktiviert_start_button(fenster):
+    assert fenster._recording_devices == []
+    assert "Keine Audioeingabegeräte" in fenster.recording_hint_label.text()
+    assert not fenster.recording_start_button.isEnabled()
+
+
+def test_aufnahmegeraet_faellt_auf_gespeichertes_zurueck_wenn_verfuegbar(fenster, monkeypatch):
+    monkeypatch.setattr(mw, "load_config", lambda: {"aufnahmegeraet": "Headset-Mikrofon (WASAPI)"})
+    geraete = [_geraet("ReSpeaker USB Mic Array"), _geraet("Headset-Mikrofon")]
+    monkeypatch.setattr(recording_service, "liste_aufnahmegeraete", lambda: geraete)
+    monkeypatch.setattr(recording_service, "standard_eingabe_index", lambda: None)
+
+    fenster._populate_recording_devices()
+
+    assert fenster.recording_device_combo.currentText() == "Headset-Mikrofon (WASAPI)"
+    assert fenster.recording_hint_label.text() == ""
+
+
+def test_aufnahmegeraet_wechsel_wird_gespeichert(fenster, monkeypatch, isolierte_konfiguration):
+    geraete = [_geraet("ReSpeaker USB Mic Array"), _geraet("Headset-Mikrofon")]
+    monkeypatch.setattr(recording_service, "liste_aufnahmegeraete", lambda: geraete)
+    monkeypatch.setattr(recording_service, "standard_eingabe_index", lambda: None)
+    fenster._populate_recording_devices()
+
+    fenster.recording_device_combo.setCurrentIndex(1)
+
+    assert app_config.load_config()["aufnahmegeraet"] == "Headset-Mikrofon (WASAPI)"
+
+
+def test_aufnahme_starten_ohne_geraet_zeigt_fehler(fenster, monkeypatch):
+    fehler = []
+    monkeypatch.setattr(mw, "show_error", lambda *a: fehler.append(a))
+    fenster._recording_devices = []
+
+    fenster._start_recording()
+
+    assert fehler
+    assert fenster._recording is None
+
+
+def test_aufnahme_start_pause_beenden_uebergibt_datei_wie_dateiauswahl(fenster, monkeypatch):
+    monkeypatch.setattr(recording_service, "MikrofonAufnahme", _FakeMikrofonAufnahme)
+    geraet = _geraet("Headset-Mikrofon")
+    fenster._recording_devices = [geraet]
+    fenster.recording_device_combo.clear()
+    fenster.recording_device_combo.addItem(geraet.anzeigename)
+
+    fenster._start_recording()
+
+    assert fenster._recording is not None
+    assert fenster._recording.gestartet
+    # Das Fenster wird im Test nie tatsaechlich angezeigt - 'isVisible()'
+    # waere deshalb immer False. 'isHidden()' spiegelt dagegen den
+    # ausdruecklich per hide()/show() gesetzten Zustand des Widgets selbst.
+    assert fenster.recording_start_button.isHidden()
+    assert not fenster.recording_pause_button.isHidden()
+    assert not fenster.recording_stop_button.isHidden()
+    assert fenster.recording_status_label.text() == "🔴 Aufnahme läuft"
+    assert not fenster.recording_device_combo.isEnabled()
+
+    fenster._toggle_recording_pause()
+    assert fenster._recording.ist_pausiert
+    assert fenster.recording_pause_button.text() == "Fortsetzen"
+    assert fenster.recording_status_label.text() == "⏸ Aufnahme pausiert"
+
+    fenster._toggle_recording_pause()
+    assert not fenster._recording.ist_pausiert
+    assert fenster.recording_pause_button.text() == "Pause"
+
+    aufgenommene_datei = fenster._recording.zielpfad
+    fenster._stop_recording()
+
+    assert fenster._recording is None
+    assert fenster.recording_device_combo.isEnabled()
+    assert not fenster.recording_start_button.isHidden()
+    assert fenster.recording_pause_button.isHidden()
+    assert fenster.recording_stop_button.isHidden()
+    # Genau der Mechanismus, der auch beim direkten Dateidialog greift:
+    assert fenster._source_path == aufgenommene_datei
+    assert fenster.file_label.text() == f"Ausgewählt: {aufgenommene_datei.name}"
+
+
+def test_aufnahme_beenden_ohne_laufende_aufnahme_tut_nichts(fenster):
+    fenster._stop_recording()
+    assert fenster._recording is None
+
+
+def test_aufnahme_pause_ohne_laufende_aufnahme_tut_nichts(fenster):
+    fenster._toggle_recording_pause()
+    assert fenster._recording is None
 
 
 def test_ausgabeordner_waehlen(fenster, tmp_path, monkeypatch):

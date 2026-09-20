@@ -11,6 +11,7 @@ usw.), ohne dass dafuer weitere Daten das Geraet verlassen.
 from __future__ import annotations
 
 import base64
+import contextlib
 import json
 import os
 import queue
@@ -41,6 +42,14 @@ except ImportError:
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import oberflaeche_theme as theme
 import protokoll_assistent_v2 as kern  # Konsolenversion wird als Bibliothek wiederverwendet
+
+try:
+    import mikrofon_aufnahme
+
+    HAT_MIKROFON_AUFNAHME = True
+except ImportError:
+    mikrofon_aufnahme = None  # type: ignore[assignment]
+    HAT_MIKROFON_AUFNAHME = False
 
 APP_DIR = kern.APP_DIR
 INPUT_DIR = kern.INPUT_DIR
@@ -780,6 +789,9 @@ class ProtokollGUI:
         self.worker_thread: threading.Thread | None = None
         self.last_output_paths: list[Path] = []
 
+        self.aufnahme_geraete: list[Any] = []
+        self.aufnahme_objekt: Any = None
+
         self.dnd_aktiv = False
         if HAT_TKINTERDND2:
             try:
@@ -791,8 +803,19 @@ class ProtokollGUI:
         for directory in (INPUT_DIR, OUTPUT_DIR, CHECKPOINT_DIR, SETTINGS_DIR, ERGEBNIS_DIR):
             directory.mkdir(parents=True, exist_ok=True)
 
+        root.protocol("WM_DELETE_WINDOW", self._beim_schliessen)
+
         self._build_widgets()
         self._poll_queue()
+
+    def _beim_schliessen(self) -> None:
+        """Beendet eine laufende Aufnahme sauber, statt sie beim Schliessen
+        des Fensters abzuwuergen - sonst fehlt der WAV-Datei der finale
+        Header und sie waere unbrauchbar."""
+        if self.aufnahme_objekt is not None:
+            with contextlib.suppress(Exception):
+                self.aufnahme_objekt.stop()
+        self.root.destroy()
 
     # ------------------------------------------------------------------ UI
 
@@ -814,7 +837,10 @@ class ProtokollGUI:
                 command=self._theme_umschalten,
             ).pack(side="right")
 
-        folder_frame = ttk.LabelFrame(self.root, text="1. Aufnahme auswaehlen")
+        if HAT_MIKROFON_AUFNAHME:
+            self._build_recording_group(padding)
+
+        folder_frame = ttk.LabelFrame(self.root, text="2. Aufnahme auswaehlen")
         folder_frame.pack(fill="x", **padding)
 
         row1 = ttk.Frame(folder_frame)
@@ -851,7 +877,7 @@ class ProtokollGUI:
             folder_frame.drop_target_register(DND_FILES)  # type: ignore[attr-defined]
             folder_frame.dnd_bind("<<Drop>>", self._bei_datei_abgelegt)  # type: ignore[attr-defined]
 
-        api_frame = ttk.LabelFrame(self.root, text="2. Transkriptions-API")
+        api_frame = ttk.LabelFrame(self.root, text="3. Transkriptions-API")
         api_frame.pack(fill="x", **padding)
         row3 = ttk.Frame(api_frame)
         row3.pack(fill="x", padx=8, pady=6)
@@ -952,7 +978,7 @@ class ProtokollGUI:
             font=("Segoe UI", 11, "bold"),
         ).pack(anchor="w", padx=10, pady=(8, 0))
 
-        transkript_frame = ttk.LabelFrame(self.root, text="3. Transkript auswaehlen")
+        transkript_frame = ttk.LabelFrame(self.root, text="4. Transkript auswaehlen")
         transkript_frame.pack(fill="x", **padding)
         row_transkript = ttk.Frame(transkript_frame)
         row_transkript.pack(fill="x", padx=8, pady=6)
@@ -967,7 +993,7 @@ class ProtokollGUI:
             transkript_frame, textvariable=self.transkript_label_var, wraplength=700
         ).pack(anchor="w", padx=8, pady=(0, 6))
 
-        model_frame = ttk.LabelFrame(self.root, text="4. Sprachmodell fuer die Nachbearbeitung")
+        model_frame = ttk.LabelFrame(self.root, text="5. Sprachmodell fuer die Nachbearbeitung")
         model_frame.pack(fill="x", **padding)
         row_engine = ttk.Frame(model_frame)
         row_engine.pack(fill="x", padx=8, pady=(6, 0))
@@ -1036,7 +1062,7 @@ class ProtokollGUI:
         ).pack(fill="x", padx=8, pady=(0, 6))
 
         prompt_frame = ttk.LabelFrame(
-            self.root, text="5. Was soll mit dem Transkript geschehen? (Systemprompt)"
+            self.root, text="6. Was soll mit dem Transkript geschehen? (Systemprompt)"
         )
         prompt_frame.pack(fill="both", expand=False, **padding)
         row5 = ttk.Frame(prompt_frame)
@@ -1096,6 +1122,159 @@ class ProtokollGUI:
         self.result_text.pack(fill="both", expand=True)
 
         self._text_widgets_faerben()
+
+    def _build_recording_group(self, padding: dict[str, int]) -> None:
+        """Baut die Gruppe '1. Aufnahme aufzeichnen' auf (Voice Recording).
+
+        Nur aufgerufen, wenn 'mikrofon_aufnahme' importierbar war
+        (HAT_MIKROFON_AUFNAHME). Das erzeugte WAV landet am Ende ueber
+        '_setze_aufnahme' in genau demselben Auswahlmechanismus wie eine per
+        Hand ausgewaehlte oder per Drag & Drop abgelegte Datei.
+        """
+        aufnahme_frame = ttk.LabelFrame(self.root, text="1. Aufnahme aufzeichnen (optional)")
+        aufnahme_frame.pack(fill="x", **padding)
+
+        row_geraet = ttk.Frame(aufnahme_frame)
+        row_geraet.pack(fill="x", padx=8, pady=6)
+        ttk.Label(row_geraet, text="Aufnahmegeraet:").pack(side="left")
+        self.aufnahme_geraet_var = tk.StringVar()
+        self.aufnahme_geraet_combo = ttk.Combobox(
+            row_geraet, textvariable=self.aufnahme_geraet_var, state="readonly", width=50
+        )
+        self.aufnahme_geraet_combo.pack(side="left", padx=8, fill="x", expand=True)
+        self.aufnahme_geraet_combo.bind("<<ComboboxSelected>>", self._aufnahme_geraet_geaendert)
+
+        self.aufnahme_hinweis_var = tk.StringVar(value="")
+        ttk.Label(
+            aufnahme_frame, textvariable=self.aufnahme_hinweis_var, foreground="#a05a00"
+        ).pack(anchor="w", padx=8, pady=(0, 4))
+
+        row_status = ttk.Frame(aufnahme_frame)
+        row_status.pack(fill="x", padx=8, pady=(0, 6))
+        self.aufnahme_status_var = tk.StringVar(value="")
+        ttk.Label(
+            row_status, textvariable=self.aufnahme_status_var, font=("Segoe UI", 10, "bold")
+        ).pack(side="left")
+        self.aufnahme_dauer_var = tk.StringVar(value="")
+        ttk.Label(row_status, textvariable=self.aufnahme_dauer_var).pack(side="left", padx=(12, 0))
+
+        self.aufnahme_pegel_var = tk.DoubleVar(value=0.0)
+        self.aufnahme_pegel_bar = ttk.Progressbar(
+            aufnahme_frame, maximum=100, variable=self.aufnahme_pegel_var
+        )
+        self.aufnahme_pegel_bar.pack(fill="x", padx=8, pady=(0, 6))
+
+        row_buttons = ttk.Frame(aufnahme_frame)
+        row_buttons.pack(fill="x", padx=8, pady=(0, 8))
+        self.aufnahme_start_button = ttk.Button(
+            row_buttons, text="Voice Recording starten", command=self._aufnahme_starten
+        )
+        self.aufnahme_start_button.pack(side="left")
+        self.aufnahme_pause_button = ttk.Button(
+            row_buttons, text="Pause", command=self._aufnahme_pause_umschalten
+        )
+        self.aufnahme_stop_button = ttk.Button(
+            row_buttons, text="Aufnahme beenden", command=self._aufnahme_beenden
+        )
+
+        self._aufnahme_geraete_laden()
+
+    def _aufnahme_geraete_laden(self) -> None:
+        try:
+            self.aufnahme_geraete = mikrofon_aufnahme.liste_aufnahmegeraete()
+        except Exception as fehler:  # PortAudio-Fehler in ungewoehnlicher Umgebung
+            self.aufnahme_geraete = []
+            self.aufnahme_hinweis_var.set(f"Aufnahmegeraete konnten nicht ermittelt werden: {fehler}")
+            self.aufnahme_start_button.config(state="disabled")
+            return
+
+        if not self.aufnahme_geraete:
+            self.aufnahme_geraet_combo["values"] = []
+            self.aufnahme_hinweis_var.set("Keine Audioeingabegeraete gefunden.")
+            self.aufnahme_start_button.config(state="disabled")
+            return
+
+        gespeichert = mikrofon_aufnahme.lade_gespeichertes_geraet()
+        standard_index = mikrofon_aufnahme.standard_eingabe_index()
+        geraet, hinweis = mikrofon_aufnahme.waehle_startgeraet(
+            self.aufnahme_geraete, gespeichert, standard_index
+        )
+        self.aufnahme_geraet_combo["values"] = [g.anzeigename for g in self.aufnahme_geraete]
+        if geraet is not None:
+            self.aufnahme_geraet_var.set(geraet.anzeigename)
+        self.aufnahme_hinweis_var.set(hinweis or "")
+        self.aufnahme_start_button.config(state="normal")
+
+    def _aufnahme_geraet_geaendert(self, _event: object = None) -> None:
+        anzeigename = self.aufnahme_geraet_var.get()
+        if anzeigename:
+            mikrofon_aufnahme.speichere_geraet(anzeigename)
+            self.aufnahme_hinweis_var.set("")
+
+    def _aufnahme_starten(self) -> None:
+        anzeigename = self.aufnahme_geraet_var.get()
+        geraet = next((g for g in self.aufnahme_geraete if g.anzeigename == anzeigename), None)
+        if geraet is None:
+            messagebox.showerror(
+                "Kein Geraet ausgewaehlt", "Bitte zuerst ein Aufnahmegeraet auswaehlen."
+            )
+            return
+
+        zielpfad = INPUT_DIR / mikrofon_aufnahme.erzeuge_dateiname()
+        try:
+            aufnahme = mikrofon_aufnahme.MikrofonAufnahme(geraet, zielpfad)
+            aufnahme.start()
+        except Exception as fehler:
+            messagebox.showerror(
+                "Aufnahme konnte nicht gestartet werden",
+                f"Das Geraet '{geraet.anzeigename}' konnte nicht geoeffnet werden:\n{fehler}",
+            )
+            return
+        self.aufnahme_objekt = aufnahme
+
+        self.aufnahme_geraet_combo.config(state="disabled")
+        self.aufnahme_start_button.pack_forget()
+        self.aufnahme_pause_button.config(text="Pause")
+        self.aufnahme_pause_button.pack(side="left")
+        self.aufnahme_stop_button.pack(side="left", padx=(8, 0))
+        self.aufnahme_status_var.set("\U0001f534 Aufnahme laeuft")
+        self._aufnahme_anzeige_aktualisieren()
+
+    def _aufnahme_pause_umschalten(self) -> None:
+        if self.aufnahme_objekt is None:
+            return
+        if self.aufnahme_objekt.ist_pausiert:
+            self.aufnahme_objekt.fortsetzen()
+            self.aufnahme_pause_button.config(text="Pause")
+            self.aufnahme_status_var.set("\U0001f534 Aufnahme laeuft")
+        else:
+            self.aufnahme_objekt.pause()
+            self.aufnahme_pause_button.config(text="Fortsetzen")
+            self.aufnahme_status_var.set("⏸ Aufnahme pausiert")
+
+    def _aufnahme_anzeige_aktualisieren(self) -> None:
+        if self.aufnahme_objekt is None:
+            return
+        dauer = int(self.aufnahme_objekt.dauer_sekunden)
+        self.aufnahme_dauer_var.set(f"{dauer // 60:02d}:{dauer % 60:02d}")
+        self.aufnahme_pegel_var.set(self.aufnahme_objekt.pegel * 100)
+        self.root.after(100, self._aufnahme_anzeige_aktualisieren)
+
+    def _aufnahme_beenden(self) -> None:
+        if self.aufnahme_objekt is None:
+            return
+        pfad = self.aufnahme_objekt.stop()
+        self.aufnahme_objekt = None
+
+        self.aufnahme_geraet_combo.config(state="readonly")
+        self.aufnahme_pause_button.pack_forget()
+        self.aufnahme_stop_button.pack_forget()
+        self.aufnahme_start_button.pack(side="left")
+        self.aufnahme_status_var.set("")
+        self.aufnahme_dauer_var.set("")
+        self.aufnahme_pegel_var.set(0.0)
+
+        self._setze_aufnahme(pfad)
 
     def _text_widgets_faerben(self) -> None:
         for widget in (self.systemprompt_text, self.log_text, self.result_text):

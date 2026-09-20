@@ -47,6 +47,7 @@ laufzeit-aufgeloest.txt
 *.pem
 *.key
 .protokoll_assistent_ordner.txt
+mikrofon_konfiguration.json
 
 # Fachbegriffe enthalten Projektnamen und Nachnamen echter Personen.
 # Die Vorlage liegt als 'fachbegriffe.beispiel.txt' bei.
