@@ -8,6 +8,7 @@ logs/*.log
 logs/*.log.*
 ausgabe/
 arbeitsdaten/
+aufnahmen/
 Einrichtungsstatus.json
 konfiguration.json
 einstellungen/fachbegriffe.txt

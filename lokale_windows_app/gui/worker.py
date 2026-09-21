@@ -40,6 +40,12 @@ class DateiHashWorker(QThread):
 
 
 class PipelineWorker(QThread):
+    """Kombinierter Einschritt-Ablauf (``pipeline_service.run_pipeline``).
+
+    Bleibt fuer bestehende Aufrufer erhalten; die Oberflaeche nutzt seit der
+    Trennung in zwei Schritte stattdessen 'TranscriptionWorker' und
+    'ProtocolWorker' einzeln."""
+
     stage_changed = Signal(str, str)
     chunk_progress = Signal(int, int)
     overall_progress = Signal(float)
@@ -79,6 +85,100 @@ class PipelineWorker(QThread):
             self.failed.emit(str(error))
         except Exception as error:  # unerwarteter Fehler -- keine Tracebacks in der GUI
             logger.exception("Unerwarteter Fehler in der Verarbeitung")
+            self.failed.emit(
+                "Unerwarteter Fehler. Details wurden in der Logdatei gespeichert. "
+                f"Kurzbeschreibung: {error}"
+            )
+
+
+class TranscriptionWorker(QThread):
+    """Eigenstaendiger erster Schritt: nur Transkription
+    (``pipeline_service.run_transcription``), ohne Protokollauswertung."""
+
+    stage_changed = Signal(str, str)
+    chunk_progress = Signal(int, int)
+    overall_progress = Signal(float)
+    preview_updated = Signal(str)
+    log_message = Signal(str)
+    finished_ok = Signal(object)
+    failed = Signal(str)
+    cancelled = Signal()
+
+    def __init__(self, settings: pipeline_service.PipelineSettings, parent=None):
+        super().__init__(parent)
+        self._settings = settings
+        self._cancel_requested = False
+
+    def request_cancel(self) -> None:
+        self._cancel_requested = True
+
+    def _should_cancel(self) -> bool:
+        return self._cancel_requested
+
+    def run(self) -> None:
+        callbacks = pipeline_service.PipelineCallbacks(
+            on_stage=lambda key, detail: self.stage_changed.emit(key, detail),
+            on_chunk_progress=lambda current, total: self.chunk_progress.emit(current, total),
+            on_overall_progress=lambda fraction: self.overall_progress.emit(fraction),
+            on_preview=lambda text: self.preview_updated.emit(text),
+            on_log=lambda message: self.log_message.emit(message),
+            should_cancel=self._should_cancel,
+        )
+        try:
+            result = pipeline_service.run_transcription(self._settings, callbacks)
+            self.finished_ok.emit(result)
+        except pipeline_service.PipelineCancelled:
+            self.cancelled.emit()
+        except pipeline_service.PipelineError as error:
+            logger.error("Transkription fehlgeschlagen: %s", error)
+            self.failed.emit(str(error))
+        except Exception as error:  # unerwarteter Fehler -- keine Tracebacks in der GUI
+            logger.exception("Unerwarteter Fehler in der Transkription")
+            self.failed.emit(
+                "Unerwarteter Fehler. Details wurden in der Logdatei gespeichert. "
+                f"Kurzbeschreibung: {error}"
+            )
+
+
+class ProtocolWorker(QThread):
+    """Eigenstaendiger zweiter Schritt: Protokollauswertung eines bereits
+    vorliegenden Transkripts (``pipeline_service.run_protocol``)."""
+
+    stage_changed = Signal(str, str)
+    overall_progress = Signal(float)
+    log_message = Signal(str)
+    finished_ok = Signal(object)
+    failed = Signal(str)
+    cancelled = Signal()
+
+    def __init__(self, settings: pipeline_service.ProtocolSettings, parent=None):
+        super().__init__(parent)
+        self._settings = settings
+        self._cancel_requested = False
+
+    def request_cancel(self) -> None:
+        self._cancel_requested = True
+
+    def _should_cancel(self) -> bool:
+        return self._cancel_requested
+
+    def run(self) -> None:
+        callbacks = pipeline_service.PipelineCallbacks(
+            on_stage=lambda key, detail: self.stage_changed.emit(key, detail),
+            on_overall_progress=lambda fraction: self.overall_progress.emit(fraction),
+            on_log=lambda message: self.log_message.emit(message),
+            should_cancel=self._should_cancel,
+        )
+        try:
+            result = pipeline_service.run_protocol(self._settings, callbacks)
+            self.finished_ok.emit(result)
+        except pipeline_service.PipelineCancelled:
+            self.cancelled.emit()
+        except pipeline_service.PipelineError as error:
+            logger.error("Nachbearbeitung fehlgeschlagen: %s", error)
+            self.failed.emit(str(error))
+        except Exception as error:  # unerwarteter Fehler -- keine Tracebacks in der GUI
+            logger.exception("Unerwarteter Fehler in der Nachbearbeitung")
             self.failed.emit(
                 "Unerwarteter Fehler. Details wurden in der Logdatei gespeichert. "
                 f"Kurzbeschreibung: {error}"

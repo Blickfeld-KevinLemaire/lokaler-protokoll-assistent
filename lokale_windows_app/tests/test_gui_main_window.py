@@ -1,7 +1,7 @@
 """Tests fuer das Hauptfenster der lokalen Anwendung (``gui/main_window.py``).
 
-Es wird nie eine echte Verarbeitung gestartet: ``PipelineWorker`` wird durch
-eine Attrappe ersetzt, die nichts tut.
+Es wird nie eine echte Verarbeitung gestartet: ``TranscriptionWorker`` und
+``ProtocolWorker`` werden durch eine Attrappe ersetzt, die nichts tut.
 """
 
 from __future__ import annotations
@@ -17,12 +17,17 @@ from PySide6.QtCore import QMimeData, QUrl  # noqa: E402
 from PySide6.QtWidgets import QFileDialog, QMessageBox  # noqa: E402
 
 from gui import main_window as mw  # noqa: E402
-from services import export_service, manifest_service, model_service  # noqa: E402
+from services import export_service, manifest_service, model_service, recording_service  # noqa: E402
 from utils import app_config, paths  # noqa: E402
 
 
 class _WorkerAttrappe:
-    """Sieht aus wie ein PipelineWorker, startet aber nichts."""
+    """Sieht aus wie ein TranscriptionWorker/ProtocolWorker, startet aber nichts.
+
+    Beide echten Klassen senden nur eine Teilmenge dieser Signale (ein
+    ProtocolWorker kennt z. B. kein 'chunk_progress') - die Attrappe bietet
+    einfach alle an, das schadet nicht.
+    """
 
     instanzen: ClassVar[list] = []
 
@@ -94,25 +99,38 @@ def isolierte_konfiguration(tmp_path, monkeypatch):
 
     ausgabe = tmp_path / "ausgabe"
     arbeit = tmp_path / "arbeitsdaten"
+    aufnahmen = tmp_path / "mikrofon_aufnahmen"
     prompt = tmp_path / "systemprompt_protokoll.txt"
     prompt.write_text("Ein Prompt.", encoding="utf-8")
-    for ordner in (ausgabe, arbeit):
+    for ordner in (ausgabe, arbeit, aufnahmen):
         ordner.mkdir()
 
     for modul in (mw, paths):
         monkeypatch.setattr(modul, "get_default_output_dir", lambda: ausgabe, raising=False)
         monkeypatch.setattr(modul, "get_work_dir", lambda: arbeit, raising=False)
         monkeypatch.setattr(modul, "get_system_prompt_file", lambda: prompt, raising=False)
+        monkeypatch.setattr(modul, "get_recordings_dir", lambda: aufnahmen, raising=False)
 
     # Keine echte Hardware-Abfrage.
     monkeypatch.setattr(model_service, "get_gpu_description", lambda: "Testhardware")
-    return {"ausgabe": ausgabe, "arbeit": arbeit, "prompt": prompt, "konfig": konfig_datei}
+    # Keine echte Audiogeraete-Abfrage - Tests, die konkrete Geraete brauchen,
+    # patchen 'recording_service.liste_aufnahmegeraete' selbst um und rufen
+    # 'fenster._populate_recording_devices()' danach erneut auf.
+    monkeypatch.setattr(recording_service, "liste_aufnahmegeraete", lambda: [])
+    return {
+        "ausgabe": ausgabe,
+        "arbeit": arbeit,
+        "aufnahmen": aufnahmen,
+        "prompt": prompt,
+        "konfig": konfig_datei,
+    }
 
 
 @pytest.fixture
 def fenster(qt_widgets, isolierte_konfiguration, monkeypatch):
     _WorkerAttrappe.instanzen.clear()
-    monkeypatch.setattr(mw, "PipelineWorker", _WorkerAttrappe)
+    monkeypatch.setattr(mw, "TranscriptionWorker", _WorkerAttrappe)
+    monkeypatch.setattr(mw, "ProtocolWorker", _WorkerAttrappe)
     monkeypatch.setattr(mw, "DateiHashWorker", _HashWorkerAttrappe)
     return qt_widgets(mw.MainWindow())
 
@@ -133,6 +151,7 @@ def test_fenster_baut_sich_auf(fenster):
     assert fenster.windowTitle() == "Protokoll-Assistent Lokal"
     assert fenster.hardware_label.text() == "Testhardware"
     assert fenster.start_button.isEnabled()
+    assert fenster.protocol_start_button.isEnabled()
 
 
 def test_datenschutzhinweis_ist_sichtbar(fenster):
@@ -147,7 +166,8 @@ def test_datenschutzhinweis_ist_sichtbar(fenster):
 
 
 def test_fenster_uebernimmt_startordner(qt_widgets, isolierte_konfiguration, audio_datei, monkeypatch):
-    monkeypatch.setattr(mw, "PipelineWorker", _WorkerAttrappe)
+    monkeypatch.setattr(mw, "TranscriptionWorker", _WorkerAttrappe)
+    monkeypatch.setattr(mw, "ProtocolWorker", _WorkerAttrappe)
     monkeypatch.setattr(mw, "DateiHashWorker", _HashWorkerAttrappe)
     fenster = qt_widgets(mw.MainWindow(initial_folder=audio_datei.parent, initial_file="sitzung.mp3"))
 
@@ -158,7 +178,7 @@ def test_fenster_uebernimmt_startordner(qt_widgets, isolierte_konfiguration, aud
 def test_fenster_ignoriert_unbekannte_startdatei(
     qt_widgets, isolierte_konfiguration, audio_datei, monkeypatch
 ):
-    monkeypatch.setattr(mw, "PipelineWorker", _WorkerAttrappe)
+    monkeypatch.setattr(mw, "TranscriptionWorker", _WorkerAttrappe)
     monkeypatch.setattr(mw, "DateiHashWorker", _HashWorkerAttrappe)
     fenster = qt_widgets(mw.MainWindow(initial_folder=audio_datei.parent, initial_file="fehlt.mp3"))
     assert fenster._source_path is None
@@ -167,7 +187,7 @@ def test_fenster_ignoriert_unbekannte_startdatei(
 def test_fenster_liest_ordner_aus_konfiguration(
     qt_widgets, isolierte_konfiguration, audio_datei, monkeypatch
 ):
-    monkeypatch.setattr(mw, "PipelineWorker", _WorkerAttrappe)
+    monkeypatch.setattr(mw, "TranscriptionWorker", _WorkerAttrappe)
     app_config.save_config(
         {
             "eingabeordner": str(audio_datei.parent),
@@ -181,7 +201,7 @@ def test_fenster_liest_ordner_aus_konfiguration(
 def test_fenster_ignoriert_ungueltigen_ordner_aus_konfiguration(
     qt_widgets, isolierte_konfiguration, tmp_path, monkeypatch
 ):
-    monkeypatch.setattr(mw, "PipelineWorker", _WorkerAttrappe)
+    monkeypatch.setattr(mw, "TranscriptionWorker", _WorkerAttrappe)
     app_config.save_config({"eingabeordner": str(tmp_path / "gibtesnicht")})
     fenster = qt_widgets(mw.MainWindow())
     assert fenster._input_folder is None
@@ -198,7 +218,7 @@ def test_whisper_modell_hinweis_wird_gesetzt(fenster):
 def test_whisper_modell_empfehlung_ohne_konfiguration(
     qt_widgets, isolierte_konfiguration, monkeypatch
 ):
-    monkeypatch.setattr(mw, "PipelineWorker", _WorkerAttrappe)
+    monkeypatch.setattr(mw, "TranscriptionWorker", _WorkerAttrappe)
     from utils import diagnostics
 
     class _Ergebnis:
@@ -334,6 +354,158 @@ def test_drop_ordner_setzt_eingabeordner(fenster, audio_datei):
     assert event.accepted
 
 
+# --------------------------------------------------------------------------
+# Mikrofonaufnahme (Voice Recording)
+# --------------------------------------------------------------------------
+def _geraet(name, hostapi_name="WASAPI"):
+    return recording_service.Aufnahmegeraet(
+        index=0, name=name, hostapi_name=hostapi_name, default_samplerate=16000.0
+    )
+
+
+class _FakeMikrofonAufnahme:
+    """Ersetzt die echte Aufnahme - kein Geraet, kein Thread, keine Queue."""
+
+    def __init__(self, geraet, zielpfad, stream_klasse=None):
+        self.geraet = geraet
+        self.zielpfad = zielpfad
+        self.gestartet = False
+        self._pausiert = False
+        self._dauer = 0.0
+        self._pegel = 0.0
+
+    def start(self):
+        self.gestartet = True
+        self.zielpfad.write_bytes(b"RIFF....WAVEfmt ")
+
+    def pause(self):
+        self._pausiert = True
+
+    def fortsetzen(self):
+        self._pausiert = False
+
+    @property
+    def ist_pausiert(self):
+        return self._pausiert
+
+    @property
+    def dauer_sekunden(self):
+        return self._dauer
+
+    @property
+    def pegel(self):
+        return self._pegel
+
+    def stop(self):
+        return self.zielpfad
+
+
+def test_aufnahmegeraete_werden_geladen_und_vorausgewaehlt(fenster, monkeypatch):
+    geraete = [_geraet("ReSpeaker USB Mic Array"), _geraet("Headset-Mikrofon")]
+    monkeypatch.setattr(recording_service, "liste_aufnahmegeraete", lambda: geraete)
+    monkeypatch.setattr(recording_service, "standard_eingabe_index", lambda: None)
+
+    fenster._populate_recording_devices()
+
+    werte = [fenster.recording_device_combo.itemText(i) for i in range(fenster.recording_device_combo.count())]
+    assert werte == ["ReSpeaker USB Mic Array (WASAPI)", "Headset-Mikrofon (WASAPI)"]
+    assert fenster.recording_device_combo.currentText() == "ReSpeaker USB Mic Array (WASAPI)"
+    assert fenster.recording_hint_label.text() == ""
+    assert fenster.recording_start_button.isEnabled()
+
+
+def test_aufnahme_ohne_geraete_deaktiviert_start_button(fenster):
+    assert fenster._recording_devices == []
+    assert "Keine Audioeingabegeräte" in fenster.recording_hint_label.text()
+    assert not fenster.recording_start_button.isEnabled()
+
+
+def test_aufnahmegeraet_faellt_auf_gespeichertes_zurueck_wenn_verfuegbar(fenster, monkeypatch):
+    monkeypatch.setattr(mw, "load_config", lambda: {"aufnahmegeraet": "Headset-Mikrofon (WASAPI)"})
+    geraete = [_geraet("ReSpeaker USB Mic Array"), _geraet("Headset-Mikrofon")]
+    monkeypatch.setattr(recording_service, "liste_aufnahmegeraete", lambda: geraete)
+    monkeypatch.setattr(recording_service, "standard_eingabe_index", lambda: None)
+
+    fenster._populate_recording_devices()
+
+    assert fenster.recording_device_combo.currentText() == "Headset-Mikrofon (WASAPI)"
+    assert fenster.recording_hint_label.text() == ""
+
+
+def test_aufnahmegeraet_wechsel_wird_gespeichert(fenster, monkeypatch, isolierte_konfiguration):
+    geraete = [_geraet("ReSpeaker USB Mic Array"), _geraet("Headset-Mikrofon")]
+    monkeypatch.setattr(recording_service, "liste_aufnahmegeraete", lambda: geraete)
+    monkeypatch.setattr(recording_service, "standard_eingabe_index", lambda: None)
+    fenster._populate_recording_devices()
+
+    fenster.recording_device_combo.setCurrentIndex(1)
+
+    assert app_config.load_config()["aufnahmegeraet"] == "Headset-Mikrofon (WASAPI)"
+
+
+def test_aufnahme_starten_ohne_geraet_zeigt_fehler(fenster, monkeypatch):
+    fehler = []
+    monkeypatch.setattr(mw, "show_error", lambda *a: fehler.append(a))
+    fenster._recording_devices = []
+
+    fenster._start_recording()
+
+    assert fehler
+    assert fenster._recording is None
+
+
+def test_aufnahme_start_pause_beenden_uebergibt_datei_wie_dateiauswahl(fenster, monkeypatch):
+    monkeypatch.setattr(recording_service, "MikrofonAufnahme", _FakeMikrofonAufnahme)
+    geraet = _geraet("Headset-Mikrofon")
+    fenster._recording_devices = [geraet]
+    fenster.recording_device_combo.clear()
+    fenster.recording_device_combo.addItem(geraet.anzeigename)
+
+    fenster._start_recording()
+
+    assert fenster._recording is not None
+    assert fenster._recording.gestartet
+    # Das Fenster wird im Test nie tatsaechlich angezeigt - 'isVisible()'
+    # waere deshalb immer False. 'isHidden()' spiegelt dagegen den
+    # ausdruecklich per hide()/show() gesetzten Zustand des Widgets selbst.
+    assert fenster.recording_start_button.isHidden()
+    assert not fenster.recording_pause_button.isHidden()
+    assert not fenster.recording_stop_button.isHidden()
+    assert fenster.recording_status_label.text() == "🔴 Aufnahme läuft"
+    assert not fenster.recording_device_combo.isEnabled()
+
+    fenster._toggle_recording_pause()
+    assert fenster._recording.ist_pausiert
+    assert fenster.recording_pause_button.text() == "Fortsetzen"
+    assert fenster.recording_status_label.text() == "⏸ Aufnahme pausiert"
+
+    fenster._toggle_recording_pause()
+    assert not fenster._recording.ist_pausiert
+    assert fenster.recording_pause_button.text() == "Pause"
+
+    aufgenommene_datei = fenster._recording.zielpfad
+    fenster._stop_recording()
+
+    assert fenster._recording is None
+    assert fenster.recording_device_combo.isEnabled()
+    assert not fenster.recording_start_button.isHidden()
+    assert fenster.recording_pause_button.isHidden()
+    assert fenster.recording_stop_button.isHidden()
+    # Genau der Mechanismus, der auch beim direkten Dateidialog greift:
+    assert fenster._source_path == aufgenommene_datei
+    assert fenster.file_label.text() == f"Ausgewählt: {aufgenommene_datei.name}"
+
+
+def test_aufnahme_beenden_ohne_laufende_aufnahme_tut_nichts(fenster):
+    fenster._stop_recording()
+    assert fenster._recording is None
+
+
+def test_aufnahme_pause_ohne_laufende_aufnahme_tut_nichts(fenster):
+    fenster._toggle_recording_pause()
+    assert fenster._recording is None
+
+
 def test_ausgabeordner_waehlen(fenster, tmp_path, monkeypatch):
     ziel = tmp_path / "neue_ausgabe"
     ziel.mkdir()
@@ -444,7 +616,27 @@ def test_diagnose_dialog_wird_geoeffnet(fenster, monkeypatch):
 
 
 # --------------------------------------------------------------------------
-# Start der Verarbeitung: Eingabepruefungen
+# Transkript auswaehlen (Eingang der Nachbearbeitung)
+# --------------------------------------------------------------------------
+def test_transkript_ueber_dialog_waehlen(fenster, tmp_path, monkeypatch):
+    transkript = tmp_path / "ergebnis.json"
+    transkript.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(
+        QFileDialog, "getOpenFileName", staticmethod(lambda *a, **k: (str(transkript), ""))
+    )
+    fenster._choose_transcript()
+    assert fenster._selected_transcript_path == transkript
+    assert "ergebnis.json" in fenster.transcript_label.text()
+
+
+def test_transkript_ueber_dialog_abgebrochen(fenster, monkeypatch):
+    monkeypatch.setattr(QFileDialog, "getOpenFileName", staticmethod(lambda *a, **k: ("", "")))
+    fenster._choose_transcript()
+    assert fenster._selected_transcript_path is None
+
+
+# --------------------------------------------------------------------------
+# Start der Transkription: Eingabepruefungen
 # --------------------------------------------------------------------------
 @pytest.fixture
 def gemeldete_fehler(monkeypatch):
@@ -454,13 +646,13 @@ def gemeldete_fehler(monkeypatch):
 
 
 def test_start_ohne_datei(fenster, gemeldete_fehler):
-    fenster._start_processing()
+    fenster._start_transcription()
     assert gemeldete_fehler == ["Keine Datei ausgewählt"]
 
 
 def test_start_mit_verschwundener_datei(fenster, gemeldete_fehler, tmp_path):
     fenster._source_path = tmp_path / "weg.mp3"
-    fenster._start_processing()
+    fenster._start_transcription()
     assert gemeldete_fehler == ["Datei nicht gefunden"]
 
 
@@ -468,7 +660,7 @@ def test_start_mit_leerer_datei(fenster, gemeldete_fehler, tmp_path):
     leer = tmp_path / "leer.mp3"
     leer.write_bytes(b"")
     fenster._source_path = leer
-    fenster._start_processing()
+    fenster._start_transcription()
     assert gemeldete_fehler == ["Datei ist leer"]
 
 
@@ -481,18 +673,23 @@ def test_start_mit_unbeschreibbarem_ausgabeordner(
     fenster._source_path = audio_datei
     fenster._output_dir = blockade / "unterordner"
 
-    fenster._start_processing()
+    fenster._start_transcription()
 
     assert gemeldete_fehler == ["Ausgabeordner ungültig"]
 
 
-def test_start_ohne_systemprompt(fenster, gemeldete_fehler, audio_datei, isolierte_konfiguration):
+def test_start_transkription_braucht_keinen_systemprompt(
+    fenster, gemeldete_fehler, audio_datei, isolierte_konfiguration
+):
+    # Der Systemprompt wird erst fuer die Nachbearbeitung gebraucht - die
+    # Transkription laeuft auch ohne ihn.
     isolierte_konfiguration["prompt"].unlink()
     fenster._source_path = audio_datei
 
-    fenster._start_processing()
+    fenster._start_transcription()
 
-    assert gemeldete_fehler == ["Systemprompt fehlt"]
+    assert gemeldete_fehler == []
+    assert _WorkerAttrappe.instanzen[-1].gestartet is True
 
 
 def test_start_erzeugt_arbeiter_mit_einstellungen(fenster, audio_datei):
@@ -502,7 +699,7 @@ def test_start_erzeugt_arbeiter_mit_einstellungen(fenster, audio_datei):
     fenster.max_speakers_spin.setValue(5)
     fenster.offline_checkbox.setChecked(True)
 
-    fenster._start_processing()
+    fenster._start_transcription()
 
     arbeiter = _WorkerAttrappe.instanzen[-1]
     assert arbeiter.gestartet is True
@@ -518,7 +715,7 @@ def test_start_ohne_sprecherbegrenzung(fenster, audio_datei):
     fenster._source_path = audio_datei
     fenster.limit_speakers_checkbox.setChecked(False)
 
-    fenster._start_processing()
+    fenster._start_transcription()
 
     arbeiter = _WorkerAttrappe.instanzen[-1]
     assert arbeiter.settings.min_speakers is None
@@ -527,9 +724,9 @@ def test_start_ohne_sprecherbegrenzung(fenster, audio_datei):
 
 def test_abbruch(fenster, audio_datei):
     fenster._source_path = audio_datei
-    fenster._start_processing()
+    fenster._start_transcription()
 
-    fenster._cancel_processing()
+    fenster._cancel_transcription()
 
     assert _WorkerAttrappe.instanzen[-1].abbruch_angefordert is True
     assert "Abbruch angefordert" in fenster.status_label.text()
@@ -537,35 +734,90 @@ def test_abbruch(fenster, audio_datei):
 
 
 def test_abbruch_ohne_laufenden_arbeiter(fenster):
-    fenster._cancel_processing()  # darf nicht werfen
+    fenster._cancel_transcription()  # darf nicht werfen
+
+
+# --------------------------------------------------------------------------
+# Start der Nachbearbeitung: Eingabepruefungen
+# --------------------------------------------------------------------------
+def test_nachbearbeitung_ohne_transkript(fenster, gemeldete_fehler):
+    fenster._start_protocol()
+    assert gemeldete_fehler == ["Kein Transkript ausgewählt"]
+
+
+def test_nachbearbeitung_mit_verschwundenem_transkript(fenster, gemeldete_fehler, tmp_path):
+    fenster._selected_transcript_path = tmp_path / "weg.json"
+    fenster._start_protocol()
+    assert gemeldete_fehler == ["Transkript nicht gefunden"]
+
+
+def test_nachbearbeitung_ohne_systemprompt(
+    fenster, gemeldete_fehler, tmp_path, isolierte_konfiguration
+):
+    transkript = tmp_path / "ergebnis.json"
+    transkript.write_text("{}", encoding="utf-8")
+    fenster._set_transcript_path(transkript)
+    isolierte_konfiguration["prompt"].unlink()
+
+    fenster._start_protocol()
+
+    assert gemeldete_fehler == ["Systemprompt fehlt"]
+
+
+def test_nachbearbeitung_erzeugt_arbeiter_mit_einstellungen(fenster, tmp_path):
+    transkript = tmp_path / "ergebnis.json"
+    transkript.write_text("{}", encoding="utf-8")
+    fenster._set_transcript_path(transkript)
+
+    fenster._start_protocol()
+
+    arbeiter = _WorkerAttrappe.instanzen[-1]
+    assert arbeiter.gestartet is True
+    assert arbeiter.settings.transcript_json_path == transkript
+    assert not fenster.protocol_start_button.isEnabled()
+    assert not fenster.start_button.isEnabled()  # geteilte Anzeige -- kein Parallellauf
+    assert fenster.protocol_cancel_button.isEnabled()
+
+
+def test_nachbearbeitung_abbruch(fenster, tmp_path):
+    transkript = tmp_path / "ergebnis.json"
+    transkript.write_text("{}", encoding="utf-8")
+    fenster._set_transcript_path(transkript)
+    fenster._start_protocol()
+
+    fenster._cancel_protocol()
+
+    assert _WorkerAttrappe.instanzen[-1].abbruch_angefordert is True
+    assert not fenster.protocol_cancel_button.isEnabled()
+
+
+def test_nachbearbeitung_abbruch_ohne_laufenden_arbeiter(fenster):
+    fenster._cancel_protocol()  # darf nicht werfen
 
 
 # --------------------------------------------------------------------------
 # Fortschrittsanzeigen
 # --------------------------------------------------------------------------
 def test_stufe_transkription(fenster):
-    fenster._on_stage_changed("transkription", "Chunk 1 wird transkribiert")
+    fenster._on_transcription_stage_changed("transkription", "Chunk 1 wird transkribiert")
     assert fenster.status_label.text() == "Chunk 1 wird transkribiert"
     assert fenster.transcription_status_label.text() == "Chunk 1 wird transkribiert"
 
 
+def test_stufe_transkription_abgeschlossen(fenster):
+    fenster._on_transcription_stage_changed("abgeschlossen", "fertig")
+    assert fenster.transcription_status_label.text() == "fertig"
+
+
 def test_stufe_protokoll(fenster):
-    fenster._on_stage_changed("protokoll_auswertung", "Protokoll wird erstellt")
+    fenster._on_protocol_stage_changed("protokoll_auswertung", "Protokoll wird erstellt")
     assert fenster.protocol_status_label.text() == "Protokoll wird erstellt"
 
 
-def test_stufe_abgeschlossen(fenster):
-    fenster.protocol_checkbox.setChecked(True)
-    fenster._on_stage_changed("abgeschlossen", "fertig")
-    assert fenster.transcription_status_label.text() == "abgeschlossen"
-    assert fenster.protocol_status_label.text() == "abgeschlossen"
-
-
-def test_stufe_abgeschlossen_ohne_protokoll(fenster):
-    fenster.protocol_checkbox.setChecked(False)
-    fenster.protocol_status_label.setText("deaktiviert")
-    fenster._on_stage_changed("abgeschlossen", "fertig")
-    assert fenster.protocol_status_label.text() == "deaktiviert"
+def test_stufe_protokoll_fehlgeschlagen_setzt_tooltip(fenster):
+    fenster._on_protocol_stage_changed("protokoll_fehlgeschlagen", "kaputt")
+    assert fenster.protocol_status_label.text() == "kaputt"
+    assert fenster.protocol_status_label.toolTip() == "kaputt"
 
 
 def test_chunk_fortschritt(fenster):
@@ -613,9 +865,9 @@ def test_verstrichene_zeit(fenster, monkeypatch):
 
 
 # --------------------------------------------------------------------------
-# Ergebnisbehandlung
+# Ergebnisbehandlung: Transkription
 # --------------------------------------------------------------------------
-def _ergebnis_bauen(tmp_path, eintraege, protokoll_fehler=None):
+def _transkript_ergebnis_bauen(tmp_path, eintraege):
     json_datei = tmp_path / "ergebnis.json"
     json_datei.write_text(
         json.dumps({"sprecher_zuordnung": eintraege}, ensure_ascii=False), encoding="utf-8"
@@ -629,16 +881,12 @@ def _ergebnis_bauen(tmp_path, eintraege, protokoll_fehler=None):
 
     class _Ergebnis:
         export_paths = pfade
-        # Wie im echten PipelineResult: gesetzt, wenn nur die
-        # Protokollauswertung gescheitert ist.
-        protokoll_fehler = None
 
-    _Ergebnis.protokoll_fehler = protokoll_fehler
     return _Ergebnis()
 
 
 def test_sprechertabelle_wird_gefuellt(fenster, tmp_path):
-    ergebnis = _ergebnis_bauen(
+    ergebnis = _transkript_ergebnis_bauen(
         tmp_path,
         [
             {
@@ -660,44 +908,48 @@ def test_sprechertabelle_wird_gefuellt(fenster, tmp_path):
 
 
 def test_sprechertabelle_ohne_eintraege(fenster, tmp_path):
-    fenster._populate_speaker_table(_ergebnis_bauen(tmp_path, []))
+    fenster._populate_speaker_table(_transkript_ergebnis_bauen(tmp_path, []))
     assert fenster.speaker_table.rowCount() == 0
     assert not fenster.apply_names_button.isEnabled()
 
 
-def test_verarbeitung_erfolgreich(fenster, tmp_path, monkeypatch):
+def test_transkription_erfolgreich(fenster, tmp_path, monkeypatch):
     infos = []
     monkeypatch.setattr(QMessageBox, "information", staticmethod(lambda *a: infos.append(a)))
-    ergebnis = _ergebnis_bauen(tmp_path, [])
+    ergebnis = _transkript_ergebnis_bauen(tmp_path, [])
 
-    fenster._on_finished_ok(ergebnis)
+    fenster._on_transcription_finished_ok(ergebnis)
 
-    assert fenster.status_label.text() == "Verarbeitung abgeschlossen."
-    assert fenster._last_result is ergebnis
+    assert fenster.status_label.text() == "Transkription abgeschlossen."
+    assert fenster._last_transcription_result is ergebnis
+    # Das Transkript wird automatisch als Eingang der Nachbearbeitung
+    # vorausgewaehlt - genau der Punkt der ganzen Umstellung.
+    assert fenster._selected_transcript_path == ergebnis.export_paths.json
+    assert "ergebnis.json" in fenster.transcript_label.text()
     assert infos
 
 
-def test_verarbeitung_fehlgeschlagen(fenster, gemeldete_fehler):
-    fenster._on_failed("Modell nicht gefunden")
-    assert fenster.status_label.text() == "Fehler bei der Verarbeitung."
-    assert gemeldete_fehler == ["Verarbeitung fehlgeschlagen"]
+def test_transkription_fehlgeschlagen(fenster, gemeldete_fehler):
+    fenster._on_transcription_failed("Modell nicht gefunden")
+    assert fenster.status_label.text() == "Fehler bei der Transkription."
+    assert gemeldete_fehler == ["Transkription fehlgeschlagen"]
 
 
-def test_verarbeitung_abgebrochen(fenster):
-    fenster._on_cancelled()
-    assert fenster.status_label.text() == "Verarbeitung abgebrochen."
+def test_transkription_abgebrochen(fenster):
+    fenster._on_transcription_cancelled()
+    assert fenster.status_label.text() == "Transkription abgebrochen."
 
 
 # --------------------------------------------------------------------------
 # Sprechernamen uebernehmen
 # --------------------------------------------------------------------------
 def test_namen_uebernehmen_ohne_ergebnis(fenster):
-    fenster._last_result = None
+    fenster._last_transcription_result = None
     fenster._apply_speaker_names()  # darf nicht werfen
 
 
 def test_namen_uebernehmen(fenster, tmp_path, monkeypatch):
-    ergebnis = _ergebnis_bauen(
+    ergebnis = _transkript_ergebnis_bauen(
         tmp_path,
         [
             {
@@ -708,7 +960,7 @@ def test_namen_uebernehmen(fenster, tmp_path, monkeypatch):
             }
         ],
     )
-    fenster._last_result = ergebnis
+    fenster._last_transcription_result = ergebnis
     fenster._populate_speaker_table(ergebnis)
     fenster.speaker_table.item(0, 3).setText("  Mueller  ")
 
@@ -733,7 +985,7 @@ def test_namen_uebernehmen(fenster, tmp_path, monkeypatch):
 
 
 def test_namen_uebernehmen_ueberspringt_leere_namen(fenster, tmp_path, monkeypatch):
-    ergebnis = _ergebnis_bauen(
+    ergebnis = _transkript_ergebnis_bauen(
         tmp_path,
         [
             {
@@ -744,7 +996,7 @@ def test_namen_uebernehmen_ueberspringt_leere_namen(fenster, tmp_path, monkeypat
             }
         ],
     )
-    fenster._last_result = ergebnis
+    fenster._last_transcription_result = ergebnis
     fenster._populate_speaker_table(ergebnis)
 
     uebergeben = {}
@@ -766,8 +1018,8 @@ def test_namen_uebernehmen_ueberspringt_leere_namen(fenster, tmp_path, monkeypat
 
 
 def test_namen_uebernehmen_meldet_exportfehler(fenster, tmp_path, monkeypatch, gemeldete_fehler):
-    ergebnis = _ergebnis_bauen(tmp_path, [])
-    fenster._last_result = ergebnis
+    ergebnis = _transkript_ergebnis_bauen(tmp_path, [])
+    fenster._last_transcription_result = ergebnis
 
     def werfen(_j, _o):
         raise OSError("Platte voll")
@@ -780,47 +1032,61 @@ def test_namen_uebernehmen_meldet_exportfehler(fenster, tmp_path, monkeypatch, g
 
 
 # --------------------------------------------------------------------------
-# Gescheiterte Protokollauswertung
+# Ergebnisbehandlung: Nachbearbeitung
 # --------------------------------------------------------------------------
-def test_gescheitertes_protokoll_bleibt_nach_abgeschlossen_sichtbar(fenster):
-    # Die Verarbeitung als Ganzes ist fertig, das Protokoll aber nicht
-    # entstanden. Die Stufe "abgeschlossen" darf den Fehlschlag nicht
-    # ueberschreiben - sonst sucht der Nutzer vergeblich nach der Datei.
-    fenster.protocol_checkbox.setChecked(True)
-    fenster._on_stage_changed("protokoll_fehlgeschlagen", "Protokollauswertung fehlgeschlagen: kaputt")
-    fenster._on_stage_changed("abgeschlossen", "fertig")
+def _protokoll_ergebnis_bauen(tmp_path, protokoll_fehler=None):
+    protokoll_pfade = None
+    if protokoll_fehler is None:
+        protokoll_txt = tmp_path / "protokoll.txt"
+        protokoll_txt.write_text("Protokolltext", encoding="utf-8")
+        protokoll_pfade = (protokoll_txt, tmp_path / "protokoll.json")
 
-    assert fenster.transcription_status_label.text() == "abgeschlossen"
-    assert "fehlgeschlagen" in fenster.protocol_status_label.text()
-    assert fenster.protocol_status_label.text() != "abgeschlossen"
+    class _Ergebnis:
+        work_dir = tmp_path
+        protocol_paths = protokoll_pfade
+        report_paths = (tmp_path / "bericht.txt", tmp_path / "bericht.json")
 
-
-def test_neuer_lauf_setzt_den_fehlerzustand_zurueck(fenster):
-    fenster.protocol_checkbox.setChecked(True)
-    fenster._on_stage_changed("protokoll_fehlgeschlagen", "kaputt")
-    assert fenster._protokoll_fehlgeschlagen
-
-    fenster._protokoll_fehlgeschlagen = False
-    fenster._on_stage_changed("abgeschlossen", "fertig")
-    assert fenster.protocol_status_label.text() == "abgeschlossen"
+    _Ergebnis.protokoll_fehler = protokoll_fehler
+    return _Ergebnis()
 
 
-def test_abschlussmeldung_nennt_gescheitertes_protokoll(fenster, tmp_path, monkeypatch):
+def test_nachbearbeitung_erfolgreich(fenster, tmp_path, monkeypatch):
+    infos = []
+    monkeypatch.setattr(QMessageBox, "information", staticmethod(lambda *a: infos.append(a)))
+    ergebnis = _protokoll_ergebnis_bauen(tmp_path)
+
+    fenster._on_protocol_finished_ok(ergebnis)
+
+    assert fenster.status_label.text() == "Nachbearbeitung abgeschlossen."
+    assert fenster._last_protocol_result is ergebnis
+    assert infos
+
+
+def test_nachbearbeitung_meldet_fehlschlag(fenster, tmp_path, monkeypatch):
     warnungen = []
     infos = []
     monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a: warnungen.append(a)))
     monkeypatch.setattr(QMessageBox, "information", staticmethod(lambda *a: infos.append(a)))
-    ergebnis = _ergebnis_bauen(tmp_path, [], protokoll_fehler="Ollama ist nicht erreichbar")
+    ergebnis = _protokoll_ergebnis_bauen(tmp_path, protokoll_fehler="Ollama ist nicht erreichbar")
 
-    fenster._on_finished_ok(ergebnis)
+    fenster._on_protocol_finished_ok(ergebnis)
 
     assert warnungen, "Es haette gewarnt werden muessen."
     assert not infos, "Ein Erfolgsfenster waere hier irrefuehrend."
-    # QMessageBox.warning(parent, titel, text) -- der Text ist das dritte Argument.
     assert "Ollama ist nicht erreichbar" in warnungen[0][2]
     assert "fehlgeschlagen" in fenster.status_label.text()
-    # Das Transkript ist trotzdem da und die Sprechertabelle nutzbar.
-    assert fenster._last_result is ergebnis
+    assert fenster._last_protocol_result is ergebnis
+
+
+def test_nachbearbeitung_fehlgeschlagen(fenster, gemeldete_fehler):
+    fenster._on_protocol_failed("Modell nicht gefunden")
+    assert fenster.status_label.text() == "Fehler bei der Nachbearbeitung."
+    assert gemeldete_fehler == ["Nachbearbeitung fehlgeschlagen"]
+
+
+def test_nachbearbeitung_abgebrochen_meldung(fenster):
+    fenster._on_protocol_cancelled()
+    assert fenster.status_label.text() == "Nachbearbeitung abgebrochen."
 
 
 # --------------------------------------------------------------------------

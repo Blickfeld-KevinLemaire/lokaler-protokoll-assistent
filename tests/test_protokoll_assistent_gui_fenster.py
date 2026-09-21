@@ -22,10 +22,20 @@ import protokoll_assistent_gui as gui
 # --------------------------------------------------------------------------
 @pytest.fixture
 def fenster(tk_wurzel, tmp_path, monkeypatch):
-    """Ein fertig aufgebautes ProtokollGUI mit temporaeren Ordnern."""
+    """Ein fertig aufgebautes ProtokollGUI mit temporaeren Ordnern.
+
+    Die Geraeteliste fuer die Mikrofonaufnahme wird auf 'keine Geraete'
+    gesetzt, damit die Tests nicht von echter Audio-Hardware der
+    CI-Umgebung abhaengen. Tests, die konkrete Geraete brauchen, patchen
+    'gui.mikrofon_aufnahme.liste_aufnahmegeraete' um und rufen danach
+    'fenster._aufnahme_geraete_laden()' erneut auf.
+    """
     for name in ("INPUT_DIR", "OUTPUT_DIR", "CHECKPOINT_DIR", "SETTINGS_DIR", "ERGEBNIS_DIR"):
         monkeypatch.setattr(gui, name, tmp_path / name.lower())
     monkeypatch.setattr(gui, "APP_DIR", tmp_path)
+    if gui.HAT_MIKROFON_AUFNAHME:
+        monkeypatch.setattr(gui.mikrofon_aufnahme, "KONFIG_DATEI", tmp_path / "mikrofon_konfiguration.json")
+        monkeypatch.setattr(gui.mikrofon_aufnahme, "liste_aufnahmegeraete", lambda: [])
     return gui.ProtokollGUI(tk_wurzel)
 
 
@@ -277,6 +287,170 @@ def test_bei_datei_abgelegt_datei(fenster, tmp_path):
 def test_bei_datei_abgelegt_ohne_pfad(fenster):
     fenster._bei_datei_abgelegt(_FakeDnDEvent(""))
     assert fenster.selected_folder is None
+
+
+# --------------------------------------------------------------------------
+# Mikrofonaufnahme (Voice Recording)
+# --------------------------------------------------------------------------
+def _geraet(name, hostapi_name="WASAPI"):
+    return gui.mikrofon_aufnahme.Aufnahmegeraet(
+        index=0, name=name, hostapi_name=hostapi_name, default_samplerate=16000.0
+    )
+
+
+class _FakeMikrofonAufnahme:
+    """Ersetzt die echte Aufnahme - kein Geraet, kein Thread, keine Queue."""
+
+    def __init__(self, geraet, zielpfad, stream_klasse=None):
+        self.geraet = geraet
+        self.zielpfad = zielpfad
+        self.gestartet = False
+        self._pausiert = False
+        self._dauer = 0.0
+        self._pegel = 0.0
+
+    def start(self):
+        self.gestartet = True
+        self.zielpfad.write_bytes(b"RIFF....WAVEfmt ")
+
+    def pause(self):
+        self._pausiert = True
+
+    def fortsetzen(self):
+        self._pausiert = False
+
+    @property
+    def ist_pausiert(self):
+        return self._pausiert
+
+    @property
+    def dauer_sekunden(self):
+        return self._dauer
+
+    @property
+    def pegel(self):
+        return self._pegel
+
+    def stop(self):
+        return self.zielpfad
+
+
+def test_aufnahme_geraete_werden_geladen_und_vorausgewaehlt(fenster, monkeypatch):
+    geraete = [_geraet("ReSpeaker USB Mic Array"), _geraet("Headset-Mikrofon")]
+    monkeypatch.setattr(gui.mikrofon_aufnahme, "liste_aufnahmegeraete", lambda: geraete)
+    monkeypatch.setattr(gui.mikrofon_aufnahme, "standard_eingabe_index", lambda: None)
+
+    fenster._aufnahme_geraete_laden()
+
+    assert list(fenster.aufnahme_geraet_combo["values"]) == [
+        "ReSpeaker USB Mic Array (WASAPI)",
+        "Headset-Mikrofon (WASAPI)",
+    ]
+    assert fenster.aufnahme_geraet_var.get() == "ReSpeaker USB Mic Array (WASAPI)"
+    assert fenster.aufnahme_hinweis_var.get() == ""
+    assert str(fenster.aufnahme_start_button["state"]) == "normal"
+
+
+def test_aufnahme_ohne_geraete_deaktiviert_start_button(fenster):
+    # Die Fixture setzt bereits eine leere Geraeteliste.
+    assert fenster.aufnahme_geraete == []
+    assert "Keine Audioeingabegeraete" in fenster.aufnahme_hinweis_var.get()
+    assert str(fenster.aufnahme_start_button["state"]) == "disabled"
+
+
+def test_aufnahme_geraet_wechsel_zeigt_fallback_hinweis(fenster, monkeypatch, tmp_path):
+    (tmp_path / "mikrofon_konfiguration.json").write_text(
+        '{"anzeigename": "Nicht mehr angeschlossen (WASAPI)"}', encoding="utf-8"
+    )
+    geraete = [_geraet("Headset-Mikrofon")]
+    monkeypatch.setattr(gui.mikrofon_aufnahme, "liste_aufnahmegeraete", lambda: geraete)
+    monkeypatch.setattr(gui.mikrofon_aufnahme, "standard_eingabe_index", lambda: None)
+
+    fenster._aufnahme_geraete_laden()
+
+    assert fenster.aufnahme_geraet_var.get() == "Headset-Mikrofon (WASAPI)"
+    assert "nicht mehr verfuegbar" in fenster.aufnahme_hinweis_var.get()
+
+
+def test_aufnahme_geraet_auswahl_wird_gespeichert(fenster):
+    fenster.aufnahme_geraet_var.set("Headset-Mikrofon (WASAPI)")
+    fenster._aufnahme_geraet_geaendert()
+
+    assert gui.mikrofon_aufnahme.lade_gespeichertes_geraet() == "Headset-Mikrofon (WASAPI)"
+
+
+def test_aufnahme_starten_ohne_auswahl_zeigt_fehler(fenster, monkeypatch):
+    fehler = []
+    monkeypatch.setattr(gui.messagebox, "showerror", lambda titel, _text: fehler.append(titel))
+    fenster.aufnahme_geraet_var.set("")
+
+    fenster._aufnahme_starten()
+
+    assert fehler
+    assert fenster.aufnahme_objekt is None
+
+
+def test_aufnahme_start_fehler_zeigt_messagebox(fenster, monkeypatch):
+    class _KaputteAufnahme(_FakeMikrofonAufnahme):
+        def start(self):
+            raise OSError("Geraet wird bereits verwendet")
+
+    fehler = []
+    monkeypatch.setattr(gui.messagebox, "showerror", lambda _t, text: fehler.append(text))
+    monkeypatch.setattr(gui.mikrofon_aufnahme, "MikrofonAufnahme", _KaputteAufnahme)
+    fenster.aufnahme_geraete = [_geraet("Headset-Mikrofon")]
+    fenster.aufnahme_geraet_var.set("Headset-Mikrofon (WASAPI)")
+
+    fenster._aufnahme_starten()
+
+    assert fehler
+    assert "Geraet wird bereits verwendet" in fehler[0]
+    assert fenster.aufnahme_objekt is None
+
+
+def test_aufnahme_start_pause_beenden_uebergibt_datei_wie_dateiauswahl(fenster, monkeypatch):
+    monkeypatch.setattr(gui.mikrofon_aufnahme, "MikrofonAufnahme", _FakeMikrofonAufnahme)
+    fenster.aufnahme_geraete = [_geraet("Headset-Mikrofon")]
+    fenster.aufnahme_geraet_var.set("Headset-Mikrofon (WASAPI)")
+
+    fenster._aufnahme_starten()
+
+    assert fenster.aufnahme_objekt is not None
+    assert fenster.aufnahme_objekt.gestartet
+    assert fenster.aufnahme_start_button.winfo_manager() == ""
+    assert fenster.aufnahme_pause_button.winfo_manager() == "pack"
+    assert fenster.aufnahme_stop_button.winfo_manager() == "pack"
+    assert fenster.aufnahme_status_var.get() == "\U0001f534 Aufnahme laeuft"
+
+    fenster._aufnahme_pause_umschalten()
+    assert fenster.aufnahme_objekt.ist_pausiert
+    assert fenster.aufnahme_pause_button["text"] == "Fortsetzen"
+    assert fenster.aufnahme_status_var.get() == "⏸ Aufnahme pausiert"
+
+    fenster._aufnahme_pause_umschalten()
+    assert not fenster.aufnahme_objekt.ist_pausiert
+    assert fenster.aufnahme_pause_button["text"] == "Pause"
+
+    aufgenommene_datei = fenster.aufnahme_objekt.zielpfad
+    fenster._aufnahme_beenden()
+
+    assert fenster.aufnahme_objekt is None
+    assert fenster.aufnahme_start_button.winfo_manager() == "pack"
+    assert fenster.aufnahme_pause_button.winfo_manager() == ""
+    assert fenster.aufnahme_stop_button.winfo_manager() == ""
+    # Genau der Mechanismus, der auch bei Datei-Button/Drag & Drop greift:
+    assert fenster.selected_folder == aufgenommene_datei.parent
+    assert fenster.file_var.get() == aufgenommene_datei.name
+
+
+def test_aufnahme_beenden_ohne_laufende_aufnahme_tut_nichts(fenster):
+    fenster._aufnahme_beenden()  # darf nicht knallen
+    assert fenster.aufnahme_objekt is None
+
+
+def test_aufnahme_pause_ohne_laufende_aufnahme_tut_nichts(fenster):
+    fenster._aufnahme_pause_umschalten()  # darf nicht knallen
+    assert fenster.aufnahme_objekt is None
 
 
 def test_transkript_waehlen_abgebrochen(fenster, monkeypatch):

@@ -91,6 +91,21 @@ QLineEdit, QComboBox, QSpinBox, QPlainTextEdit, QTextEdit, QListWidget {{
     selection-color: white;
 }}
 
+/* Ohne Mindestbreite schrumpft ein QComboBox in einem QFormLayout auf
+   seinen aktuellen Eintrag - bei langen Modellbezeichnungen war davon oft
+   nur ein Bruchteil zu lesen. */
+QComboBox {{
+    min-width: 300px;
+    min-height: 26px;
+}}
+QComboBox QAbstractItemView {{
+    background-color: {SURFACE};
+    border: 1px solid {BORDER};
+    selection-background-color: {ACCENT};
+    selection-color: white;
+    outline: none;
+}}
+
 QProgressBar {{
     border: 1px solid {BORDER};
     border-radius: 6px;

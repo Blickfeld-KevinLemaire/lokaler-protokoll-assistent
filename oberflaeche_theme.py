@@ -26,6 +26,32 @@ TEXT_FARBEN = {
     "dark": {"bg": "#1c1c1c", "fg": "#f0f0f0", "insertbackground": "#f0f0f0"},
 }
 
+# Dieselbe Akzentfarbe wie in 'lokale_windows_app/gui/theme.py' (ACCENT).
+# Bewusst hier noch einmal eingetragen statt importiert: die beiden
+# Anwendungen teilen sich nichts ausser der Sprache (siehe CLAUDE.md) - nur
+# der Farbwert soll gleich aussehen, nicht der Code gekoppelt sein.
+AKZENTFARBE = "#2f6fed"
+
+
+def _falls_ohne_sv_ttk_einrichten(style: ttk.Style) -> None:
+    """Faerbt das 'clam'-Fallback-Theme in derselben Akzentfarbe wie die
+    lokale Variante ein.
+
+    Ist sv-ttk installiert (der Normalfall - es steht in requirements.txt),
+    greift diese Funktion nie: sv-ttk zeichnet seine Elemente ueber fest
+    eingefaerbte Bilddateien, deren Farbe sich nicht per 'ttk.Style'
+    ueberschreiben laesst. Ohne sv-ttk ist 'clam' dagegen ein reines
+    Farb-Theme - hier lässt sich dieselbe Akzentfarbe wie im lokalen
+    Hauptfenster tatsaechlich anwenden.
+    """
+    style.configure(
+        "Accent.TButton",
+        background=AKZENTFARBE,
+        foreground="#ffffff",
+        padding=(8, 4),
+    )
+    style.map("Accent.TButton", background=[("active", "#255bc4"), ("disabled", "#a9c1f2")])
+
 
 def bevorzugtes_farbschema() -> str:
     """Liest unter Windows das aktuell eingestellte App-Farbschema aus."""
@@ -54,7 +80,14 @@ def schriftart_einrichten(root: tk.Tk) -> None:
 
 
 def anwenden(root: tk.Tk, farbschema: str | None = None) -> str:
-    """Wendet Schriftart und Theme auf das Fenster an, liefert das aktive Farbschema."""
+    """Wendet Schriftart und Theme auf das Fenster an, liefert das aktive Farbschema.
+
+    Der Stil 'Accent.TButton' steht danach in jedem Fall zur Verfuegung -
+    mit sv-ttk ist es dessen eigener, fest eingefaerbter Stil (siehe
+    '_falls_ohne_sv_ttk_einrichten'), ohne sv-ttk wird er hier passend zur
+    lokalen Variante eingerichtet. Aufrufer koennen ihn also unabhaengig
+    davon setzen, ob sv-ttk installiert ist.
+    """
     schriftart_einrichten(root)
     gewaehlt = farbschema or bevorzugtes_farbschema()
     if HAT_SV_TTK:
@@ -65,6 +98,7 @@ def anwenden(root: tk.Tk, farbschema: str | None = None) -> str:
             style.theme_use("clam")
         except tk.TclError:
             pass
+        _falls_ohne_sv_ttk_einrichten(style)
     return gewaehlt
 
 

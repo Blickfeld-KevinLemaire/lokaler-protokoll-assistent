@@ -1,24 +1,28 @@
 """Hauptfenster von Protokoll-Assistent Lokal (PySide6).
 
-Die Verarbeitung laeuft immer in einem Hintergrund-Thread
-(``gui.worker.PipelineWorker``), damit die Oberflaeche waehrend
-Transkription, Diarisierung und lokaler Protokollauswertung nicht
-einfriert.
+Zweistufiger Ablauf, genau wie in der Cloud-Variante: erst die Transkription
+(``gui.worker.TranscriptionWorker``), danach getrennt die Nachbearbeitung
+eines - auch eines frueher erzeugten und ausgewaehlten - Transkripts
+(``gui.worker.ProtocolWorker``). Beide laufen in einem Hintergrund-Thread,
+damit die Oberflaeche waehrend Transkription, Diarisierung und lokaler
+Protokollauswertung nicht einfriert.
 """
 
 from __future__ import annotations
 
+import contextlib
 import json
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer, QUrl
-from PySide6.QtGui import QDesktopServices, QDragEnterEvent, QDropEvent
+from PySide6.QtGui import QCloseEvent, QDesktopServices, QDragEnterEvent, QDropEvent
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
     QComboBox,
     QFileDialog,
     QFormLayout,
+    QFrame,
     QGroupBox,
     QHBoxLayout,
     QHeaderView,
@@ -29,6 +33,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
+    QScrollArea,
     QSpinBox,
     QSplitter,
     QTableWidget,
@@ -39,10 +44,10 @@ from PySide6.QtWidgets import (
 
 from gui.dialogs import DiagnosticsDialog, SystemPromptDialog, show_error
 from gui.strings import PRIVACY_NOTICE
-from gui.worker import DateiHashWorker, PipelineWorker
-from services import export_service, manifest_service, model_service, pipeline_service
+from gui.worker import DateiHashWorker, ProtocolWorker, TranscriptionWorker
+from services import export_service, manifest_service, model_service, pipeline_service, recording_service
 from utils.app_config import load_config, update_config
-from utils.paths import get_default_output_dir, get_system_prompt_file, get_work_dir
+from utils.paths import get_default_output_dir, get_recordings_dir, get_system_prompt_file, get_work_dir
 from utils.timeformat import format_duration_human
 
 SUPPORTED_EXTENSION_NAMES = [
@@ -51,25 +56,12 @@ SUPPORTED_EXTENSION_NAMES = [
 SUPPORTED_EXTENSIONS = " ".join(f"*.{name}" for name in SUPPORTED_EXTENSION_NAMES)
 SUPPORTED_SUFFIXES = {f".{name}" for name in SUPPORTED_EXTENSION_NAMES}
 
-TRANSCRIPT_STAGES = {
-    "datei_pruefung",
-    "audio_normalisierung",
-    "chunk_planung",
-    "modell_laden",
-    "transkription",
-    "ausrichtung",
-    "diarisierung",
-    "zusammenfuehrung",
-    "export_transkript",
-}
-PROTOCOL_STAGES = {"protokoll_auswertung", "export_protokoll", "protokoll_fehlgeschlagen"}
-
 
 class MainWindow(QMainWindow):
     def __init__(self, initial_folder: Path | None = None, initial_file: str | None = None) -> None:
         super().__init__()
         self.setWindowTitle("Protokoll-Assistent Lokal")
-        self.resize(1100, 850)
+        self.resize(1420, 900)
         self.setAcceptDrops(True)
 
         config = load_config()
@@ -91,11 +83,13 @@ class MainWindow(QMainWindow):
         else:
             self._output_dir = get_default_output_dir()
 
-        self._worker: PipelineWorker | None = None
+        self._transcription_worker: TranscriptionWorker | None = None
+        self._protocol_worker: ProtocolWorker | None = None
         self._start_time: float | None = None
         self._chunk_progress = (0, 0)
-        self._last_result: pipeline_service.PipelineResult | None = None
-        self._protokoll_fehlgeschlagen = False
+        self._last_transcription_result: pipeline_service.TranscriptionResult | None = None
+        self._last_protocol_result: pipeline_service.ProtocolResult | None = None
+        self._selected_transcript_path: Path | None = None
         self._hash_worker: DateiHashWorker | None = None
         # Der Dateihash bestimmt den Arbeitsordner. Er kostet bei langen
         # Aufnahmen Sekunden, deshalb wird er je Datei nur einmal berechnet.
@@ -104,6 +98,12 @@ class MainWindow(QMainWindow):
         self._elapsed_timer = QTimer(self)
         self._elapsed_timer.setInterval(1000)
         self._elapsed_timer.timeout.connect(self._update_elapsed_label)
+
+        self._recording_devices: list[recording_service.Aufnahmegeraet] = []
+        self._recording: recording_service.MikrofonAufnahme | None = None
+        self._recording_timer = QTimer(self)
+        self._recording_timer.setInterval(100)
+        self._recording_timer.timeout.connect(self._update_recording_display)
 
         self._build_ui()
         self._refresh_hardware_label()
@@ -131,15 +131,37 @@ class MainWindow(QMainWindow):
         root_layout.addWidget(splitter, stretch=1)
 
         left_panel = QWidget(self)
-        splitter.addWidget(left_panel)
         left_layout = QVBoxLayout(left_panel)
 
+        left_layout.addWidget(self._build_recording_group())
         left_layout.addWidget(self._build_file_group())
         left_layout.addWidget(self._build_settings_group())
         left_layout.addWidget(self._build_resume_group())
         left_layout.addWidget(self._build_control_group())
         left_layout.addWidget(self._build_progress_group())
+
+        separator = QFrame(self)
+        separator.setFrameShape(QFrame.HLine)
+        left_layout.addWidget(separator)
+        nachbearbeitung_label = QLabel(
+            "Nachbearbeitung (separater Schritt - jederzeit für ein vorhandenes Transkript)", self
+        )
+        nachbearbeitung_label.setStyleSheet("font-weight: 700;")
+        left_layout.addWidget(nachbearbeitung_label)
+
+        left_layout.addWidget(self._build_transcript_selection_group())
+        left_layout.addWidget(self._build_protocol_control_group())
         left_layout.addStretch(1)
+
+        # Mit der Aufnahmegruppe stapeln sich links viele Gruppen
+        # uebereinander - ohne Scrollbereich wuerden sie auf kleineren
+        # Bildschirmen zusammengequetscht oder abgeschnitten.
+        left_scroll = QScrollArea(self)
+        left_scroll.setWidget(left_panel)
+        left_scroll.setWidgetResizable(True)
+        left_scroll.setFrameShape(QFrame.NoFrame)
+        left_scroll.setMinimumWidth(480)
+        splitter.addWidget(left_scroll)
 
         right_panel = QWidget(self)
         splitter.addWidget(right_panel)
@@ -147,10 +169,168 @@ class MainWindow(QMainWindow):
         right_layout.addWidget(self._build_preview_group(), stretch=1)
         right_layout.addWidget(self._build_speaker_group(), stretch=1)
 
-        splitter.setSizes([420, 680])
+        splitter.setSizes([650, 770])
+
+    def _build_recording_group(self) -> QGroupBox:
+        """Baut die Gruppe '1. Aufnahmegeraet' auf (Voice Recording).
+
+        Die erzeugte WAV-Datei landet am Ende ueber '_set_source_file' in
+        genau demselben Auswahlmechanismus wie eine per Hand ausgewaehlte
+        oder per Drag & Drop abgelegte Datei.
+        """
+        group = QGroupBox("1. Aufnahmegerät", self)
+        layout = QVBoxLayout(group)
+
+        device_row = QHBoxLayout()
+        device_row.addWidget(QLabel("Aufnahmegerät:", self))
+        self.recording_device_combo = QComboBox(self)
+        self.recording_device_combo.currentIndexChanged.connect(self._on_recording_device_changed)
+        device_row.addWidget(self.recording_device_combo, stretch=1)
+        layout.addLayout(device_row)
+
+        self.recording_hint_label = QLabel("", self)
+        self.recording_hint_label.setWordWrap(True)
+        self.recording_hint_label.setObjectName("RecordingHint")
+        layout.addWidget(self.recording_hint_label)
+
+        status_row = QHBoxLayout()
+        self.recording_status_label = QLabel("", self)
+        status_row.addWidget(self.recording_status_label)
+        self.recording_duration_label = QLabel("", self)
+        status_row.addWidget(self.recording_duration_label)
+        status_row.addStretch(1)
+        layout.addLayout(status_row)
+
+        self.recording_level_bar = QProgressBar(self)
+        self.recording_level_bar.setRange(0, 100)
+        self.recording_level_bar.setTextVisible(False)
+        layout.addWidget(self.recording_level_bar)
+
+        button_row = QHBoxLayout()
+        self.recording_start_button = QPushButton("Voice Recording starten", self)
+        self.recording_start_button.clicked.connect(self._start_recording)
+        button_row.addWidget(self.recording_start_button)
+        self.recording_pause_button = QPushButton("Pause", self)
+        self.recording_pause_button.clicked.connect(self._toggle_recording_pause)
+        self.recording_pause_button.hide()
+        button_row.addWidget(self.recording_pause_button)
+        self.recording_stop_button = QPushButton("Aufnahme beenden", self)
+        self.recording_stop_button.clicked.connect(self._stop_recording)
+        self.recording_stop_button.hide()
+        button_row.addWidget(self.recording_stop_button)
+        button_row.addStretch(1)
+        layout.addLayout(button_row)
+
+        self._populate_recording_devices()
+        return group
+
+    def _populate_recording_devices(self) -> None:
+        try:
+            self._recording_devices = recording_service.liste_aufnahmegeraete()
+        except Exception as error:  # PortAudio-Fehler in ungewoehnlicher Umgebung
+            self._recording_devices = []
+            self.recording_hint_label.setText(f"Aufnahmegeräte konnten nicht ermittelt werden: {error}")
+            self.recording_start_button.setEnabled(False)
+            return
+
+        if not self._recording_devices:
+            self.recording_hint_label.setText("Keine Audioeingabegeräte gefunden.")
+            self.recording_start_button.setEnabled(False)
+            return
+
+        config = load_config()
+        saved = config.get("aufnahmegeraet")
+        standard_index = recording_service.standard_eingabe_index()
+        device, hint = recording_service.waehle_startgeraet(
+            self._recording_devices, saved, standard_index
+        )
+
+        self.recording_device_combo.blockSignals(True)
+        self.recording_device_combo.clear()
+        for eintrag in self._recording_devices:
+            self.recording_device_combo.addItem(eintrag.anzeigename)
+        if device is not None:
+            index = self.recording_device_combo.findText(device.anzeigename)
+            if index >= 0:
+                self.recording_device_combo.setCurrentIndex(index)
+        self.recording_device_combo.blockSignals(False)
+
+        self.recording_hint_label.setText(hint or "")
+        self.recording_start_button.setEnabled(True)
+
+    def _on_recording_device_changed(self, _index: int) -> None:
+        anzeigename = self.recording_device_combo.currentText()
+        if anzeigename:
+            update_config(aufnahmegeraet=anzeigename)
+            self.recording_hint_label.setText("")
+
+    def _start_recording(self) -> None:
+        anzeigename = self.recording_device_combo.currentText()
+        geraet = next((g for g in self._recording_devices if g.anzeigename == anzeigename), None)
+        if geraet is None:
+            show_error(self, "Kein Gerät ausgewählt", "Bitte zuerst ein Aufnahmegerät auswählen.")
+            return
+
+        zielpfad = get_recordings_dir() / recording_service.erzeuge_dateiname()
+        try:
+            aufnahme = recording_service.MikrofonAufnahme(geraet, zielpfad)
+            aufnahme.start()
+        except Exception as error:
+            show_error(
+                self,
+                "Aufnahme konnte nicht gestartet werden",
+                f"Das Gerät '{geraet.anzeigename}' konnte nicht geöffnet werden:\n{error}",
+            )
+            return
+        self._recording = aufnahme
+
+        self.recording_device_combo.setEnabled(False)
+        self.recording_start_button.hide()
+        self.recording_pause_button.setText("Pause")
+        self.recording_pause_button.show()
+        self.recording_stop_button.show()
+        self.recording_status_label.setText("🔴 Aufnahme läuft")
+        self._recording_timer.start()
+
+    def _toggle_recording_pause(self) -> None:
+        if self._recording is None:
+            return
+        if self._recording.ist_pausiert:
+            self._recording.fortsetzen()
+            self.recording_pause_button.setText("Pause")
+            self.recording_status_label.setText("🔴 Aufnahme läuft")
+        else:
+            self._recording.pause()
+            self.recording_pause_button.setText("Fortsetzen")
+            self.recording_status_label.setText("⏸ Aufnahme pausiert")
+
+    def _update_recording_display(self) -> None:
+        if self._recording is None:
+            self._recording_timer.stop()
+            return
+        duration = int(self._recording.dauer_sekunden)
+        self.recording_duration_label.setText(f"{duration // 60:02d}:{duration % 60:02d}")
+        self.recording_level_bar.setValue(int(self._recording.pegel * 100))
+
+    def _stop_recording(self) -> None:
+        if self._recording is None:
+            return
+        path = self._recording.stop()
+        self._recording = None
+        self._recording_timer.stop()
+
+        self.recording_device_combo.setEnabled(True)
+        self.recording_pause_button.hide()
+        self.recording_stop_button.hide()
+        self.recording_start_button.show()
+        self.recording_status_label.setText("")
+        self.recording_duration_label.setText("")
+        self.recording_level_bar.setValue(0)
+
+        self._set_source_file(path)
 
     def _build_file_group(self) -> QGroupBox:
-        group = QGroupBox("1. Eingabeordner und Datei", self)
+        group = QGroupBox("2. Eingabeordner und Datei", self)
         layout = QVBoxLayout(group)
 
         folder_row = QHBoxLayout()
@@ -193,8 +373,15 @@ class MainWindow(QMainWindow):
         return group
 
     def _build_settings_group(self) -> QGroupBox:
-        group = QGroupBox("2. Einstellungen", self)
+        group = QGroupBox("3. Einstellungen", self)
         layout = QFormLayout(group)
+        # Standardmaessig duerfen Formularfelder nicht ueber ihre sizeHint()
+        # hinaus wachsen - bei langen Modellbezeichnungen wuerde das Feld
+        # dann nur einen Bruchteil des Textes zeigen. AllNonFixedFieldsGrow
+        # laesst sie den verfuegbaren Platz tatsaechlich ausnutzen.
+        layout.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
+        layout.setHorizontalSpacing(12)
+        layout.setVerticalSpacing(8)
 
         self.language_combo = QComboBox(self)
         self.language_combo.addItem("Deutsch (de)", "de")
@@ -202,8 +389,11 @@ class MainWindow(QMainWindow):
         layout.addRow("Sprache:", self.language_combo)
 
         self.whisper_model_combo = QComboBox(self)
-        for option in model_service.WHISPER_MODELLE:
+        for index, option in enumerate(model_service.WHISPER_MODELLE):
             self.whisper_model_combo.addItem(option.label, option.id)
+            # Die Bezeichnungen sind teils laenger als die Box breit ist -
+            # per Tooltip bleibt der volle Text trotzdem einsehbar.
+            self.whisper_model_combo.setItemData(index, option.label, Qt.ToolTipRole)
         self.whisper_model_combo.currentIndexChanged.connect(self._update_whisper_model_hint)
         layout.addRow("Whisper-Modell:", self.whisper_model_combo)
 
@@ -247,10 +437,6 @@ class MainWindow(QMainWindow):
         self.offline_checkbox.setChecked(True)
         layout.addRow(self.offline_checkbox)
 
-        self.protocol_checkbox = QCheckBox("Lokales Protokoll erstellen (Ollama)", self)
-        self.protocol_checkbox.setChecked(True)
-        layout.addRow(self.protocol_checkbox)
-
         prompt_button = QPushButton("Systemprompt bearbeiten …", self)
         prompt_button.clicked.connect(self._edit_system_prompt)
         layout.addRow(prompt_button)
@@ -262,7 +448,7 @@ class MainWindow(QMainWindow):
         return group
 
     def _build_resume_group(self) -> QGroupBox:
-        group = QGroupBox("3. Fortsetzen bei Langzeitaufnahmen", self)
+        group = QGroupBox("4. Fortsetzen bei Langzeitaufnahmen", self)
         layout = QVBoxLayout(group)
 
         self.resume_status_label = QLabel(
@@ -287,17 +473,55 @@ class MainWindow(QMainWindow):
         return group
 
     def _build_control_group(self) -> QGroupBox:
-        group = QGroupBox("4. Verarbeitung", self)
+        group = QGroupBox("5. Transkription", self)
         layout = QHBoxLayout(group)
 
-        self.start_button = QPushButton("Start", self)
-        self.start_button.clicked.connect(self._start_processing)
+        self.start_button = QPushButton("Transkription starten", self)
+        self.start_button.clicked.connect(self._start_transcription)
         layout.addWidget(self.start_button)
 
         self.cancel_button = QPushButton("Abbrechen", self)
         self.cancel_button.setEnabled(False)
-        self.cancel_button.clicked.connect(self._cancel_processing)
+        self.cancel_button.clicked.connect(self._cancel_transcription)
         layout.addWidget(self.cancel_button)
+
+        return group
+
+    def _build_transcript_selection_group(self) -> QGroupBox:
+        """Baut die Gruppe '6. Transkript auswaehlen' auf.
+
+        Genau wie bei der Cloud-Variante: Nach einer Transkription steht das
+        eben erzeugte Transkript hier bereits vorausgewaehlt, es kann aber
+        jederzeit gegen ein anderes - auch ein frueher erzeugtes - Transkript
+        ausgetauscht werden."""
+        group = QGroupBox("6. Transkript auswählen", self)
+        layout = QVBoxLayout(group)
+
+        row = QHBoxLayout()
+        choose_transcript_button = QPushButton("Transkript auswählen …", self)
+        choose_transcript_button.clicked.connect(self._choose_transcript)
+        row.addWidget(choose_transcript_button)
+        row.addStretch(1)
+        layout.addLayout(row)
+
+        self.transcript_label = QLabel("Noch kein Transkript ausgewählt", self)
+        self.transcript_label.setWordWrap(True)
+        layout.addWidget(self.transcript_label)
+
+        return group
+
+    def _build_protocol_control_group(self) -> QGroupBox:
+        group = QGroupBox("7. Nachbearbeitung", self)
+        layout = QHBoxLayout(group)
+
+        self.protocol_start_button = QPushButton("Nachbearbeitung starten", self)
+        self.protocol_start_button.clicked.connect(self._start_protocol)
+        layout.addWidget(self.protocol_start_button)
+
+        self.protocol_cancel_button = QPushButton("Abbrechen", self)
+        self.protocol_cancel_button.setEnabled(False)
+        self.protocol_cancel_button.clicked.connect(self._cancel_protocol)
+        layout.addWidget(self.protocol_cancel_button)
 
         return group
 
@@ -402,6 +626,7 @@ class MainWindow(QMainWindow):
                 hinweis = f"{hinweis}\n\n⚠ {warnung}" if hinweis else f"⚠ {warnung}"
 
         self.whisper_model_hint_label.setText(hinweis)
+        self.whisper_model_combo.setToolTip(option.label if option else "")
         if model_id:
             update_config(whisper_modell=model_id)
 
@@ -485,6 +710,15 @@ class MainWindow(QMainWindow):
         elif path.is_file():
             self._set_source_file(path)
             event.acceptProposedAction()
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        """Beendet eine laufende Aufnahme sauber, statt sie beim Schliessen
+        des Fensters abzuwuergen - sonst fehlt der WAV-Datei der finale
+        Header und sie waere unbrauchbar."""
+        if self._recording is not None:
+            with contextlib.suppress(Exception):
+                self._recording.stop()
+        super().closeEvent(event)
 
     def _choose_output_dir(self) -> None:
         directory = QFileDialog.getExistingDirectory(self, "Ausgabeordner wählen", str(self._output_dir))
@@ -586,9 +820,28 @@ class MainWindow(QMainWindow):
         dialog.exec()
 
     # ------------------------------------------------------------------
-    # Start / Abbruch / Fortschritt
+    # Transkript auswaehlen (Eingang fuer die Nachbearbeitung)
     # ------------------------------------------------------------------
-    def _start_processing(self) -> None:
+    def _choose_transcript(self) -> None:
+        start_dir = str(self._output_dir)
+        filename, _ = QFileDialog.getOpenFileName(
+            self,
+            "Transkript auswählen",
+            start_dir,
+            "Transkript-JSON (*.json);;Alle Dateien (*)",
+        )
+        if not filename:
+            return
+        self._set_transcript_path(Path(filename))
+
+    def _set_transcript_path(self, path: Path) -> None:
+        self._selected_transcript_path = path
+        self.transcript_label.setText(f"Ausgewählt: {path.name}")
+
+    # ------------------------------------------------------------------
+    # Start / Abbruch / Fortschritt: Transkription
+    # ------------------------------------------------------------------
+    def _start_transcription(self) -> None:
         if self._source_path is None:
             show_error(self, "Keine Datei ausgewählt", "Bitte zuerst eine Audio- oder Videodatei auswählen.")
             return
@@ -597,6 +850,74 @@ class MainWindow(QMainWindow):
             return
         if self._source_path.stat().st_size == 0:
             show_error(self, "Datei ist leer", "Die ausgewählte Datei enthält keine Daten.")
+            return
+        try:
+            self._output_dir.mkdir(parents=True, exist_ok=True)
+            probe_file = self._output_dir / ".schreibtest.tmp"
+            probe_file.write_text("test", encoding="utf-8")
+            probe_file.unlink()
+        except OSError as error:
+            show_error(self, "Ausgabeordner ungültig", f"In den Ausgabeordner kann nicht geschrieben werden:\n{error}")
+            return
+
+        settings = pipeline_service.PipelineSettings(
+            source_path=self._source_path,
+            output_dir=self._output_dir,
+            language=self.language_combo.currentData(),
+            min_speakers=self.min_speakers_spin.value() if self.limit_speakers_checkbox.isChecked() else None,
+            max_speakers=self.max_speakers_spin.value() if self.limit_speakers_checkbox.isChecked() else None,
+            allow_download=not self.offline_checkbox.isChecked(),
+            resume_mode=self.resume_combo.currentData(),
+            whisper_model=self.whisper_model_combo.currentData() or model_service.WHISPER_MODEL_NAME,
+            enable_diarization=self.diarization_checkbox.isChecked(),
+        )
+
+        self._set_controls_running(True)
+        self.cancel_button.setEnabled(True)
+        self.preview_edit.clear()
+        self.speaker_table.setRowCount(0)
+        self.apply_names_button.setEnabled(False)
+        self.status_label.setText("Transkription wird gestartet …")
+        self.transcription_status_label.setText("läuft")
+
+        import time
+
+        self._start_time = time.monotonic()
+        self._elapsed_timer.start()
+
+        self._transcription_worker = TranscriptionWorker(settings, self)
+        self._transcription_worker.stage_changed.connect(self._on_transcription_stage_changed)
+        self._transcription_worker.chunk_progress.connect(self._on_chunk_progress)
+        self._transcription_worker.overall_progress.connect(self._on_overall_progress)
+        self._transcription_worker.preview_updated.connect(self.preview_edit.setPlainText)
+        self._transcription_worker.log_message.connect(self._on_log_message)
+        self._transcription_worker.finished_ok.connect(self._on_transcription_finished_ok)
+        self._transcription_worker.failed.connect(self._on_transcription_failed)
+        self._transcription_worker.cancelled.connect(self._on_transcription_cancelled)
+        self._transcription_worker.finished.connect(lambda: self._set_controls_running(False))
+        self._transcription_worker.start()
+
+    def _cancel_transcription(self) -> None:
+        if self._transcription_worker is not None:
+            self._transcription_worker.request_cancel()
+            self.status_label.setText("Abbruch angefordert -- wird nach dem aktuellen Chunk wirksam.")
+            self.cancel_button.setEnabled(False)
+
+    # ------------------------------------------------------------------
+    # Start / Abbruch / Fortschritt: Nachbearbeitung
+    # ------------------------------------------------------------------
+    def _start_protocol(self) -> None:
+        if self._selected_transcript_path is None:
+            show_error(
+                self,
+                "Kein Transkript ausgewählt",
+                "Bitte zuerst eine Transkription durchführen oder ein vorhandenes Transkript auswählen.",
+            )
+            return
+        if not self._selected_transcript_path.is_file():
+            show_error(
+                self, "Transkript nicht gefunden", f"Die Datei wurde nicht gefunden:\n{self._selected_transcript_path}"
+            )
             return
         try:
             self._output_dir.mkdir(parents=True, exist_ok=True)
@@ -615,55 +936,48 @@ class MainWindow(QMainWindow):
             )
             return
 
-        settings = pipeline_service.PipelineSettings(
-            source_path=self._source_path,
+        settings = pipeline_service.ProtocolSettings(
+            transcript_json_path=self._selected_transcript_path,
             output_dir=self._output_dir,
-            language=self.language_combo.currentData(),
-            min_speakers=self.min_speakers_spin.value() if self.limit_speakers_checkbox.isChecked() else None,
-            max_speakers=self.max_speakers_spin.value() if self.limit_speakers_checkbox.isChecked() else None,
-            allow_download=not self.offline_checkbox.isChecked(),
-            resume_mode=self.resume_combo.currentData(),
-            run_protocol=self.protocol_checkbox.isChecked(),
-            whisper_model=self.whisper_model_combo.currentData() or model_service.WHISPER_MODEL_NAME,
-            enable_diarization=self.diarization_checkbox.isChecked(),
         )
 
         self._set_controls_running(True)
-        self._protokoll_fehlgeschlagen = False
-        self.preview_edit.clear()
-        self.speaker_table.setRowCount(0)
-        self.apply_names_button.setEnabled(False)
-        self.status_label.setText("Verarbeitung wird gestartet …")
-        self.transcription_status_label.setText("läuft")
-        self.protocol_status_label.setText("wartet" if settings.run_protocol else "deaktiviert")
+        self.protocol_cancel_button.setEnabled(True)
+        self.status_label.setText("Nachbearbeitung wird gestartet …")
+        self.protocol_status_label.setText("läuft")
 
         import time
 
         self._start_time = time.monotonic()
         self._elapsed_timer.start()
 
-        self._worker = PipelineWorker(settings, self)
-        self._worker.stage_changed.connect(self._on_stage_changed)
-        self._worker.chunk_progress.connect(self._on_chunk_progress)
-        self._worker.overall_progress.connect(self._on_overall_progress)
-        self._worker.preview_updated.connect(self.preview_edit.setPlainText)
-        self._worker.log_message.connect(self._on_log_message)
-        self._worker.finished_ok.connect(self._on_finished_ok)
-        self._worker.failed.connect(self._on_failed)
-        self._worker.cancelled.connect(self._on_cancelled)
-        self._worker.finished.connect(lambda: self._set_controls_running(False))
-        self._worker.start()
+        self._protocol_worker = ProtocolWorker(settings, self)
+        self._protocol_worker.stage_changed.connect(self._on_protocol_stage_changed)
+        self._protocol_worker.overall_progress.connect(self._on_overall_progress)
+        self._protocol_worker.log_message.connect(self._on_log_message)
+        self._protocol_worker.finished_ok.connect(self._on_protocol_finished_ok)
+        self._protocol_worker.failed.connect(self._on_protocol_failed)
+        self._protocol_worker.cancelled.connect(self._on_protocol_cancelled)
+        self._protocol_worker.finished.connect(lambda: self._set_controls_running(False))
+        self._protocol_worker.start()
 
-    def _cancel_processing(self) -> None:
-        if self._worker is not None:
-            self._worker.request_cancel()
-            self.status_label.setText("Abbruch angefordert -- wird nach dem aktuellen Chunk wirksam.")
-            self.cancel_button.setEnabled(False)
+    def _cancel_protocol(self) -> None:
+        if self._protocol_worker is not None:
+            self._protocol_worker.request_cancel()
+            self.status_label.setText("Abbruch angefordert …")
+            self.protocol_cancel_button.setEnabled(False)
 
+    # ------------------------------------------------------------------
+    # Gemeinsame Fortschrittsanzeigen
+    # ------------------------------------------------------------------
     def _set_controls_running(self, running: bool) -> None:
+        # Es laeuft nie mehr als ein Schritt gleichzeitig -- beide teilen
+        # sich dieselbe Fortschrittsanzeige, das waere sonst nicht eindeutig.
         self.start_button.setEnabled(not running)
-        self.cancel_button.setEnabled(running)
+        self.protocol_start_button.setEnabled(not running)
         if not running:
+            self.cancel_button.setEnabled(False)
+            self.protocol_cancel_button.setEnabled(False)
             self._elapsed_timer.stop()
 
     def _update_elapsed_label(self) -> None:
@@ -684,22 +998,15 @@ class MainWindow(QMainWindow):
         remaining_chunks = max(0, total - current)
         self.remaining_label.setText(format_duration_human(per_chunk * remaining_chunks))
 
-    def _on_stage_changed(self, key: str, detail: str) -> None:
+    def _on_transcription_stage_changed(self, key: str, detail: str) -> None:
         self.status_label.setText(detail)
-        if key in TRANSCRIPT_STAGES:
-            self.transcription_status_label.setText(detail)
-        if key in PROTOCOL_STAGES:
-            self.protocol_status_label.setText(detail)
+        self.transcription_status_label.setText(detail)
+
+    def _on_protocol_stage_changed(self, key: str, detail: str) -> None:
+        self.status_label.setText(detail)
+        self.protocol_status_label.setText(detail)
         if key == "protokoll_fehlgeschlagen":
-            self._protokoll_fehlgeschlagen = True
             self.protocol_status_label.setToolTip(detail)
-        if key == "abgeschlossen":
-            self.transcription_status_label.setText("abgeschlossen")
-            # Nicht ueberschreiben, wenn die Auswertung vorher gescheitert
-            # ist: Die Verarbeitung als Ganzes ist fertig, das Protokoll
-            # aber gerade nicht entstanden.
-            if self.protocol_checkbox.isChecked() and not self._protokoll_fehlgeschlagen:
-                self.protocol_status_label.setText("abgeschlossen")
 
     def _on_chunk_progress(self, current: int, total: int) -> None:
         self._chunk_progress = (current, total)
@@ -713,44 +1020,62 @@ class MainWindow(QMainWindow):
     def _on_log_message(self, message: str) -> None:
         self.status_label.setToolTip(message)
 
-    def _on_finished_ok(self, result: pipeline_service.PipelineResult) -> None:
-        self._last_result = result
+    def _on_transcription_finished_ok(self, result: pipeline_service.TranscriptionResult) -> None:
+        self._last_transcription_result = result
         self._populate_speaker_table(result)
-        if result.protokoll_fehler:
-            # Das Transkript ist da, das Protokoll nicht. Beides in einem
-            # Erfolgsfenster zusammenzufassen waere irrefuehrend -- der
-            # Nutzer wuerde vergeblich nach der Protokolldatei suchen.
-            self.status_label.setText("Transkript erstellt, Protokollauswertung fehlgeschlagen.")
-            QMessageBox.warning(
-                self,
-                "Protokollauswertung fehlgeschlagen",
-                "Das Transkript wurde vollständig erstellt in:\n"
-                f"{result.export_paths.txt.parent}\n\n"
-                "Die lokale Protokollauswertung ist fehlgeschlagen, es wurde "
-                "keine Protokolldatei geschrieben:\n"
-                f"{result.protokoll_fehler}\n\n"
-                "Das Transkript bleibt erhalten. Die Auswertung lässt sich "
-                "erneut starten, ohne dass neu transkribiert werden muss.",
-            )
-            return
-        self.status_label.setText("Verarbeitung abgeschlossen.")
+        self._set_transcript_path(result.export_paths.json)
+        self.status_label.setText("Transkription abgeschlossen.")
         QMessageBox.information(
             self,
-            "Verarbeitung abgeschlossen",
-            f"Ausgabedateien wurden erstellt in:\n{result.export_paths.txt.parent}",
+            "Transkription abgeschlossen",
+            f"Ausgabedateien wurden erstellt in:\n{result.export_paths.txt.parent}\n\n"
+            "Die Nachbearbeitung ist ein separater Schritt -- sie kann jetzt fuer dieses "
+            "oder jederzeit fuer ein anderes Transkript gestartet werden.",
         )
 
-    def _on_failed(self, message: str) -> None:
-        self.status_label.setText("Fehler bei der Verarbeitung.")
-        show_error(self, "Verarbeitung fehlgeschlagen", message)
+    def _on_transcription_failed(self, message: str) -> None:
+        self.status_label.setText("Fehler bei der Transkription.")
+        show_error(self, "Transkription fehlgeschlagen", message)
 
-    def _on_cancelled(self) -> None:
-        self.status_label.setText("Verarbeitung abgebrochen.")
+    def _on_transcription_cancelled(self) -> None:
+        self.status_label.setText("Transkription abgebrochen.")
+
+    def _on_protocol_finished_ok(self, result: pipeline_service.ProtocolResult) -> None:
+        self._last_protocol_result = result
+        if result.protokoll_fehler:
+            self.status_label.setText("Nachbearbeitung fehlgeschlagen.")
+            QMessageBox.warning(
+                self,
+                "Nachbearbeitung fehlgeschlagen",
+                "Die lokale Protokollauswertung ist fehlgeschlagen, es wurde keine "
+                "Protokolldatei geschrieben:\n"
+                f"{result.protokoll_fehler}\n\n"
+                "Das Transkript bleibt erhalten. Die Nachbearbeitung lässt sich erneut starten.",
+            )
+            return
+        self.status_label.setText("Nachbearbeitung abgeschlossen.")
+        # 'protokoll_fehler' waere sonst gesetzt -- 'protocol_paths' ist hier
+        # immer vorhanden.
+        protocol_paths = result.protocol_paths
+        if protocol_paths is None:
+            return
+        QMessageBox.information(
+            self,
+            "Nachbearbeitung abgeschlossen",
+            f"Protokolldateien wurden erstellt in:\n{protocol_paths[0].parent}",
+        )
+
+    def _on_protocol_failed(self, message: str) -> None:
+        self.status_label.setText("Fehler bei der Nachbearbeitung.")
+        show_error(self, "Nachbearbeitung fehlgeschlagen", message)
+
+    def _on_protocol_cancelled(self) -> None:
+        self.status_label.setText("Nachbearbeitung abgebrochen.")
 
     # ------------------------------------------------------------------
     # Sprechertabelle
     # ------------------------------------------------------------------
-    def _populate_speaker_table(self, result: pipeline_service.PipelineResult) -> None:
+    def _populate_speaker_table(self, result: pipeline_service.TranscriptionResult) -> None:
         data = json.loads(result.export_paths.json.read_text(encoding="utf-8"))
         entries = data.get("sprecher_zuordnung", [])
         self.speaker_table.setRowCount(len(entries))
@@ -776,7 +1101,7 @@ class MainWindow(QMainWindow):
         return Qt.ItemIsEditable
 
     def _apply_speaker_names(self) -> None:
-        if self._last_result is None:
+        if self._last_transcription_result is None:
             return
         overrides: dict[str, str] = {}
         for row in range(self.speaker_table.rowCount()):
@@ -789,7 +1114,9 @@ class MainWindow(QMainWindow):
             if name:
                 overrides[id_zelle.text()] = name
         try:
-            new_paths = export_service.reexport_with_new_names(self._last_result.export_paths.json, overrides)
+            new_paths = export_service.reexport_with_new_names(
+                self._last_transcription_result.export_paths.json, overrides
+            )
         except OSError as error:
             show_error(self, "Export fehlgeschlagen", f"Die Ausgabedateien konnten nicht neu erzeugt werden:\n{error}")
             return

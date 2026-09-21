@@ -128,6 +128,16 @@ def get_default_output_dir() -> Path:
     return directory
 
 
+def get_recordings_dir() -> Path:
+    """Ablageort fuer per Mikrofon aufgenommene WAV-Dateien (Voice Recording).
+
+    Existiert unabhaengig davon, ob der Anwender bereits einen Eingabeordner
+    gewaehlt hat - eine Aufnahme muss immer irgendwo landen koennen."""
+    directory = get_app_dir() / "aufnahmen"
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory
+
+
 def get_tools_ffmpeg_dir() -> Path:
     return get_app_dir() / "tools" / "ffmpeg"
 
