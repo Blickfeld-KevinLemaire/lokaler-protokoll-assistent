@@ -32,7 +32,7 @@
 # den im ersten Schritt installierten CUDA-Build ersetzen - die
 # GPU-Unterstuetzung waere still weg. 'tools/laufzeit_pakete_pruefen.py'
 # prueft, dass beide Angaben uebereinstimmen.
-torch~=2.11.0
+torch~=2.14.0
 torchaudio~=2.11.0
 
 PySide6>=6.6,<7
