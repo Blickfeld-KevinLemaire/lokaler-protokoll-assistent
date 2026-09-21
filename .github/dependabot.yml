@@ -6,10 +6,22 @@ version: 2
 #
 # Damit daraus keine Flut von Pull Requests wird, sind die Updates gebuendelt
 # ("groups") und auf einen Wochentag gelegt.
+#
+# WARUM NUR EIN PYTHON-EINTRAG
+# ----------------------------
+# Vorher standen hier drei Bloecke: 'uv' auf '/', 'pip' auf '/' und 'pip' auf
+# '/lokale_windows_app'. Alle drei durchsuchen den Baum ab ihrem Verzeichnis
+# und fanden dieselbe Datei 'lokale_windows_app/requirements-laufzeit.txt'.
+# Ergebnis am 21.09.2026: vier Aktualisierungen, aber dreizehn Pull Requests -
+# jede Aenderung dreimal, in drei Branches, mit drei CI-Laeufen.
+# Ein Eintrag reicht: 'uv' sieht sowohl 'pyproject.toml'/'uv.lock' als auch
+# die 'requirements-*.txt' der lokalen Anwendung.
 
 updates:
   # ---------------------------------------------------------------------
-  # Python-Werkzeuge fuer Entwicklung und CI (pyproject.toml / uv.lock)
+  # Alles Python: die Werkzeuge aus 'pyproject.toml'/'uv.lock' UND die
+  # 'requirements-*.txt', die die Einrichtungsskripte bei den Anwendern
+  # installieren.
   # ---------------------------------------------------------------------
   - package-ecosystem: uv
     directory: /
@@ -22,40 +34,31 @@ updates:
     commit-message:
       prefix: "deps"
     groups:
-      # Kleine Updates alle zusammen in einen Pull Request.
-      unkritische-updates:
-        update-types: [minor, patch]
+      # Alles zusammen in einen Pull Request. Absichtlich ohne
+      # 'update-types': Bei Aenderungen an einer Versionsspanne
+      # (">=1.2" -> ">=1.2.1") erkennt Dependabot keine Semver-Stufe, und
+      # solche Updates fielen dann aus der Gruppe heraus - genau das ist am
+      # 21.09.2026 passiert.
+      python-updates:
+        patterns: ["*"]
     labels:
       - abhaengigkeiten
-
-  # ---------------------------------------------------------------------
-  # Die Pakete, die die Einrichtungsskripte bei den Anwendern installieren
-  # ---------------------------------------------------------------------
-  - package-ecosystem: pip
-    directory: /
-    schedule:
-      interval: weekly
-      day: monday
-      time: "06:00"
-      timezone: Europe/Berlin
-    open-pull-requests-limit: 5
-    commit-message:
-      prefix: "deps"
-    labels:
-      - abhaengigkeiten
-
-  - package-ecosystem: pip
-    directory: /lokale_windows_app
-    schedule:
-      interval: weekly
-      day: monday
-      time: "06:00"
-      timezone: Europe/Berlin
-    open-pull-requests-limit: 5
-    commit-message:
-      prefix: "deps"
-    labels:
-      - abhaengigkeiten
+    ignore:
+      # PyTorch bleibt auf 2.11.x - siehe die ausfuehrliche Begruendung in
+      # 'lokale_windows_app/requirements-torch.txt'. Kurz: CTranslate2 laedt
+      # 'cublas64_12.dll', es muss also ein CUDA-12-Build sein, und 2.11.0 ist
+      # die neueste Fassung, die es in BEIDEN benutzten CUDA-12-Indizes gibt
+      # (cu126 und cu128). Dependabot sieht die Indizes von pytorch.org nicht
+      # und schlug deshalb 2.14.0 vor - die es in cu128 nicht gibt.
+      # Patch-Updates innerhalb von 2.11.x bleiben erlaubt.
+      - dependency-name: torch
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
+      - dependency-name: torchaudio
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
 
   # ---------------------------------------------------------------------
   # Die Actions in den Workflows selbst

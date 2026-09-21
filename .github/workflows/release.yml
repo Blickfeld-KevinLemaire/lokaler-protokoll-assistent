@@ -160,7 +160,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Artefakte holen
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           path: artefakte
           merge-multiple: true
