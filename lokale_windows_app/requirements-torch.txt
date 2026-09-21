@@ -36,5 +36,5 @@
 # 'requirements-laufzeit.txt' verlangen. Genau das prueft
 # 'tools/laufzeit_pakete_pruefen.py' - und zwar fuer jeden der
 # eingestellten Indizes, damit alte wie neue Karten bedient werden.
-torch~=2.11.0
+torch~=2.14.0
 torchaudio~=2.11.0
