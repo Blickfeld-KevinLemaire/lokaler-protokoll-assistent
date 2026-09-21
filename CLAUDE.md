@@ -17,6 +17,28 @@ Beide werden aktiv gepflegt. Die lokale Variante ist **kein** Nachfolger der
 Cloud-Variante — wer keine Daten aus der Hand geben will, nimmt die lokale;
 wer keine KI-Modelle installieren will, die Cloud-Variante.
 
+### Dritte, vereinte Anwendung (in Aufbau)
+
+`protokoll_assistent_vereint/` ist eine **dritte**, neue PySide6-Anwendung,
+die lokal (faster-whisper/pyannote/Ollama) und API-basierte Transkription
+und Nachbearbeitung in **einer** Oberfläche vereint — die Wahl ist dort eine
+Einstellung, kein separater Programmstart. Sie läuft **neben** den beiden
+obigen Anwendungen, verändert keine ihrer Dateien und importiert
+`lokale_windows_app`s Verarbeitungskette (`services/`, `utils/`) unverändert
+wieder — eigene Module dieser dritten App werden dabei immer qualifiziert
+importiert (`protokoll_assistent_vereint.X.Y`), nie bare, um nicht mit den
+bare `services`/`utils`/`gui`-Paketen von `lokale_windows_app` auf demselben
+`sys.path` zu kollidieren. API-Schlüssel können dort optional über die
+Windows-Anmeldeinformationsverwaltung gemerkt werden (`keyring`, einziger
+Zugriffspunkt `protokoll_assistent_vereint/services/secret_store.py`) — nie
+als Klartext-Datei.
+
+Sobald sich diese dritte Anwendung bewährt hat, sollen beide obigen Apps
+damit abgelöst werden. Das ist eine **eigene, spätere** Planungs- und
+Freigaberunde (Installer, CI, `hauptanwendung.py`, dieser Abschnitt hier) —
+bis dahin bleibt die Tabelle oben der gültige Ist-Zustand der beiden
+bestehenden Anwendungen.
+
 ## Vor dem Abschluss einer Aufgabe
 
 ```powershell
@@ -274,6 +296,13 @@ lokale_windows_app/
 
 tests/                         Tests der Cloud-Variante
 lokale_windows_app/tests/      Tests der lokalen Variante
+
+protokoll_assistent_vereint/   dritte, vereinte Anwendung (siehe oben, in Aufbau)
+  app.py                       Einstiegspunkt (Bootstrap nur im lokalen Modus)
+  gui/                         PySide6: Hauptfenster, Einstellungsdialog, Worker
+  services/                    API-Transkription/-Nachbearbeitung, Secret-Store
+  utils/                       eigene Pfade/Konfiguration (qualifiziert importiert)
+  tests/                       Tests der vereinten Anwendung
 ```
 
 Die Verarbeitungskette in `services/` kennt kein Qt. Das soll so bleiben:

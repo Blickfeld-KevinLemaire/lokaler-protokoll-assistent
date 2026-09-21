@@ -30,15 +30,31 @@ zugestimmt haben. Entsprechend gelten hier ein paar Punkte besonders:
 * **`einstellungen/fachbegriffe.txt` ist ausgeschlossen**, weil dort
   Projektnamen und Nachnamen echter Personen stehen. Versioniert ist nur
   `fachbegriffe.beispiel.txt`.
-* **Schluessel und Token stehen nie im Code.** Sie kommen aus
-  Umgebungsvariablen (`OPENROUTER_API_KEY`, `HF_TOKEN`) oder aus einer
-  verdeckten Eingabe und werden nicht auf die Festplatte geschrieben.
+* **Schluessel und Token stehen nie im Code und nie in einer Klartext-Datei.**
+  Sie kommen aus Umgebungsvariablen (`OPENROUTER_API_KEY`, `HF_TOKEN`), aus
+  einer verdeckten Eingabe (`getpass`), oder — nur in der vereinten
+  Anwendung `protokoll_assistent_vereint/`, nur wenn der Anwender das
+  ausdruecklich anhakt — dauerhaft ueber die Windows-Anmeldeinformations-
+  verwaltung (Paket `keyring`, einziger Zugriffspunkt:
+  `protokoll_assistent_vereint/services/secret_store.py`). Die
+  Konfigurationsdatei dieser Anwendung
+  (`protokoll_assistent_vereint/konfiguration.json`) enthaelt dabei nur ein
+  Häkchen, ob gemerkt werden soll — nie den Schluessel selbst. Ohne dieses
+  Häkchen gilt ein eingegebener Schluessel nur fuer die laufende Sitzung.
 * **Die lokale Variante (`lokale_windows_app/`) uebertraegt keine Audio- oder
   Videodaten.** Bleibt das so, ist das eine Zusage an die Anwender — Aenderungen
   daran gehoeren ausdruecklich in die Release-Hinweise.
 * **Die Cloud-Variante uebertraegt die Aufnahme** an einen vom Anwender
   gewaehlten Endpunkt. Vor jeder Uebertragung steht eine ausdrueckliche
   Rueckfrage. Diese Rueckfrage darf nicht entfallen.
+* **Die vereinte Anwendung (`protokoll_assistent_vereint/`) uebertraegt im
+  API-Modus ebenfalls die Aufnahme bzw. das Transkript** an einen vom
+  Anwender gewaehlten Endpunkt — fuer Transkription und/oder
+  Nachbearbeitung getrennt umschaltbar. Ist der API-Modus aktiv, zeigt die
+  Oberflaeche dabei durchgehend einen Datenschutz-Hinweis: Fuer diese
+  externe Schnittstelle kann keine Vertraulichkeit garantiert werden, die
+  Verantwortung dafuer liegt beim Anwender. Der lokale Modus (faster-whisper/
+  pyannote/Ollama) bleibt weiterhin vollstaendig offline.
 
 ## Was automatisch geprueft wird
 
