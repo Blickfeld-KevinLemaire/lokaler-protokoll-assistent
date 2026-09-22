@@ -94,41 +94,6 @@ jobs:
           QT_QPA_PLATFORM: offscreen
         run: uv run pytest --cov --cov-report=term-missing
 
-  build_probe:
-    name: PyInstaller-Build (Probelauf ohne KI-Pakete)
-    needs: aenderungen_pruefen
-    if: needs.aenderungen_pruefen.outputs.neue_commits == 'true'
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: astral-sh/setup-uv@v7
-        with:
-          enable-cache: true
-          cache-dependency-glob: uv.lock
-
-      - run: uv sync --python 3.11
-
-      - name: PyInstaller ausfuehren
-        # WhisperX/PyTorch/pyannote werden hier absichtlich NICHT installiert:
-        # sie sind mehrere Gigabyte gross und brauchen eine GPU-Umgebung. Die
-        # Spezifikationsdatei verkraftet fehlende Pakete (siehe das try/except
-        # um 'collect_all'). Dieser Probelauf beantwortet deshalb genau eine
-        # Frage: Laeuft der Build ueberhaupt noch durch, oder ist die
-        # Spezifikation/ein Import kaputt? Eine auslieferbare EXE entsteht erst
-        # im Release-Build auf einem Rechner mit vollstaendiger Umgebung.
-        run: uv run pyinstaller --noconfirm --distpath dist-probe protokoll_assistent.spec
-
-      - name: Ergebnis pruefen
-        shell: pwsh
-        run: |
-          $exe = "dist-probe\Protokoll-Assistent\Protokoll-Assistent.exe"
-          if (-not (Test-Path $exe)) {
-            Write-Error "Der Build hat keine EXE erzeugt: $exe"
-            exit 1
-          }
-          Write-Host "Build erfolgreich: $exe"
-
   installer:
     name: Installer bauen (Artefakt zum Ausprobieren)
     needs: aenderungen_pruefen
@@ -145,7 +110,23 @@ jobs:
       - run: uv sync --python 3.11
 
       - name: Anwendung bauen
+        # WhisperX/PyTorch/pyannote werden hier absichtlich NICHT installiert:
+        # sie sind mehrere Gigabyte gross und brauchen eine GPU-Umgebung. Die
+        # Spezifikationsdatei verkraftet fehlende Pakete (siehe das try/except
+        # um 'collect_all'). Dieser Lauf beantwortet deshalb genau eine Frage:
+        # Laeuft der Build ueberhaupt noch durch, oder ist die Spezifikation/
+        # ein Import kaputt?
         run: uv run pyinstaller --noconfirm protokoll_assistent.spec
+
+      - name: Ist eine EXE entstanden?
+        shell: pwsh
+        run: |
+          $exe = "dist\Protokoll-Assistent\Protokoll-Assistent.exe"
+          if (-not (Test-Path $exe)) {
+            Write-Error "Der Build hat keine EXE erzeugt: $exe"
+            exit 1
+          }
+          Write-Host "Build erfolgreich: $exe"
 
       - name: Python-Laufzeitumgebung fuer den Installer holen
         # Damit Anwender kein Python selbst installieren muessen.
