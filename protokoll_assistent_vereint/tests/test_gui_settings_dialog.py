@@ -192,3 +192,53 @@ def test_systemdiagnose_oeffnet_dialog(dialog, monkeypatch):
     monkeypatch.setattr(dialogs.DiagnosticsRunner, "start", lambda self: None)
 
     dialog._open_diagnostics()  # darf nicht werfen
+
+
+def test_systemdiagnose_prueft_den_ausgabeordner(qt_widgets, isolierte_konfiguration, schluessel_speicher, tmp_path, monkeypatch):
+    """'DiagnosticsDialog' bekommt seinen ersten Parameter als
+    'output_dir': Damit prueft die Diagnose freien Platz und
+    Schreibbarkeit. Mit dem Anwendungsordner beantwortet sie die Frage fuer
+    das falsche Laufwerk, sobald die Ausgabe woanders liegt."""
+    from gui import dialogs
+
+    ausgabe = tmp_path / "ausgabe-auf-anderem-laufwerk"
+    ausgabe.mkdir()
+    app_config.save_config({**app_config.DEFAULTS, "ausgabeordner": str(ausgabe)})
+    dialog = qt_widgets(sd.SettingsDialog())
+
+    uebergeben = []
+    monkeypatch.setattr(dialogs.DiagnosticsDialog, "exec", lambda self: None)
+    monkeypatch.setattr(dialogs.DiagnosticsRunner, "start", lambda self: None)
+    monkeypatch.setattr(
+        dialogs.DiagnosticsDialog,
+        "__init__",
+        lambda self, output_dir, parent=None: uebergeben.append(output_dir),
+    )
+
+    dialog._open_diagnostics()
+
+    assert uebergeben == [ausgabe]
+
+
+def test_systemdiagnose_nimmt_ohne_einstellung_den_standardausgabeordner(
+    dialog, tmp_path, monkeypatch
+):
+    from gui import dialogs
+    from protokoll_assistent_vereint.utils import paths
+
+    standard = tmp_path / "standardausgabe"
+    standard.mkdir()
+    monkeypatch.setattr(paths, "get_default_output_dir", lambda: standard)
+
+    uebergeben = []
+    monkeypatch.setattr(dialogs.DiagnosticsDialog, "exec", lambda self: None)
+    monkeypatch.setattr(dialogs.DiagnosticsRunner, "start", lambda self: None)
+    monkeypatch.setattr(
+        dialogs.DiagnosticsDialog,
+        "__init__",
+        lambda self, output_dir, parent=None: uebergeben.append(output_dir),
+    )
+
+    dialog._open_diagnostics()
+
+    assert uebergeben == [standard]

@@ -8,6 +8,9 @@ Windows-Anmeldeinformationsverwaltung oder ein echtes Netzwerk an."""
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
+from pathlib import Path
 from typing import ClassVar
 
 import pytest
@@ -24,7 +27,14 @@ from protokoll_assistent_vereint.services import (  # noqa: E402
     secret_store,
 )
 from protokoll_assistent_vereint.utils import app_config  # noqa: E402
-from services import export_service, manifest_service, model_service, recording_service  # noqa: E402
+from services import (  # noqa: E402
+    export_service,
+    manifest_service,
+    model_service,
+    ollama_service,
+    recording_service,
+)
+from utils import app_config as lokale_app_config  # noqa: E402
 
 
 class _WorkerAttrappe:
@@ -458,7 +468,8 @@ def test_nachbearbeitung_lokal_erzeugt_arbeiter_ohne_generate_fn(fenster, tmp_pa
     assert arbeiter.settings.transcript_json_path == transkript
 
 
-def test_nachbearbeitung_schreibt_systemprompt_in_die_aktive_datei(fenster, tmp_path, isolierte_konfiguration):
+def test_nachbearbeitung_gibt_systemprompt_direkt_mit(fenster, tmp_path, isolierte_konfiguration):
+    """Der Prompt reist ueber die Einstellungen, nicht ueber eine Datei."""
     transkript = tmp_path / "ergebnis.json"
     transkript.write_text("{}", encoding="utf-8")
     fenster._set_transcript_path(transkript)
@@ -466,7 +477,24 @@ def test_nachbearbeitung_schreibt_systemprompt_in_die_aktive_datei(fenster, tmp_
 
     fenster._start_protocol()
 
-    assert isolierte_konfiguration["prompt"].read_text(encoding="utf-8") == "Mein Prompt fuer diesen Lauf."
+    assert _WorkerAttrappe.instanzen[-1].settings.system_prompt == "Mein Prompt fuer diesen Lauf."
+
+
+def test_nachbearbeitung_laesst_systemprompt_der_lokalen_anwendung_unberuehrt(
+    fenster, tmp_path, isolierte_konfiguration
+):
+    """'get_system_prompt_file()' ist die Einstellungsdatei von
+    'lokale_windows_app'. Sie darf hier nur gelesen, nie geschrieben werden -
+    sonst ersetzt jede Nachbearbeitung in dieser Anwendung stillschweigend
+    den gespeicherten Systemprompt der anderen."""
+    transkript = tmp_path / "ergebnis.json"
+    transkript.write_text("{}", encoding="utf-8")
+    fenster._set_transcript_path(transkript)
+    fenster.systemprompt_editor.setPlainText("Nur fuer diesen einen Lauf.")
+
+    fenster._start_protocol()
+
+    assert isolierte_konfiguration["prompt"].read_text(encoding="utf-8") == "Ein Prompt."
 
 
 def test_nachbearbeitung_api_ohne_schluessel_meldet_fehler(fenster, gemeldete_fehler, tmp_path):
@@ -481,8 +509,28 @@ def test_nachbearbeitung_api_ohne_schluessel_meldet_fehler(fenster, gemeldete_fe
     assert gemeldete_fehler == ["Kein API-Schlüssel"]
 
 
+def _benutzter_api_schluessel(generate_fn, monkeypatch) -> str:
+    """Welchen Schluessel reicht die uebergebene Funktion tatsaechlich an
+    'api_protocol_service.generate_json' weiter?
+
+    Bewusst ueber einen echten Aufruf geprueft und nicht ueber
+    'functools.partial.keywords': Die Funktion ist eine Closure, weil sie
+    zusaetzlich 'ApiProtocolError' in 'OllamaError' uebersetzen muss (siehe
+    '_start_protocol'). Ein Test, der an der Verpackung haengt, geht bei
+    jeder solchen Aenderung kaputt, obwohl das Verhalten stimmt."""
+    notiert: dict[str, str] = {}
+
+    def _aufzeichnen(prompt, system, *, model, endpoint_url, api_key):
+        notiert["api_key"] = api_key
+        return {}
+
+    monkeypatch.setattr(api_protocol_service, "generate_json", _aufzeichnen)
+    generate_fn("Prompt", "System")
+    return notiert["api_key"]
+
+
 def test_nachbearbeitung_api_faellt_ohne_eigenen_schluessel_auf_transkriptionsschluessel_zurueck(
-    fenster, tmp_path, schluessel_speicher
+    fenster, tmp_path, schluessel_speicher, monkeypatch
 ):
     schluessel_speicher["transkription"] = "gemeinsamer-schluessel"
     transkript = tmp_path / "ergebnis.json"
@@ -495,11 +543,10 @@ def test_nachbearbeitung_api_faellt_ohne_eigenen_schluessel_auf_transkriptionssc
 
     arbeiter = _WorkerAttrappe.instanzen[-1]
     generate_fn = arbeiter.kwargs["protocol_generate_fn"]
-    assert generate_fn.func is api_protocol_service.generate_json
-    assert generate_fn.keywords["api_key"] == "gemeinsamer-schluessel"
+    assert _benutzter_api_schluessel(generate_fn, monkeypatch) == "gemeinsamer-schluessel"
 
 
-def test_nachbearbeitung_api_mit_eigenem_schluessel(fenster, tmp_path, schluessel_speicher):
+def test_nachbearbeitung_api_mit_eigenem_schluessel(fenster, tmp_path, schluessel_speicher, monkeypatch):
     schluessel_speicher["transkription"] = "transkriptions-schluessel"
     schluessel_speicher["nachbearbeitung"] = "eigener-schluessel"
     transkript = tmp_path / "ergebnis.json"
@@ -512,7 +559,8 @@ def test_nachbearbeitung_api_mit_eigenem_schluessel(fenster, tmp_path, schluesse
     fenster._start_protocol()
 
     arbeiter = _WorkerAttrappe.instanzen[-1]
-    assert arbeiter.kwargs["protocol_generate_fn"].keywords["api_key"] == "eigener-schluessel"
+    generate_fn = arbeiter.kwargs["protocol_generate_fn"]
+    assert _benutzter_api_schluessel(generate_fn, monkeypatch) == "eigener-schluessel"
 
 
 def test_abbruch_nachbearbeitung(fenster, tmp_path):
@@ -1033,3 +1081,190 @@ def test_fenster_liest_ordner_aus_konfiguration(qt_widgets, isolierte_konfigurat
     app_config.save_config({**app_config.DEFAULTS, "eingabeordner": str(audio_datei.parent), "ausgabeordner": str(isolierte_konfiguration["ausgabe"])})
     fenster = qt_widgets(mw.MainWindow())
     assert fenster._input_folder == audio_datei.parent
+
+
+# --------------------------------------------------------------------------
+# Start der Anwendung: 'app.py' als Skript
+# --------------------------------------------------------------------------
+def test_app_py_loest_eigene_importe_beim_skriptstart_auf(tmp_path):
+    """'app.py' muss startbar sein, wenn Python sie als SKRIPT laedt.
+
+    Genau so startet sie in der Praxis - und genau so startet
+    'bootstrap._relaunch' sie im lokalen Modus erneut (mit dem reinen
+    Dateipfad als Argument). Dabei steht nur der Ordner DIESER Datei im
+    Suchpfad, nicht die Projektwurzel; der bewusst qualifizierte
+    Eigenimport ('protokoll_assistent_vereint.utils') war dadurch nicht
+    aufloesbar und der Start endete sofort mit 'ModuleNotFoundError'.
+
+    Der Test laeuft in einem eigenen Prozess mit einem neutralen
+    Arbeitsverzeichnis: Im laufenden Testprozess liegen die Module laengst
+    in 'sys.modules', dort wuerde der Fehler nie auftreten.
+    """
+    app_py = Path(mw.__file__).resolve().parent.parent / "app.py"
+    quelle = app_py.read_text(encoding="utf-8")
+    trenner = "if _config["
+    assert trenner in quelle, "Aufbau von 'app.py' geaendert - dieser Test muss angepasst werden."
+    # Nur der Kopf: Alles ab der Bootstrap-Abfrage wuerde eine
+    # Laufzeitumgebung einrichten wollen (und PySide6/Torch brauchen).
+    kopf = quelle.split(trenner)[0]
+
+    programm = "\n".join(
+        [
+            "import sys",
+            "from pathlib import Path",
+            f"pfad = {str(app_py)!r}",
+            # Wie beim Skriptstart: Ordner der Datei an Position 0, sonst
+            # nichts aus dem Projekt.
+            "sys.path.insert(0, str(Path(pfad).parent))",
+            "raum = {'__file__': pfad, '__name__': '__main__'}",
+            f"exec(compile({kopf!r}, pfad, 'exec'), raum)",
+            "print(raum['_config']['transkription_modus'])",
+        ]
+    )
+    ergebnis = subprocess.run(
+        [sys.executable, "-c", programm],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+
+    assert ergebnis.returncode == 0, f"Start fehlgeschlagen:\n{ergebnis.stderr}"
+    assert ergebnis.stdout.strip() in {"lokal", "api"}
+
+
+# --------------------------------------------------------------------------
+# API-Schluessel: der Anmeldeinformationsspeicher darf fehlen
+# --------------------------------------------------------------------------
+def _keyring_fehlt(monkeypatch):
+    def _nicht_verfuegbar(name):
+        raise secret_store.SecretStoreUnavailableError("'keyring' ist nicht installiert.")
+
+    monkeypatch.setattr(secret_store, "load_api_key", _nicht_verfuegbar)
+
+
+def test_api_schluessel_faellt_ohne_keyring_auf_sitzungsschluessel_zurueck(fenster, monkeypatch):
+    """Im lokalen Modus laeuft die Anwendung in der von 'bootstrap.py'
+    verwalteten Umgebung, und die enthaelt 'keyring' nicht. Ein
+    ungeschuetztes 'load_api_key' bricht dort ab - noch VOR dem Rueckgriff
+    auf den eben eingetippten Sitzungsschluessel."""
+    _keyring_fehlt(monkeypatch)
+    fenster._session_api_keys["transkription"] = "nur-fuer-diese-sitzung"
+
+    assert fenster._verwendbarer_api_schluessel("transkription") == "nur-fuer-diese-sitzung"
+
+
+def test_api_schluessel_ohne_keyring_und_ohne_sitzungsschluessel_ist_none(fenster, monkeypatch):
+    _keyring_fehlt(monkeypatch)
+
+    assert fenster._verwendbarer_api_schluessel("transkription") is None
+
+
+def test_transkription_startet_ohne_keyring_mit_sitzungsschluessel(fenster, audio_datei, monkeypatch):
+    """Der ganze Weg: kein Anmeldeinformationsspeicher, Schluessel nur aus
+    dem Einstellungsdialog - die Transkription muss trotzdem starten."""
+    _keyring_fehlt(monkeypatch)
+    fenster._source_path = audio_datei
+    fenster.transkription_api_radio.setChecked(True)
+    fenster._session_api_keys["transkription"] = "sitzungsschluessel"
+
+    fenster._start_transcription()
+
+    arbeiter = _WorkerAttrappe.instanzen[-1]
+    assert arbeiter.gestartet is True
+    assert arbeiter.kwargs["transcribe_chunk_fn"].keywords["api_key"] == "sitzungsschluessel"
+
+
+# --------------------------------------------------------------------------
+# Fehler des API-Modells muessen im gnaedigen Pfad landen
+# --------------------------------------------------------------------------
+def test_api_nachbearbeitungsfehler_wird_zu_ollama_error(fenster, tmp_path, schluessel_speicher, monkeypatch):
+    """'pipeline_service.run_protocol' behandelt nur
+    '(ProtocolValidationError, OllamaError)' gnaedig: Bericht schreiben,
+    Transkript behalten, Fehler als 'protokoll_fehler' melden. Ein
+    durchgereichter 'ApiProtocolError' (HTTP 401, Endpunkt nicht
+    erreichbar, Zeitlimit) landet stattdessen als nichtssagender
+    "Unerwarteter Fehler" im Worker."""
+    schluessel_speicher["transkription"] = "schluessel"
+    transkript = tmp_path / "ergebnis.json"
+    transkript.write_text("{}", encoding="utf-8")
+    fenster._set_transcript_path(transkript)
+    fenster.systemprompt_editor.setPlainText("Fasse zusammen.")
+    fenster.nachbearbeitung_api_radio.setChecked(True)
+
+    fenster._start_protocol()
+    generate_fn = _WorkerAttrappe.instanzen[-1].kwargs["protocol_generate_fn"]
+
+    def _scheitert(prompt, system, *, model, endpoint_url, api_key):
+        raise api_protocol_service.ApiProtocolError("HTTP 401: ungueltiger Schluessel")
+
+    monkeypatch.setattr(api_protocol_service, "generate_json", _scheitert)
+
+    with pytest.raises(ollama_service.OllamaError, match="401"):
+        generate_fn("Prompt", "System")
+
+
+# --------------------------------------------------------------------------
+# Whisper-Modell und Offline-Modus
+# --------------------------------------------------------------------------
+def test_whisper_modell_nimmt_eigene_einstellung():
+    assert mw.ermittle_whisper_modell({"whisper_modell": "small"}) == "small"
+
+
+def test_whisper_modell_faellt_auf_konfiguration_der_lokalen_anwendung_zurueck(monkeypatch):
+    """Der Einrichtungsassistent stammt unveraendert aus
+    'lokale_windows_app' und speichert das gewaehlte - und
+    heruntergeladene! - Modell in DEREN Konfiguration."""
+    monkeypatch.setattr(lokale_app_config, "load_config", lambda: {"whisper_modell": "medium"})
+
+    assert mw.ermittle_whisper_modell({"whisper_modell": None}) == "medium"
+
+
+def test_whisper_modell_nimmt_zuletzt_den_standard(monkeypatch):
+    monkeypatch.setattr(lokale_app_config, "load_config", lambda: {"whisper_modell": None})
+
+    assert mw.ermittle_whisper_modell({}) == model_service.WHISPER_MODEL_NAME
+
+
+def test_offline_modus_ist_vorbelegt_und_verbietet_das_herunterladen(fenster, audio_datei):
+    assert fenster.offline_checkbox.isChecked() is True
+
+    fenster._source_path = audio_datei
+    fenster._start_transcription()
+
+    assert _WorkerAttrappe.instanzen[-1].settings.allow_download is False
+
+
+def test_offline_modus_abgewaehlt_erlaubt_das_herunterladen(fenster, audio_datei):
+    """Ohne diesen Schalter stand 'allow_download=False' fest im Code - ein
+    noch nicht eingerichtetes Whisper-Modell konnte damit nie geladen
+    werden, obwohl der Einstellungsdialog genau das zusagt."""
+    fenster.offline_checkbox.setChecked(False)
+    fenster._source_path = audio_datei
+
+    fenster._start_transcription()
+
+    assert _WorkerAttrappe.instanzen[-1].settings.allow_download is True
+
+
+# --------------------------------------------------------------------------
+# Mikrofonaufnahme darf fehlen
+# --------------------------------------------------------------------------
+def test_fehlendes_sounddevice_schaltet_nur_die_aufnahme_ab(fenster, monkeypatch):
+    """'services.recording_service' importiert 'sounddevice' auf
+    Modulebene; die von 'bootstrap.py' verwaltete Laufzeitumgebung enthaelt
+    es nicht. Ein Import auf Modulebene haette dort das Oeffnen des
+    Hauptfensters verhindert - wegen einer Zusatzfunktion, ohne die der
+    Rest der Anwendung vollstaendig arbeitet."""
+
+    def _fehlt():
+        raise ImportError("No module named 'sounddevice'")
+
+    monkeypatch.setattr(mw, "lade_recording_service", _fehlt)
+
+    fenster._populate_recording_devices()
+
+    assert fenster._recording_devices == []
+    assert fenster.recording_start_button.isEnabled() is False
+    assert "sounddevice" in fenster.recording_hint_label.text()

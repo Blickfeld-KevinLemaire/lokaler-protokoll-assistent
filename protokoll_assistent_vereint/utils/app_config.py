@@ -58,6 +58,12 @@ def load_config() -> dict[str, Any]:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return dict(DEFAULTS)
+    if not isinstance(data, dict):
+        # Gueltiges JSON, aber kein Objekt (z. B. eine Liste nach einem
+        # misslungenen Eingriff von Hand). Ohne diese Pruefung scheitert
+        # '.items()' unten mit einem 'AttributeError' -- und zwar in 'app.py'
+        # noch VOR dem ersten Fenster, also ohne jede sichtbare Meldung.
+        return dict(DEFAULTS)
     merged = dict(DEFAULTS)
     merged.update({key: value for key, value in data.items() if key in DEFAULTS})
     return merged

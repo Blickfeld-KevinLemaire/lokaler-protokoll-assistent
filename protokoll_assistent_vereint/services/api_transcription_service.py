@@ -56,7 +56,11 @@ def pruefe_uebertragungsgroesse(audio_path: Path) -> None:
     raise ApiTranscriptionError(
         f"Der Chunk '{audio_path.name}' ist mit {groesse / 1024 / 1024:.0f} MB zu gross "
         f"fuer eine einzelne Uebertragung (Grenze: {MAX_DIRECT_AUDIO_SIZE / 1024 / 1024:.0f} MB). "
-        "Eine kuerzere Chunk-Laenge in den Einstellungen behebt das."
+        # Bewusst KEIN Verweis auf "die Einstellungen": Die Chunk-Laenge
+        # steht in 'services.chunking_service' und ist in dieser Anwendung
+        # nicht einstellbar.
+        "Das sollte bei der festen Chunk-Laenge nicht vorkommen -- bitte die "
+        "Aufnahme pruefen und den Fehler melden."
     )
 
 

@@ -33,6 +33,36 @@ Windows-Anmeldeinformationsverwaltung gemerkt werden (`keyring`, einziger
 Zugriffspunkt `protokoll_assistent_vereint/services/secret_store.py`) — nie
 als Klartext-Datei.
 
+Zwei Dinge, die dabei leicht schiefgehen und schon schiefgegangen sind:
+
+* **Der Einstiegspunkt wird als Skript geladen.** `app.py` trägt deshalb
+  **zwei** Einträge in `sys.path` ein: die Projektwurzel (sonst ist der
+  eigene, qualifizierte Import nicht auflösbar — `python app.py` endete mit
+  `No module named 'protokoll_assistent_vereint'`, und genau so startet
+  `bootstrap._relaunch` die Datei im lokalen Modus erneut) und davor
+  `lokale_windows_app` (damit die bare Importe dort landen). Diese
+  Reihenfolge bitte so lassen.
+* **Die verwaltete Laufzeitumgebung ist kleiner als die Entwicklungs­umgebung.**
+  Im lokalen Modus läuft die Anwendung in `runtime\venv`, und die enthält
+  nur `lokale_windows_app/requirements-laufzeit.txt` — dort fehlen `keyring`
+  **und** `sounddevice`. Beides darf den Start deshalb nicht verhindern:
+  der Anmeldeinformationsspeicher wird abgesichert abgefragt
+  (`MainWindow._verwendbarer_api_schluessel`, Rückfall auf den
+  Sitzungsschlüssel), und `services.recording_service` wird erst bei Bedarf
+  geladen (`lade_recording_service`) — fehlt es, ist nur die
+  Mikrofonaufnahme abgeschaltet, mit sichtbarem Hinweis.
+
+Eine einzige Ausnahme von „importiert unverändert wieder": `ProtocolSettings`
+in `lokale_windows_app/services/pipeline_service.py` hat ein zusätzliches,
+vorbelegtes Feld `system_prompt` bekommen. Bleibt es `None`, liest
+`run_protocol` den Prompt wie bisher aus `get_system_prompt_file()` — für die
+lokale Anwendung ändert sich also nichts. Die vereinte Anwendung lässt den
+Systemprompt im Fenster bearbeiten und gibt ihn direkt mit; vorher schrieb
+sie ihn dafür nach `get_system_prompt_file()` und hat damit bei **jeder**
+Nachbearbeitung den gespeicherten Systemprompt der lokalen Anwendung
+stillschweigend ersetzt. Diesen Weg bitte beibehalten: Was nur für einen Lauf
+gilt, gehört nicht in die gemeinsame Einstellungsdatei.
+
 Sobald sich diese dritte Anwendung bewährt hat, sollen beide obigen Apps
 damit abgelöst werden. Das ist eine **eigene, spätere** Planungs- und
 Freigaberunde (Installer, CI, `hauptanwendung.py`, dieser Abschnitt hier) —

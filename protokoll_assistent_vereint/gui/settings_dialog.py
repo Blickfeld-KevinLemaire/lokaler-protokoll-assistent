@@ -19,6 +19,7 @@ aktiviert hat. Der eigentliche Schluessel geht ausschliesslich ueber
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from PySide6.QtWidgets import (
@@ -193,9 +194,15 @@ class SettingsDialog(QDialog):
 
     def _open_diagnostics(self) -> None:
         from gui.dialogs import DiagnosticsDialog
-        from protokoll_assistent_vereint.utils.paths import get_app_dir
+        from protokoll_assistent_vereint.utils.paths import get_default_output_dir
 
-        dialog = DiagnosticsDialog(get_app_dir(), self)
+        # Der Parameter heisst 'output_dir': Die Diagnose prueft damit
+        # freien Platz und Schreibbarkeit des AUSGABEordners. Mit dem
+        # Anwendungsordner beantwortet sie die Frage fuer das falsche
+        # Laufwerk, sobald die Ausgabe woanders liegt.
+        ausgabeordner = self._config.get("ausgabeordner")
+        ziel = Path(ausgabeordner) if ausgabeordner else get_default_output_dir()
+        dialog = DiagnosticsDialog(ziel, self)
         dialog.exec()
 
     # ------------------------------------------------------------------

@@ -51,3 +51,39 @@ def test_vorlage_speichern_kann_eingebaute_nicht_ueberschreiben(isolierter_vorla
     with pytest.raises(ValueError, match="Agenda"):
         sv.vorlage_speichern("Agenda", "Anderer Text")
     assert not (isolierter_vorlagenordner / "Agenda.txt").exists()
+
+
+def test_vorlage_speichern_lehnt_unzulaessige_dateinamen_ab(isolierter_vorlagenordner):
+    """Der Vorlagenname IST der Dateiname. Naheliegende Namen fuer
+    Besprechungsvorlagen enthalten aber Zeichen, die Windows in Dateinamen
+    verbietet - ohne Pruefung scheitert erst das Schreiben, mit einem
+    'OSError' aus pathlib."""
+    with pytest.raises(ValueError, match="Dateinamen"):
+        sv.vorlage_speichern("Wer macht was?", "Inhalt")
+    assert list(isolierter_vorlagenordner.glob("*.txt")) == []
+
+
+@pytest.mark.parametrize("name", ["Kundengespraech A/B", 'Thema "Budget"', "Team: Vertrieb", "A*B", "C|D", "E<F>G"])
+def test_vorlage_speichern_lehnt_jedes_verbotene_zeichen_ab(isolierter_vorlagenordner, name):
+    with pytest.raises(ValueError):
+        sv.vorlage_speichern(name, "Inhalt")
+
+
+def test_vorlage_speichern_lehnt_leeren_namen_ab(isolierter_vorlagenordner):
+    with pytest.raises(ValueError, match="Namen"):
+        sv.vorlage_speichern("   ", "Inhalt")
+
+
+def test_name_pruefen_nennt_die_gefundenen_zeichen(isolierter_vorlagenordner):
+    with pytest.raises(ValueError) as fehler:
+        sv.name_pruefen("Wer? Was: Wo/")
+    meldung = str(fehler.value)
+    assert "?" in meldung
+    assert ":" in meldung
+    assert "/" in meldung
+
+
+def test_vorlage_speichern_akzeptiert_umlaute_und_leerzeichen(isolierter_vorlagenordner):
+    """Umlaute sind in Dateinamen zulaessig und sollen nicht abgelehnt werden."""
+    sv.vorlage_speichern("Große Besprechung", "Inhalt")
+    assert (isolierter_vorlagenordner / "Große Besprechung.txt").read_text(encoding="utf-8") == "Inhalt"

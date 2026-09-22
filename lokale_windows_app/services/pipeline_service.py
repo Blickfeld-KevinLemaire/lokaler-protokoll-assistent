@@ -160,6 +160,14 @@ class ProtocolSettings:
     output_dir: Path
     ollama_model: str = ollama_service.DEFAULT_MODEL
     protocol_group_size: int = 4
+    # Bleibt dieses Feld 'None', wird der Systemprompt wie bisher aus
+    # 'get_system_prompt_file()' gelesen -- fuer die lokale Anwendung aendert
+    # sich also nichts. Ein Aufrufer, der den Prompt fuer EINEN Lauf direkt
+    # mitgibt (die vereinte Anwendung laesst ihn im Fenster bearbeiten),
+    # setzt ihn hier. Ohne diesen Weg muesste ein solcher Aufrufer den Text
+    # erst in die gemeinsame Einstellungsdatei schreiben und damit den
+    # gespeicherten Systemprompt der lokalen Anwendung ueberschreiben.
+    system_prompt: str | None = None
 
 
 @dataclass
@@ -544,7 +552,10 @@ def run_protocol(
     callbacks.on_stage("protokoll_auswertung", STAGE_LABELS["protokoll_auswertung"])
     from utils.paths import get_system_prompt_file
 
-    system_prompt = get_system_prompt_file().read_text(encoding="utf-8")
+    if settings.system_prompt is None:
+        system_prompt = get_system_prompt_file().read_text(encoding="utf-8")
+    else:
+        system_prompt = settings.system_prompt
     chunk_texts = _build_protocol_chunk_texts(chunk_plans, segments, speaker_names, diarization_enabled)
 
     def default_ollama_generate(prompt: str, system: str) -> dict[str, Any]:

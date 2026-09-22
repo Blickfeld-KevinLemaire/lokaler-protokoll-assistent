@@ -661,3 +661,71 @@ def test_run_protocol_meldet_ollama_fehler(monkeypatch, tmp_path, source_file):
     assert ergebnis.protocol_paths is None
     assert "nicht erreichbar" in (ergebnis.protokoll_fehler or "")
     assert ergebnis.report_paths[0].is_file()
+
+
+def test_run_protocol_nimmt_den_mitgegebenen_systemprompt(monkeypatch, tmp_path, source_file):
+    """'ProtocolSettings.system_prompt' hat Vorrang vor der
+    Einstellungsdatei.
+
+    Ohne diesen Weg muesste ein Aufrufer, der den Prompt fuer EINEN Lauf
+    vorgibt (die vereinte Anwendung laesst ihn im Fenster bearbeiten), ihn
+    erst nach 'get_system_prompt_file()' schreiben - und damit den
+    gespeicherten Systemprompt dieser Anwendung hier ueberschreiben."""
+    monkeypatch.setattr(utils_paths, "get_work_dir", lambda: tmp_path / "arbeitsdaten")
+    _systemprompt_bereitstellen(monkeypatch, tmp_path)
+    _patch_ffmpeg(monkeypatch, total_duration=300.0)
+
+    transkript = pipeline_service.run_transcription(
+        _make_settings(source_file, tmp_path),
+        transcribe_chunk_fn=_einfaches_segment,
+        diarize_fn=_fake_diarize,
+    )
+
+    benutzte_systemprompts = []
+
+    def protokoll_generieren(prompt, system):
+        benutzte_systemprompts.append(system)
+        return _vollstaendiges_protokoll("NEU")
+
+    ergebnis = pipeline_service.run_protocol(
+        pipeline_service.ProtocolSettings(
+            transcript_json_path=transkript.export_paths.json,
+            output_dir=tmp_path / "ausgabe",
+            system_prompt="Nur fuer diesen einen Lauf.",
+        ),
+        protocol_generate_fn=protokoll_generieren,
+    )
+
+    assert ergebnis.protokoll_fehler is None
+    assert benutzte_systemprompts
+    assert set(benutzte_systemprompts) == {"Nur fuer diesen einen Lauf."}
+    # Die Einstellungsdatei bleibt unberuehrt.
+    assert (tmp_path / "systemprompt.txt").read_text(encoding="utf-8") == "Du bist ein Protokollassistent."
+
+
+def test_run_protocol_liest_ohne_mitgegebenen_systemprompt_weiter_die_datei(monkeypatch, tmp_path, source_file):
+    """Gegenprobe: Fuer die lokale Anwendung aendert das neue Feld nichts."""
+    monkeypatch.setattr(utils_paths, "get_work_dir", lambda: tmp_path / "arbeitsdaten")
+    _systemprompt_bereitstellen(monkeypatch, tmp_path)
+    _patch_ffmpeg(monkeypatch, total_duration=300.0)
+
+    transkript = pipeline_service.run_transcription(
+        _make_settings(source_file, tmp_path),
+        transcribe_chunk_fn=_einfaches_segment,
+        diarize_fn=_fake_diarize,
+    )
+
+    benutzte_systemprompts = []
+
+    def protokoll_generieren(prompt, system):
+        benutzte_systemprompts.append(system)
+        return _vollstaendiges_protokoll("NEU")
+
+    pipeline_service.run_protocol(
+        pipeline_service.ProtocolSettings(
+            transcript_json_path=transkript.export_paths.json, output_dir=tmp_path / "ausgabe"
+        ),
+        protocol_generate_fn=protokoll_generieren,
+    )
+
+    assert set(benutzte_systemprompts) == {"Du bist ein Protokollassistent."}

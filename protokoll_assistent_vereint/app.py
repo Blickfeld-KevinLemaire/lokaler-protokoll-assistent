@@ -25,7 +25,21 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-_LOKALE_WINDOWS_APP = Path(__file__).resolve().parent.parent / "lokale_windows_app"
+_PROJEKT_WURZEL = Path(__file__).resolve().parent.parent
+_LOKALE_WINDOWS_APP = _PROJEKT_WURZEL / "lokale_windows_app"
+
+# Zwei Eintraege, und die Reihenfolge ist wesentlich:
+#
+# 1. Die PROJEKTWURZEL muss im Suchpfad stehen, damit die eigenen, bewusst
+#    qualifizierten Importe ('protokoll_assistent_vereint.X.Y') ueberhaupt
+#    aufloesbar sind. Beim Start als Skript ("python app.py", und genau so
+#    startet auch 'bootstrap._relaunch' diese Datei neu) enthaelt sys.path
+#    nur den Ordner DIESER Datei - die Wurzel eben nicht. Ohne diese Zeile
+#    endet der Start sofort mit "No module named 'protokoll_assistent_vereint'".
+# 2. 'lokale_windows_app' muss VOR der Wurzel stehen, damit die bare
+#    Importe ('services', 'utils', 'gui') dort landen - so wie
+#    'pipeline_service' sie intern selbst aufloest.
+sys.path.insert(0, str(_PROJEKT_WURZEL))
 sys.path.insert(0, str(_LOKALE_WINDOWS_APP))
 
 from protokoll_assistent_vereint.utils import app_config  # noqa: E402

@@ -29,6 +29,8 @@ import json
 import sys
 import time
 from pathlib import Path
+from types import ModuleType
+from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import Qt, QTimer, QUrl
 from PySide6.QtGui import QCloseEvent, QDesktopServices, QDragEnterEvent, QDropEvent
@@ -70,7 +72,12 @@ from PySide6.QtWidgets import (
 from gui.dialogs import show_error
 from gui.strings import PRIVACY_NOTICE
 from protokoll_assistent_vereint.gui.settings_dialog import DATENSCHUTZ_HINWEIS_API, SettingsDialog
-from protokoll_assistent_vereint.gui.worker import DateiHashWorker, ProtocolWorker, TranscriptionWorker
+from protokoll_assistent_vereint.gui.worker import (
+    DateiHashWorker,
+    ProtocolGenerateFn,
+    ProtocolWorker,
+    TranscriptionWorker,
+)
 from protokoll_assistent_vereint.services import api_protocol_service, api_transcription_service, secret_store
 from protokoll_assistent_vereint.utils import app_config
 from protokoll_assistent_vereint.utils.paths import get_default_output_dir, get_recordings_dir
@@ -81,10 +88,59 @@ from services import (
     model_service,
     ollama_service,
     pipeline_service,
-    recording_service,
 )
 from utils.paths import get_system_prompt_file, get_work_dir
 from utils.timeformat import format_duration_human
+
+if TYPE_CHECKING:  # pragma: no cover - nur fuer die Typpruefung
+    from services import recording_service
+
+
+def lade_recording_service() -> ModuleType:
+    """Laedt 'services.recording_service' erst bei Bedarf.
+
+    Das Modul importiert 'sounddevice' auf Modulebene. Im lokalen Modus
+    laeuft diese Anwendung aber in der von 'bootstrap.py' verwalteten
+    Laufzeitumgebung, und deren 'requirements-laufzeit.txt' enthaelt
+    'sounddevice' nicht. Ein Import auf Modulebene wuerde dort schon das
+    Oeffnen des Hauptfensters verhindern -- wegen einer Zusatzfunktion
+    (Mikrofonaufnahme), ohne die der Rest der Anwendung vollstaendig
+    arbeitet. Der 'ImportError' landet stattdessen dort, wo er behandelt
+    wird ('_populate_recording_devices' schaltet die Aufnahme dann ab und
+    sagt, warum)."""
+    from services import recording_service as modul
+
+    return modul
+
+
+def ermittle_whisper_modell(eigene_konfiguration: dict[str, Any]) -> str:
+    """Welches Whisper-Modell gilt fuer den lokalen Modus?
+
+    Drei Quellen, in dieser Reihenfolge:
+
+    1. Die eigene Konfiguration (im Einstellungsdialog dieser Anwendung
+       gewaehlt).
+    2. Die Konfiguration von 'lokale_windows_app'. Notwendig, weil der
+       Einrichtungsassistent ('gui.wizard.SetupWizard') unveraendert von
+       dort wiederverwendet wird: Er speichert das gewaehlte Modell -- und
+       zwar genau das, das er auch HERUNTERGELADEN hat -- ueber sein
+       eigenes 'utils.app_config' dorthin, nicht hierher. Ohne diesen
+       Rueckgriff waehlt die vereinte Anwendung direkt nach einer
+       erfolgreichen Ersteinrichtung ein anderes Modell als das gerade
+       eingerichtete.
+    3. Der eingebaute Standard.
+    """
+    eigenes = eigene_konfiguration.get("whisper_modell")
+    if eigenes:
+        return str(eigenes)
+
+    from utils.app_config import load_config as lokale_konfiguration_laden
+
+    lokales = lokale_konfiguration_laden().get("whisper_modell")
+    if lokales:
+        return str(lokales)
+    return model_service.WHISPER_MODEL_NAME
+
 
 SUPPORTED_EXTENSION_NAMES = [
     "mp3", "mp4", "m4a", "wav", "aac", "flac", "ogg", "opus", "mov", "mkv", "webm",
@@ -284,7 +340,17 @@ class MainWindow(QMainWindow):
 
     def _populate_recording_devices(self) -> None:
         try:
-            self._recording_devices = recording_service.liste_aufnahmegeraete()
+            aufnahme_modul = lade_recording_service()
+            self._recording_devices = aufnahme_modul.liste_aufnahmegeraete()
+        except ImportError as error:
+            self._recording_devices = []
+            self.recording_hint_label.setText(
+                "Die Mikrofonaufnahme steht in dieser Laufzeitumgebung nicht zur "
+                f"Verfügung ({error}). Alles andere funktioniert unverändert; eine "
+                "bereits vorhandene Aufnahme kann wie jede andere Datei ausgewählt werden."
+            )
+            self.recording_start_button.setEnabled(False)
+            return
         except Exception as error:  # PortAudio-Fehler in ungewoehnlicher Umgebung
             self._recording_devices = []
             self.recording_hint_label.setText(f"Aufnahmegeräte konnten nicht ermittelt werden: {error}")
@@ -298,8 +364,8 @@ class MainWindow(QMainWindow):
 
         config = app_config.load_config()
         saved = config.get("aufnahmegeraet")
-        standard_index = recording_service.standard_eingabe_index()
-        device, hint = recording_service.waehle_startgeraet(
+        standard_index = aufnahme_modul.standard_eingabe_index()
+        device, hint = aufnahme_modul.waehle_startgeraet(
             self._recording_devices, saved, standard_index
         )
 
@@ -329,9 +395,10 @@ class MainWindow(QMainWindow):
             show_error(self, "Kein Gerät ausgewählt", "Bitte zuerst ein Aufnahmegerät auswählen.")
             return
 
-        zielpfad = get_recordings_dir() / recording_service.erzeuge_dateiname()
         try:
-            aufnahme = recording_service.MikrofonAufnahme(geraet, zielpfad)
+            aufnahme_modul = lade_recording_service()
+            zielpfad = get_recordings_dir() / aufnahme_modul.erzeuge_dateiname()
+            aufnahme = aufnahme_modul.MikrofonAufnahme(geraet, zielpfad)
             aufnahme.start()
         except Exception as error:
             show_error(
@@ -481,6 +548,26 @@ class MainWindow(QMainWindow):
         speaker_row.addWidget(QLabel("Max.:", self))
         speaker_row.addWidget(self.max_speakers_spin)
         layout.addRow(speaker_row)
+
+        # Genau wie in 'lokale_windows_app/gui/main_window.py', mit
+        # derselben Vorbelegung. Vorher stand 'allow_download=False' fest im
+        # Code -- damit setzt 'model_service.prepare_offline_mode'
+        # ausnahmslos 'HF_HUB_OFFLINE=1', und ein Modell, das noch nicht
+        # heruntergeladen ist, kann NIE geladen werden. Der
+        # Einstellungsdialog verspricht aber genau das ("Wird beim ersten
+        # Einsatz im lokalen Modus automatisch heruntergeladen").
+        self.offline_checkbox = QCheckBox("Offline-Modus (empfohlen)", self)
+        self.offline_checkbox.setChecked(True)
+        layout.addRow(self.offline_checkbox)
+
+        offline_hint = QLabel(
+            "Verhindert jeden Netzwerkzugriff der Modelle. Für den ersten Lauf mit "
+            "einem noch nicht eingerichteten Whisper-Modell einmal abwählen, damit es "
+            "heruntergeladen werden darf.",
+            self,
+        )
+        offline_hint.setWordWrap(True)
+        layout.addRow(offline_hint)
 
         return group
 
@@ -922,7 +1009,18 @@ class MainWindow(QMainWindow):
         try:
             vorlage_speichern(name, self.systemprompt_editor.toPlainText())
         except ValueError as error:
-            QMessageBox.warning(self, "Name vergeben", str(error))
+            QMessageBox.warning(self, "Name nicht verwendbar", str(error))
+            return
+        except OSError as error:
+            # Der Name IST der Dateiname. 'name_pruefen' faengt die verbotenen
+            # Zeichen ab, es bleiben aber Faelle, die erst das Dateisystem
+            # kennt: unter Windows reservierte Namen ("CON", "PRN", "LPT1"),
+            # ein zu langer Pfad, ein schreibgeschuetzter Ordner.
+            QMessageBox.warning(
+                self,
+                "Vorlage konnte nicht gespeichert werden",
+                f"Die Vorlage '{name}' konnte nicht gespeichert werden:\n{error}",
+            )
             return
         if self.vorlage_combo.findData(name) < 0:
             self.vorlage_combo.addItem(name, name)
@@ -968,7 +1066,7 @@ class MainWindow(QMainWindow):
         transcribe_chunk_fn = None
         diarize_fn = None
         if self.transkription_api_radio.isChecked():
-            api_key = secret_store.load_api_key("transkription") or self._session_api_keys.get("transkription")
+            api_key = self._verwendbarer_api_schluessel("transkription")
             if not api_key:
                 show_error(
                     self,
@@ -992,9 +1090,9 @@ class MainWindow(QMainWindow):
             language=self.language_combo.currentData(),
             min_speakers=self.min_speakers_spin.value() if self.limit_speakers_checkbox.isChecked() else None,
             max_speakers=self.max_speakers_spin.value() if self.limit_speakers_checkbox.isChecked() else None,
-            allow_download=False,
+            allow_download=not self.offline_checkbox.isChecked(),
             resume_mode=self.resume_combo.currentData(),
-            whisper_model=config.get("whisper_modell") or model_service.WHISPER_MODEL_NAME,
+            whisper_model=ermittle_whisper_modell(config),
             enable_diarization=self.diarization_checkbox.isChecked(),
         )
 
@@ -1036,6 +1134,24 @@ class MainWindow(QMainWindow):
             return True
         return importlib.util.find_spec("faster_whisper") is not None
 
+    def _verwendbarer_api_schluessel(self, schluessel_name: str) -> str | None:
+        """Gemerkter Schluessel, sonst der nur fuer diese Sitzung eingegebene.
+
+        Die Abfrage des Anmeldeinformationsspeichers MUSS abgesichert sein:
+        Im lokalen Modus laeuft die Anwendung in der von 'bootstrap.py'
+        verwalteten Laufzeitumgebung, und die enthaelt 'keyring' nicht
+        (siehe 'requirements-laufzeit.txt'). Ungeschuetzt wuerde
+        'load_api_key' dort mit 'SecretStoreUnavailableError' abbrechen --
+        und zwar noch VOR dem Rueckgriff auf den Sitzungsschluessel, den der
+        Anwender eben in den Einstellungen eingetippt hat. Genau derselbe
+        Schutz steckt im Einstellungsdialog
+        ('_gespeicherten_schluessel_laden')."""
+        try:
+            gemerkt = secret_store.load_api_key(schluessel_name)
+        except secret_store.SecretStoreUnavailableError:
+            gemerkt = None
+        return gemerkt or self._session_api_keys.get(schluessel_name)
+
     def _cancel_transcription(self) -> None:
         if self._transcription_worker is not None:
             self._transcription_worker.request_cancel()
@@ -1075,18 +1191,13 @@ class MainWindow(QMainWindow):
                 "Bitte einen Systemprompt eingeben oder oben eine Vorlage auswählen.",
             )
             return
-        # 'services.protocol_service'/'pipeline_service.run_protocol' lesen
-        # den Systemprompt intern ueber 'get_system_prompt_file()' (siehe
-        # Import oben) - der hier gerade gewaehlte/bearbeitete Text muss
-        # deshalb erst dorthin geschrieben werden.
-        get_system_prompt_file().write_text(systemprompt_text, encoding="utf-8")
 
         config = app_config.load_config()
-        protocol_generate_fn = None
+        protocol_generate_fn: ProtocolGenerateFn | None = None
         if self.nachbearbeitung_api_radio.isChecked():
             eigener_schluessel = config["api_nachbearbeitung_eigener_schluessel"]
             schluessel_name = "nachbearbeitung" if eigener_schluessel else "transkription"
-            api_key = secret_store.load_api_key(schluessel_name) or self._session_api_keys.get(schluessel_name)
+            api_key = self._verwendbarer_api_schluessel(schluessel_name)
             if not api_key:
                 show_error(
                     self,
@@ -1094,17 +1205,46 @@ class MainWindow(QMainWindow):
                     "Bitte zuerst in den Einstellungen einen API-Schlüssel für die Nachbearbeitung hinterlegen.",
                 )
                 return
-            protocol_generate_fn = functools.partial(
-                api_protocol_service.generate_json,
-                model=config["api_nachbearbeitung_modell"],
-                endpoint_url=config["api_nachbearbeitung_endpunkt"],
-                api_key=api_key,
-            )
+            api_modell = config["api_nachbearbeitung_modell"]
+            api_endpunkt = config["api_nachbearbeitung_endpunkt"]
+
+            def _api_nachbearbeitung(prompt: str, system: str) -> dict[str, Any]:
+                """Uebersetzt 'ApiProtocolError' in 'OllamaError'.
+
+                'pipeline_service.run_protocol' behandelt einen
+                fehlgeschlagenen Protokolllauf gnaedig -- aber nur fuer
+                '(ProtocolValidationError, ollama_service.OllamaError)':
+                dann wird der Fehler als 'protokoll_fehler' gemeldet, der
+                Bericht trotzdem geschrieben und das fertige Transkript
+                bleibt erhalten. Ein durchgereichter 'ApiProtocolError'
+                (HTTP 401, Endpunkt nicht erreichbar, Zeitlimit) faellt
+                stattdessen bis in den Worker und landet dort als
+                nichtssagender "Unerwarteter Fehler"."""
+                try:
+                    return api_protocol_service.generate_json(
+                        prompt,
+                        system,
+                        model=api_modell,
+                        endpoint_url=api_endpunkt,
+                        api_key=api_key,
+                    )
+                except api_protocol_service.ApiProtocolError as fehler:
+                    raise ollama_service.OllamaError(str(fehler)) from fehler
+
+            protocol_generate_fn = _api_nachbearbeitung
 
         settings = pipeline_service.ProtocolSettings(
             transcript_json_path=self._selected_transcript_path,
             output_dir=self._output_dir,
             ollama_model=config["ollama_modell"] or ollama_service.DEFAULT_MODEL,
+            # Der im Fenster gewaehlte/bearbeitete Text wird direkt
+            # mitgegeben. Frueher wurde er dafuer nach
+            # 'get_system_prompt_file()' geschrieben -- das ist aber die
+            # Einstellungsdatei der LOKALEN Anwendung
+            # ('lokale_windows_app/einstellungen/systemprompt_protokoll.txt'):
+            # jede Nachbearbeitung hier hat damit stillschweigend deren
+            # gespeicherten Systemprompt ersetzt.
+            system_prompt=systemprompt_text,
         )
 
         self._set_controls_running(True)
