@@ -46,22 +46,15 @@ laufzeit-aufgeloest.txt
 !.env.example
 *.pem
 *.key
-.protokoll_assistent_ordner.txt
-mikrofon_konfiguration.json
-
-# Fachbegriffe enthalten Projektnamen und Nachnamen echter Personen.
-# Die Vorlage liegt als 'fachbegriffe.beispiel.txt' bei.
-einstellungen/fachbegriffe.txt
 
 # ---------------------------------------------------------------------------
-# Nutzerdaten der Cloud-Variante (Aufnahmen, Transkripte, Protokolle).
+# Nutzerdaten (Aufnahmen, Transkripte, Protokolle).
 # Die Ordner werden beim Start automatisch angelegt und gehoeren deshalb
 # gar nicht erst ins Repository - auch nicht als leere Platzhalter.
 # ---------------------------------------------------------------------------
-eingabe/
 ausgabe/
-zwischenstaende/
-Ergebnis des Meetings wie gewünscht/
+aufnahmen/
+arbeitsdaten/
 
 # Sicherheitsnetz: Medien- und Protokolldateien gehoeren nie ins Repository,
 # egal in welchem Ordner sie auftauchen.
@@ -96,3 +89,4 @@ desktop.ini
 # angemeldet ist, braucht nichts davon. Versioniert wuerde die Datei andere
 # Mitarbeitende in die Irre fuehren. CLAUDE.md bleibt versioniert.
 .claude/skills/
+.claude/settings.local.json

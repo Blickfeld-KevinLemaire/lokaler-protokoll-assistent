@@ -7,20 +7,21 @@ name: Release-Build
 #   git tag v0.1.0
 #   git push origin v0.1.0
 #
-# Es entstehen ZWEI Dateien:
+# Es entstehen ZWEI Dateien - beide aus demselben Build, seit es nur noch
+# EINE Anwendung gibt:
 #
 #   Protokoll-Assistent-Setup-<Version>.exe   Installer fuer Anwender.
-#       Enthaelt das Auswahlfenster und die Cloud-Variante als fertige EXEs
-#       sowie die Programmdateien der lokalen Anwendung. Installiert ohne
-#       Administratorrechte pro Benutzer.
+#       Enthaelt die gebaute Anwendung, die Programmdateien fuer den lokalen
+#       Modus und eine mitgelieferte Python-Laufzeitumgebung. Installiert
+#       ohne Administratorrechte pro Benutzer.
 #
-#   Protokoll-Assistent-Lokal-windows.zip     wie bisher: der reine
-#       PyInstaller-Build der lokalen Anwendung, fuer Rechner, auf denen die
-#       Einrichtung nach 'lokale_windows_app/README.md' schon gelaufen ist.
+#   Protokoll-Assistent-windows.zip           Der reine PyInstaller-Build,
+#       fuer Rechner, auf denen die Einrichtung schon gelaufen ist.
 #
-# WICHTIG: Keiner der beiden Builds enthaelt KI-Modelle oder PyTorch/WhisperX.
-# Die lokale Anwendung richtet sich diese Umgebung beim ersten Start selbst
-# ein und braucht dafuer ein installiertes Python 3.10/3.11.
+# WICHTIG: Der Build enthaelt keine KI-Modelle und kein PyTorch/WhisperX. Wer
+# in den Einstellungen "Lokal" waehlt, laesst sich diese Umgebung beim ersten
+# Start selbst einrichten und braucht dafuer ein installiertes Python
+# 3.10/3.11. Im reinen API-Modus wird davon nichts gebraucht.
 
 on:
   push:
@@ -35,7 +36,10 @@ env:
 
 jobs:
   bauen:
-    name: Windows-EXE bauen (lokale Anwendung)
+    # Frueher zwei Jobs (lokale Anwendung + Auswahlfenster/Cloud-Variante),
+    # die zwei verschiedene Spezifikationen gebaut haben. Mit einer einzigen
+    # Anwendung ist das ein Build - und ein Windows-Laeufer weniger.
+    name: Anwendung, Archiv und Installer bauen
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
@@ -54,14 +58,12 @@ jobs:
         run: uv run pytest
 
       - name: PyInstaller ausfuehren
-        working-directory: lokale_windows_app
-        run: uv run pyinstaller --noconfirm protokoll_assistent_lokal.spec
+        run: uv run pyinstaller --noconfirm protokoll_assistent.spec
 
       - name: Archiv packen
-        working-directory: lokale_windows_app
         shell: pwsh
         run: |
-          $quelle = "dist\Protokoll-Assistent-Lokal"
+          $quelle = "dist\Protokoll-Assistent"
           if (-not (Test-Path $quelle)) {
             Write-Error "Build-Ergebnis fehlt: $quelle"
             exit 1
@@ -77,38 +79,11 @@ jobs:
               exit 1
             }
           }
-          Compress-Archive -Path "$quelle\*" -DestinationPath "..\Protokoll-Assistent-Lokal-windows.zip"
-
-      - name: Als Artefakt ablegen
-        uses: actions/upload-artifact@v7
-        with:
-          name: Protokoll-Assistent-Lokal-windows
-          path: Protokoll-Assistent-Lokal-windows.zip
-          retention-days: 30
-
-  installer:
-    name: Installer bauen
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: astral-sh/setup-uv@v7
-        with:
-          enable-cache: true
-          cache-dependency-glob: uv.lock
-
-      - run: uv sync --python 3.11
-
-      - name: Tests vor dem Build
-        env:
-          QT_QPA_PLATFORM: offscreen
-        run: uv run pytest
-
-      - name: Auswahlfenster und Cloud-Variante bauen
-        run: uv run pyinstaller --noconfirm protokoll_assistent_cloud.spec
+          Compress-Archive -Path "$quelle\*" -DestinationPath "Protokoll-Assistent-windows.zip"
 
       - name: Python-Laufzeitumgebung fuer den Installer holen
-        # Damit Anwender kein Python selbst installieren muessen.
+        # Damit Anwender fuer den lokalen Modus kein Python selbst
+        # installieren muessen.
         shell: pwsh
         run: pwsh -NoProfile -File installer/python-laufzeit-holen.ps1
 
@@ -146,7 +121,19 @@ jobs:
           $groesse = [math]::Round((Get-Item $setup).Length / 1MB, 1)
           Write-Host "Installer erstellt: $setup ($groesse MB)"
 
-      - name: Als Artefakt ablegen
+      # ZWEI Artefakte, nicht eines mit zwei Pfaden: Bei mehreren Pfaden
+      # behaelt 'upload-artifact' die Ordnerstruktur ab dem gemeinsamen
+      # Wurzelverzeichnis bei. Die EXE laege dann unter 'dist-installer/' und
+      # das Dateimuster im Release-Schritt ('artefakte/Protokoll-Assistent-Setup-*.exe')
+      # wuerde sie nicht mehr finden - das Release erschiene ohne Installer.
+      - name: Archiv ablegen
+        uses: actions/upload-artifact@v7
+        with:
+          name: Protokoll-Assistent-windows
+          path: Protokoll-Assistent-windows.zip
+          retention-days: 30
+
+      - name: Installer ablegen
         uses: actions/upload-artifact@v7
         with:
           name: Protokoll-Assistent-Setup
@@ -155,7 +142,7 @@ jobs:
 
   veroeffentlichen:
     name: Release anlegen
-    needs: [bauen, installer]
+    needs: [bauen]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
@@ -170,7 +157,7 @@ jobs:
         with:
           files: |
             artefakte/Protokoll-Assistent-Setup-*.exe
-            artefakte/Protokoll-Assistent-Lokal-windows.zip
+            artefakte/Protokoll-Assistent-windows.zip
           generate_release_notes: true
           body: |
             ## Was Sie herunterladen sollten
@@ -180,15 +167,18 @@ jobs:
             laesst sich normal ueber "Apps & Features" wieder entfernen.
 
             Die ZIP-Datei ist nur fuer Rechner gedacht, auf denen die
-            Einrichtung nach `lokale_windows_app/README.md` bereits gelaufen
-            ist.
+            Einrichtung bereits gelaufen ist.
 
             ## Hinweise zu diesem Build
 
-            * Enthaelt **keine** KI-Modelle und kein PyTorch/WhisperX. Die
-              lokale Variante laedt diese beim ersten Start selbst nach und
-              braucht dafuer ein installiertes **Python 3.10 oder 3.11**.
-              Die Cloud-Variante laeuft ohne Python.
+            * Es gibt **eine** Anwendung fuer beide Wege. Ob Transkription und
+              Nachbearbeitung lokal oder ueber eine API laufen, ist eine
+              Einstellung im Programm - kein eigenes Programm mehr.
+            * Enthaelt **keine** KI-Modelle und kein PyTorch/WhisperX. Wer den
+              lokalen Modus waehlt, laesst sich diese Umgebung beim ersten
+              Start selbst einrichten und braucht dafuer ein installiertes
+              **Python 3.10 oder 3.11**. Im reinen API-Modus wird davon nichts
+              gebraucht.
             * Der Installer ist **nicht signiert**. Windows SmartScreen meldet
               sich deshalb beim Start - ueber "Weitere Informationen" -
               "Trotzdem ausfuehren" laesst er sich starten.

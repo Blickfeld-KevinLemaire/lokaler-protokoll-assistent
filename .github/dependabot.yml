@@ -10,12 +10,12 @@ version: 2
 # WARUM NUR EIN PYTHON-EINTRAG
 # ----------------------------
 # Vorher standen hier drei Bloecke: 'uv' auf '/', 'pip' auf '/' und 'pip' auf
-# '/lokale_windows_app'. Alle drei durchsuchen den Baum ab ihrem Verzeichnis
-# und fanden dieselbe Datei 'lokale_windows_app/requirements-laufzeit.txt'.
+# dem Anwendungsordner. Alle drei durchsuchen den Baum ab ihrem Verzeichnis
+# und fanden dieselbe Datei 'protokoll_assistent/requirements-laufzeit.txt'.
 # Ergebnis am 21.09.2026: vier Aktualisierungen, aber dreizehn Pull Requests -
 # jede Aenderung dreimal, in drei Branches, mit drei CI-Laeufen.
 # Ein Eintrag reicht: 'uv' sieht sowohl 'pyproject.toml'/'uv.lock' als auch
-# die 'requirements-*.txt' der lokalen Anwendung.
+# die 'requirements-*.txt' der Anwendung.
 
 updates:
   # ---------------------------------------------------------------------
@@ -45,7 +45,7 @@ updates:
       - abhaengigkeiten
     ignore:
       # PyTorch bleibt auf 2.11.x - siehe die ausfuehrliche Begruendung in
-      # 'lokale_windows_app/requirements-torch.txt'. Kurz: CTranslate2 laedt
+      # 'protokoll_assistent/requirements-torch.txt'. Kurz: CTranslate2 laedt
       # 'cublas64_12.dll', es muss also ein CUDA-12-Build sein, und 2.11.0 ist
       # die neueste Fassung, die es in BEIDEN benutzten CUDA-12-Indizes gibt
       # (cu126 und cu128). Dependabot sieht die Indizes von pytorch.org nicht

@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Laufzeit-/Nutzerdaten (werden von der Anwendung selbst erzeugt)
+logs/*.log
+logs/*.log.*
+ausgabe/
+arbeitsdaten/
+aufnahmen/
+Einrichtungsstatus.json
+konfiguration.json
+runtime/
+!logs/.gitkeep
+!tools/ffmpeg/.gitkeep
+
+# PyInstaller-Build
+build/
+dist/
+*.spec.bak
+
+# Optionales lokales FFmpeg (wird vom Nutzer selbst abgelegt, nicht mitgeliefert)
+tools/ffmpeg/*
+!tools/ffmpeg/.gitkeep
+
+# Editoren/OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

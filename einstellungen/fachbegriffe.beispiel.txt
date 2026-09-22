@@ -1,4 +1,0 @@
-# Ein Fachbegriff pro Zeile. Zeilen, die mit '#' beginnen, werden ignoriert.
-# Beispiel:
-# Projektname XY
-# Nachname einer haeufig genannten Person
