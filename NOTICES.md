@@ -44,7 +44,7 @@ dieses Programm wird ausdruecklich die **LGPL-3.0** gewaehlt.
 
 * Lizenz: MIT — Copyright (c) Steve Canny
 * Wird fuer den Export als Word-Datei benutzt
-  (`lokale_windows_app/services/export_service.py`).
+  (`protokoll_assistent/services/export_service.py`).
 
 ### sounddevice (0.5.x) und PortAudio
 
@@ -54,14 +54,14 @@ dieses Programm wird ausdruecklich die **LGPL-3.0** gewaehlt.
   (32-/64-Bit/ARM64, jeweils mit und ohne ASIO). Verwendet wird ausschliesslich
   die Standardvariante ohne ASIO; die ASIO-DLL wird nicht angesprochen, die
   proprietaere Steinberg-ASIO-SDK-Frage stellt sich damit nicht.
-* Wird fuer die Mikrofonaufnahme (Voice Recording) benutzt — Cloud-Variante
+* Wird fuer die Mikrofonaufnahme (Voice Recording) benutzt
   (`mikrofon_aufnahme.py`) und lokale Variante
-  (`lokale_windows_app/services/recording_service.py`).
+  (`protokoll_assistent/services/recording_service.py`).
 
 ### keyring (25.7.0)
 
 * Lizenz: MIT — Copyright (c) Kang Zhang
-* Wird von der vereinten Anwendung (`protokoll_assistent_vereint/`) benutzt,
+* Wird benutzt,
   um API-Schluessel optional ueber die Windows-Anmeldeinformationsverwaltung
   dauerhaft zu speichern (`services/secret_store.py`) — nie als
   Klartext-Datei. Optional: Der Anwender kann Schluessel stattdessen nur fuer
@@ -110,27 +110,7 @@ mitgelieferten Abhaengigkeiten; deren Lizenztexte liegen unveraendert in
 
 ---
 
-## 2. Nur in der Cloud-Variante
-
-### sv-ttk (2.6.1)
-
-* Lizenz: MIT — Copyright (c) rdbende
-* Erscheinungsbild der tkinter-Oberflaeche. Optional: fehlt das Paket, laeuft
-  die Anwendung mit dem Standard-Design weiter.
-
-### tkinterdnd2 (0.6.3)
-
-* Lizenz: MIT — Copyright (c) Philippe Gagné
-* Bindet die Tcl-Erweiterung `tkdnd` ein (Urheber: George Petasis, National
-  Centre for Scientific Research "Demokritos"; permissive, dem Tcl/Tk-Lizenztext
-  aehnliche Bedingungen), als vorkompilierte Bibliothek je Plattform mit
-  ausgeliefert.
-* Ermoeglicht Drag & Drop (Datei/Ordner ins Fenster ziehen). Optional: fehlt
-  das Paket, laeuft die Anwendung mit den Auswahl-Buttons weiter.
-
----
-
-## 3. Vom Anwender selbst installiert (wird nicht mitgeliefert)
+## 2. Vom Anwender selbst installiert (wird nicht mitgeliefert)
 
 Diese Bestandteile richtet der Anwender auf seinem Rechner ein. Sie werden
 nicht von uns weitergegeben; ihre Lizenzen gelten zwischen dem Anwender und
@@ -156,7 +136,7 @@ entfallen ganz, und `pip-audit` meldet keine Luecken mehr.
 
 ---
 
-## 4. Modelldateien
+## 3. Modelldateien
 
 Modellgewichte sind keine Programmbibliotheken und stehen unter eigenen
 Bedingungen. Sie werden **nicht** mitgeliefert; der Anwender laedt sie selbst
@@ -170,7 +150,7 @@ und stimmt dabei den jeweiligen Bedingungen zu.
 
 ---
 
-## 5. Was bei einer kommerziellen Verwertung zu pruefen ist
+## 4. Was bei einer kommerziellen Verwertung zu pruefen ist
 
 Dieser Text ist eine technische Bestandsaufnahme und keine Rechtsberatung.
 Vor einem Verkauf sollten vor allem diese Punkte geklaert werden:
@@ -184,4 +164,4 @@ Vor einem Verkauf sollten vor allem diese Punkte geklaert werden:
    haeufigsten uebersehen wird.
 
 Stand: 19.09.2026. Die Versionsangaben beziehen sich auf `uv.lock` und
-`lokale_windows_app/requirements-local-gui.txt`.
+`protokoll_assistent/requirements-anwendung.txt`.

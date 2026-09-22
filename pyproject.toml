@@ -2,8 +2,8 @@
 # Entwickler- und CI-Konfiguration.
 #
 # Diese Datei aendert NICHTS an der Installation fuer Anwender: Die Skripte
-# 'Protokoll-Assistent-Einrichten.bat' und 'lokale_windows_app/setup_lokal.ps1'
-# benutzen weiterhin 'requirements.txt' bzw. 'requirements-local-gui.txt'.
+# 'protokoll_assistent/Einrichtung-Lokal.ps1'
+# benutzen weiterhin 'protokoll_assistent/requirements-anwendung.txt'.
 # Hier stehen nur die Werkzeuge fuer Tests, Linting und die GitHub-Pipeline.
 # ---------------------------------------------------------------------------
 [project]
@@ -17,17 +17,18 @@ dependencies = []
 [dependency-groups]
 dev = [
     # Laufzeitpakete, die zum Importieren der Module in Tests noetig sind.
-    # Absichtlich OHNE torch/whisperx/pyannote: die leben in '.venv-whisperx'
-    # und werden in den Tests durchgehend ueber Parameter ersetzt.
-    "sv-ttk>=2.6.0",
-    "tkinterdnd2>=0.4.2",
+    # Absichtlich OHNE torch/whisperx/pyannote: die richtet 'bootstrap.py' bei
+    # Bedarf selbst ein und in den Tests werden sie durchgehend ueber
+    # Parameter ersetzt.
+    #
+    # 'sv-ttk' und 'tkinterdnd2' standen hier fuer die tkinter-Oberflaeche.
+    # Die ist mit der Zusammenfuehrung entfallen, die Pakete damit auch.
     "sounddevice>=0.4.6",
     "PySide6>=6.11.2,<7",
     "python-docx>=1.2.0",
-    # Fuer die vereinte Anwendung ('protokoll_assistent_vereint'): einziger
-    # Ort, an dem API-Schluessel optional dauerhaft gespeichert werden
-    # koennen - ueber die Windows-Anmeldeinformationsverwaltung, nie als
-    # Klartext-Datei (siehe 'services/secret_store.py').
+    # Einziger Ort, an dem API-Schluessel optional dauerhaft gespeichert
+    # werden koennen - ueber die Windows-Anmeldeinformationsverwaltung, nie
+    # als Klartext-Datei (siehe 'services/secret_store.py').
     "keyring>=25.0",
     # Wird fuer den Windows-Build und dessen Probelauf in der CI gebraucht.
     "pyinstaller>=6.22.3",
@@ -53,15 +54,15 @@ package = false
 # ---------------------------------------------------------------------------
 [tool.pytest.ini_options]
 minversion = "8.0"
-# Beide Anwendungen liegen nebeneinander und werden ohne Installation
-# importiert. 'lokale_windows_app' muss im Pfad stehen, damit dessen Tests
-# 'from services import ...' schreiben koennen - so wie bisher.
-pythonpath = [".", "lokale_windows_app"]
-testpaths = ["tests", "lokale_windows_app/tests", "protokoll_assistent_vereint/tests"]
-# "--capture=sys": Tcl/Tk kann unter Windows die Theme-Datei von sv-ttk nicht
-# laden, wenn pytest die Ausgabe auf Ebene der Dateideskriptoren abfaengt
-# ("couldn't read file ...: No error"). Mit "sys" wird nur sys.stdout/stderr
-# ersetzt - capsys funktioniert weiter, die Deskriptoren bleiben intakt.
+# Es gibt genau EINE Anwendung, und sie ist ein echtes Paket: Alle Importe
+# lauten 'protokoll_assistent.X.Y'. Damit genuegt die Projektwurzel im Pfad -
+# die frueheren Zusatzeintraege fuer bare Importe ('from services import ...')
+# sind mit der Vereinheitlichung entfallen.
+pythonpath = ["."]
+testpaths = ["protokoll_assistent/tests"]
+# "--capture=sys": Nur sys.stdout/stderr werden ersetzt, die
+# Dateideskriptoren bleiben intakt. Qt-Fenstertests vertragen das deutlich
+# besser als ein Abfangen auf Deskriptorebene.
 addopts = "-q --strict-markers --strict-config --capture=sys --timeout=120"
 markers = [
     "gui: Test braucht eine echte Fensterumgebung (tkinter oder Qt)",
@@ -86,7 +87,7 @@ omit = [
     "*/dist/*",
     "*/__init__.py",
     "*/conftest.py",
-    "*/protokoll_assistent_lokal.spec",
+    "*/protokoll_assistent.spec",
 ]
 relative_files = true
 
@@ -107,7 +108,7 @@ exclude_also = [
 [tool.ruff]
 line-length = 120
 target-version = "py310"
-extend-exclude = ["lokale_windows_app/tools"]
+extend-exclude = ["protokoll_assistent/tools"]
 
 [tool.ruff.lint]
 select = [
@@ -146,18 +147,7 @@ ignore = [
 [tool.ruff.lint.isort]
 # Ohne diese Liste haelt ruff die eigenen Pakete fuer Fremdpakete und sortiert
 # sie zwischen PySide6 und Co. ein.
-known-first-party = [
-    "gui",
-    "services",
-    "utils",
-    "hauptanwendung",
-    "oberflaeche_theme",
-    "protokoll_assistent_gui",
-    "protokoll_assistent_v2",
-    "setup_fenster",
-    "bootstrap",
-    "protokoll_assistent_vereint",
-]
+known-first-party = ["protokoll_assistent"]
 
 [tool.ruff.lint.per-file-ignores]
 # In Tests sind assert, Zufallswerte und harte Pfade voellig in Ordnung.
@@ -165,15 +155,13 @@ known-first-party = [
 # Diese beiden Dateien pruefen, ob der Anwender ueberhaupt eine passende
 # Python-Version hat - sie laufen also absichtlich auch unter aelteren
 # Interpretern als 3.10. UP036 wuerde genau diese Pruefung wegoptimieren.
-"setup_fenster.py" = ["UP036"]
-"lokale_windows_app/bootstrap.py" = ["UP036"]
+"protokoll_assistent/bootstrap.py" = ["UP036"]
 
 # ---------------------------------------------------------------------------
 # mypy (Typpruefung)
 # ---------------------------------------------------------------------------
 [tool.mypy]
 python_version = "3.10"
-mypy_path = "lokale_windows_app"
 files = ["."]
 # Tests uebergeben absichtlich falsche Typen, um Fehlerpfade zu pruefen -
 # eine Typpruefung waere dort nur Laerm.
@@ -196,16 +184,8 @@ check_untyped_defs = true
 #     als "nicht erreichbar" gemeldet werden.
 
 [[tool.mypy.overrides]]
-# tkinter: typeshed beschreibt 'pack'/'grid' mit Literal-Overloads. Der im
-# Projekt uebliche Stil "pad = {'padx': 8}; widget.pack(**pad)" laesst sich
-# damit grundsaetzlich nicht pruefen - das sind keine echten Fehler.
-module = ["protokoll_assistent_gui", "setup_fenster", "hauptanwendung", "oberflaeche_theme"]
-disable_error_code = ["arg-type"]
-
-[[tool.mypy.overrides]]
 # PySide6 liefert unvollstaendige Typinformationen: Kurzschreibweisen wie
 # 'Qt.red' oder 'QDialogButtonBox.Save' funktionieren zur Laufzeit, fehlen
-# aber in den Stubs. Gilt fuer 'lokale_windows_app/gui/' (bare 'gui.*') und
-# fuer die gleichnamige Oberflaeche der vereinten Anwendung.
-module = ["gui.*", "protokoll_assistent_vereint.gui.*"]
+# aber in den Stubs.
+module = ["protokoll_assistent.gui.*"]
 disable_error_code = ["attr-defined"]

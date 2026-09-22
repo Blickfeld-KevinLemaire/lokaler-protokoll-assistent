@@ -3,15 +3,16 @@
 ;
 ; Baut aus den beiden fertigen Build-Ergebnissen EINEN Installer:
 ;
-;   ..\dist\Protokoll-Assistent\   die gebauten EXEs (Auswahlfenster + Cloud),
-;                                  erzeugt von 'protokoll_assistent_cloud.spec'
-;   ..\lokale_windows_app\         die Programmdateien der lokalen Anwendung
+;   ..\dist\Protokoll-Assistent\   die gebaute Anwendung,
+;                                  erzeugt von 'protokoll_assistent.spec'
+;   ..\protokoll_assistent\        dieselben Programmdateien als Quelltext -
+;                                  fuer den lokalen Modus (siehe bootstrap.py)
 ;   ..\dist-python\python\         die mitgelieferte Python-Laufzeitumgebung,
 ;                                  geholt von 'python-laufzeit-holen.ps1'
 ;
-; Der Anwender muss NICHTS vorinstallieren - auch kein Python. Die
-; Cloud-Variante ist eine eigenstaendige EXE, und fuer die lokale Anwendung
-; liegt ein eigenes Python unter '{app}\python'.
+; Der Anwender muss NICHTS vorinstallieren - auch kein Python. Im reinen
+; API-Modus genuegt die eigenstaendige EXE; fuer den lokalen Modus liegt ein
+; eigenes Python unter '{app}\python'.
 ;
 ; Die lokale Anwendung wird bewusst NICHT als EXE mitgeliefert: sie braucht
 ; PyTorch/WhisperX passend zur jeweiligen Grafikkarte (mehrere Gigabyte) und
@@ -73,7 +74,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
-; 1) Auswahlfenster und Cloud-Variante als fertige EXEs (mit gemeinsamem
+; 1) Die gebaute Anwendung als fertige EXE (mit gemeinsamem
 ;    '_internal'-Ordner, in dem die DLLs liegen).
 ; Die Ein-/Ausgabeordner entstehen erst beim Ausfuehren. Wurde die Anwendung
 ; vor dem Bauen des Installers lokal einmal gestartet, liegen sie im
@@ -87,12 +88,13 @@ Source: "..\dist\Protokoll-Assistent\*"; DestDir: "{app}"; \
     Flags: ignoreversion recursesubdirs; \
     Excludes: "eingabe\*,ausgabe\*,zwischenstaende\*,einstellungen\*,Ergebnis des Meetings wie gew*"
 
-; 2) Programmdateien der vollstaendig lokalen Anwendung. Entwickler-, Test-
-;    und Laufzeitordner bleiben aussen vor - der Anwender bekommt das
-;    Programm, nicht das Repository.
+; 2) Dieselben Programmdateien als Quelltext. Gebraucht werden sie nur im
+;    lokalen Modus: Dort richtet 'bootstrap.py' eine eigene Umgebung mit
+;    PyTorch/faster-whisper ein und startet die Anwendung darin neu.
+;    Entwickler-, Test- und Laufzeitordner bleiben aussen vor.
 ; Ohne 'createallsubdirs': sonst wuerden die ausgeschlossenen Ordner
 ; (tests, __pycache__, ...) wenigstens leer mitinstalliert.
-Source: "..\lokale_windows_app\*"; DestDir: "{app}\lokale_windows_app"; \
+Source: "..\protokoll_assistent\*"; DestDir: "{app}\protokoll_assistent"; \
     Flags: ignoreversion recursesubdirs; \
     Excludes: "tests\*,__pycache__\*,*.pyc,runtime\*,logs\*,build\*,dist\*,dist-probe\*,.venv*\*,ausgabe\*"
 
@@ -123,17 +125,17 @@ Filename: "{app}\{#MeineExe}"; Description: "{cm:LaunchProgram,{#MeinName}}"; Fl
 ; zur Installation und wuerden sonst als mehrere Gigabyte zurueckbleiben.
 ; Ergebnisse des Anwenders ('ausgabe', 'Ergebnis des Meetings wie gewuenscht',
 ; 'einstellungen', 'zwischenstaende') werden ABSICHTLICH nicht geloescht.
-Type: filesandordirs; Name: "{app}\lokale_windows_app\runtime"
-Type: filesandordirs; Name: "{app}\lokale_windows_app\logs"
+Type: filesandordirs; Name: "{app}\protokoll_assistent\runtime"
+Type: filesandordirs; Name: "{app}\protokoll_assistent\logs"
 ; Python legt beim Ausfuehren in JEDEM Paketordner ein '__pycache__' an.
 ; Inno kennt diese Dateien nicht (es hat sie nicht installiert) und wuerde
 ; sie stehen lassen - dann bliebe der Programmordner nach dem
 ; Deinstallieren zurueck. Kommt ein neuer Paketordner dazu, gehoert er
 ; hier ebenfalls hinein.
-Type: filesandordirs; Name: "{app}\lokale_windows_app\__pycache__"
-Type: filesandordirs; Name: "{app}\lokale_windows_app\gui\__pycache__"
-Type: filesandordirs; Name: "{app}\lokale_windows_app\services\__pycache__"
-Type: filesandordirs; Name: "{app}\lokale_windows_app\tools\__pycache__"
-Type: filesandordirs; Name: "{app}\lokale_windows_app\utils\__pycache__"
+Type: filesandordirs; Name: "{app}\protokoll_assistent\__pycache__"
+Type: filesandordirs; Name: "{app}\protokoll_assistent\gui\__pycache__"
+Type: filesandordirs; Name: "{app}\protokoll_assistent\services\__pycache__"
+Type: filesandordirs; Name: "{app}\protokoll_assistent\tools\__pycache__"
+Type: filesandordirs; Name: "{app}\protokoll_assistent\utils\__pycache__"
 ; Dasselbe fuer die mitgelieferte Python-Laufzeitumgebung.
 Type: filesandordirs; Name: "{app}\python"

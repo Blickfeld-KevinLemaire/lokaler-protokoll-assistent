@@ -11,21 +11,21 @@ dass man das Ergebnis lokal ausprobieren will.
 
 | Bestandteil | Form | Woher |
 |---|---|---|
-| Auswahlfenster (`hauptanwendung.py`) | `Protokoll-Assistent.exe` | PyInstaller, `../protokoll_assistent_cloud.spec` |
-| Cloud-Variante (`protokoll_assistent_gui.py`) | `Protokoll-Assistent-Cloud.exe` | dieselbe Spezifikation, gemeinsamer `_internal`-Ordner |
-| Vollstaendig lokale Anwendung | Programmdateien | `../lokale_windows_app/` (ohne `tests`, `runtime`, `logs`, `__pycache__`) |
+| Die Anwendung | `Protokoll-Assistent.exe` | PyInstaller, `../protokoll_assistent.spec` |
+| Dieselbe Anwendung als Quelltext | Programmdateien | `../protokoll_assistent/` (ohne `tests`, `runtime`, `logs`, `__pycache__`) |
 | Python-Laufzeitumgebung | `python\` (CPython 3.11) | `python-laufzeit-holen.ps1` |
 | Lizenztexte | `LICENSE`, `NOTICES.md`, `lizenzen/` | Projektstamm |
 
-Die lokale Anwendung wird **nicht** als EXE mitgeliefert. Sie braucht
-PyTorch/WhisperX passend zur jeweiligen Grafikkarte - mehrere Gigabyte, je
-nach Rechner verschieden. Sie richtet sich diese Umgebung beim ersten Start
-wie bisher selbst ein (`lokale_windows_app/bootstrap.py`).
+**Warum zweimal dasselbe?** Die EXE genuegt fuer den API-Modus. Der lokale
+Modus braucht PyTorch/faster-whisper passend zur jeweiligen Grafikkarte -
+mehrere Gigabyte, je nach Rechner verschieden; das laesst sich nicht sinnvoll
+buendeln. Dafuer richtet sich die Anwendung beim ersten Start aus dem
+mitgelieferten Quelltext heraus selbst eine Umgebung ein
+(`protokoll_assistent/bootstrap.py`).
 
 **Der Anwender muss dafuer kein Python installieren.** Der Installer bringt
-unter `{app}\python` eine eigene Laufzeitumgebung mit; das Auswahlfenster
-startet die lokale Anwendung damit. Nur wenn dieser Ordner fehlt, sucht es
-ersatzweise nach einem installierten Python 3.10/3.11.
+unter `{app}\python` eine eigene Laufzeitumgebung mit. Nur wenn dieser Ordner
+fehlt, wird ersatzweise nach einem installierten Python 3.10/3.11 gesucht.
 
 `bootstrap.py` musste dafuer **nicht** angefasst werden: es nimmt ohnehin
 das Python entgegen, mit dem es gestartet wurde, und baut daraus
@@ -38,7 +38,7 @@ das Python entgegen, mit dem es gestartet wurde, und baut daraus
 winget install --exact --id JRSoftware.InnoSetup --scope user
 
 # 2. Die beiden EXEs bauen (im Projektstamm)
-uv run pyinstaller --noconfirm protokoll_assistent_cloud.spec
+uv run pyinstaller --noconfirm protokoll_assistent.spec
 
 # 3. Python-Laufzeitumgebung holen (~24 MB Download, einmalig)
 pwsh -NoProfile -File installer\python-laufzeit-holen.ps1
@@ -69,10 +69,9 @@ C:\Temp\PA-Test\unins000.exe /VERYSILENT   # wieder entfernen
   `C:\Program Files` wuerde das scheitern.
 * **Kein `createallsubdirs`.** Sonst legt Inno auch die ausgeschlossenen
   Ordner (`tests`, `__pycache__`, `eingabe`, ...) wenigstens leer an.
-* **`einstellungen` ist ausgeschlossen.** Dort steht `fachbegriffe.txt` mit
-  Projektnamen und echten Nachnamen - die Datei ist aus gutem Grund auch in
-  `.gitignore` und darf nicht in einen Installer geraten, nur weil jemand
-  die Anwendung vor dem Bauen einmal gestartet hat.
+* **Laufzeitordner sind ausgeschlossen** (`ausgabe`, `aufnahmen`,
+  `arbeitsdaten`, `runtime`, `logs`). Sie duerfen nicht in einen Installer
+  geraten, nur weil jemand die Anwendung vor dem Bauen einmal gestartet hat.
 * **Die Python-Laufzeitumgebung ist fest eingetragen** (Version und
   SHA256-Pruefsumme in `python-laufzeit-holen.ps1`). Ein Build soll immer
   dasselbe Ergebnis liefern, und eine Laufzeitumgebung aus dem Netz wird nur

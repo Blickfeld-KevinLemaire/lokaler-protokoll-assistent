@@ -1,0 +1,23 @@
+# Pakete der Anwendung selbst (Oberflaeche, Export, Aufnahme, Schluesselablage).
+#
+# Absichtlich NICHT enthalten (bereits in '.venv-whisperx' vorhanden und
+# darf nicht ersetzt werden): torch, torchaudio, whisperx, pyannote.audio,
+# huggingface_hub, ctranslate2, faster-whisper, numpy, ffmpeg-python usw.
+#
+# Fuer den reinen API-Betrieb genuegen genau diese Pakete - die schwere
+# ML-Laufzeit aus 'requirements-laufzeit.txt' wird nur gebraucht, wenn in
+# den Einstellungen 'Lokal' gewaehlt ist (siehe 'bootstrap.py').
+
+PySide6>=6.11.2,<7
+pyinstaller>=6.22.3
+python-docx>=1.2.0
+
+# Mikrofonaufnahme (Voice Recording). Bindet PortAudio ein, das Windows-Wheel
+# bringt die noetige DLL mit - kein separates Systempaket erforderlich.
+sounddevice>=0.4.6
+
+# Optionale, dauerhafte Speicherung von API-Schluesseln ueber die
+# Windows-Anmeldeinformationsverwaltung (siehe 'services/secret_store.py').
+# Nie als Klartext-Datei - das ist der einzige Ort im Projekt, der dieses
+# Paket importiert.
+keyring>=25.0

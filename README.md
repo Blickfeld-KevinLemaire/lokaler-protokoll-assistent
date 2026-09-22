@@ -1,444 +1,184 @@
-# Lokaler Protokoll-Assistent
+# Protokoll-Assistent
 
-Transkribiert Besprechungsaufnahmen (mit Sprechertrennung) und erstellt
-daraus anschliessend - als getrennter, unabhaengiger Schritt - mit einem
-frei waehlbaren Sprachmodell ein Ergebnisdokument nach freier Wahl
-(Zusammenfassung, Agenda, Prioritaetenliste, ...).
+Transkribiert Besprechungsaufnahmen (mit Sprechertrennung) und erstellt daraus
+anschliessend - als getrennter, unabhaengiger Schritt - mit einem frei
+waehlbaren Sprachmodell ein Ergebnisdokument nach freier Wahl (Zusammenfassung,
+Agenda, Prioritaetenliste, ...).
 
-Sowohl die **Transkription** als auch die **Nachbearbeitung** verwenden
-einen frei eintragbaren API-Endpunkt (Basis-URL), Modellnamen und
-API-Schluessel - Standard ist jeweils OpenRouter (Transkription:
-`microsoft/mai-transcribe-2` mit Azure-Sprechertrennung; Nachbearbeitung:
-z. B. `openai/gpt-4o-mini`), es funktioniert aber ebenso mit einer direkten
-Anbindung an Microsoft Azure oder jeden anderen Anbieter, der dasselbe
-Anfrageformat versteht. Fuer die Nachbearbeitung steht zusaetzlich ein
-**lokales** Modell (z. B. Ollama) zur Verfuegung, das keine Daten uebertraegt.
+Es ist **eine** Anwendung. Fuer beide Arbeitsschritte gibt es je zwei Wege, und
+die Wahl ist eine **Einstellung im Programm** - kein eigenes Programm, kein
+zweiter Download, kein Neustart in eine andere Anwendung:
 
-**Einstiegspunkt: `hauptanwendung.py`** - ein kleines Auswahlfenster, mit dem
-Sie entscheiden, wie Sie arbeiten moechten, und das dann die passende
-Anwendung startet:
-
-- **Lokal (vollstaendig offline)** - startet `lokale_windows_app/`. Beim
-  allerersten Mal laufen dort automatisch Systemtest und Modell-Download
-  (siehe unten); eine Hardware-basierte Empfehlung schlaegt ein passendes
-  Whisper-Modell vor, Sie entscheiden, welches tatsaechlich verwendet wird.
-- **Schnittstelle nutzen (selbst eingerichtet)** - startet
-  `protokoll_assistent_gui.py`. Sie richten dafuer selbst einen API-Zugang
-  ein (aktuell: OpenRouter) und geben Ihren eigenen API-Schluessel ein.
-
-Der Startmenue-Eintrag des [Installers](#installation-unter-windows-installer),
-`Protokoll-Assistent-Starten.bat` und die Desktop-Verknuepfung (siehe
-[Installation aus dem Quellcode](#installation-aus-dem-quellcode-ein-fenster-fuer-alles))
-oeffnen dieses Auswahlfenster; Sie koennen die beiden Anwendungen darunter
-aber auch jederzeit direkt starten, ohne den Umweg ueber `hauptanwendung.py`.
-
-Es gibt drei unabhaengige Programme in diesem Repository:
-
-- `protokoll_assistent_v2.py` - die bestehende Konsolenversion. Unveraendert,
-  bleibt weiterhin eigenstaendig lauffaehig und dient gleichzeitig als
-  Bibliothek fuer die GUI.
-- `protokoll_assistent_gui.py` - die grafische Oberflaeche fuer die
-  Cloud-Transkription (OpenRouter). Nutzt dieselbe Transkriptionslogik wie
-  die Konsolenversion und ergaenzt die separate Nachbearbeitung per
-  Systemprompt (lokal oder per API-Modell).
-- **`lokale_windows_app/`** - eine komplett eigenstaendige, **vollstaendig
-  lokale** Windows-Anwendung (faster-whisper + pyannote.audio statt OpenRouter):
-  keinerlei Cloud-/API-Anbindung, keine Uebertragung von Audio- oder
-  Videodaten. Eigene GUI (PySide6), eigener Installationsweg, eigene
-  Ausgabedateien. Siehe [`lokale_windows_app/README.md`](lokale_windows_app/README.md)
-  fuer die vollstaendige Anleitung.
-
-Alle drei Programme sind vollkommen unabhaengig voneinander lauffaehig und
-beruehren sich gegenseitig nicht (keine gemeinsamen Dateien, keine
-gemeinsamen Ordner).
-
-### Welches Programm passt?
-
-| | `protokoll_assistent_gui.py` (Cloud) | `lokale_windows_app/` (vollstaendig lokal) |
+| Schritt | lokal | ueber eine Schnittstelle (API) |
 |---|---|---|
-| Transkription | frei waehlbarer API-Endpunkt (Standard: OpenRouter / `microsoft/mai-transcribe-2`) | faster-whisper (lokal, GPU empfohlen) |
-| Sprechertrennung | ueber den gewaehlten Cloud-Anbieter | pyannote.audio (lokal) |
-| Datenuebertragung | Audio wird an den gewaehlten Endpunkt gesendet | keine - alles laeuft auf dem Geraet |
-| Nachbearbeitung | lokal (Ollama) oder frei waehlbarer API-Endpunkt | lokal (Ollama), dreistufig |
-| Voraussetzungen | API-Schluessel fuer den gewaehlten Endpunkt, FFmpeg | Python, FFmpeg, optional NVIDIA-GPU (sonst CPU) |
-| Installation | ein Fenster (siehe unten) | eigener Assistent, siehe `lokale_windows_app/README.md` |
+| **Transkription** | faster-whisper + pyannote.audio, vollstaendig offline | frei eintragbarer Endpunkt, Standard OpenRouter (`microsoft/mai-transcribe-2` mit Azure-Sprechertrennung) |
+| **Nachbearbeitung** | Ollama, dreistufig, vollstaendig offline | frei eintragbarer Endpunkt (Chat-Completions), z. B. `openai/gpt-4o-mini` |
 
-Kurz: Wer keine Daten aus der Hand geben will (und eine ausreichend
-schnelle GPU/CPU hat), nutzt `lokale_windows_app/`. Wer keine lokalen
-KI-Modelle installieren moechte oder eine leistungsfaehige Cloud-
-Transkription bevorzugt, nutzt `protokoll_assistent_gui.py`.
+Beides laesst sich unabhaengig voneinander einstellen: lokal transkribieren und
+per API nachbearbeiten ist genauso moeglich wie umgekehrt.
+
+**Was das fuer den Datenschutz heisst:** Im lokalen Modus verlaesst nichts das
+Geraet. Sobald fuer einen Schritt eine Schnittstelle eingestellt ist, wird
+dafuer Audio bzw. Transkript an den dort eingetragenen Anbieter uebertragen -
+das Programm weist im Einstellungsdialog ausdruecklich darauf hin.
+
+**Was das fuer die Installation heisst:** Wer ausschliesslich ueber eine
+Schnittstelle arbeitet, braucht weder PyTorch noch ein KI-Modell auf der
+Platte - der Start ist dann schnell und schlank. Die schwere Laufzeitumgebung
+richtet sich nur dann selbst ein, wenn beim Start „Lokal" als
+Transkriptionsmodus gespeichert ist.
+
+> **Hinweis zur Versionsgeschichte:** Bis September 2026 waren das drei
+> getrennte Programme (eine tkinter-„Cloud-Variante", eine lokale
+> PySide6-Anwendung und ein Auswahlfenster davor). Sie sind zu dieser einen
+> Anwendung zusammengefuehrt worden. Die tkinter-Variante ist entfallen; ihr
+> Weg ueber eine Schnittstelle lebt als Einstellung weiter.
+
+## Starten
+
+```powershell
+python -m protokoll_assistent.app
+```
+
+Oder bequemer ueber `protokoll_assistent\Start-Protokoll-Assistent.ps1`, den
+Startmenue-Eintrag des Installers oder die Desktop-Verknuepfung.
+
+Die Anwendung wird bewusst **als Modul** gestartet (`-m`), nicht ueber den
+Dateipfad: Nur so findet Python das Paket.
 
 ## Ordnerstruktur
 
 ```
-eingabe/                                 Optionaler Startpunkt fuer den Ordnerdialog der GUI
-ausgabe/                                 Volltranskript mit Sprechertrennung (TXT + JSON)
-Ergebnis des Meetings wie gewuenscht/    Ergebnis der lokalen Nachbearbeitung (Zusammenfassung/Agenda/... als TXT + JSON)
-zwischenstaende/                         Rohantworten der Cloud-Transkription (Wiederaufnahme nach Abbruch)
-einstellungen/                           fachbegriffe.txt fuer Fachbegriffe/Eigennamen
+protokoll_assistent.spec       PyInstaller-Spezifikation (baut die Anwendung)
+installer/                     Inno-Setup-Installer
+
+protokoll_assistent/
+  app.py                       Einstiegspunkt
+  bootstrap.py                 richtet bei Bedarf die lokale ML-Umgebung ein
+  gui/                         Oberflaeche (PySide6)
+  services/                    Verarbeitungskette und API-Dienste
+  utils/                       Pfade, Konfiguration, Diagnose, Logging
+  tests/                       Testsuite
+  einstellungen/               mitgelieferte Systemprompt-Vorlage
+  konfiguration.json           Ihre Einstellungen (wird nicht versioniert)
+  ausgabe/                     Volltranskript mit Sprechertrennung (TXT + JSON)
+  aufnahmen/                   per Mikrofon aufgenommene WAV-Dateien
+  arbeitsdaten/                Zwischenstaende langer Aufnahmen (fortsetzbar)
+  logs/                        protokoll_assistent.log
 ```
-
-`einstellungen/fachbegriffe.txt` wird **nicht** ins Repository aufgenommen, weil
-dort Projektnamen und Nachnamen echter Personen stehen. Als Vorlage liegt
-`einstellungen/fachbegriffe.beispiel.txt` bei - einmal nach `fachbegriffe.txt`
-kopieren und ergaenzen.
-
-Diese Ordner gehoeren zur Cloud-Variante (`protokoll_assistent_v2.py` /
-`protokoll_assistent_gui.py`). `lokale_windows_app/` bringt eine eigene,
-vollstaendig getrennte Ordnerstruktur mit (siehe dort) und teilt sich
-nichts mit den obigen Ordnern.
 
 Die Ordner werden beim Start automatisch angelegt, falls sie fehlen.
 
 Der Projektordner selbst kann beliebig heissen und an einem beliebigen Ort
 liegen (lokale Festplatte, USB-Stick, Netzlaufwerk, ...) - alle Skripte
-ermitteln ihren Ordner automatisch anhand ihres eigenen Speicherorts. Jeder
-Anwender kann sich also seinen eigenen Projektordner aussuchen, ohne Code
-anpassen zu muessen.
+ermitteln ihren Ordner automatisch anhand ihres eigenen Speicherorts.
 
 ## Installation unter Windows (Installer)
 
-*Der einfachste Weg fuer Anwender. Es wird kein Git und kein Projektordner
-gebraucht - der Installer legt ein normales Windows-Programm an.*
+Der Installer aus dem
+[Release-Bereich](https://github.com/Blickfeld-KevinLemaire/lokaler-protokoll-assistent/releases)
+(`Protokoll-Assistent-Setup-<Version>.exe`) installiert ohne
+Administratorrechte pro Benutzer, legt einen Startmenue-Eintrag an und laesst
+sich normal ueber „Apps & Features" wieder entfernen.
 
-1. Unter [Releases](https://github.com/Blickfeld-KevinLemaire/lokaler-protokoll-assistent/releases)
-   die Datei `Protokoll-Assistent-Setup-<Version>.exe` herunterladen.
-2. Doppelklicken. Der Installer braucht **keine Administratorrechte** und
-   installiert nach `%LOCALAPPDATA%\Programs\Protokoll-Assistent`.
-   Windows SmartScreen meldet sich, weil der Installer nicht signiert ist -
-   ueber "Weitere Informationen" - "Trotzdem ausfuehren" geht es weiter.
-3. Starten ueber den Startmenue-Eintrag "Protokoll-Assistent". Es oeffnet
-   sich dasselbe Auswahlfenster wie beim Start aus dem Quellcode.
+Er bringt alles mit, was gebraucht wird - auch eine eigene
+Python-Laufzeitumgebung fuer den lokalen Modus. Vorinstallieren muessen Sie
+nichts.
 
-Was der Installer mitbringt:
+Der Installer ist **nicht signiert**. Windows SmartScreen meldet sich deshalb
+beim Start; ueber „Weitere Informationen" -> „Trotzdem ausfuehren" laesst er
+sich starten.
 
-| | enthalten | Voraussetzung auf dem PC |
-|---|---|---|
-| Auswahlfenster | als EXE | - |
-| Cloud-Variante | als EXE | FFmpeg, eigener API-Schluessel |
-| Lokale Variante | als Programmdateien | - |
-| Python 3.11 | als eigener Ordner `python\` | - |
+## Installation aus dem Quellcode
 
-**Python muss nicht installiert werden.** Der Installer bringt eine eigene
-Python-Laufzeitumgebung mit, die nur aus dem Programmordner heraus verwendet
-wird. Am System aendert sich dadurch nichts; eine bereits vorhandene
-Python-Installation bleibt unberuehrt.
+```powershell
+git clone https://github.com/Blickfeld-KevinLemaire/lokaler-protokoll-assistent.git
+cd lokaler-protokoll-assistent
+powershell -ExecutionPolicy Bypass -File protokoll_assistent\Einrichtung-Lokal.ps1
+```
 
-Die lokale Variante laedt PyTorch, WhisperX und die Sprachmodelle beim
-ersten Start selbst herunter (mehrere Gigabyte, je nach Grafikkarte
-unterschiedlich) - deshalb stecken sie nicht im Installer. Entfernen laesst
-sich alles ueber "Apps & Features"; die eigenen Ergebnisordner bleiben dabei
-absichtlich erhalten.
+Fuer den reinen API-Betrieb genuegen die Pakete aus
+`protokoll_assistent\requirements-anwendung.txt`:
 
-Gebaut wird der Installer aus [`installer/protokoll-assistent.iss`](installer/protokoll-assistent.iss)
-(Inno Setup) - siehe [`installer/README.md`](installer/README.md).
-
-## Installation aus dem Quellcode (ein Fenster fuer alles)
-
-*Der bisherige Weg - unveraendert. Sinnvoll fuer die Entwicklung und fuer
-alle, die den Stand direkt aus dem Repository nutzen moechten.*
-
-*Richtet die Cloud-Variante (`protokoll_assistent_gui.py`) ein und erstellt
-eine Verknuepfung fuer `hauptanwendung.py` (das Auswahlfenster). Fuer die
-vollstaendig lokale Variante siehe [`lokale_windows_app/README.md`](lokale_windows_app/README.md)
-- dort gibt es einen eigenen, aehnlich aufgebauten Einrichtungsassistenten
-(inkl. Systemtest und Whisper-Modellwahl), der beim ersten Start ueber die
-Option "Lokal" im Auswahlfenster automatisch angestossen wird.*
-
-Fuer Windows gibt es einen Einrichtungsassistenten, der die Schritte 1-4
-uebernimmt bzw. anleitet:
-
-1. Die Datei [`Protokoll-Assistent-Einrichten.bat`](Protokoll-Assistent-Einrichten.bat)
-   herunterladen (z. B. ueber den "Raw"-Button auf GitHub, "Speichern unter ...").
-2. Datei doppelklicken. Sie fragt nach dem gewuenschten Projektordner
-   (Vorschlag: `%USERPROFILE%\Protokoll-Assistent`, aber jeder Anwender
-   kann einen eigenen Ordner/Laufwerk eintragen - der gewaehlte Pfad wird
-   fuer den naechsten Aufruf gemerkt), laedt das Projekt per `git` dorthin
-   (Git wird bei Bedarf zur Installation vorgeschlagen), installiert das
-   Paket fuer das moderne Erscheinungsbild und oeffnet danach automatisch
-   das Einrichtungsfenster (`setup_fenster.py`).
-3. Im Einrichtungsfenster werden Python, FFmpeg und das lokale KI-Modell
-   (Ollama) geprueft. Fehlt etwas, oeffnet ein Klick die passende
-   Download-Seite; das Modell laesst sich direkt per Knopfdruck laden.
-4. Mit "Desktop-Verknuepfung erstellen" (Schritt 5) entsteht ein Icon auf
-   dem Desktop, mit dem sich das Auswahlfenster (`hauptanwendung.py`)
-   danach jederzeit per Doppelklick starten laesst (alternativ: "Anwendung
-   jetzt starten" im selben Fenster, oder direkt
-   `Protokoll-Assistent-Starten.bat`). Von dort aus starten Sie dann
-   entweder die Cloud-Variante oder - beim ersten Mal inklusive
-   automatischer Einrichtung - die vollstaendig lokale Variante.
-
-Auf macOS/Linux die Voraussetzungen unten manuell installieren und die GUI
-wie im Abschnitt "GUI benutzen" beschrieben starten.
+```powershell
+python -m pip install -r protokoll_assistent\requirements-anwendung.txt
+python -m protokoll_assistent.app
+```
 
 ## Voraussetzungen
 
-- Python 3.10 oder neuer
-- Fuer die GUI: das Modul `tkinter` (gehoert bei den meisten Python-Installationen
-  dazu; unter Debian/Ubuntu ggf. nachinstallieren mit
-  `sudo apt install python3-tk`)
-- **FFmpeg** fuer Videos oder grosse Audiodateien (alles ausser kleinen MP3s).
-  Die GUI sucht FFmpeg automatisch: zuerst in `PATH`, danach in den ueblichen
-  Installationsordnern (`/usr/bin`, `/usr/local/bin`, `/opt/homebrew/bin`,
-  Standard-Windows-Pfade) und ueber die Umgebungsvariable `FFMPEG_PATH`. Wird
-  FFmpeg gefunden, aber ist nicht in `PATH`, wird es fuer die laufende Sitzung
-  automatisch ergaenzt. Download: https://ffmpeg.org/download.html
-- Fuer die Transkription: ein API-Schluessel fuer den gewaehlten Endpunkt
-  (Standard: OpenRouter, `https://openrouter.ai/api/v1/audio/transcriptions`
-  mit Modell `microsoft/mai-transcribe-2` und Anbieter `azure` fuer die
-  Sprechertrennung). Endpunkt, Modell und Anbieter sind in der GUI frei
-  aenderbar; Standardwerte auch per Umgebungsvariable vorbelegbar:
-  `PROTOKOLL_TRANSKRIPTION_ENDPUNKT`, `PROTOKOLL_TRANSKRIPTION_MODELL`,
-  `PROTOKOLL_TRANSKRIPTION_ANBIETER`.
-- Fuer die Nachbearbeitung des Transkripts, je nach gewaehlter Option:
-  - **Lokal**: ein lokales KI-Modell, z. B. [Ollama](https://ollama.com).
-    Nach der Installation ein Modell laden, z. B.:
-    ```
-    ollama pull llama3.1
-    ```
-    Ollama muss beim Start der Nachbearbeitung laufen (Standard:
-    `http://localhost:11434`). Adresse und Modellname lassen sich per
-    Umgebungsvariable anpassen: `PROTOKOLL_LOKALES_MODELL_URL`,
-    `PROTOKOLL_LOKALES_MODELL`.
-  - **API-Modell**: keine zusaetzliche Installation noetig. Endpunkt
-    (Basis-URL), Modellname und API-Schluessel sind frei eintragbar -
-    Standard ist OpenRouters `/chat/completions`-Endpunkt (Modell z. B.
-    `openai/gpt-4o-mini`, `anthropic/claude-3.5-sonnet`), es funktioniert
-    aber mit jedem Anbieter, der dieselbe OpenAI-kompatible Schnittstelle
-    bereitstellt (z. B. `https://api.openai.com/v1/chat/completions` bei
-    OpenAI oder der entsprechende Endpunkt bei IONOS AI Model Hub - Details
-    beim jeweiligen Anbieter nachschlagen). Standardwerte per
-    Umgebungsvariable vorbelegbar: `PROTOKOLL_API_ENDPUNKT`,
-    `PROTOKOLL_API_MODELL`.
-- Optional fuer ein moderneres Erscheinungsbild (Windows-11-Stil, Light/Dark):
-  `pip install -r requirements.txt` (installiert `sv-ttk`). Fehlt das Paket,
-  startet die GUI trotzdem, dann mit einem schlichteren Standard-ttk-Design.
+* **Windows** - die einzige unterstuetzte Plattform.
+* **Python 3.10 oder 3.11** (nur aus dem Quellcode; der Installer bringt ein
+  eigenes mit).
+* **FFmpeg** - wird fuer das Zuschneiden und Normalisieren der Audiodaten in
+  *jedem* Modus gebraucht.
+* **Nur fuer den lokalen Modus:** genug Platz fuer PyTorch und das
+  Whisper-Modell; eine NVIDIA-GPU beschleunigt deutlich, CPU funktioniert
+  auch (langsamer). Einzelheiten, empfohlene Modelle je Grafikkarte und die
+  Fehlerbehebung stehen in
+  [`protokoll_assistent/README.md`](protokoll_assistent/README.md).
+* **Nur fuer den API-Modus:** ein API-Schluessel fuer den eingetragenen
+  Endpunkt.
 
 ## API-Schluessel
 
-API-Schluessel werden **niemals** im Code gespeichert.
+Schluessel werden im Einstellungsdialog eingegeben. Auf Wunsch merkt sich die
+Anwendung sie dauerhaft - dann liegen sie in der
+**Windows-Anmeldeinformationsverwaltung**, nie als Klartext in einer Datei.
+Ohne dieses Haekchen gilt der Schluessel nur fuer die laufende Sitzung.
 
-- Konsolenversion (fest auf OpenRouter eingestellt): Umgebungsvariable
-  `OPENROUTER_API_KEY` setzen, bevor das Skript gestartet wird.
-- GUI: Schluessel in die dafuer vorgesehenen Felder eintragen (Transkription,
-  und optional ein eigener fuer die Nachbearbeitung bei einem anderen
-  Endpunkt). Sie werden nur fuer die Dauer der Sitzung im Arbeitsspeicher
-  gehalten und nicht auf die Festplatte geschrieben.
+In `konfiguration.json` steht ausschliesslich, *ob* gemerkt werden soll - nie
+der Schluessel selbst.
 
-## GUI benutzen
+## Bedienung
 
-```
-python3 protokoll_assistent_gui.py
-```
-
-Transkription und Nachbearbeitung sind zwei getrennte Schritte, die auch
-zeitlich unabhaengig voneinander laufen koennen:
-
-**A) Transkription**
-1. Ordner auswaehlen, in dem die Aufnahme liegt (bei mehreren passenden
-   Dateien im Ordner erscheint eine Auswahlliste).
-2. API-Schluessel eintragen. Endpunkt (Basis-URL), Modellname und Anbieter
-   (fuer die Sprechertrennung) sind voreingestellt auf OpenRouter /
-   `microsoft/mai-transcribe-2` / `azure`, aber frei aenderbar - z. B. fuer
-   eine direkte Anbindung an Microsoft Azure oder einen anderen Anbieter,
-   der dasselbe Anfrageformat (JSON mit Base64-Audio) versteht. "Anbieter"
-   leer lassen, wenn der Endpunkt keine Provider-Weiterleitung fuer die
-   Sprechertrennung benoetigt.
-3. "Sprechertrennung aktivieren" steuert, ob ueberhaupt Sprecher erkannt
-   werden. Deaktiviert liefert die Transkription ein anonymes Ergebnis ohne
-   jede Sprecherzuordnung (weder technische ID noch Name) - sinnvoll, wenn
-   nur der Inhalt zaehlt und die Aussagen anonym bleiben sollen. Die
-   Sprecherbenennung (siehe unten) ist in diesem Fall ebenfalls deaktiviert,
-   da es keine Sprecher gibt, die benannt werden koennten.
-4. "Transkription starten" klicken.
-
-Nach Abschluss wird das fertige Transkript automatisch in Schritt 3 der
-Nachbearbeitung (siehe unten) eingetragen.
-
-**B) Nachbearbeitung** (jederzeit, auch fuer ein frueher erstelltes
-Transkript - unabhaengig von einer aktuellen Transkription):
-1. Transkript auswaehlen (wird nach einer Transkription automatisch
-   eingetragen, oder manuell aus `ausgabe/` auswaehlen).
-2. Sprachmodell waehlen:
-   - **Lokal** (z. B. Ollama) - das Transkript verlaesst dabei das Geraet nicht.
-   - **API-Modell** (frei waehlbarer Endpunkt) - Endpunkt (Basis-URL) und
-     Modellname eintragen (Standard: OpenRouter, ebenso moeglich z. B.
-     OpenAI, IONOS AI Model Hub, ...). Fuer den API-Schluessel gibt es ein
-     eigenes Feld direkt daneben; leer gelassen wird der API-Schluessel aus
-     Schritt A wiederverwendet (nur sinnvoll, wenn dort ebenfalls OpenRouter
-     verwendet wird). Das Transkript wird dabei an den eingetragenen
-     Endpunkt uebertragen.
-3. Im Systemprompt-Feld beschreiben, was mit dem Transkript geschehen soll
-   (Vorlagen fuer Zusammenfassung/Agenda/Prioritaetenliste stehen bereit,
-   oder freier Text fuer jede andere Aufgabe).
-4. "Nachbearbeitung starten" klicken.
-
-Vor jeder Uebertragung nach aussen (Transkription an OpenRouter/Azure, oder
-Nachbearbeitung mit einem API-Modell) erscheint eine Datenschutzabfrage,
-die bestaetigt werden muss. Bei lokaler Nachbearbeitung entfaellt das, da
-keine Daten das Geraet verlassen.
-
-Beide Schritte laufen im Hintergrund (eigener Thread); Fortschrittsbalken
-und Protokollbereich zeigen den aktuellen Stand an.
+1. **Datei waehlen** - per Dialog, per Drag & Drop oder direkt ueber das
+   Mikrofon aufnehmen.
+2. **Einstellungen pruefen** - Sprache, Sprechertrennung, Offline-Modus; unter
+   „Einstellungen" der Modus je Schritt und die Endpunkte.
+3. **Transkription starten** - mit Fortschritt, Live-Vorschau und
+   Restzeitschaetzung. Sprecher lassen sich anschliessend mit echten Namen
+   versehen.
+4. **Nachbearbeitung starten** - getrennt und unabhaengig, auch fuer ein
+   frueher erzeugtes Transkript. Der Systemprompt laesst sich direkt im Fenster
+   bearbeiten; eigene Vorlagen koennen benannt gespeichert werden.
 
 ### Ausgabedateien
 
-- in `ausgabe/`: `<name>_mai2_transkript.txt` / `.json` - vollstaendiges
-  Transkript mit Sprechertrennung (identisch zur Konsolenversion)
-- in `Ergebnis des Meetings wie gewuenscht/`: `<name>_protokoll.txt` / `.json`
-  - das Ergebnis der Nachbearbeitung gemaess Systemprompt (Zusammenfassung,
-  Agenda, Prioritaetenliste, ...), inkl. Angabe, ob lokal oder per API-Modell
-  erzeugt
+* `ausgabe/<name>.txt` / `.json` - Volltranskript mit Sprechertrennung.
+* Ergebnis der Nachbearbeitung als TXT und JSON, zusaetzlich als `.docx`.
+* `arbeitsdaten/<hash>/` - Zwischenstaende langer Aufnahmen. Bricht ein Lauf
+  ab, setzt der naechste dort fort, statt von vorne zu beginnen.
 
-## Sprecher mit echten Namen versehen (GUI)
+## Lange Aufnahmen
 
-Die Cloud-Diarisierung liefert nur technische Bezeichnungen ("Sprecher 1",
-"Sprecher 2", ...). Wenn sich die Teilnehmer zu Beginn der Aufnahme kurz
-vorstellen ("Hallo, ich bin Fritz." / "Mein Name ist Marco." / "Hier
-spricht Julia."), kann die GUI diese Selbstvorstellungen automatisch
-erkennen und die Bezeichnungen im ganzen Transkript entsprechend ersetzen:
-
-1. Nach jeder Transkription (Haekchen "Sprecher danach benennen", per
-   Standard aktiviert) durchsucht die App die ersten
-   `PROTOKOLL_SPRECHER_FENSTER_MINUTEN` Minuten (Standard: 3) nach Mustern
-   wie "ich bin ...", "ich heisse ...", "mein Name ist ..." oder "hier
-   spricht/ist ...".
-2. Ein Dialogfenster zeigt pro erkanntem Sprecher ein Textbeispiel und ein
-   vorausgefuelltes Namensfeld (falls eine Vorstellung erkannt wurde).
-   Namen lassen sich dort pruefen, korrigieren oder ergaenzen; leer
-   gelassene Felder behalten die technische Bezeichnung.
-3. Nach "Uebernehmen" wird der Name im gesamten Transkript verwendet -
-   auch in Segmenten weit nach der Vorstellung, da die Zuordnung pro
-   Sprecher-ID gilt, nicht nur innerhalb des Zeitfensters.
-
-Der Button "Sprecher umbenennen ..." (bei Punkt 3, Transkript auswaehlen)
-oeffnet denselben Dialog jederzeit erneut fuer ein beliebiges vorhandenes
-Transkript - unabhaengig davon, ob die automatische Erkennung beim Erstellen
-etwas gefunden hat oder uebersprungen wurde.
-
-Die Erkennung ist eine Texterkennung per Muster, kein echtes
-Stimm-Erkennungsverfahren: Sie schlaegt nur Namen vor, wenn eine passende
-Formulierung im Transkript steht. Ohne (oder bei unklarer) Selbstvorstellung
-bleibt das Namensfeld leer und die technische Bezeichnung wird beibehalten.
-
-## Konsolenversion benutzen
-
-```
-export OPENROUTER_API_KEY=...
-python3 protokoll_assistent_v2.py
-```
-
-Erwartet genau eine Audio-/Videodatei im Ordner `eingabe/` (bei mehreren
-Dateien wird interaktiv nachgefragt). Diese Datei bleibt unveraendert und
-wird durch die GUI nicht ueberschrieben.
-
-## Verarbeitung langer Aufnahmen (GUI)
-
-Kurze und mittellange Aufnahmen werden in einem Durchgang uebertragen
-(inkl. Sprechertrennung), damit Sprecher-IDs innerhalb der Aufnahme stabil
-bleiben. Das reicht in der Regel bis knapp unter eine Stunde.
-
-Fuer laengere Aufnahmen (Standard-Schwelle: **40 Minuten**, z. B. eine bis
-zu 2 Stunden lange Besprechung) teilt die GUI die Aufnahme automatisch in
-Abschnitte auf (Standard: **15 Minuten** je Abschnitt), transkribiert jeden
-Abschnitt einzeln und fuegt das Ergebnis danach zeitlich sortiert wieder zu
-einem durchgaengigen Transkript zusammen (`<name>_mai2_transkript.txt/json`
-in `ausgabe/`, wie gewohnt). Das geschieht automatisch im Hintergrund;
-nichts muss manuell aufgeteilt oder wieder zusammengefuegt werden. Auch bei
-einem Abbruch mitten in einer langen Aufnahme werden bereits fertig
-transkribierte Abschnitte beim naechsten Versuch nicht erneut hochgeladen
-(Wiederaufnahme ueber `zwischenstaende/`, wie beim regulaeren Ablauf).
-
-**Wichtige Einschraenkung:** Die Sprechertrennung laeuft pro Abschnitt
-unabhaengig - ob "Sprecher 1" in Abschnitt 2 dieselbe Person ist wie
-"Sprecher 1" in Abschnitt 1, kann ueber getrennte Cloud-Anfragen hinweg
-nicht garantiert werden. Deshalb tragen alle Sprecherbezeichnungen in
-aufgeteilten Transkripten den Zusatz `(Teil N)`, statt eine durchgehende
-Identitaet vorzutaeuschen.
-
-Schwelle und Abschnittslaenge lassen sich per Umgebungsvariable anpassen:
-`PROTOKOLL_CHUNK_SCHWELLE_MINUTEN` (Standard 40),
-`PROTOKOLL_CHUNK_LAENGE_MINUTEN` (Standard 15). Das Aufteilen benoetigt
-FFmpeg (siehe oben) sowie `ffprobe` (liegt bei jeder Standard-FFmpeg-
-Installation bei).
-
-Die Konsolenversion (`protokoll_assistent_v2.py`) teilt Aufnahmen bewusst
-nicht auf und bleibt unveraendert.
+Lange Aufnahmen werden in Abschnitte („Chunks") zerlegt, die sich
+ueberlappen; die Ueberlappung wird beim Zusammenfuehren wieder entfernt. Jeder
+fertige Abschnitt wird sofort gesichert. Nach einem Abbruch (Absturz,
+Stromausfall, geschlossenes Fenster) bietet die Anwendung an, die Verarbeitung
+fortzusetzen - bereits transkribierte Abschnitte werden dann nicht erneut
+berechnet.
 
 ## Lizenz und fremde Software
 
-Der Protokoll-Assistent selbst steht unter der Lizenz in [`LICENSE`](LICENSE):
-Der Quelltext ist einsehbar, aber nicht zur Nutzung freigegeben.
+Der Quelltext ist oeffentlich lesbar, aber **nicht** zur Nutzung freigegeben -
+siehe [`LICENSE`](LICENSE). Hinweise zu fremder Software stehen in
+[`NOTICES.md`](NOTICES.md) und `lizenzen/`; beide werden mit dem Build
+ausgeliefert.
 
-Welche fremde Software mitgeliefert wird, unter welchen Lizenzen sie steht und
-welche Pflichten sich daraus ergeben, steht in [`NOTICES.md`](NOTICES.md). Die
-vollstaendigen Lizenztexte liegen in [`lizenzen/`](lizenzen/). Beides wird mit
-der fertigen Anwendung ausgeliefert.
+PySide6 wird unter der **LGPL-3.0** verwendet. Der Build ist deshalb ein
+One-Directory-Build, bei dem die Qt-Bibliotheken als eigene Dateien neben der
+EXE liegen und sich austauschen lassen.
 
-## Fuer die Weiterentwicklung (Tests, Linting, CI)
-
-Dieser Abschnitt richtet sich an alle, die am Code selbst arbeiten. Fuer die
-reine Benutzung der Anwendung wird davon nichts gebraucht - die Installation
-laeuft weiterhin ueber `Protokoll-Assistent-Einrichten.bat` bzw.
-`lokale_windows_app/setup_lokal.ps1`.
-
-### Einmalig einrichten
-
-Die Entwicklungswerkzeuge werden mit [uv](https://docs.astral.sh/uv/)
-verwaltet (`pyproject.toml` + `uv.lock`):
+## Fuer die Weiterentwicklung
 
 ```powershell
-winget install --id=astral-sh.uv       # falls uv noch fehlt
-uv sync --python 3.11
+uv sync                # Entwicklungsumgebung einrichten
+uv run ruff check .    # Linting
+uv run mypy            # Typpruefung
+uv run pytest --cov    # Tests, bricht unter 85 % Abdeckung ab
 ```
 
-Das legt eine `.venv` an - getrennt von der `.venv-whisperx`, in der die
-KI-Pakete (PyTorch, faster-whisper, pyannote) liegen. Diese schweren Pakete sind
-bewusst **nicht** Teil der Entwicklungsumgebung: die Tests ersetzen sie
-durchgehend, damit sie ohne GPU in Sekunden laufen.
-
-### Die drei Befehle
-
-```powershell
-uv run ruff check .      # Linting (mit --fix werden viele Funde direkt behoben)
-uv run mypy              # Typpruefung
-uv run pytest            # Tests inklusive Abdeckungsmessung
-```
-
-`uv run pytest` bricht ab, wenn die Testabdeckung unter 85 % faellt. Einen
-ausfuehrlichen Bericht als Webseite gibt es mit:
-
-```powershell
-uv run pytest --cov-report=html
-start htmlcov/index.html
-```
-
-### Was auf GitHub automatisch laeuft
-
-| Wann | Was |
-|---|---|
-| Bei jedem Push auf **jeden** Branch und bei jedem Pull Request (`.github/workflows/ci.yml`) | Linting und Typpruefung (Linux), Tests unter Windows mit Python 3.10 **und** 3.11, Suche nach Zugangsdaten (gitleaks), Schwachstellenpruefung der Abhaengigkeiten (pip-audit) |
-| Jede Nacht (`.github/workflows/nightly.yml`) | Schwachstellenpruefung; zusaetzlich Tests und ein PyInstaller-Probelauf, falls es am Vortag Aenderungen gab |
-| Bei einem Versions-Tag `v*` (`.github/workflows/release.yml`) | Windows-Build und Veroeffentlichung als GitHub-Release |
-| Montags (`.github/dependabot.yml`) | Dependabot schlaegt Aktualisierungen der Abhaengigkeiten vor |
-
-Dazu kommt CodeQL (`.github/workflows/codeql.yml`): statische Codeanalyse von
-GitHub, bei jedem Pull Request und zusaetzlich montags.
-
-Die Tests laufen unter Windows, weil die Anwendung nur dort eingesetzt wird;
-die plattformunabhaengigen Pruefungen laufen auf Linux, weil die Laeufer dort
-schneller starten.
-
-**Fuer `main` gelten Branch-Schutzregeln.** Zusammenfuehren ist erst moeglich,
-wenn alle Pruefungen gruen sind und der Branch auf dem Stand von `main` ist.
-
-### Wissenswertes
-
-* **Zeilenenden:** `.gitattributes` legt LF fest. Ohne das schreiben
-  Windows-Werkzeuge CRLF zurueck, und jede kleine Aenderung erscheint als
-  komplett neu geschriebene Datei.
-* **Fenstertests:** Die Tests oeffnen echte tkinter- und Qt-Fenster. Qt laeuft
-  dabei unsichtbar (`QT_QPA_PLATFORM=offscreen`).
-* **Geheimnisse:** Kein API-Schluessel und kein Hugging-Face-Token gehoert in
-  das Repository. Die Tests loeschen entsprechende Umgebungsvariablen
-  vorsorglich, und gitleaks prueft in der CI auch die Versionsgeschichte.
+Auf GitHub laufen dieselben Pruefungen automatisch, dazu CodeQL, gitleaks und
+pip-audit. Einzelheiten, Regeln und die Gruende dahinter stehen in
+[`CLAUDE.md`](CLAUDE.md).
