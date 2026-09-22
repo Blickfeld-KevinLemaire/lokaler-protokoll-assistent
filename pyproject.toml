@@ -24,6 +24,11 @@ dev = [
     "sounddevice>=0.4.6",
     "PySide6>=6.11.2,<7",
     "python-docx>=1.2.0",
+    # Fuer die vereinte Anwendung ('protokoll_assistent_vereint'): einziger
+    # Ort, an dem API-Schluessel optional dauerhaft gespeichert werden
+    # koennen - ueber die Windows-Anmeldeinformationsverwaltung, nie als
+    # Klartext-Datei (siehe 'services/secret_store.py').
+    "keyring>=25.0",
     # Wird fuer den Windows-Build und dessen Probelauf in der CI gebraucht.
     "pyinstaller>=6.22.3",
 
@@ -52,7 +57,7 @@ minversion = "8.0"
 # importiert. 'lokale_windows_app' muss im Pfad stehen, damit dessen Tests
 # 'from services import ...' schreiben koennen - so wie bisher.
 pythonpath = [".", "lokale_windows_app"]
-testpaths = ["tests", "lokale_windows_app/tests"]
+testpaths = ["tests", "lokale_windows_app/tests", "protokoll_assistent_vereint/tests"]
 # "--capture=sys": Tcl/Tk kann unter Windows die Theme-Datei von sv-ttk nicht
 # laden, wenn pytest die Ausgabe auf Ebene der Dateideskriptoren abfaengt
 # ("couldn't read file ...: No error"). Mit "sys" wird nur sys.stdout/stderr
@@ -151,6 +156,7 @@ known-first-party = [
     "protokoll_assistent_v2",
     "setup_fenster",
     "bootstrap",
+    "protokoll_assistent_vereint",
 ]
 
 [tool.ruff.lint.per-file-ignores]
@@ -199,6 +205,7 @@ disable_error_code = ["arg-type"]
 [[tool.mypy.overrides]]
 # PySide6 liefert unvollstaendige Typinformationen: Kurzschreibweisen wie
 # 'Qt.red' oder 'QDialogButtonBox.Save' funktionieren zur Laufzeit, fehlen
-# aber in den Stubs.
-module = ["gui.*"]
+# aber in den Stubs. Gilt fuer 'lokale_windows_app/gui/' (bare 'gui.*') und
+# fuer die gleichnamige Oberflaeche der vereinten Anwendung.
+module = ["gui.*", "protokoll_assistent_vereint.gui.*"]
 disable_error_code = ["attr-defined"]

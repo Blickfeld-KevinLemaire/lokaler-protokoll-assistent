@@ -1,0 +1,22 @@
+# Pakete fuer die vereinte Anwendung ('protokoll_assistent_vereint/').
+#
+# Diese App laeuft in zwei Modi: rein ueber eine API-Schnittstelle (schneller,
+# leichter Start - nur die hier gelisteten Pakete noetig) oder lokal
+# (faster-whisper/pyannote/Ollama). Fuer den lokalen Modus wird zusaetzlich
+# dieselbe verwaltete Laufzeitumgebung benutzt, die
+# 'lokale_windows_app/bootstrap.py' bereits einrichtet (torch, whisperx,
+# pyannote.audio, huggingface_hub, ctranslate2, faster-whisper usw.) - die
+# gehoeren deshalb absichtlich NICHT hier hinein.
+
+PySide6>=6.11.2,<7
+python-docx>=1.2.0
+
+# Mikrofonaufnahme (Voice Recording). Bindet PortAudio ein, das Windows-Wheel
+# bringt die noetige DLL mit - kein separates Systempaket erforderlich.
+sounddevice>=0.4.6
+
+# Optionale, dauerhafte Speicherung von API-Schluesseln ueber die
+# Windows-Anmeldeinformationsverwaltung (siehe 'services/secret_store.py').
+# Nie als Klartext-Datei - das ist der einzige Ort im Projekt, der dieses
+# Paket importiert.
+keyring>=25.0

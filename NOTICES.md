@@ -58,6 +58,15 @@ dieses Programm wird ausdruecklich die **LGPL-3.0** gewaehlt.
   (`mikrofon_aufnahme.py`) und lokale Variante
   (`lokale_windows_app/services/recording_service.py`).
 
+### keyring (25.7.0)
+
+* Lizenz: MIT — Copyright (c) Kang Zhang
+* Wird von der vereinten Anwendung (`protokoll_assistent_vereint/`) benutzt,
+  um API-Schluessel optional ueber die Windows-Anmeldeinformationsverwaltung
+  dauerhaft zu speichern (`services/secret_store.py`) — nie als
+  Klartext-Datei. Optional: Der Anwender kann Schluessel stattdessen nur fuer
+  die laufende Sitzung eingeben, dann wird `keyring` gar nicht angesprochen.
+
 ### lxml (6.1.3)
 
 * Lizenz: BSD-3-Clause — Copyright (c) Infrae und Mitwirkende

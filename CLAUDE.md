@@ -17,6 +17,58 @@ Beide werden aktiv gepflegt. Die lokale Variante ist **kein** Nachfolger der
 Cloud-Variante — wer keine Daten aus der Hand geben will, nimmt die lokale;
 wer keine KI-Modelle installieren will, die Cloud-Variante.
 
+### Dritte, vereinte Anwendung (in Aufbau)
+
+`protokoll_assistent_vereint/` ist eine **dritte**, neue PySide6-Anwendung,
+die lokal (faster-whisper/pyannote/Ollama) und API-basierte Transkription
+und Nachbearbeitung in **einer** Oberfläche vereint — die Wahl ist dort eine
+Einstellung, kein separater Programmstart. Sie läuft **neben** den beiden
+obigen Anwendungen, verändert keine ihrer Dateien und importiert
+`lokale_windows_app`s Verarbeitungskette (`services/`, `utils/`) unverändert
+wieder — eigene Module dieser dritten App werden dabei immer qualifiziert
+importiert (`protokoll_assistent_vereint.X.Y`), nie bare, um nicht mit den
+bare `services`/`utils`/`gui`-Paketen von `lokale_windows_app` auf demselben
+`sys.path` zu kollidieren. API-Schlüssel können dort optional über die
+Windows-Anmeldeinformationsverwaltung gemerkt werden (`keyring`, einziger
+Zugriffspunkt `protokoll_assistent_vereint/services/secret_store.py`) — nie
+als Klartext-Datei.
+
+Zwei Dinge, die dabei leicht schiefgehen und schon schiefgegangen sind:
+
+* **Der Einstiegspunkt wird als Skript geladen.** `app.py` trägt deshalb
+  **zwei** Einträge in `sys.path` ein: die Projektwurzel (sonst ist der
+  eigene, qualifizierte Import nicht auflösbar — `python app.py` endete mit
+  `No module named 'protokoll_assistent_vereint'`, und genau so startet
+  `bootstrap._relaunch` die Datei im lokalen Modus erneut) und davor
+  `lokale_windows_app` (damit die bare Importe dort landen). Diese
+  Reihenfolge bitte so lassen.
+* **Die verwaltete Laufzeitumgebung ist kleiner als die Entwicklungs­umgebung.**
+  Im lokalen Modus läuft die Anwendung in `runtime\venv`, und die enthält
+  nur `lokale_windows_app/requirements-laufzeit.txt` — dort fehlen `keyring`
+  **und** `sounddevice`. Beides darf den Start deshalb nicht verhindern:
+  der Anmeldeinformationsspeicher wird abgesichert abgefragt
+  (`MainWindow._verwendbarer_api_schluessel`, Rückfall auf den
+  Sitzungsschlüssel), und `services.recording_service` wird erst bei Bedarf
+  geladen (`lade_recording_service`) — fehlt es, ist nur die
+  Mikrofonaufnahme abgeschaltet, mit sichtbarem Hinweis.
+
+Eine einzige Ausnahme von „importiert unverändert wieder": `ProtocolSettings`
+in `lokale_windows_app/services/pipeline_service.py` hat ein zusätzliches,
+vorbelegtes Feld `system_prompt` bekommen. Bleibt es `None`, liest
+`run_protocol` den Prompt wie bisher aus `get_system_prompt_file()` — für die
+lokale Anwendung ändert sich also nichts. Die vereinte Anwendung lässt den
+Systemprompt im Fenster bearbeiten und gibt ihn direkt mit; vorher schrieb
+sie ihn dafür nach `get_system_prompt_file()` und hat damit bei **jeder**
+Nachbearbeitung den gespeicherten Systemprompt der lokalen Anwendung
+stillschweigend ersetzt. Diesen Weg bitte beibehalten: Was nur für einen Lauf
+gilt, gehört nicht in die gemeinsame Einstellungsdatei.
+
+Sobald sich diese dritte Anwendung bewährt hat, sollen beide obigen Apps
+damit abgelöst werden. Das ist eine **eigene, spätere** Planungs- und
+Freigaberunde (Installer, CI, `hauptanwendung.py`, dieser Abschnitt hier) —
+bis dahin bleibt die Tabelle oben der gültige Ist-Zustand der beiden
+bestehenden Anwendungen.
+
 ## Vor dem Abschluss einer Aufgabe
 
 ```powershell
@@ -274,6 +326,13 @@ lokale_windows_app/
 
 tests/                         Tests der Cloud-Variante
 lokale_windows_app/tests/      Tests der lokalen Variante
+
+protokoll_assistent_vereint/   dritte, vereinte Anwendung (siehe oben, in Aufbau)
+  app.py                       Einstiegspunkt (Bootstrap nur im lokalen Modus)
+  gui/                         PySide6: Hauptfenster, Einstellungsdialog, Worker
+  services/                    API-Transkription/-Nachbearbeitung, Secret-Store
+  utils/                       eigene Pfade/Konfiguration (qualifiziert importiert)
+  tests/                       Tests der vereinten Anwendung
 ```
 
 Die Verarbeitungskette in `services/` kennt kein Qt. Das soll so bleiben:

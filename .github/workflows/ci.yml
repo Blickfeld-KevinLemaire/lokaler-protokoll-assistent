@@ -146,6 +146,7 @@ jobs:
         # installieren - sie stehen nicht in 'uv.lock'.
         run: |
           uv run pip-audit \
+            --requirement requirements-vereint.txt \
             --requirement requirements.txt \
             --requirement lokale_windows_app/requirements-local-gui.txt
 
