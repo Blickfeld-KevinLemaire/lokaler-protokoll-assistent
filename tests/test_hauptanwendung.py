@@ -10,6 +10,26 @@ import pytest
 import hauptanwendung as ha
 
 
+class _ProzessAttrappe:
+    """Fake fuer das von 'subprocess.Popen' zurueckgegebene Objekt. 'poll()'
+    meldet standardmaessig "laeuft noch" (None) - fuer den Fruehabsturz-Fall
+    wird stattdessen ein Exit-Code uebergeben."""
+
+    def __init__(self, rueckgabewert: int | None = None) -> None:
+        self.rueckgabewert = rueckgabewert
+
+    def poll(self) -> int | None:
+        return self.rueckgabewert
+
+
+def _fake_popen(aufrufe: list, rueckgabewert: int | None = None):
+    def popen(cmd, cwd):
+        aufrufe.append((cmd, cwd))
+        return _ProzessAttrappe(rueckgabewert)
+
+    return popen
+
+
 @pytest.fixture
 def fenster(tk_wurzel):
     return ha.HauptanwendungFenster(tk_wurzel)
@@ -66,8 +86,8 @@ def test_starte_lokal(fenster, monkeypatch, tmp_path):
     eintrag.write_text("", encoding="utf-8")
     monkeypatch.setattr(ha, "LOKAL_ENTRY", eintrag)
 
-    aufrufe = []
-    monkeypatch.setattr(ha.subprocess, "Popen", lambda cmd, cwd: aufrufe.append((cmd, cwd)))
+    aufrufe: list = []
+    monkeypatch.setattr(ha.subprocess, "Popen", _fake_popen(aufrufe))
 
     fenster.starte_lokal()
 
@@ -90,13 +110,67 @@ def test_starte_api(fenster, monkeypatch, tmp_path):
     eintrag.write_text("", encoding="utf-8")
     monkeypatch.setattr(ha, "API_ENTRY", eintrag)
 
-    aufrufe = []
-    monkeypatch.setattr(ha.subprocess, "Popen", lambda cmd, cwd: aufrufe.append((cmd, cwd)))
+    aufrufe: list = []
+    monkeypatch.setattr(ha.subprocess, "Popen", _fake_popen(aufrufe))
 
     fenster.starte_api()
 
     assert aufrufe[0][0] == [sys.executable, str(eintrag)]
     assert "Schnittstellen-Anwendung" in fenster.log_text.get("1.0", "end")
+
+
+def test_fruehabsturz_wird_gemeldet(fenster, monkeypatch, tmp_path):
+    # Stuerzt der gestartete Prozess kurz nach dem Start ab, gibt es --
+    # anders als bei einem Fehler von 'Popen' selbst -- weder Konsole noch
+    # Fenster, ueber das der Nutzer das erfahren wuerde (siehe
+    # 'Protokoll-Assistent-Starten.bat': gestartet per 'pythonw').
+    aufrufe: list = []
+    monkeypatch.setattr(ha.subprocess, "Popen", _fake_popen(aufrufe, rueckgabewert=1))
+    fehler = []
+    monkeypatch.setattr(ha.messagebox, "showerror", lambda titel, text: fehler.append((titel, text)))
+
+    fenster._starte_prozess(["python"], cwd=tmp_path, beschreibung="Testlauf")
+
+    assert fehler[0][0] == "Beim Start abgebrochen"
+    assert "Exit-Code 1" in fehler[0][1]
+    assert "sofort mit Fehlercode 1" in fenster.log_text.get("1.0", "end")
+
+
+def test_sauberer_exit_wird_nicht_gemeldet(fenster, monkeypatch, tmp_path):
+    # Exit-Code 0 (sauberes Beenden) ist kein Absturz -- keine Fehlermeldung.
+    aufrufe: list = []
+    monkeypatch.setattr(ha.subprocess, "Popen", _fake_popen(aufrufe, rueckgabewert=0))
+    fehler = []
+    monkeypatch.setattr(ha.messagebox, "showerror", lambda titel, text: fehler.append((titel, text)))
+
+    fenster._starte_prozess(["python"], cwd=tmp_path, beschreibung="Testlauf")
+
+    assert fehler == []
+
+
+def test_laufender_prozess_wird_erneut_geprueft(fenster, monkeypatch, tmp_path):
+    # Laeuft der Prozess noch, wird die naechste Pruefung ueber 'root.after'
+    # eingeplant (nicht blockierend) statt die Oberflaeche einzufrieren.
+    prozess = _ProzessAttrappe(rueckgabewert=None)
+    eingeplant = []
+    monkeypatch.setattr(fenster.root, "after", lambda ms, fn: eingeplant.append((ms, fn)))
+
+    fenster._pruefe_fruehabsturz(prozess, "Testlauf", verbleibende_versuche=3)
+
+    assert eingeplant[0][0] == ha.FRUEHABSTURZ_INTERVALL_MS
+
+
+def test_laufender_prozess_gibt_nach_letztem_versuch_auf(fenster, monkeypatch, tmp_path):
+    prozess = _ProzessAttrappe(rueckgabewert=None)
+    eingeplant = []
+    monkeypatch.setattr(fenster.root, "after", lambda ms, fn: eingeplant.append((ms, fn)))
+    fehler = []
+    monkeypatch.setattr(ha.messagebox, "showerror", lambda titel, text: fehler.append((titel, text)))
+
+    fenster._pruefe_fruehabsturz(prozess, "Testlauf", verbleibende_versuche=0)
+
+    assert eingeplant == []
+    assert fehler == []
 
 
 def test_starte_prozess_meldet_fehler(fenster, monkeypatch, tmp_path):
@@ -227,8 +301,8 @@ def test_starte_lokal_gebunden_nutzt_gefundenes_python(fenster, monkeypatch, tmp
     monkeypatch.setattr(ha, "LOKAL_ENTRY", eintrag)
     monkeypatch.setattr(ha, "python_fuer_lokale_app", lambda: ["py", "-3.11"])
 
-    aufrufe = []
-    monkeypatch.setattr(ha.subprocess, "Popen", lambda cmd, cwd: aufrufe.append((cmd, cwd)))
+    aufrufe: list = []
+    monkeypatch.setattr(ha.subprocess, "Popen", _fake_popen(aufrufe))
 
     fenster.starte_lokal()
 
@@ -260,8 +334,8 @@ def test_starte_api_gebunden_startet_zweite_exe(fenster, monkeypatch, tmp_path):
     monkeypatch.setattr(ha, "IST_GEBUNDEN", True)
     monkeypatch.setattr(ha, "API_EXE", exe)
 
-    aufrufe = []
-    monkeypatch.setattr(ha.subprocess, "Popen", lambda cmd, cwd: aufrufe.append((cmd, cwd)))
+    aufrufe: list = []
+    monkeypatch.setattr(ha.subprocess, "Popen", _fake_popen(aufrufe))
 
     fenster.starte_api()
 

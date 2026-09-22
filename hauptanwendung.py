@@ -56,6 +56,17 @@ PYTHON_KANDIDATEN: tuple[list[str], ...] = (
 
 PYTHON_DOWNLOAD_URL = "https://www.python.org/downloads/"
 
+# Wird ueber 'Protokoll-Assistent-Starten.bat' meist per 'pythonw' gestartet
+# (kein Konsolenfenster). Stuerzt eine gestartete Anwendung kurz nach dem
+# Start ab (z. B. ein Fehler in der automatischen Einrichtung der lokalen
+# Laufzeitumgebung), gibt es dafuer weder Konsole noch Fenster -- ohne die
+# Ueberwachung unten war das voellig unsichtbar ("es passiert einfach
+# nichts"). Kulanzzeitraum bewusst kurz: ein normaler Start (auch mit
+# Ersteinrichtung, die ihr eigenes Splash-Fenster oeffnet) ueberlebt ihn
+# locker, ein Absturz direkt beim Programmstart passiert innerhalb davon.
+FRUEHABSTURZ_MAX_VERSUCHE = 15
+FRUEHABSTURZ_INTERVALL_MS = 200
+
 sys.path.insert(0, str(APP_DIR))
 import oberflaeche_theme as theme  # noqa: E402
 
@@ -262,11 +273,34 @@ class HauptanwendungFenster:
 
     def _starte_prozess(self, befehl: list[str], cwd: Path, beschreibung: str) -> None:
         try:
-            subprocess.Popen(befehl, cwd=str(cwd))
+            prozess = subprocess.Popen(befehl, cwd=str(cwd))
         except OSError as error:
             messagebox.showerror("Fehler beim Starten", f"{beschreibung} konnte nicht gestartet werden:\n{error}")
             return
         self._log(f"{beschreibung} wird gestartet ...")
+        self._pruefe_fruehabsturz(prozess, beschreibung, FRUEHABSTURZ_MAX_VERSUCHE)
+
+    def _pruefe_fruehabsturz(self, prozess: subprocess.Popen, beschreibung: str, verbleibende_versuche: int) -> None:
+        rueckgabewert = prozess.poll()
+        if rueckgabewert is None:
+            if verbleibende_versuche > 0:
+                self.root.after(
+                    FRUEHABSTURZ_INTERVALL_MS,
+                    lambda: self._pruefe_fruehabsturz(prozess, beschreibung, verbleibende_versuche - 1),
+                )
+            return
+        if rueckgabewert == 0:
+            return
+        self._log(f"{beschreibung} wurde sofort mit Fehlercode {rueckgabewert} beendet.")
+        messagebox.showerror(
+            "Beim Start abgebrochen",
+            f"{beschreibung} wurde unmittelbar nach dem Start wieder beendet "
+            f"(Exit-Code {rueckgabewert}).\n\n"
+            "Das deutet auf einen Fehler direkt beim Programmstart hin -- zum Beispiel bei "
+            "der automatischen Einrichtung der Laufzeitumgebung. Bitte die Log-Datei der "
+            "lokalen Anwendung prüfen oder diese über 'Anwendung-starten.ps1' in einer "
+            "sichtbaren PowerShell-Konsole starten, um die genaue Fehlermeldung zu sehen.",
+        )
 
 
 def main() -> int:
