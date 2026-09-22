@@ -117,6 +117,11 @@ def fenster(qt_widgets, isolierte_konfiguration, schluessel_speicher, monkeypatc
     monkeypatch.setattr(mw, "TranscriptionWorker", _WorkerAttrappe)
     monkeypatch.setattr(mw, "ProtocolWorker", _WorkerAttrappe)
     monkeypatch.setattr(mw, "DateiHashWorker", _HashWorkerAttrappe)
+    # Die meisten Tests hier pruefen die Ablaufsteuerung, nicht ob auf DIESEM
+    # Testrechner tatsaechlich 'faster_whisper' installiert ist (siehe
+    # 'test_start_lokal_ohne_laufzeitumgebung_meldet_fehler' fuer den
+    # Gegenfall) - deshalb hier standardmaessig "vorhanden" simulieren.
+    monkeypatch.setattr(mw.MainWindow, "_lokale_laufzeitumgebung_verfuegbar", staticmethod(lambda: True))
     return qt_widgets(mw.MainWindow())
 
 
@@ -358,6 +363,20 @@ def test_start_lokal_erzeugt_arbeiter_ohne_api_funktionen(fenster, audio_datei):
     assert arbeiter.settings.source_path == audio_datei
     assert arbeiter.kwargs["transcribe_chunk_fn"] is None
     assert arbeiter.kwargs["diarize_fn"] is None
+
+
+def test_start_lokal_ohne_laufzeitumgebung_meldet_fehler(fenster, gemeldete_fehler, audio_datei, monkeypatch):
+    # Wurde die Anwendung mit gespeichertem Modus "api" gestartet (oder mitten
+    # in der Sitzung auf "Lokal" umgeschaltet), ohne dass 'bootstrap' die
+    # schweren ML-Pakete eingerichtet hat, darf "Transkription starten" nicht
+    # tief in der Pipeline mit einem kryptischen Fehler scheitern.
+    monkeypatch.setattr(mw.MainWindow, "_lokale_laufzeitumgebung_verfuegbar", staticmethod(lambda: False))
+    fenster._source_path = audio_datei
+
+    fenster._start_transcription()
+
+    assert gemeldete_fehler == ["Lokale Laufzeitumgebung noch nicht eingerichtet"]
+    assert _WorkerAttrappe.instanzen == []
 
 
 def test_start_api_ohne_schluessel_meldet_fehler(fenster, gemeldete_fehler, audio_datei):

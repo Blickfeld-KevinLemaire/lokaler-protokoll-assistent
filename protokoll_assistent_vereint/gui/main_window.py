@@ -24,7 +24,9 @@ from __future__ import annotations
 
 import contextlib
 import functools
+import importlib.util
 import json
+import sys
 import time
 from pathlib import Path
 
@@ -177,7 +179,6 @@ class MainWindow(QMainWindow):
         left_layout.addWidget(self._build_settings_group())
         left_layout.addWidget(self._build_resume_group())
         left_layout.addWidget(self._build_control_group())
-        left_layout.addWidget(self._build_progress_group())
 
         separator = QFrame(self)
         separator.setFrameShape(QFrame.HLine)
@@ -199,9 +200,14 @@ class MainWindow(QMainWindow):
         left_scroll.setMinimumWidth(480)
         splitter.addWidget(left_scroll)
 
+        # 'Fortschritt' steht bewusst im rechten Bereich, nicht in der
+        # scrollbaren linken Spalte: dort waere sie nach "Transkription
+        # starten" erst nach mehrfachem Scrollen zu sehen - genau das hat in
+        # der Praxis den Eindruck erweckt, es passiere gar nichts.
         right_panel = QWidget(self)
         splitter.addWidget(right_panel)
         right_layout = QVBoxLayout(right_panel)
+        right_layout.addWidget(self._build_progress_group())
         right_layout.addWidget(self._build_preview_group(), stretch=1)
         right_layout.addWidget(self._build_speaker_group(), stretch=1)
 
@@ -944,6 +950,20 @@ class MainWindow(QMainWindow):
             show_error(self, "Ausgabeordner ungültig", f"In den Ausgabeordner kann nicht geschrieben werden:\n{error}")
             return
 
+        if self.transkription_lokal_radio.isChecked() and not self._lokale_laufzeitumgebung_verfuegbar():
+            show_error(
+                self,
+                "Lokale Laufzeitumgebung noch nicht eingerichtet",
+                "Für die lokale Transkription richtet diese Anwendung sich beim Start "
+                "automatisch eine eigene Laufzeitumgebung ein (Whisper-Modell u. a.) -- "
+                "das geschieht aber nur, wenn 'Lokal' schon beim Programmstart als "
+                "Transkriptionsmodus aktiv war.\n\n"
+                "Bitte die Anwendung einmal vollständig beenden und neu starten, während "
+                "'Lokal' ausgewählt ist: Die Einrichtung läuft dann automatisch (kann "
+                "beim ersten Mal, je nach Internetverbindung, einige Minuten dauern).",
+            )
+            return
+
         config = app_config.load_config()
         transcribe_chunk_fn = None
         diarize_fn = None
@@ -1002,6 +1022,19 @@ class MainWindow(QMainWindow):
         self._transcription_worker.cancelled.connect(self._on_transcription_cancelled)
         self._transcription_worker.finished.connect(lambda: self._set_controls_running(False))
         self._transcription_worker.start()
+
+    @staticmethod
+    def _lokale_laufzeitumgebung_verfuegbar() -> bool:
+        """Ist bereits eine Laufzeitumgebung mit den schweren ML-Paketen
+        vorhanden? In einem PyInstaller-Build sind sie immer gebuendelt; in
+        der von 'bootstrap.py' verwalteten Umgebung ('app.py' ruft sie beim
+        Start nur auf, wenn der gespeicherte Modus damals bereits "lokal"
+        war) muss 'faster_whisper' tatsächlich importierbar sein. Ohne diese
+        Prüfung würde ein Wechsel auf "Lokal" mitten in der Sitzung erst
+        tief in der Pipeline mit einem kryptischen Fehler scheitern."""
+        if getattr(sys, "frozen", False):
+            return True
+        return importlib.util.find_spec("faster_whisper") is not None
 
     def _cancel_transcription(self) -> None:
         if self._transcription_worker is not None:
