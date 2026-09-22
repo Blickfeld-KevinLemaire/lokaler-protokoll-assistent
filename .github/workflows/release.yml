@@ -121,13 +121,23 @@ jobs:
           $groesse = [math]::Round((Get-Item $setup).Length / 1MB, 1)
           Write-Host "Installer erstellt: $setup ($groesse MB)"
 
-      - name: Artefakte ablegen
+      # ZWEI Artefakte, nicht eines mit zwei Pfaden: Bei mehreren Pfaden
+      # behaelt 'upload-artifact' die Ordnerstruktur ab dem gemeinsamen
+      # Wurzelverzeichnis bei. Die EXE laege dann unter 'dist-installer/' und
+      # das Dateimuster im Release-Schritt ('artefakte/Protokoll-Assistent-Setup-*.exe')
+      # wuerde sie nicht mehr finden - das Release erschiene ohne Installer.
+      - name: Archiv ablegen
         uses: actions/upload-artifact@v7
         with:
-          name: Protokoll-Assistent
-          path: |
-            Protokoll-Assistent-windows.zip
-            dist-installer\*.exe
+          name: Protokoll-Assistent-windows
+          path: Protokoll-Assistent-windows.zip
+          retention-days: 30
+
+      - name: Installer ablegen
+        uses: actions/upload-artifact@v7
+        with:
+          name: Protokoll-Assistent-Setup
+          path: dist-installer\*.exe
           retention-days: 30
 
   veroeffentlichen:
