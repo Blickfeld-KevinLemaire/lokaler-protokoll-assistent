@@ -30,5 +30,12 @@ if (-not (Test-Path $VenvPython)) {
 $patchArgs = @("--venv", $VenvDir)
 if ($DryRun) { $patchArgs += "--dry-run" }
 
-& $VenvPython (Join-Path $ScriptDir "utils\pyannote_patch.py") @patchArgs
-exit $LASTEXITCODE
+# Aus der Projektwurzel heraus und als Modul (siehe setup_lokal.ps1).
+Push-Location (Split-Path -Parent $ScriptDir)
+try {
+    & $VenvPython -m protokoll_assistent.utils.pyannote_patch @patchArgs
+    $exitCode = $LASTEXITCODE
+} finally {
+    Pop-Location
+}
+exit $exitCode

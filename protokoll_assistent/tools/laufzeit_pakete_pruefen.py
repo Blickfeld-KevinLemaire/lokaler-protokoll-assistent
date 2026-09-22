@@ -30,7 +30,7 @@ welchem System das Skript laeuft. Es wird nichts installiert, nur
 Metadaten werden gelesen; der Lauf dauert wenige Sekunden.
 
 Aufruf (im Projektstamm):
-    uv run python protokoll_assistent/tools/laufzeit_pakete_pruefen.py
+    uv run python -m protokoll_assistent.tools.laufzeit_pakete_pruefen
 
 Rueckgabewert 0 = alles passt, 1 = passt nicht (mit Begruendung).
 """
@@ -47,10 +47,7 @@ from pathlib import Path
 
 from packaging.requirements import Requirement
 
-APP_DIR = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(APP_DIR))
-
-from protokoll_assistent.services import environment_service as env  # noqa: E402
+from protokoll_assistent.services import environment_service as env
 
 # Fuer diese Fassung wird aufgeloest: die Fassung, die der Installer
 # mitliefert. 3.10 wird ebenfalls unterstuetzt, loest aber nicht

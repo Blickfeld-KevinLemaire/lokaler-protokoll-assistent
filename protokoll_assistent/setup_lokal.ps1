@@ -17,7 +17,7 @@ $ProjectRoot = Split-Path -Parent $ScriptDir
 $VenvDir = Join-Path $ProjectRoot ".venv-whisperx"
 $VenvPython = Join-Path $VenvDir "Scripts\python.exe"
 
-Write-Host "=== Protokoll-Assistent Lokal: Einrichtung der Python-Umgebung ===" -ForegroundColor Cyan
+Write-Host "=== Protokoll-Assistent: Einrichtung der Python-Umgebung ===" -ForegroundColor Cyan
 
 if (-not (Test-Path $VenvPython)) {
     Write-Host "FEHLER: Virtuelle Umgebung nicht gefunden unter:" -ForegroundColor Red
@@ -39,13 +39,20 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Write-Host "`nPruefe pyannote-Kompatibilitaetskorrektur (kurze Audioteile / NaN-Absicherung) ..."
-& $VenvPython (Join-Path $ScriptDir "utils\pyannote_patch.py") --venv $VenvDir
-# Hinweis: Ein Exit-Code ungleich 0 bedeutet meist nur, dass die betroffene
-# Zeile nicht eindeutig gefunden wurde (z.B. andere pyannote-Version) -- das
-# ist kein Abbruchgrund fuer die gesamte Einrichtung.
+# Aus der Projektwurzel heraus und als Modul - sonst findet Python das
+# Paket 'protokoll_assistent' nicht.
+Push-Location $ProjectRoot
+try {
+    & $VenvPython -m protokoll_assistent.utils.pyannote_patch --venv $VenvDir
+    # Hinweis: Ein Exit-Code ungleich 0 bedeutet meist nur, dass die betroffene
+    # Zeile nicht eindeutig gefunden wurde (z.B. andere pyannote-Version) -- das
+    # ist kein Abbruchgrund fuer die gesamte Einrichtung.
 
-Write-Host "`nFuehre Systempruefung aus ..."
-& $VenvPython (Join-Path $ScriptDir "Systempruefung.py")
+    Write-Host "`nFuehre Systempruefung aus ..."
+    & $VenvPython -m protokoll_assistent.systempruefung
+} finally {
+    Pop-Location
+}
 
 Write-Host "`n=== Einrichtung der Python-Umgebung abgeschlossen ===" -ForegroundColor Green
 Write-Host "Fuer die vollstaendige, gefuehrte Einrichtung (inkl. Modell-Download und"

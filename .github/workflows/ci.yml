@@ -171,7 +171,7 @@ jobs:
         # die geforderte PyTorch-Fassung in den eingestellten Indizes gibt.
         # Ohne diese Pruefung faellt erst beim Anwender auf, dass der
         # CUDA-Build kommentarlos durch einen PyPI-Build ersetzt wurde.
-        run: uv run python protokoll_assistent/tools/laufzeit_pakete_pruefen.py --ausgabe laufzeit-aufgeloest.txt
+        run: uv run python -m protokoll_assistent.tools.laufzeit_pakete_pruefen --ausgabe laufzeit-aufgeloest.txt
 
       - name: pip-audit auf den aufgeloesten Laufzeit-Paketen
         # '--no-deps': Die Liste ist bereits vollstaendig aufgeloest, es muss
