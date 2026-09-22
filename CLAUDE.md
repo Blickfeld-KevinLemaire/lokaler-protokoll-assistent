@@ -273,6 +273,10 @@ Wer wirklich umstellen will, ändert beides zusammen.
 
 ## Weitere Dateien, die mitgepflegt werden wollen
 
+* `CHANGELOG.md` — was sich fuer Anwender geaendert hat (Keep a Changelog).
+  Neue Eintraege kommen unter `[Unreleased]`; beim Release wird daraus ein
+  Versionsabschnitt. Die Version steht ausserdem in `pyproject.toml` und
+  muss zum Tag passen.
 * `SECURITY.md` — was in diesem Projekt sicherheitsrelevant ist und wie man
   eine Luecke meldet. Bei Aenderungen an der Datenuebertragung oder an den
   ausgeschlossenen Ordnern bitte dort nachziehen.

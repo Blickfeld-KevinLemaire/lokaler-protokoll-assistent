@@ -8,8 +8,8 @@
 # ---------------------------------------------------------------------------
 [project]
 name = "lokaler-protokoll-assistent"
-version = "0.1.0"
-description = "Protokoll-Assistent: Cloud-Variante (tkinter) und vollstaendig lokale Windows-App (PySide6)"
+version = "0.2.0"
+description = "Protokoll-Assistent: eine Windows-Anwendung (PySide6) fuer lokale und API-gestuetzte Transkription und Protokollauswertung"
 readme = "README.md"
 requires-python = ">=3.10,<3.12"
 dependencies = []
