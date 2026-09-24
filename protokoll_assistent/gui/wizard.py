@@ -20,6 +20,7 @@ from pathlib import Path
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import (
     QComboBox,
+    QDialog,
     QFileDialog,
     QHBoxLayout,
     QHeaderView,
@@ -283,8 +284,12 @@ class DiagnosticsPage(QWidget):
         self.summary_label.setText("Prüfung läuft ...")
 
         self._thread = DiagnosticsRunner(get_default_output_dir(), self)
+        self._thread.check_started.connect(self._on_check_started)
         self._thread.finished_with_results.connect(self._show_results)
         self._thread.start()
+
+    def _on_check_started(self, label: str) -> None:
+        self.summary_label.setText(f"Prüfung läuft … ({label})")
 
     def _show_results(self, results) -> None:
         self.retry_button.setEnabled(True)
@@ -640,4 +645,48 @@ class SetupWizard(QWidget):
         elif index == 2:
             self.diagnostics_page.start()
         elif index == 3:
+            self.model_page.apply_recommendation(self.diagnostics_page.last_results)
+
+
+class LokalEinrichtungDialog(QDialog):
+    """Richtet den lokalen Modus auf Wunsch ein -- Einrichtung (Downloads),
+    Systemtest, Modellwahl. Anders als 'SetupWizard' (der ehemalige,
+    automatische Ersteinrichtungs-Assistent) wird dieser Dialog **nicht**
+    mehr automatisch beim Programmstart gezeigt, sondern gezielt aus den
+    Einstellungen heraus geoeffnet, wenn der Anwender dort auf "Lokal"
+    umschaltet (siehe 'gui/settings_dialog.py'). Die Hauptanwendung steht zu
+    diesem Zeitpunkt bereits -- Willkommens- und Eingabeordner-Seite (die
+    Ordnerauswahl liegt bereits im Hauptfenster) werden deshalb bewusst
+    ausgelassen; die drei verbleibenden Seiten werden unveraendert von
+    'SetupWizard' wiederverwendet."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Lokale Verarbeitung einrichten")
+        self.resize(820, 620)
+
+        layout = QVBoxLayout(self)
+
+        self.stack = QStackedWidget(self)
+        layout.addWidget(self.stack, stretch=1)
+
+        self.install_page = InstallPage(self)
+        self.diagnostics_page = DiagnosticsPage(self)
+        self.model_page = ModelChoicePage(self)
+        for page in (self.install_page, self.diagnostics_page, self.model_page):
+            self.stack.addWidget(page)
+
+        self.install_page.continue_requested.connect(lambda: self._go_to(1))
+        self.diagnostics_page.continue_requested.connect(lambda: self._go_to(2))
+        self.model_page.continue_requested.connect(self.accept)
+
+        self._go_to(0)
+
+    def _go_to(self, index: int) -> None:
+        self.stack.setCurrentIndex(index)
+        if index == 0:
+            self.install_page.start()
+        elif index == 1:
+            self.diagnostics_page.start()
+        elif index == 2:
             self.model_page.apply_recommendation(self.diagnostics_page.last_results)

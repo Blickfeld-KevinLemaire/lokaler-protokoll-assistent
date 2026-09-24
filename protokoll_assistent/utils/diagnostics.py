@@ -17,6 +17,7 @@ import os
 import platform
 import shutil
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from protokoll_assistent.services import environment_service, ffmpeg_service
@@ -285,29 +286,49 @@ def check_ollama_model() -> DiagnosticCheck:
         return DiagnosticCheck("ollama_model", "Ollama-Modell vorhanden", False, str(error))
 
 
-def run_diagnostics(output_dir: str | os.PathLike | None = None) -> list[DiagnosticCheck]:
+def run_diagnostics(
+    output_dir: str | os.PathLike | None = None,
+    *,
+    on_check_started: Callable[[str], None] = lambda label: None,
+) -> list[DiagnosticCheck]:
+    """Fuehrt alle Pruefungen der Reihe nach aus.
+
+    ``on_check_started`` wird VOR jeder einzelnen Pruefung mit deren Titel
+    aufgerufen. Einzelne Pruefungen (Torch-/pyannote-Import, GPU-Test) koennen
+    -- besonders bei einer frisch eingerichteten Laufzeitumgebung, wenn
+    Virenschutzprogramme die eben geschriebenen, grossen Programmdateien noch
+    pruefen -- mehrere Sekunden bis wenige Minuten dauern. Ohne diese
+    Rueckmeldung zeigte die Oberflaeche waehrenddessen nur einen einzigen,
+    unveraenderten "laeuft ..."-Text an, was wie ein Haengenbleiben aussah.
+    Der Standardwert macht den Parameter fuer bestehende Aufrufer (z. B.
+    ``systempruefung.py``) optional.
+    """
     from protokoll_assistent.utils.paths import get_default_output_dir
 
     output_dir = output_dir or get_default_output_dir()
-    checks = [
-        check_python_version(),
-        check_windows(),
-        check_torch_installed(),
-        check_cuda(),
-        check_gpu_vram(),
-        check_ram(),
-        check_disk_space(output_dir),
-        check_ffmpeg(),
-        check_ffprobe(),
-        check_whisperx_import(),
-        check_pyannote_import(),
-        check_model_cache(),
-        check_hf_token(),
-        check_output_dir_writable(output_dir),
-        check_ollama_installed(),
-        check_ollama_running(),
-        check_ollama_model(),
+    geplante_pruefungen: list[tuple[str, Callable[[], DiagnosticCheck]]] = [
+        ("Python-Version", check_python_version),
+        ("Windows-Betriebssystem", check_windows),
+        ("PyTorch installiert", check_torch_installed),
+        ("GPU-Beschleunigung (CUDA)", check_cuda),
+        ("GPU-Speicher", check_gpu_vram),
+        ("Arbeitsspeicher", check_ram),
+        ("Freier Speicherplatz", lambda: check_disk_space(output_dir)),
+        ("FFmpeg", check_ffmpeg),
+        ("ffprobe", check_ffprobe),
+        ("faster-whisper", check_whisperx_import),
+        ("pyannote.audio", check_pyannote_import),
+        ("Modell-Cache", check_model_cache),
+        ("HF_TOKEN vorhanden", check_hf_token),
+        ("Ausgabeordner beschreibbar", lambda: check_output_dir_writable(output_dir)),
+        ("Ollama installiert", check_ollama_installed),
+        ("Ollama-Dienst erreichbar", check_ollama_running),
+        ("Ollama-Modell vorhanden", check_ollama_model),
     ]
+    checks = []
+    for label, pruefung in geplante_pruefungen:
+        on_check_started(label)
+        checks.append(pruefung())
     return checks
 
 

@@ -25,6 +25,7 @@ class DiagnosticsRunner(QThread):
     sowohl vom Diagnose-Dialog als auch von der Systemtest-Seite des
     Einrichtungsassistenten (``gui/wizard.py``) wiederverwendet werden kann."""
 
+    check_started = Signal(str)
     finished_with_results = Signal(list)
 
     def __init__(self, output_dir, parent=None):
@@ -34,7 +35,7 @@ class DiagnosticsRunner(QThread):
     def run(self) -> None:
         from protokoll_assistent.utils import diagnostics
 
-        results = diagnostics.run_diagnostics(self._output_dir)
+        results = diagnostics.run_diagnostics(self._output_dir, on_check_started=self.check_started.emit)
         self.finished_with_results.emit(results)
 
 
@@ -76,8 +77,12 @@ class DiagnosticsDialog(QDialog):
         layout.addWidget(buttons)
 
         self._thread = DiagnosticsRunner(output_dir, self)
+        self._thread.check_started.connect(self._on_check_started)
         self._thread.finished_with_results.connect(self._show_results)
         self._thread.start()
+
+    def _on_check_started(self, label: str) -> None:
+        self.status_label.setText(f"Diagnose läuft … ({label})")
 
     def _show_results(self, results) -> None:
         self.status_label.setText("Diagnose abgeschlossen.")
