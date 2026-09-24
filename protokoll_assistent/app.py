@@ -6,6 +6,13 @@ API-Schnittstelle. Welcher Weg gilt, ist eine **Einstellung**
 (``konfiguration.json``, bearbeitet ueber ``gui.settings_dialog``) und kein
 eigenes Programm -- es gibt genau diese eine Anwendung.
 
+Die Anwendung zeigt beim Start immer sofort das Hauptfenster -- nie einen
+Einrichtungsassistenten davor. Die Ersteinrichtung fuer den lokalen Modus
+(Downloads, Systemtest, Modellwahl; ``gui.wizard.LokalEinrichtungDialog``)
+ist ein bewusster, gezielter Schritt aus den Einstellungen heraus, kein
+Startzwang -- der Anwender kann sofort mit der API-Schnittstelle arbeiten
+oder sich erst in Ruhe umsehen, bevor er den lokalen Modus einrichtet.
+
 Die schwere lokale Laufzeitumgebung (Torch/faster-whisper/pyannote, per
 ``bootstrap.py`` selbstinstallierend) wird NUR eingerichtet, wenn der
 gespeicherte Transkriptionsmodus tatsaechlich "lokal" ist. Wer ausschliesslich
@@ -33,7 +40,6 @@ ebenfalls als Modul neu startet).
 from __future__ import annotations
 
 import sys
-from pathlib import Path
 
 from protokoll_assistent.utils import app_config
 
@@ -75,34 +81,8 @@ def main() -> int:
     app.setApplicationName("Protokoll-Assistent")
     theme.apply_theme(app)
 
-    # Referenzen halten, sonst werden die Fenster ohne Elternobjekt vom
-    # Python-Garbage-Collector verworfen, sobald keine lokale Variable mehr
-    # auf sie zeigt.
-    windows: dict[str, object] = {}
-
-    zeige_einrichtungsassistent = (
-        not _config["einrichtung_abgeschlossen"] and _config["transkription_modus"] == "lokal"
-    )
-    if zeige_einrichtungsassistent:
-        from protokoll_assistent.gui.wizard import SetupWizard
-
-        def _on_setup_finished(folder: str, filename: str) -> None:
-            window = MainWindow(
-                initial_folder=Path(folder) if folder else None, initial_file=filename or None
-            )
-            windows["main"] = window
-            app_config.update_config(einrichtung_abgeschlossen=True)
-            window.show()
-            wizard.close()
-
-        wizard = SetupWizard()
-        windows["wizard"] = wizard
-        wizard.setup_finished.connect(_on_setup_finished)
-        wizard.show()
-    else:
-        window = MainWindow()
-        windows["main"] = window
-        window.show()
+    window = MainWindow()
+    window.show()
 
     exit_code = app.exec()
     logger.info("Protokoll-Assistent wurde beendet (Code %s).", exit_code)

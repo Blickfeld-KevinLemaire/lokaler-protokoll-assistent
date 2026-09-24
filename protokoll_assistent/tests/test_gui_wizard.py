@@ -242,6 +242,14 @@ def test_diagnose_seite_unkritische_luecke_erlaubt_weiter(diagnose_seite):
     assert diagnose_seite.continue_button.isEnabled()
 
 
+def test_diagnose_seite_zeigt_laufende_pruefung(diagnose_seite):
+    # Ohne diese Rueckmeldung stand waehrend der gesamten (bei einer frischen
+    # Einrichtung ggf. mehrminuetigen) Pruefung nur ein einziger,
+    # unveraenderter "laeuft ..."-Text da.
+    diagnose_seite._on_check_started("pyannote.audio")
+    assert "pyannote.audio" in diagnose_seite.summary_label.text()
+
+
 # --------------------------------------------------------------------------
 # WhisperDownloadWorker
 # --------------------------------------------------------------------------
@@ -566,3 +574,52 @@ def test_assistent_startet_seiten_beim_blaettern(qt_widgets, isolierte_konfigura
     assistent._go_to(3)
 
     assert gestartet == ["install", "diagnose", "modell"]
+
+
+# --------------------------------------------------------------------------
+# LokalEinrichtungDialog
+# --------------------------------------------------------------------------
+@pytest.fixture
+def einrichtung_dialog(qt_widgets, isolierte_konfiguration, monkeypatch):
+    # Keine Seite darf beim Blaettern echte Arbeit anstossen.
+    monkeypatch.setattr(wizard.InstallPage, "start", lambda self: None)
+    monkeypatch.setattr(wizard.DiagnosticsPage, "start", lambda self: None)
+    monkeypatch.setattr(wizard.ModelChoicePage, "apply_recommendation", lambda self, e: None)
+    return qt_widgets(wizard.LokalEinrichtungDialog())
+
+
+def test_einrichtung_dialog_startet_auf_einrichtungsseite(einrichtung_dialog):
+    # Anders als 'SetupWizard': keine Willkommens- oder Ordnerseite -- die
+    # Anwendung steht ja bereits, wenn dieser Dialog aus den Einstellungen
+    # heraus geoeffnet wird.
+    assert einrichtung_dialog.stack.currentIndex() == 0
+    assert einrichtung_dialog.stack.currentWidget() is einrichtung_dialog.install_page
+
+
+def test_einrichtung_dialog_startet_seiten_beim_blaettern(qt_widgets, isolierte_konfiguration, monkeypatch):
+    gestartet: list[str] = []
+    monkeypatch.setattr(wizard.InstallPage, "start", lambda self: gestartet.append("install"))
+    monkeypatch.setattr(wizard.DiagnosticsPage, "start", lambda self: gestartet.append("diagnose"))
+    monkeypatch.setattr(
+        wizard.ModelChoicePage, "apply_recommendation", lambda self, e: gestartet.append("modell")
+    )
+
+    dialog = qt_widgets(wizard.LokalEinrichtungDialog())
+    assert gestartet == ["install"]
+    dialog._go_to(1)
+    dialog._go_to(2)
+
+    assert gestartet == ["install", "diagnose", "modell"]
+
+
+def test_einrichtung_dialog_kette_bis_zum_ende(einrichtung_dialog):
+    beendet = []
+    einrichtung_dialog.accepted.connect(lambda: beendet.append(True))
+
+    einrichtung_dialog.install_page.continue_requested.emit()
+    assert einrichtung_dialog.stack.currentIndex() == 1
+    einrichtung_dialog.diagnostics_page.continue_requested.emit()
+    assert einrichtung_dialog.stack.currentIndex() == 2
+    einrichtung_dialog.model_page.continue_requested.emit()
+
+    assert beendet == [True]

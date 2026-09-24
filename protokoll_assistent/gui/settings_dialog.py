@@ -138,11 +138,21 @@ class SettingsDialog(QDialog):
         hinweis.setWordWrap(True)
         layout.addRow(hinweis)
 
-        diagnose_button = QPushButton("Systemdiagnose …", seite)
+        einrichten_button = QPushButton("Einrichtung starten (Downloads, Systemtest, Modellwahl) …", seite)
+        einrichten_button.clicked.connect(self._open_lokal_einrichtung)
+        layout.addRow(einrichten_button)
+
+        diagnose_button = QPushButton("Nur Systemdiagnose …", seite)
         diagnose_button.clicked.connect(self._open_diagnostics)
         layout.addRow(diagnose_button)
 
         return seite
+
+    def _open_lokal_einrichtung(self) -> None:
+        from protokoll_assistent.gui.wizard import LokalEinrichtungDialog
+
+        dialog = LokalEinrichtungDialog(self)
+        dialog.exec()
 
     def _build_transkription_api_seite(self) -> QWidget:
         seite = QWidget(self)

@@ -84,7 +84,10 @@ def test_app_import_startet_keinen_neustart(app_modul):
     assert callable(app_modul.main)
 
 
-def test_app_main_zeigt_assistent_und_danach_hauptfenster(app_modul, monkeypatch, tmp_path):
+def test_app_main_zeigt_direkt_das_hauptfenster(app_modul, monkeypatch, tmp_path):
+    # Kein Einrichtungsassistent mehr vor dem Hauptfenster (siehe
+    # 'gui.wizard.LokalEinrichtungDialog' -- die Ersteinrichtung ist jetzt
+    # ein gezielter Schritt aus den Einstellungen heraus, kein Startzwang).
     pytest.importorskip("PySide6", reason="PySide6 ist nicht installiert.")
     from protokoll_assistent.services import ffmpeg_service
     from protokoll_assistent.utils import paths
@@ -94,21 +97,9 @@ def test_app_main_zeigt_assistent_und_danach_hauptfenster(app_modul, monkeypatch
     monkeypatch.setattr(ffmpeg_service, "ensure_ffmpeg_on_path", lambda: None)
 
     from protokoll_assistent.gui import main_window as mw
-    from protokoll_assistent.gui import theme, wizard
+    from protokoll_assistent.gui import theme
 
     erzeugt: dict[str, object] = {}
-
-    class _AssistentAttrappe:
-        def __init__(self):
-            erzeugt["wizard"] = self
-            self.setup_finished = _Signal()
-            self.geschlossen = False
-
-        def show(self):
-            erzeugt["wizard_gezeigt"] = True
-
-        def close(self):
-            self.geschlossen = True
 
     class _HauptfensterAttrappe:
         def __init__(self, initial_folder=None, initial_file=None):
@@ -116,17 +107,6 @@ def test_app_main_zeigt_assistent_und_danach_hauptfenster(app_modul, monkeypatch
 
         def show(self):
             erzeugt["hauptfenster_gezeigt"] = True
-
-    class _Signal:
-        def __init__(self):
-            self._empfaenger = []
-
-        def connect(self, funktion):
-            self._empfaenger.append(funktion)
-
-        def emit(self, *args):
-            for funktion in self._empfaenger:
-                funktion(*args)
 
     class _QAppAttrappe:
         def __init__(self, argv):
@@ -136,24 +116,19 @@ def test_app_main_zeigt_assistent_und_danach_hauptfenster(app_modul, monkeypatch
             erzeugt["name"] = name
 
         def exec(self):
-            # Erst hier "klickt" der Anwender sich durch den Assistenten.
-            erzeugt["wizard"].setup_finished.emit(str(tmp_path), "sitzung.mp3")
             return 0
 
-    monkeypatch.setattr(wizard, "SetupWizard", _AssistentAttrappe)
     monkeypatch.setattr(mw, "MainWindow", _HauptfensterAttrappe)
     monkeypatch.setattr(theme, "apply_theme", lambda app: erzeugt.setdefault("theme", True))
     with mock.patch("PySide6.QtWidgets.QApplication", _QAppAttrappe):
         assert app_modul.main() == 0
 
-    assert erzeugt["wizard_gezeigt"] is True
     assert erzeugt["theme"] is True
-    assert erzeugt["hauptfenster"] == (tmp_path, "sitzung.mp3")
+    assert erzeugt["hauptfenster"] == (None, None)
     assert erzeugt["hauptfenster_gezeigt"] is True
-    assert erzeugt["wizard"].geschlossen is True
 
 
-def test_app_main_ohne_vorauswahl(app_modul, monkeypatch):
+def test_app_main_gibt_exitcode_durch(app_modul, monkeypatch):
     pytest.importorskip("PySide6", reason="PySide6 ist nicht installiert.")
     from protokoll_assistent.services import ffmpeg_service
 
@@ -161,35 +136,11 @@ def test_app_main_ohne_vorauswahl(app_modul, monkeypatch):
     monkeypatch.setattr(ffmpeg_service, "ensure_ffmpeg_on_path", lambda: None)
 
     from protokoll_assistent.gui import main_window as mw
-    from protokoll_assistent.gui import theme, wizard
-
-    erzeugt: dict[str, object] = {}
-
-    class _Signal:
-        def __init__(self):
-            self._e = []
-
-        def connect(self, f):
-            self._e.append(f)
-
-        def emit(self, *a):
-            for f in self._e:
-                f(*a)
-
-    class _AssistentAttrappe:
-        def __init__(self):
-            erzeugt["wizard"] = self
-            self.setup_finished = _Signal()
-
-        def show(self):
-            pass
-
-        def close(self):
-            pass
+    from protokoll_assistent.gui import theme
 
     class _HauptfensterAttrappe:
         def __init__(self, initial_folder=None, initial_file=None):
-            erzeugt["args"] = (initial_folder, initial_file)
+            pass
 
         def show(self):
             pass
@@ -202,16 +153,13 @@ def test_app_main_ohne_vorauswahl(app_modul, monkeypatch):
             pass
 
         def exec(self):
-            erzeugt["wizard"].setup_finished.emit("", "")
             return 3
 
-    monkeypatch.setattr(wizard, "SetupWizard", _AssistentAttrappe)
     monkeypatch.setattr(mw, "MainWindow", _HauptfensterAttrappe)
     monkeypatch.setattr(theme, "apply_theme", lambda app: None)
     # Der Rueckgabewert von app.exec() wird durchgereicht.
     with mock.patch("PySide6.QtWidgets.QApplication", _QAppAttrappe):
         assert app_modul.main() == 3
-    assert erzeugt["args"] == (None, None)
 
 
 # --------------------------------------------------------------------------

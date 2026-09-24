@@ -194,6 +194,18 @@ def test_systemdiagnose_oeffnet_dialog(dialog, monkeypatch):
     dialog._open_diagnostics()  # darf nicht werfen
 
 
+def test_lokal_einrichten_oeffnet_dialog(dialog, monkeypatch):
+    # Die vollstaendige Einrichtung (Downloads, Systemtest, Modellwahl) ist
+    # jetzt ein gezielter Schritt aus den Einstellungen heraus, kein
+    # Startzwang mehr vor dem Hauptfenster (siehe 'app.py').
+    from protokoll_assistent.gui import wizard
+
+    monkeypatch.setattr(wizard.LokalEinrichtungDialog, "exec", lambda self: None)
+    monkeypatch.setattr(wizard.InstallPage, "start", lambda self: None)
+
+    dialog._open_lokal_einrichtung()  # darf nicht werfen
+
+
 def test_systemdiagnose_prueft_den_ausgabeordner(qt_widgets, isolierte_konfiguration, schluessel_speicher, tmp_path, monkeypatch):
     """'DiagnosticsDialog' bekommt seinen ersten Parameter als
     'output_dir': Damit prueft die Diagnose freien Platz und

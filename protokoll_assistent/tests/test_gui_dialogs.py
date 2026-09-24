@@ -82,7 +82,7 @@ def test_diagnostics_runner_meldet_ergebnisse(qt_app, tmp_path, monkeypatch):
     from protokoll_assistent.utils import diagnostics
 
     erwartet = [_Pruefung(ok=True)]
-    monkeypatch.setattr(diagnostics, "run_diagnostics", lambda ordner: erwartet)
+    monkeypatch.setattr(diagnostics, "run_diagnostics", lambda ordner, on_check_started: erwartet)
 
     runner = dialogs.DiagnosticsRunner(tmp_path)
     empfangen = []
@@ -91,6 +91,25 @@ def test_diagnostics_runner_meldet_ergebnisse(qt_app, tmp_path, monkeypatch):
     runner.run()  # direkt, ohne echten Thread
 
     assert empfangen == [erwartet]
+
+
+def test_diagnostics_runner_meldet_laufende_pruefung(qt_app, tmp_path, monkeypatch):
+    from protokoll_assistent.utils import diagnostics
+
+    def fake_run_diagnostics(ordner, on_check_started):
+        on_check_started("Python-Version")
+        on_check_started("FFmpeg")
+        return [_Pruefung(ok=True)]
+
+    monkeypatch.setattr(diagnostics, "run_diagnostics", fake_run_diagnostics)
+
+    runner = dialogs.DiagnosticsRunner(tmp_path)
+    gemeldet = []
+    runner.check_started.connect(gemeldet.append)
+
+    runner.run()
+
+    assert gemeldet == ["Python-Version", "FFmpeg"]
 
 
 def test_diagnostics_dialog_zeigt_ergebnisse(qt_app, qt_widgets, tmp_path, monkeypatch):
@@ -113,6 +132,18 @@ def test_diagnostics_dialog_zeigt_ergebnisse(qt_app, qt_widgets, tmp_path, monke
     assert dialog.table.rowCount() == 2
     assert dialog.table.item(0, 0).text() == "Python"
     assert dialog.table.item(1, 1).text().startswith("[FEHLT]")
+
+
+def test_diagnostics_dialog_zeigt_laufende_pruefung(qt_app, qt_widgets, tmp_path, monkeypatch):
+    # Ohne diese laufende Rueckmeldung stand waehrend der gesamten Pruefung
+    # nur ein einziger, unveraenderter "laeuft ..."-Text da -- das sah wie
+    # ein Haengenbleiben aus, obwohl im Hintergrund gearbeitet wurde.
+    monkeypatch.setattr(dialogs.DiagnosticsRunner, "start", lambda self: None)
+
+    dialog = qt_widgets(dialogs.DiagnosticsDialog(tmp_path))
+    dialog._on_check_started("pyannote.audio")
+
+    assert "pyannote.audio" in dialog.status_label.text()
 
 
 def test_show_error_nutzt_messagebox(qt_app, monkeypatch):
