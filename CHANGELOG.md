@@ -8,6 +8,27 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-25
+
+### Changed
+
+- Die Anwendung zeigt beim Start immer sofort das Hauptfenster — nicht mehr
+  erst den Einrichtungsassistenten davor
+
+### Added
+
+- Neuer Knopf „Einrichtung starten" im Einstellungen-Dialog (Reiter
+  Transkription → Lokal): startet Download, Systemtest und Modellwahl gezielt,
+  statt automatisch bei jedem ersten Programmstart
+
+### Fixed
+
+- Die Systemdiagnose zeigt jetzt live, welche Prüfung gerade läuft, statt
+  während der gesamten Prüfung einen unveränderten „läuft ..."-Text
+  anzuzeigen — bei einer frisch eingerichteten Laufzeitumgebung (Virenschutz
+  prüft die eben geschriebenen PyTorch-/pyannote-Dateien) sah das wie ein
+  Hängenbleiben aus
+
 ## [0.2.0] - 2026-09-22
 
 Aus drei Anwendungen wird eine. Ob Transkription und Nachbearbeitung lokal
@@ -84,6 +105,7 @@ Installation.
 - Installer für Windows (ohne Administratorrechte, mit mitgelieferter
   Python-Laufzeitumgebung)
 
-[Unreleased]: https://github.com/Blickfeld-KevinLemaire/lokaler-protokoll-assistent/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/Blickfeld-KevinLemaire/lokaler-protokoll-assistent/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/Blickfeld-KevinLemaire/lokaler-protokoll-assistent/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/Blickfeld-KevinLemaire/lokaler-protokoll-assistent/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/Blickfeld-KevinLemaire/lokaler-protokoll-assistent/releases/tag/v0.1.0
