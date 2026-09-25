@@ -8,6 +8,22 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-09-25
+
+### Fixed
+
+- Der lokale Modus war in der gebauten EXE vollständig kaputt: Die
+  selbsteinrichtende Laufzeitumgebung (Torch/faster-whisper/pyannote) wurde
+  dort fälschlich übersprungen, in der Annahme, sie sei bereits gebündelt.
+  Die erste Transkription scheiterte dadurch mit „ModuleNotFoundError: No
+  module named 'torch'". Betrifft **nur** die EXE aus 0.3.0 — der reine
+  API-Modus war davon nicht betroffen.
+- Neu: Bei einer frischen Installation bietet die Anwendung die
+  Ersteinrichtung des lokalen Modus (Systemtest, Modellempfehlung,
+  Downloads) einmalig automatisch als Dialog über dem Hauptfenster an —
+  lokale, private Verarbeitung bleibt damit auch ohne Blick in die
+  Einstellungen leicht erreichbar.
+
 ## [0.3.0] - 2026-09-25
 
 ### Changed
@@ -105,7 +121,8 @@ Installation.
 - Installer für Windows (ohne Administratorrechte, mit mitgelieferter
   Python-Laufzeitumgebung)
 
-[Unreleased]: https://github.com/Blickfeld-KevinLemaire/lokaler-protokoll-assistent/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/Blickfeld-KevinLemaire/lokaler-protokoll-assistent/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/Blickfeld-KevinLemaire/lokaler-protokoll-assistent/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/Blickfeld-KevinLemaire/lokaler-protokoll-assistent/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/Blickfeld-KevinLemaire/lokaler-protokoll-assistent/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/Blickfeld-KevinLemaire/lokaler-protokoll-assistent/releases/tag/v0.1.0

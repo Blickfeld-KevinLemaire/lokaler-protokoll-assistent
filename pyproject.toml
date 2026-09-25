@@ -8,7 +8,7 @@
 # ---------------------------------------------------------------------------
 [project]
 name = "lokaler-protokoll-assistent"
-version = "0.3.0"
+version = "0.3.1"
 description = "Protokoll-Assistent: eine Windows-Anwendung (PySide6) fuer lokale und API-gestuetzte Transkription und Protokollauswertung"
 readme = "README.md"
 requires-python = ">=3.10,<3.12"
