@@ -2,7 +2,7 @@
 PC lauffaehig, ohne dass vorher manuell eine virtuelle Umgebung eingerichtet
 werden muss.
 
-Ablauf beim allerersten Start auf einem neuen Rechner:
+Ablauf beim allerersten Start auf einem neuen Rechner, im Quellcode-Betrieb:
 1. Ist bereits eine funktionierende '.venv-whisperx' NEBEN der Anwendung
    vorhanden (der urspruengliche Referenz-Rechner), wird diese direkt
    weiterverwendet -- kein erneuter Download.
@@ -12,15 +12,22 @@ Ablauf beim allerersten Start auf einem neuen Rechner:
    PySide6, ...).
 3. Die Anwendung startet sich anschliessend in dieser Umgebung neu.
 
+In der gebauten EXE (PyInstaller) laeuft derselbe Ablauf, nur mit der vom
+Installer mitgelieferten Python-Laufzeitumgebung ('python\\python.exe') als
+Basis statt des aufgerufenen Interpreters -- die EXE selbst bringt PySide6 &
+Co. bereits mit, aber bewusst nicht Torch/faster-whisper/pyannote (siehe
+'_ensure_runtime_and_relaunch_frozen').
+
 Dieses Modul verwendet bewusst NUR die Python-Standardbibliothek sowie die
 ebenfalls abhaengigkeitsfreien Module ``services.environment_service`` und
 ``utils.paths`` -- zum Zeitpunkt des Aufrufs ist ja noch nichts Zusaetzliches
 installiert.
 
-Grenzen der Automatisierung (bewusst nicht versprochen): Python selbst
-(3.10 oder 3.11) muss auf dem Zielrechner bereits vorhanden sein. NVIDIA-
-Treiber/CUDA muessen ebenfalls bereits installiert sein, damit die GPU
-tatsaechlich genutzt werden kann -- ohne GPU laeuft die Anwendung auf der
+Grenzen der Automatisierung (bewusst nicht versprochen): Im Quellcode-Betrieb
+muss Python selbst (3.10 oder 3.11) auf dem Zielrechner bereits vorhanden
+sein (die gebaute EXE bringt dafuer ihre eigene Laufzeitumgebung mit).
+NVIDIA-Treiber/CUDA muessen in jedem Fall bereits installiert sein, damit die
+GPU tatsaechlich genutzt werden kann -- ohne GPU laeuft die Anwendung auf der
 CPU weiter (deutlich langsamer), aber lauffaehig.
 """
 
@@ -187,14 +194,23 @@ ANWENDUNGSMODUL = "protokoll_assistent.app"
 
 
 def _relaunch(python_exe: Path) -> None:
+    from protokoll_assistent.utils.paths import get_app_dir
+
     child_env = dict(os.environ)
     child_env[MARKER_ENV_VAR] = "1"
-    # 'cwd' auf die Projektwurzel: Von dort aus ist das Paket importierbar,
-    # unabhaengig davon, aus welchem Verzeichnis der Anwender gestartet hat.
+    # 'get_app_dir()' bedeutet im Quellcode-Betrieb den Paketordner selbst
+    # ('protokoll_assistent/', Elternordner von 'utils') -- das Paket ist von
+    # EINE Ebene darueber importierbar, also der Projektwurzel. In einer
+    # gebauten EXE ist 'get_app_dir()' dagegen der Ordner der EXE selbst, und
+    # der mitgelieferte Quelltext liegt dort ALS Unterordner direkt drin
+    # (siehe '_ensure_runtime_and_relaunch_frozen') -- dort muss 'cwd' also
+    # bleiben, nicht eine Ebene hoeher gehen.
+    app_dir = get_app_dir()
+    cwd = app_dir if getattr(sys, "frozen", False) else app_dir.parent
     completed = subprocess.run(
         [str(python_exe), "-m", ANWENDUNGSMODUL],
         env=child_env,
-        cwd=str(Path(__file__).resolve().parent.parent),
+        cwd=str(cwd),
     )
     sys.exit(completed.returncode)
 
@@ -207,19 +223,52 @@ def ensure_runtime_and_relaunch() -> None:
         return
 
     if getattr(sys, "frozen", False):
-        # In einer mit PyInstaller gebauten EXE sind alle Abhaengigkeiten
-        # bereits gebuendelt -- es gibt nichts einzurichten oder neu zu
-        # starten.
+        _ensure_runtime_and_relaunch_frozen()
+    else:
+        _ensure_runtime_and_relaunch_aus_quellcode()
+
+
+def _ensure_runtime_and_relaunch_frozen() -> None:
+    """Die gebaute EXE bringt PySide6 & Co. bereits mit -- aber bewusst
+    NICHT Torch/faster-whisper/pyannote (siehe 'release.yml': die EXE bleibt
+    dadurch klein, und ein reiner API-Anwender braucht sie nie). Waehlt der
+    Anwender trotzdem den lokalen Modus, muss sich diese schwere Laufzeit
+    also genauso selbst einrichten wie im Quellcode-Betrieb.
+
+    Die gebaute EXE selbst laesst sich dafuer nicht als "python -m ..."
+    aufrufen. Der Installer liefert deshalb zusaetzlich zur EXE den
+    Quelltext (Ordner 'protokoll_assistent' NEBEN der EXE) und eine
+    eigenstaendige Python-Laufzeitumgebung ('python\\python.exe') mit --
+    genau damit wird hier die 'runtime\\venv'-Umgebung angelegt und
+    anschliessend die Anwendung (aus dem mitgelieferten Quelltext) neu
+    gestartet."""
+    from protokoll_assistent.utils.paths import get_active_venv_dir, get_app_dir, venv_python_path
+
+    bundled_python = get_app_dir() / "python" / "python.exe"
+    if not bundled_python.is_file():
+        # Nur die reine EXE/das ZIP weitergegeben, ohne die mitgelieferte
+        # Python-Laufzeitumgebung (kein Installer-Build) -- der lokale Modus
+        # ist dann nicht automatisch einrichtbar. Das darf die Anwendung
+        # nicht abstuerzen lassen: 'gui/main_window.py' prueft vor dem Start
+        # einer lokalen Transkription ohnehin, ob die Laufzeitumgebung
+        # erreichbar ist, und meldet dann verstaendlich, was fehlt.
         return
 
+    venv_dir = get_active_venv_dir()
+    python_exe = venv_python_path(venv_dir)
+    _richte_ml_umgebung_ein_und_starte_neu(
+        venv_dir=venv_dir, python_exe=python_exe, base_python=bundled_python, hinweis_basis_python=None
+    )
+
+
+def _ensure_runtime_and_relaunch_aus_quellcode() -> None:
     from protokoll_assistent.services import environment_service
     from protokoll_assistent.utils.paths import get_active_venv_dir, get_legacy_venv_dir, venv_python_path
 
     venv_dir = get_active_venv_dir()
     python_exe = venv_python_path(venv_dir)
-    using_legacy = venv_dir == get_legacy_venv_dir()
 
-    if using_legacy:
+    if venv_dir == get_legacy_venv_dir():
         # Bereits vollstaendig vorbereiteter Rechner: nichts zu installieren.
         _relaunch(python_exe)
         return
@@ -230,11 +279,39 @@ def ensure_runtime_and_relaunch() -> None:
     # neuen 'runtime\venv'-Umgebung verwendet -- am System aendert sich
     # dadurch nichts.
     alternate_python: Path | None = None
+    hinweis_basis_python: str | None = None
     if not environment_service.is_supported_python_version():
         alternate_python = environment_service.find_alternate_supported_python()
         if alternate_python is None:
             _report_python_diagnosis_and_exit()
             return
+        hinweis_basis_python = (
+            f"Diagnose: Das aufgerufene Python ({sys.version_info.major}."
+            f"{sys.version_info.minor}) wird nicht unterstuetzt.\n"
+            f"Eine passende, bereits auf diesem Computer installierte Version "
+            f"wurde gefunden und wird stattdessen verwendet:\n  {alternate_python}\n"
+            "An der aufgerufenen Python-Installation wird nichts veraendert.\n"
+        )
+
+    _richte_ml_umgebung_ein_und_starte_neu(
+        venv_dir=venv_dir,
+        python_exe=python_exe,
+        base_python=alternate_python,
+        hinweis_basis_python=hinweis_basis_python,
+    )
+
+
+def _richte_ml_umgebung_ein_und_starte_neu(
+    *, venv_dir: Path, python_exe: Path, base_python: Path | None, hinweis_basis_python: str | None
+) -> None:
+    """Legt bei Bedarf 'runtime\\venv' an, installiert dort Torch & Co. und
+    startet die Anwendung darin neu. ``base_python`` ist der Interpreter, mit
+    dem die neue Umgebung angelegt wird, falls das aufgerufene Python selbst
+    dafuer nicht taugt (Quellcode-Betrieb: eine andere unterstuetzte, bereits
+    installierte Version; gebaute EXE: immer die mitgelieferte
+    Python-Laufzeitumgebung, da die EXE selbst keine ist) -- ``None``
+    bedeutet: das aufgerufene Python selbst passt bereits."""
+    from protokoll_assistent.services import environment_service
 
     gpu_available = environment_service.detect_nvidia_gpu()
     index_url = environment_service.select_torch_index_url(gpu_available)
@@ -250,18 +327,12 @@ def ensure_runtime_and_relaunch() -> None:
         return
 
     splash = _try_create_splash()
-    if alternate_python is not None:
-        splash.log(
-            f"Diagnose: Das aufgerufene Python ({sys.version_info.major}."
-            f"{sys.version_info.minor}) wird nicht unterstuetzt.\n"
-            f"Eine passende, bereits auf diesem Computer installierte Version "
-            f"wurde gefunden und wird stattdessen verwendet:\n  {alternate_python}\n"
-            "An der aufgerufenen Python-Installation wird nichts veraendert.\n"
-        )
+    if hinweis_basis_python is not None:
+        splash.log(hinweis_basis_python)
     try:
         if not python_exe.is_file():
             splash.log(f"Lege private Python-Umgebung an unter:\n  {venv_dir}\n")
-            _create_venv(venv_dir, base_python=alternate_python)
+            _create_venv(venv_dir, base_python=base_python)
             splash.log("Umgebung angelegt.\n")
 
         splash.log(environment_service.describe_plan(gpu_available) + "\n")

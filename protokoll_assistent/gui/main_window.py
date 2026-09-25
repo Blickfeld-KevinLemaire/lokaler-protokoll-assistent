@@ -25,7 +25,6 @@ import contextlib
 import functools
 import importlib.util
 import json
-import sys
 import time
 from pathlib import Path
 from types import ModuleType
@@ -1114,14 +1113,18 @@ class MainWindow(QMainWindow):
     @staticmethod
     def _lokale_laufzeitumgebung_verfuegbar() -> bool:
         """Ist bereits eine Laufzeitumgebung mit den schweren ML-Paketen
-        vorhanden? In einem PyInstaller-Build sind sie immer gebuendelt; in
-        der von 'bootstrap.py' verwalteten Umgebung ('app.py' ruft sie beim
-        Start nur auf, wenn der gespeicherte Modus damals bereits "lokal"
-        war) muss 'faster_whisper' tatsächlich importierbar sein. Ohne diese
-        Prüfung würde ein Wechsel auf "Lokal" mitten in der Sitzung erst
-        tief in der Pipeline mit einem kryptischen Fehler scheitern."""
-        if getattr(sys, "frozen", False):
-            return True
+        vorhanden? Weder in der gebauten EXE noch im Quellcode-Betrieb sind
+        Torch/faster-whisper/pyannote von vornherein dabei -- 'bootstrap.py'
+        richtet sie nur ein, wenn der gespeicherte Modus beim Programmstart
+        bereits "lokal" war (siehe dort). Da dieser Code hier erst NACH
+        'bootstrap.ensure_runtime_and_relaunch()' laeuft, ist zu diesem
+        Zeitpunkt entweder die vorbereitete Umgebung bereits aktiv (dann ist
+        'faster_whisper' tatsaechlich importierbar), oder die Einrichtung
+        wurde uebersprungen (dann eben nicht) -- eine einfache
+        Import-Pruefung deckt beide Faelle korrekt ab, ganz ohne
+        Sonderbehandlung fuer 'sys.frozen'. Ohne diese Pruefung wuerde ein
+        Wechsel auf "Lokal" mitten in der Sitzung erst tief in der Pipeline
+        mit einem kryptischen Fehler scheitern."""
         return importlib.util.find_spec("faster_whisper") is not None
 
     def _verwendbarer_api_schluessel(self, schluessel_name: str) -> str | None:

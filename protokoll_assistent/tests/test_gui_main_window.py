@@ -1104,7 +1104,9 @@ def test_neustart_startet_die_anwendung_als_modul():
 
     befehl = aufrufe.args[0]
     assert befehl[1:] == ["-m", "protokoll_assistent.app"]
-    # Aus der Projektwurzel heraus, sonst ist das Paket nicht importierbar.
+    # Aus der Projektwurzel heraus, sonst ist das Paket nicht importierbar
+    # (im Quellcode-Betrieb: eine Ebene ueber dem Paketordner selbst -- siehe
+    # 'test_bootstrap.py' fuer die gebaute EXE, wo das anders ist).
     assert Path(aufrufe.kwargs["cwd"]) == Path(bootstrap.__file__).resolve().parent.parent
 
 

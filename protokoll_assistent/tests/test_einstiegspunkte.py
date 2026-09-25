@@ -85,13 +85,17 @@ def test_app_import_startet_keinen_neustart(app_modul):
 
 
 def test_app_main_zeigt_direkt_das_hauptfenster(app_modul, monkeypatch, tmp_path):
-    # Kein Einrichtungsassistent mehr vor dem Hauptfenster (siehe
+    # Kein Einrichtungsassistent mehr VOR dem Hauptfenster (siehe
     # 'gui.wizard.LokalEinrichtungDialog' -- die Ersteinrichtung ist jetzt
-    # ein gezielter Schritt aus den Einstellungen heraus, kein Startzwang).
+    # ein gezielter Schritt aus den Einstellungen heraus, kein Startzwang
+    # davor). Eine bereits abgeschlossene Einrichtung simuliert eine
+    # wiederkehrende Installation, bei der auch der automatische Dialog
+    # (siehe die beiden Tests weiter unten) nicht mehr erscheint.
     pytest.importorskip("PySide6", reason="PySide6 ist nicht installiert.")
     from protokoll_assistent.services import ffmpeg_service
-    from protokoll_assistent.utils import paths
+    from protokoll_assistent.utils import app_config, paths
 
+    app_config.update_config(einrichtung_abgeschlossen=True)
     monkeypatch.setattr(paths, "ensure_system_prompt_file_exists", lambda: None)
     monkeypatch.setattr(app_modul, "ensure_system_prompt_file_exists", lambda: None)
     monkeypatch.setattr(ffmpeg_service, "ensure_ffmpeg_on_path", lambda: None)
@@ -131,7 +135,9 @@ def test_app_main_zeigt_direkt_das_hauptfenster(app_modul, monkeypatch, tmp_path
 def test_app_main_gibt_exitcode_durch(app_modul, monkeypatch):
     pytest.importorskip("PySide6", reason="PySide6 ist nicht installiert.")
     from protokoll_assistent.services import ffmpeg_service
+    from protokoll_assistent.utils import app_config
 
+    app_config.update_config(einrichtung_abgeschlossen=True)
     monkeypatch.setattr(app_modul, "ensure_system_prompt_file_exists", lambda: None)
     monkeypatch.setattr(ffmpeg_service, "ensure_ffmpeg_on_path", lambda: None)
 
@@ -160,6 +166,106 @@ def test_app_main_gibt_exitcode_durch(app_modul, monkeypatch):
     # Der Rueckgabewert von app.exec() wird durchgereicht.
     with mock.patch("PySide6.QtWidgets.QApplication", _QAppAttrappe):
         assert app_modul.main() == 3
+
+
+def test_app_main_bietet_lokale_einrichtung_bei_frischer_installation(app_modul, monkeypatch):
+    # Lokale Verarbeitung ist der bevorzugte, datenschutzfreundliche Weg und
+    # bekommt deshalb bei einer frischen Installation (Einrichtung noch
+    # nicht abgeschlossen) einmalig automatisch Vorrang -- als Dialog UEBER
+    # dem schon sichtbaren Hauptfenster, nicht als Bildschirm davor.
+    pytest.importorskip("PySide6", reason="PySide6 ist nicht installiert.")
+    from protokoll_assistent.services import ffmpeg_service
+    from protokoll_assistent.utils import app_config
+
+    monkeypatch.setattr(app_modul, "ensure_system_prompt_file_exists", lambda: None)
+    monkeypatch.setattr(ffmpeg_service, "ensure_ffmpeg_on_path", lambda: None)
+
+    from protokoll_assistent.gui import main_window as mw
+    from protokoll_assistent.gui import theme, wizard
+
+    erzeugt: dict[str, object] = {}
+
+    class _HauptfensterAttrappe:
+        def __init__(self, initial_folder=None, initial_file=None):
+            pass
+
+        def show(self):
+            pass
+
+    class _EinrichtungsDialogAttrappe:
+        def __init__(self, parent):
+            erzeugt["dialog_eltern"] = parent
+
+        def exec(self):
+            erzeugt["dialog_ausgefuehrt"] = True
+
+    class _QAppAttrappe:
+        def __init__(self, argv):
+            pass
+
+        def setApplicationName(self, name):
+            pass
+
+        def exec(self):
+            return 0
+
+    from PySide6.QtCore import QTimer
+
+    monkeypatch.setattr(mw, "MainWindow", _HauptfensterAttrappe)
+    monkeypatch.setattr(wizard, "LokalEinrichtungDialog", _EinrichtungsDialogAttrappe)
+    monkeypatch.setattr(theme, "apply_theme", lambda app: None)
+    # Nicht auf einen echten Timer-Tick warten -- direkt ausfuehren.
+    monkeypatch.setattr(QTimer, "singleShot", staticmethod(lambda ms, fn: fn()))
+
+    with mock.patch("PySide6.QtWidgets.QApplication", _QAppAttrappe):
+        assert app_modul.main() == 0
+
+    assert erzeugt["dialog_ausgefuehrt"] is True
+    assert isinstance(erzeugt["dialog_eltern"], _HauptfensterAttrappe)
+    assert app_config.load_config()["einrichtung_abgeschlossen"] is True
+
+
+def test_app_main_fragt_bei_abgeschlossener_einrichtung_nicht_erneut(app_modul, monkeypatch):
+    pytest.importorskip("PySide6", reason="PySide6 ist nicht installiert.")
+    from protokoll_assistent.services import ffmpeg_service
+    from protokoll_assistent.utils import app_config
+
+    app_config.update_config(einrichtung_abgeschlossen=True)
+    monkeypatch.setattr(app_modul, "ensure_system_prompt_file_exists", lambda: None)
+    monkeypatch.setattr(ffmpeg_service, "ensure_ffmpeg_on_path", lambda: None)
+
+    from protokoll_assistent.gui import main_window as mw
+    from protokoll_assistent.gui import theme
+
+    aufgerufen = []
+
+    class _HauptfensterAttrappe:
+        def __init__(self, initial_folder=None, initial_file=None):
+            pass
+
+        def show(self):
+            pass
+
+    class _QAppAttrappe:
+        def __init__(self, argv):
+            pass
+
+        def setApplicationName(self, name):
+            pass
+
+        def exec(self):
+            return 0
+
+    from PySide6.QtCore import QTimer
+
+    monkeypatch.setattr(mw, "MainWindow", _HauptfensterAttrappe)
+    monkeypatch.setattr(theme, "apply_theme", lambda app: None)
+    monkeypatch.setattr(QTimer, "singleShot", staticmethod(lambda ms, fn: aufgerufen.append(fn)))
+
+    with mock.patch("PySide6.QtWidgets.QApplication", _QAppAttrappe):
+        assert app_modul.main() == 0
+
+    assert aufgerufen == []
 
 
 # --------------------------------------------------------------------------

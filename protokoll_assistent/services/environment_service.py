@@ -15,6 +15,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from protokoll_assistent.utils.paths import get_app_dir
+
 SUPPORTED_PYTHON_VERSIONS = ((3, 10), (3, 11))
 
 # CUDA-Wheel-Index fuer PyTorch. Bewusst eine breit unterstuetzte,
@@ -57,7 +59,17 @@ BLACKWELL_COMPUTE_CAPABILITY = (12, 0)
 # Python-Liste waren ausgerechnet die groessten und sicherheitsrelevantesten
 # Pakete des Projekts (PyTorch, WhisperX, pyannote.audio) fuer beide
 # unsichtbar - sie tauchten in keinem Manifest auf.
-REQUIREMENTS_DIR = Path(__file__).resolve().parent.parent
+#
+# Dieses Modul wird von 'bootstrap.py' VOR jeder Einrichtung importiert --
+# in einer gebauten EXE also aus dem gebuendelten Archiv heraus, in dem
+# 'requirements-*.txt' (reine Textdateien, kein Python) nicht automatisch
+# mitgepackt sind. 'utils.paths.get_app_dir()' zeigt dort auf den Ordner der
+# EXE, und der Installer legt den vollstaendigen Quelltext (samt dieser
+# Dateien) als Unterordner 'protokoll_assistent' direkt daneben ab (siehe
+# 'bootstrap._ensure_runtime_and_relaunch_frozen') -- dort werden sie also
+# gelesen. Im Quellcode-Betrieb bedeutet 'get_app_dir()' bereits den
+# Paketordner selbst, in dem diese Datei liegt.
+REQUIREMENTS_DIR = get_app_dir() / "protokoll_assistent" if getattr(sys, "frozen", False) else get_app_dir()
 TORCH_REQUIREMENTS_FILE = REQUIREMENTS_DIR / "requirements-torch.txt"
 RUNTIME_REQUIREMENTS_FILE = REQUIREMENTS_DIR / "requirements-laufzeit.txt"
 

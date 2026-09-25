@@ -7,11 +7,16 @@ API-Schnittstelle. Welcher Weg gilt, ist eine **Einstellung**
 eigenes Programm -- es gibt genau diese eine Anwendung.
 
 Die Anwendung zeigt beim Start immer sofort das Hauptfenster -- nie einen
-Einrichtungsassistenten davor. Die Ersteinrichtung fuer den lokalen Modus
+Einrichtungsassistenten DAVOR (kein separater "Willkommensbildschirm", der
+das Hauptfenster verdeckt). Bei einer frischen Installation (Einrichtung noch
+nicht abgeschlossen) oeffnet sich die Ersteinrichtung fuer den lokalen Modus
 (Downloads, Systemtest, Modellwahl; ``gui.wizard.LokalEinrichtungDialog``)
-ist ein bewusster, gezielter Schritt aus den Einstellungen heraus, kein
-Startzwang -- der Anwender kann sofort mit der API-Schnittstelle arbeiten
-oder sich erst in Ruhe umsehen, bevor er den lokalen Modus einrichtet.
+trotzdem einmalig automatisch -- als Dialog UEBER dem bereits sichtbaren
+Hauptfenster, nicht davor: die lokale Verarbeitung ist der bevorzugte,
+datenschutzfreundliche Weg und bekommt deshalb beim allerersten Start
+Vorrang. Egal ob abgeschlossen oder vorzeitig geschlossen, danach fragt die
+Anwendung nicht erneut -- ueber "Einstellungen -> Transkription -> Lokal ->
+Einrichtung starten" bleibt der Weg jederzeit erreichbar.
 
 Die schwere lokale Laufzeitumgebung (Torch/faster-whisper/pyannote, per
 ``bootstrap.py`` selbstinstallierend) wird NUR eingerichtet, wenn der
@@ -72,6 +77,7 @@ def main() -> int:
     # ueber eine API erfolgt.
     ffmpeg_service.ensure_ffmpeg_on_path()
 
+    from PySide6.QtCore import QTimer
     from PySide6.QtWidgets import QApplication
 
     from protokoll_assistent.gui import theme
@@ -84,9 +90,26 @@ def main() -> int:
     window = MainWindow()
     window.show()
 
+    if not app_config.load_config()["einrichtung_abgeschlossen"]:
+        # Verzoegert (statt direkt vor 'app.exec()'), damit das Hauptfenster
+        # tatsaechlich zuerst sichtbar gezeichnet wird, bevor der Dialog
+        # darueber erscheint.
+        QTimer.singleShot(0, lambda: _erstmalige_lokale_einrichtung_anbieten(window))
+
     exit_code = app.exec()
     logger.info("Protokoll-Assistent wurde beendet (Code %s).", exit_code)
     return exit_code
+
+
+def _erstmalige_lokale_einrichtung_anbieten(parent) -> None:
+    """Bei einer frischen Installation einmalig automatisch den
+    Einrichtungsdialog fuer den lokalen Modus anbieten (Systemtest,
+    Modellempfehlung, Downloads) -- siehe Modul-Docstring."""
+    from protokoll_assistent.gui.wizard import LokalEinrichtungDialog
+
+    dialog = LokalEinrichtungDialog(parent)
+    dialog.exec()
+    app_config.update_config(einrichtung_abgeschlossen=True)
 
 
 if __name__ == "__main__":
