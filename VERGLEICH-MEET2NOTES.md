@@ -8,6 +8,13 @@ Stand: 29.09.2026. Verglichen wurden
   0.6.2, Commit `ace9f3d2f5454492c898a2e4d6da3359286dcfec` (28.09.2026),
   Lizenz MIT, „Copyright (c) 2026 Meet2Notes contributors".
 
+**Versionsstand geprüft am 29.09.2026:** v0.6.2 ist der neueste Tag und
+identisch mit `main` (Tags: v0.6.0 vom 24.08., v0.6.1 vom 10.09., v0.6.2 vom
+28.09.2026). Der einzige weitere Branch
+(`codex/audio-privacy-speaker-colors-seo`, letzter Commit 20.08.2026) ist
+**älter** als v0.6.0 und enthält nichts Neueres. Die Neuerungen der
+0.6er-Reihe sind in Abschnitt 3.4 einzeln bewertet.
+
 Dieses Dokument ist die **Analyse vor der Integration**. Es ist noch kein
 Meet2Notes-Code in VERMERK übernommen; Abschnitt 6 führt deshalb auf, was
 übernommen werden *soll* und welche Lizenzpflichten dann entstehen.
@@ -99,7 +106,7 @@ zwei Ähnlichkeitsfunktionen für dieselbe Aufgabe.
 | Sprecher ↔ Text | `assign_speakers_by_overlap`: **ganzes Segment** → Sprecher mit größter Überlappung | `speaker_turn_text`: Text **wortgenau** auf Turns zugeschnitten | **Meet2Notes besser** (4.1) |
 | Sprecher benennen | Tabelle pro Lauf, Neuexport TXT/JSON/SRT/VTT | Speakers-Arbeitsbereich: umbenennen, als Stimme speichern, wiedererkennen, exportieren, Einzelzusammenfassung | **Meet2Notes umfangreicher** (4.2, 4.4) |
 | Wiedererkennung | — | `SherpaOnnxSpeakerProfileMatcher`, Schwelle 0,72 | Lücke in VERMERK (4.2) |
-| Nachbearbeitung | Ollama dreistufig (Chunk-Analyse → Zusammenführung → Endprotokoll), JSON-Schema-validiert, Zwischenstände zwischengespeichert; alternativ API mit Freitext-Systemprompt | llama.cpp oder LiteLLM, einstufig, Markdown nach Vorlage | **VERMERK besser** bei Qualitätssicherung; Vorlagen-Struktur von Meet2Notes besser (4.3) |
+| Nachbearbeitung | Ollama dreistufig (Chunk-Analyse → Zusammenführung → Endprotokoll), JSON-Schema-validiert, Zwischenstände zwischengespeichert; im API-Modus dieselbe Kette mit anderem Modell | llama.cpp oder LiteLLM; passt das Transkript ins Kontextfenster, **ein** Aufruf, sonst (seit 0.6.0) hierarchisch: Belegauszüge je Block → **wiederholte** Verdichtung, bis es passt (max. 8 Runden) → Endfassung; Markdown nach Vorlage, ohne Schema-Prüfung | **VERMERK besser** bei Prüfung und Fortsetzbarkeit; Meet2Notes besser bei sehr langen Aufnahmen und kurzen Transkripten (4.6); Vorlagen-Struktur besser (4.3) |
 | Vorlagen | 3 eingebaute Freitext-Prompts + eigene `.txt` | 9 eingebaute Vorlagen mit **Abschnitten** (Titel, Anweisung, Format, Tabellenkopf) | Meet2Notes besser (4.3) |
 | Export | TXT, JSON, SRT, VTT, Markdown, DOCX, Verarbeitungsbericht | Markdown, Sprecher-Text, **Sprecher-Audio** (WAV/MP3/FLAC) | Sprecher-Audio fehlt in VERMERK (4.4) |
 | Bibliothek/Suche | Ordnerliste, keine Suche | Besprechungsbibliothek, FTS5, hybrides RAG, MCP | nicht übernehmen (Abschnitt 5) |
@@ -124,6 +131,18 @@ Einzelplatz-Desktopanwendung ausreichend, fortsetzbar und ohne Migrationen
 wartbar. Übernommen werden nur die **fehlenden Entitäten** — Sprecherprofil und
 (im JSON) Sprecherturns — als zusätzliche Schlüssel bzw. eigene kleine
 JSON-Dateien.
+
+### 3.4 Neuerungen der 0.6er-Reihe einzeln bewertet
+
+| Version | Neuerung (laut `CHANGELOG.md`) | Relevanz für VERMERK |
+|---|---|---|
+| 0.6.2 (28.09.) | Anna-Integration (Suche/Anzeige über den MCP-Zugang), eigener Ordner `integrations/anna/` | keine — baut auf MCP auf, das nicht übernommen wird; an Aufnahme, Transkription, Diarisierung und Notizen ändert 0.6.2 laut Changelog nichts |
+| 0.6.1 (10.09.) | Mikrofon + Systemton gleichzeitig, uhrsynchroner 48-kHz-Mischer, getrennte Pegel je Quelle, Umgang mit getrennten Geräten und stummem Loopback | in 4.5 bewertet: gut, aber neue Abhängigkeiten; nur auf eigene Entscheidung |
+| 0.6.0 (24.08.) | **Hierarchische Notizen**, wenn das Transkript das Kontextfenster übersteigt | **neu aufgenommen als 4.6** — wiederholte Verdichtung fehlt VERMERK |
+| 0.6.0 | Notizen im Programm bearbeiten, speichern, frühere Fassungen behalten, manuelle Änderung kennzeichnen | Idee für später: Protokoll vor dem DOCX-Export in der Oberfläche korrigieren. Kein Code übertragbar (Web-UI) |
+| 0.6.0 | MCP-Server, Meeting-Assistent mit RAG, Live-AI-Assistent | nicht übernehmen (Abschnitt 5) |
+| 0.6.0 | Updater aus GitHub-Releases mit Sicherung und Rückfall | nicht übernehmen — VERMERK aktualisiert über den Inno-Setup-Installer |
+| 0.6.0 | Plugin-Katalog der Community | nicht übernehmen |
 
 ---
 
@@ -189,8 +208,9 @@ JSON-Dateien.
   (Formal Minutes), Projektbesprechung (Project Sync), Daily Stand-up,
   Technische Besprechung, Interview.
 * **Abgrenzung:** Die dreistufige Ollama-Kette mit festem JSON-Schema
-  (`protocol_service`) bleibt unverändert — sie ist für lange Aufnahmen
-  robuster als Meet2Notes' einstufige Zusammenfassung.
+  (`protocol_service`) bleibt — sie prüft jede Antwort gegen ein Schema und
+  setzt nach Abbruch fort, beides fehlt Meet2Notes. Zwei Ideen aus Meet2Notes'
+  hierarchischer Zusammenfassung verbessern sie aber, siehe 4.6.
 
 ### 4.4 Sprecher-Audio- und Sprecher-Text-Export — *Code-Übernahme (angepasst)*
 
@@ -219,6 +239,28 @@ JSON-Dateien.
   geprüft ist, ob sounddevice/PortAudio in der ausgelieferten Version
   WASAPI-Loopback selbst beherrscht (dann ohne PyAudioWPatch). Vorher nicht
   umsetzen.
+
+### 4.6 Verdichtung bis es passt — *Ablauf-Idee, eigener Code (neu seit 0.6.0)*
+
+* **Vorbild:** `adapters/summary/llama_cpp.py`, `_hierarchical_summary`,
+  `_fits_context`, `_pack_reports_for_context`.
+* **Lücke in VERMERK:** `protocol_service.run_full_protocol_pipeline`
+  verdichtet in Stufe 2 genau **einmal** in Vierergruppen. Bei einer sehr
+  langen Aufnahme (z. B. 40 Chunks → 10 Zwischenanalysen) bekommt Stufe 3
+  alle 10 auf einmal — das kann das Kontextfenster eines lokalen
+  Ollama-Modells sprengen. Meet2Notes wiederholt die Verdichtung, bis das
+  Ergebnis passt, mit fester Obergrenze an Runden.
+* **Umsetzung:** Stufe 2 in einer Schleife, bis höchstens `group_size`
+  Zwischenanalysen übrig sind; jede Runde mit eigenem Zwischenspeicher
+  (`zwischenanalyse_r<runde>_<nr>.json`), damit das Fortsetzen erhalten bleibt;
+  Obergrenze gegen Endlosschleifen. Schema-Prüfung (`generate_validated`)
+  unverändert.
+* **Optional zweitens:** Passt ein kurzes Transkript ganz ins Kontextfenster,
+  Stufe 1 und 2 überspringen (weniger Aufrufe, schneller). Dafür bräuchte
+  VERMERK eine Kontextgröße je Modell als Einstellung; deshalb nachrangig.
+* **Keine Doppelung:** ändert nur die Gruppierung in der vorhandenen Kette,
+  kein zweiter Zusammenfassungsweg. Kein Code übernommen → keine
+  Lizenzpflicht, Hinweis in `NOTICES.md` nur zur Transparenz.
 
 ---
 
@@ -252,6 +294,7 @@ JSON-Dateien.
 | 3 | `application/summary_templates.py` | Vorlagenstruktur und Prompt-Texte, übersetzt | `utils/systemprompt_vorlagen.py` | geplant |
 | 4 | `domain/entities.py` (`SpeakerProfile`), `sql/006_speaker_profiles.sql`, `application/speaker_service.py` | nur Datenmodell/Ablauf als Vorbild, **eigener Code** | `services/sprecherprofil_service.py` | geplant |
 | 5 | `adapters/audio_capture/mixer.py` | ggf. Algorithmus | `services/recording_service.py` | offen (4.5) |
+| 6 | `adapters/summary/llama_cpp.py` (`_hierarchical_summary`) | nur Ablauf als Vorbild, **eigener Code** | `services/protocol_service.py` | geplant (4.6) |
 
 Lizenz aller Einträge: **MIT**, Copyright (c) 2026 Meet2Notes contributors.
 
@@ -274,7 +317,7 @@ Sobald die erste der Übernahmen aus 6.1 umgesetzt wird:
    „Teile angepasst übernommen aus Meet2Notes (<Datei>, Commit ace9f3d),
    MIT-Lizenz, Copyright (c) 2026 Meet2Notes contributors — siehe
    `lizenzen/meet2notes-mit.txt`."
-4. Bei Übernahme 4 (nur Vorbild, eigener Code) entsteht keine Lizenzpflicht;
+4. Bei Übernahme 4 und 6 (nur Vorbild, eigener Code) entsteht keine Lizenzpflicht;
    der Hinweis in `NOTICES.md` wird der Transparenz halber trotzdem geführt.
 5. Meet2Notes-Name und -Logo werden **nicht** verwendet (MIT gewährt keine
    Markenrechte).
@@ -307,7 +350,10 @@ FastAPI (MIT), mcp (MIT).
 3. **4.2 Sprecherprofile** — Dienst, Tabelle, Verwaltungsdialog;
    `SECURITY.md` und `.gitignore` nachziehen.
 4. **4.3 Vorlagen mit Abschnitten.**
-5. **4.5 Systemton** — nur nach eigener Entscheidung.
+5. **4.6 Wiederholte Verdichtung** — klein, betrifft nur `protocol_service`;
+   kann auch vorgezogen werden, wenn lange Aufnahmen heute am Kontextfenster
+   scheitern.
+6. **4.5 Systemton** — nur nach eigener Entscheidung.
 
 Jeder Schritt als eigener Pull Request mit Tests (ohne GPU/Netz/Modelle),
 `CHANGELOG.md`-Eintrag unter `[Unreleased]` und grüner CI.
