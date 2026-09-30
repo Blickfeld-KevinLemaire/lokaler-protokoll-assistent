@@ -1430,3 +1430,97 @@ def test_profile_verwalten_oeffnet_dialog(fenster, monkeypatch):
     monkeypatch.setattr(mw.SprecherprofileDialog, "exec", lambda self: geoeffnet.append(True))
     fenster._manage_speaker_profiles()
     assert geoeffnet == [True]
+
+
+# --------------------------------------------------------------------------
+# Dialoge vor Aufnahme / Start
+# --------------------------------------------------------------------------
+class _DialogAttrappe:
+    """Ersetzt einen modalen Dialog: 'exec' liefert sofort das eingestellte Ergebnis."""
+
+    def __init__(self, ergebnis=True, **felder):
+        self._ergebnis = ergebnis
+        for name, wert in felder.items():
+            setattr(self, name, wert)
+
+    def exec(self):
+        return self._ergebnis
+
+
+def test_neue_transkription_mikrofon_startet_aufnahme(fenster, monkeypatch):
+    aufrufe = []
+    monkeypatch.setattr(
+        mw, "AudioquelleDialog", lambda *a, **k: _DialogAttrappe(quelle="mikrofon", geraet_index=0)
+    )
+    monkeypatch.setattr(fenster, "_start_recording", lambda: aufrufe.append("aufnahme"))
+    monkeypatch.setattr(fenster, "_choose_file", lambda: aufrufe.append("datei"))
+    fenster._new_transcription()
+    assert aufrufe == ["aufnahme"]
+
+
+def test_neue_transkription_datei_und_abbruch(fenster, monkeypatch):
+    aufrufe = []
+    monkeypatch.setattr(fenster, "_start_recording", lambda: aufrufe.append("aufnahme"))
+    monkeypatch.setattr(fenster, "_choose_file", lambda: aufrufe.append("datei"))
+    monkeypatch.setattr(mw, "AudioquelleDialog", lambda *a, **k: _DialogAttrappe(quelle="datei", geraet_index=0))
+    fenster._new_transcription()
+    monkeypatch.setattr(mw, "AudioquelleDialog", lambda *a, **k: _DialogAttrappe(False, quelle="datei"))
+    fenster._new_transcription()
+    assert aufrufe == ["datei"]
+
+
+def test_start_ohne_datei_zeigt_keinen_dialog(fenster, gemeldete_fehler, monkeypatch):
+    def nicht_aufrufen(*a, **k):
+        raise AssertionError("Dialog darf nicht erscheinen")
+
+    monkeypatch.setattr(mw, "EndverarbeitungDialog", nicht_aufrufen)
+    fenster._start_transcription_with_dialog()
+    assert gemeldete_fehler
+
+
+def test_start_mit_dialog_uebernimmt_auswahl(fenster, audio_datei, monkeypatch):
+    fenster._set_source_file(audio_datei)
+    monkeypatch.setattr(
+        mw,
+        "EndverarbeitungDialog",
+        lambda *a, **k: _DialogAttrappe(
+            sprecher_erkennen=True, sprecherzahl=3, protokoll_erstellen=True, vorlage="Stand-up"
+        ),
+    )
+    fenster._start_transcription_with_dialog()
+    assert fenster.limit_speakers_checkbox.isChecked()
+    assert fenster.min_speakers_spin.value() == fenster.max_speakers_spin.value() == 3
+    assert fenster.vorlage_combo.currentData() == "Stand-up"
+    assert fenster._protokoll_nach_transkription is True
+    assert _WorkerAttrappe.instanzen[-1].settings.min_speakers == 3
+
+
+def test_start_mit_dialog_abbruch_startet_nichts(fenster, audio_datei, monkeypatch):
+    fenster._set_source_file(audio_datei)
+    monkeypatch.setattr(mw, "EndverarbeitungDialog", lambda *a, **k: _DialogAttrappe(False))
+    fenster._start_transcription_with_dialog()
+    assert _WorkerAttrappe.instanzen == []
+
+
+def test_protokoll_startet_erst_nach_ende_des_transkriptions_threads(fenster, tmp_path, monkeypatch):
+    monkeypatch.setattr(QMessageBox, "information", staticmethod(lambda *a: None))
+    gestartet = []
+    monkeypatch.setattr(fenster, "_start_protocol", lambda: gestartet.append(True))
+    fenster._transcription_worker = _WorkerAttrappe(None)
+    fenster._protokoll_nach_transkription = True
+
+    fenster._on_transcription_finished_ok(_transkript_ergebnis_bauen(tmp_path, []))
+    assert gestartet == []  # noch nicht: der Thread laeuft noch
+
+    fenster._transcription_worker.finished.emit()
+    assert gestartet == [True]
+    assert fenster._protokoll_nach_transkription is False
+
+
+def test_fehler_und_abbruch_setzen_protokollwunsch_zurueck(fenster, gemeldete_fehler):
+    fenster._protokoll_nach_transkription = True
+    fenster._on_transcription_failed("x")
+    assert fenster._protokoll_nach_transkription is False
+    fenster._protokoll_nach_transkription = True
+    fenster._on_transcription_cancelled()
+    assert fenster._protokoll_nach_transkription is False

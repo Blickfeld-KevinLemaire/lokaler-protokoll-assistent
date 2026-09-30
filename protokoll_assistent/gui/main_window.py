@@ -62,7 +62,12 @@ from PySide6.QtWidgets import (
 )
 
 # Verarbeitungskette und Hilfsmodule der Anwendung.
-from protokoll_assistent.gui.dialogs import SprecherprofileDialog, show_error
+from protokoll_assistent.gui.dialogs import (
+    AudioquelleDialog,
+    EndverarbeitungDialog,
+    SprecherprofileDialog,
+    show_error,
+)
 from protokoll_assistent.gui.settings_dialog import DATENSCHUTZ_HINWEIS_API, SettingsDialog
 from protokoll_assistent.gui.strings import PRIVACY_NOTICE
 from protokoll_assistent.gui.worker import (
@@ -172,6 +177,9 @@ class MainWindow(QMainWindow):
         self._chunk_progress = (0, 0)
         self._last_transcription_result: pipeline_service.TranscriptionResult | None = None
         self._speaker_embeddings: dict[str, list[float]] = {}
+        # Gesetzt, wenn im Dialog 'Verarbeitung waehlen' das Protokoll direkt im
+        # Anschluss verlangt wurde.
+        self._protokoll_nach_transkription = False
         self._last_protocol_result: pipeline_service.ProtocolResult | None = None
         self._selected_transcript_path: Path | None = None
         self._hash_worker: DateiHashWorker | None = None
@@ -233,6 +241,12 @@ class MainWindow(QMainWindow):
 
         left_panel = QWidget(self)
         left_layout = QVBoxLayout(left_panel)
+
+        self.new_transcription_button = QPushButton("+  Neue Transkription …", self)
+        self.new_transcription_button.setObjectName("PrimaryButton")
+        self.new_transcription_button.setToolTip("Audioquelle wählen: Mikrofon oder Mediendatei.")
+        self.new_transcription_button.clicked.connect(self._new_transcription)
+        left_layout.addWidget(self.new_transcription_button)
 
         left_layout.addWidget(self._build_recording_group())
         left_layout.addWidget(self._build_file_group())
@@ -653,7 +667,7 @@ class MainWindow(QMainWindow):
         button_row = QHBoxLayout()
         self.start_button = QPushButton("Transkription starten", self)
         self.start_button.setObjectName("PrimaryButton")
-        self.start_button.clicked.connect(self._start_transcription)
+        self.start_button.clicked.connect(self._start_transcription_with_dialog)
         button_row.addWidget(self.start_button)
         self.cancel_button = QPushButton("Abbrechen", self)
         self.cancel_button.setObjectName("DangerButton")
@@ -663,6 +677,66 @@ class MainWindow(QMainWindow):
         layout.addLayout(button_row)
 
         return group
+
+    def _new_transcription(self) -> None:
+        """Dialog 'Audioquelle waehlen'; fuehrt danach die vorhandene
+        Aufnahme- bzw. Dateiauswahl aus."""
+        if self._recording is not None:
+            return
+        geraete = [self.recording_device_combo.itemText(i) for i in range(self.recording_device_combo.count())]
+        dialog = AudioquelleDialog(
+            geraete,
+            self.recording_device_combo.currentIndex(),
+            self.recording_start_button.isEnabled(),
+            self,
+        )
+        if not dialog.exec():
+            return
+        if dialog.quelle == "mikrofon":
+            self.recording_device_combo.setCurrentIndex(dialog.geraet_index)
+            self._start_recording()
+        else:
+            self._choose_file()
+
+    def _start_transcription_with_dialog(self) -> None:
+        """Fragt vor dem Start die Verarbeitung ab (Sprecher, Protokoll) und
+        startet dann wie bisher. Ohne Quelldatei geht es direkt an
+        ``_start_transcription``, das den Fehler meldet."""
+        if self._source_path is None:
+            self._start_transcription()
+            return
+        sprecherzahl = (
+            self.min_speakers_spin.value()
+            if self.limit_speakers_checkbox.isChecked()
+            and self.min_speakers_spin.value() == self.max_speakers_spin.value()
+            else None
+        )
+        vorlagen = list(alle_vorlagen())
+        dialog = EndverarbeitungDialog(
+            self.diarization_checkbox.isChecked(),
+            sprecherzahl,
+            vorlagen,
+            self.vorlage_combo.currentData(),
+            self,
+        )
+        if not dialog.exec():
+            return
+        self.diarization_checkbox.setChecked(dialog.sprecher_erkennen)
+        if dialog.sprecherzahl is not None:
+            self.limit_speakers_checkbox.setChecked(True)
+            self.min_speakers_spin.setValue(dialog.sprecherzahl)
+            self.max_speakers_spin.setValue(dialog.sprecherzahl)
+        else:
+            self.limit_speakers_checkbox.setChecked(False)
+        self._protokoll_nach_transkription = dialog.protokoll_erstellen
+        if dialog.vorlage is not None:
+            self.vorlage_combo.setCurrentIndex(self.vorlage_combo.findData(dialog.vorlage))
+        vorher = self._transcription_worker
+        self._start_transcription()
+        if self._transcription_worker is vorher:
+            # Kein neuer Arbeiter: Der Start ist gescheitert, die Fehlermeldung
+            # wurde schon gezeigt.
+            self._protokoll_nach_transkription = False
 
     def _transkription_modus_geaendert(self) -> None:
         modus = "api" if self.transkription_api_radio.isChecked() else "lokal"
@@ -1339,6 +1413,13 @@ class MainWindow(QMainWindow):
         self._populate_speaker_table(result)
         self._set_transcript_path(result.export_paths.json)
         self.status_label.setText("Transkription abgeschlossen.")
+        if self._protokoll_nach_transkription and self._transcription_worker is not None:
+            # Erst starten, wenn der Transkriptions-Thread beendet ist: Dessen
+            # 'finished' schaltet die Bedienelemente wieder frei und stoppt den
+            # Zeitgeber - das wuerde sonst die eben gestartete Nachbearbeitung
+            # betreffen. Slots laufen in der Reihenfolge des Verbindens.
+            self._transcription_worker.finished.connect(self._start_protocol_after_transcription)
+            return
         QMessageBox.information(
             self,
             "Transkription abgeschlossen",
@@ -1347,11 +1428,18 @@ class MainWindow(QMainWindow):
             "oder jederzeit fuer ein anderes Transkript gestartet werden.",
         )
 
+    def _start_protocol_after_transcription(self) -> None:
+        if self._protokoll_nach_transkription:
+            self._protokoll_nach_transkription = False
+            self._start_protocol()
+
     def _on_transcription_failed(self, message: str) -> None:
+        self._protokoll_nach_transkription = False
         self.status_label.setText("Fehler bei der Transkription.")
         show_error(self, "Transkription fehlgeschlagen", message)
 
     def _on_transcription_cancelled(self) -> None:
+        self._protokoll_nach_transkription = False
         self.status_label.setText("Transkription abgebrochen.")
 
     def _on_protocol_finished_ok(self, result: pipeline_service.ProtocolResult) -> None:

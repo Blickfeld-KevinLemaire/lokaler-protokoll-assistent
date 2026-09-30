@@ -39,6 +39,11 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
   (z. B. Tagesordnungspunkte, Beschlüsse, Aufgaben mit Verantwortlichen und
   Fristen).
 
+- Neue Dialoge: „Neue Transkription …“ fragt die Audioquelle ab (Mikrofon
+  mit Geräteliste oder Mediendatei); vor „Transkription starten“ fragt
+  „Verarbeitung wählen“ nach Sprechererkennung (automatisch oder bekannte
+  Anzahl) und ob danach direkt das Protokoll mit einer Vorlage erstellt wird.
+
 ### Fixed
 
 - Wer die Vorlage wechselte und die Nachbearbeitung erneut startete, bekam

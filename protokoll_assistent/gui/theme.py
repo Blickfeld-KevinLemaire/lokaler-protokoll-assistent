@@ -97,6 +97,19 @@ QPushButton#DangerButton:disabled {{
     color: #fdf1f0;
 }}
 
+QPushButton#SourceCard {{
+    text-align: left;
+    padding: 14px 16px;
+    border-radius: 14px;
+}}
+QPushButton#SourceCard:checked {{
+    background-color: #eaf1ff;
+    border: 2px solid {ACCENT};
+}}
+QPushButton#SourceCard:disabled {{
+    color: #9aa0a8;
+}}
+
 QLineEdit, QComboBox, QSpinBox, QPlainTextEdit, QTextEdit, QListWidget {{
     background-color: {SURFACE};
     border: 1px solid {BORDER};

@@ -199,3 +199,51 @@ def test_profildialog_meldet_umbenennfehler(qt_app, tmp_path, monkeypatch):
     dialog.liste.setCurrentRow(0)
     dialog._umbenennen()
     assert fehler == ["Umbenennen nicht möglich"]
+
+
+# --------------------------------------------------------------------------
+# AudioquelleDialog / EndverarbeitungDialog
+# --------------------------------------------------------------------------
+def test_audioquelle_dialog_standard_ist_mikrofon_und_datei_wechselt_beschriftung(qt_app):
+    dialog = dialogs.AudioquelleDialog(["Mikro A", "Mikro B"], aktuelles_geraet=1)
+    assert dialog.quelle == "mikrofon"
+    assert dialog.geraet_index == 1
+    assert dialog.weiter_button.text() == "Aufnahme starten"
+
+    dialog.datei_karte.click()
+    assert dialog.quelle == "datei"
+    assert dialog.weiter_button.text() == "Datei wählen …"
+    assert not dialog.geraete_liste.isVisibleTo(dialog)
+
+    dialog.mikrofon_karte.click()
+    dialog.geraete_liste.setCurrentRow(0)
+    assert dialog.quelle == "mikrofon" and dialog.geraet_index == 0
+
+
+def test_audioquelle_dialog_ohne_mikrofon_bietet_nur_datei(qt_app):
+    dialog = dialogs.AudioquelleDialog([], mikrofon_verfuegbar=False)
+    assert dialog.quelle == "datei"
+    assert not dialog.mikrofon_karte.isEnabled()
+
+
+def test_endverarbeitung_ergebnisse(qt_app):
+    dialog = dialogs.EndverarbeitungDialog(True, None, ["A", "B"], "B")
+    assert dialog.sprecher_erkennen and dialog.sprecherzahl is None
+    assert not dialog.protokoll_erstellen and dialog.vorlage is None
+    assert not dialog.vorlage_combo.isEnabled()
+
+    dialog.bekannt_radio.setChecked(True)
+    dialog.anzahl_spin.setValue(3)
+    dialog.protokoll_checkbox.setChecked(True)
+    assert dialog.sprecherzahl == 3
+    assert dialog.vorlage == "B"  # vorbelegt mit der aktuellen Vorlage
+    assert dialog.vorlage_combo.isEnabled()
+
+    dialog.sprecher_checkbox.setChecked(False)
+    assert dialog.sprecherzahl is None
+    assert not dialog.anzahl_spin.isEnabled()
+
+
+def test_endverarbeitung_vorbelegung_mit_bekannter_sprecherzahl(qt_app):
+    dialog = dialogs.EndverarbeitungDialog(True, 4, ["A"], None)
+    assert dialog.bekannt_radio.isChecked() and dialog.sprecherzahl == 4
