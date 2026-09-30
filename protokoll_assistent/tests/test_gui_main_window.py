@@ -1254,3 +1254,88 @@ def test_fehlendes_sounddevice_schaltet_nur_die_aufnahme_ab(fenster, monkeypatch
     assert fenster._recording_devices == []
     assert fenster.recording_start_button.isEnabled() is False
     assert "sounddevice" in fenster.recording_hint_label.text()
+
+
+# --------------------------------------------------------------------------
+# Sprecher anhoeren und exportieren
+# --------------------------------------------------------------------------
+def _ergebnis_mit_sprecher(tmp_path):
+    ergebnis = _transkript_ergebnis_bauen(
+        tmp_path,
+        [{"sprecher_id": "SPEAKER_00", "anzahl_segmente": 3, "sprechdauer_sekunden": 10, "anzeigename": "Anna"}],
+    )
+    ergebnis.work_dir = tmp_path
+    return ergebnis
+
+
+def test_sprechertabelle_hat_stimme_schaltflaechen(fenster, tmp_path):
+    ergebnis = _ergebnis_mit_sprecher(tmp_path)
+    fenster._populate_speaker_table(ergebnis)
+    zelle = fenster.speaker_table.cellWidget(0, 4)
+    assert [knopf.text() for knopf in zelle.findChildren(mw.QPushButton)] == ["▶ Anhören", "Exportieren …"]
+
+
+def test_sprecher_anhoeren_spielt_hoerprobe_ab(fenster, tmp_path, monkeypatch):
+    ergebnis = _ergebnis_mit_sprecher(tmp_path)
+    fenster._last_transcription_result = ergebnis
+    aufrufe = {}
+
+    def probe(json_pfad, sprecher_id, ziel):
+        aufrufe["probe"] = (json_pfad, sprecher_id, ziel)
+        return ziel
+
+    monkeypatch.setattr(mw.sprecher_export_service, "hoerprobe_erstellen", probe)
+    monkeypatch.setattr(mw.QDesktopServices, "openUrl", staticmethod(lambda url: aufrufe.setdefault("url", url)))
+
+    fenster._listen_to_speaker("SPEAKER_00")
+
+    assert aufrufe["probe"][1] == "SPEAKER_00"
+    assert aufrufe["url"].toLocalFile().endswith("hoerprobe_SPEAKER_00.wav")
+
+
+def test_sprecher_anhoeren_meldet_fehler(fenster, tmp_path, monkeypatch, gemeldete_fehler):
+    fenster._last_transcription_result = _ergebnis_mit_sprecher(tmp_path)
+
+    def werfen(*args):
+        raise mw.sprecher_export_service.SprecherExportFehler("keine Abschnitte")
+
+    monkeypatch.setattr(mw.sprecher_export_service, "hoerprobe_erstellen", werfen)
+    fenster._listen_to_speaker("SPEAKER_00")
+    assert gemeldete_fehler == ["Hörprobe nicht möglich"]
+
+
+def test_sprecher_anhoeren_und_exportieren_ohne_ergebnis(fenster):
+    fenster._last_transcription_result = None
+    fenster._listen_to_speaker("SPEAKER_00")  # darf nicht werfen
+    fenster._export_speaker("SPEAKER_00")
+
+
+def test_sprecher_exportieren(fenster, tmp_path, monkeypatch):
+    fenster._last_transcription_result = _ergebnis_mit_sprecher(tmp_path)
+    monkeypatch.setattr(mw.QFileDialog, "getExistingDirectory", staticmethod(lambda *a: str(tmp_path / "aus")))
+    monkeypatch.setattr(QMessageBox, "information", staticmethod(lambda *a: None))
+    aufrufe = {}
+
+    def export(json_pfad, sprecher_id, ordner):
+        aufrufe["args"] = (sprecher_id, ordner)
+        return ordner / "a.wav", ordner / "a.txt"
+
+    monkeypatch.setattr(mw.sprecher_export_service, "sprecher_exportieren", export)
+    fenster._export_speaker("SPEAKER_00")
+    assert aufrufe["args"] == ("SPEAKER_00", tmp_path / "aus")
+
+
+def test_sprecher_exportieren_abgebrochen_und_fehler(fenster, tmp_path, monkeypatch, gemeldete_fehler):
+    fenster._last_transcription_result = _ergebnis_mit_sprecher(tmp_path)
+    monkeypatch.setattr(mw.QFileDialog, "getExistingDirectory", staticmethod(lambda *a: ""))
+    fenster._export_speaker("SPEAKER_00")
+    assert gemeldete_fehler == []
+
+    monkeypatch.setattr(mw.QFileDialog, "getExistingDirectory", staticmethod(lambda *a: str(tmp_path)))
+
+    def werfen(*args):
+        raise OSError("voll")
+
+    monkeypatch.setattr(mw.sprecher_export_service, "sprecher_exportieren", werfen)
+    fenster._export_speaker("SPEAKER_00")
+    assert gemeldete_fehler == ["Export nicht möglich"]

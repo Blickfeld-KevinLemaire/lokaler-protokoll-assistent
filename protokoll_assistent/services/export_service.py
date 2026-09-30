@@ -160,6 +160,32 @@ def build_vtt_content(segments: list[dict[str, Any]], diarization_enabled: bool 
     return "\n".join(lines) + "\n"
 
 
+def verdichte_sprecher_turns(
+    diarization_turns: list[dict[str, Any]], max_luecke_sekunden: float = 0.5
+) -> list[dict[str, Any]]:
+    """Bringt die Diarisierungsergebnisse in die Form fuer das JSON und fasst
+    unmittelbar aufeinanderfolgende Abschnitte desselben Sprechers zusammen."""
+    sortiert = sorted(diarization_turns, key=lambda turn: (turn["start"], turn["end"]))
+    ergebnis: list[dict[str, Any]] = []
+    for turn in sortiert:
+        letzter = ergebnis[-1] if ergebnis else None
+        if (
+            letzter is not None
+            and letzter["sprecher_id"] == turn["speaker"]
+            and turn["start"] - letzter["ende_sekunden"] <= max_luecke_sekunden
+        ):
+            letzter["ende_sekunden"] = round(max(letzter["ende_sekunden"], turn["end"]), 3)
+            continue
+        ergebnis.append(
+            {
+                "sprecher_id": turn["speaker"],
+                "start_sekunden": round(float(turn["start"]), 3),
+                "ende_sekunden": round(float(turn["end"]), 3),
+            }
+        )
+    return ergebnis
+
+
 def build_json_result(
     source_name: str,
     source_stem: str,
@@ -173,6 +199,8 @@ def build_json_result(
     speaker_names: dict[str, str],
     speaker_stats: dict[str, dict[str, Any]],
     diarization_enabled: bool = True,
+    sprecher_turns: list[dict[str, Any]] | None = None,
+    audio_pfad: str | None = None,
 ) -> dict[str, Any]:
     speakers_list = []
     for speaker_id, name in speaker_names.items():
@@ -221,6 +249,11 @@ def build_json_result(
         "anzahl_segmente": len(exported_segments),
         "segmente": exported_segments,
         "gesamttext": gesamttext,
+        # Zeitabschnitte je Sprecher und die normalisierte Audiodatei, auf
+        # die sich die Zeiten beziehen -- Grundlage fuer "Sprecher anhoeren"
+        # und den Export je Sprecher.
+        "sprecher_turns": sprecher_turns or [],
+        "audio_pfad": audio_pfad,
         "hinweis": (
             "Sprecherbezeichnungen sind technische IDs bzw. frei vergebene Namen, "
             "keine automatisch verifizierten Identitaeten."
@@ -268,6 +301,8 @@ def write_transcript_exports(
     segments_raw: list[dict[str, Any]],
     speaker_names: dict[str, str],
     diarization_enabled: bool = True,
+    diarization_turns: list[dict[str, Any]] | None = None,
+    audio_pfad: Path | None = None,
 ) -> ExportPaths:
     output_dir.mkdir(parents=True, exist_ok=True)
     enriched = attach_speaker_names(segments_raw, speaker_names)
@@ -287,6 +322,8 @@ def write_transcript_exports(
         speaker_names,
         stats,
         diarization_enabled,
+        verdichte_sprecher_turns(diarization_turns or []),
+        str(audio_pfad) if audio_pfad else None,
     )
 
     paths.txt.write_text(
@@ -347,6 +384,8 @@ def reexport_with_new_names(json_path: Path, name_overrides: dict[str, str]) -> 
         speaker_names,
         stats,
         diarization_enabled,
+        data.get("sprecher_turns") or [],
+        data.get("audio_pfad"),
     )
 
     base = f"{source_stem}_lokal_transkript_{run_timestamp}"

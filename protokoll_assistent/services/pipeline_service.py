@@ -431,6 +431,8 @@ def _run_transcription_stage(
         merged_segments,
         speaker_names,
         settings.enable_diarization,
+        diarization_turns,
+        normalized_path,
     )
     manifest["protokoll_status"] = manifest_service.STATUS_AUSSTEHEND
     manifest_service.save_manifest(work_dir, manifest)

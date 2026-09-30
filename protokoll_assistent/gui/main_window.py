@@ -80,6 +80,7 @@ from protokoll_assistent.services import (
     ollama_service,
     pipeline_service,
     secret_store,
+    sprecher_export_service,
 )
 from protokoll_assistent.utils import app_config
 from protokoll_assistent.utils.paths import (
@@ -702,9 +703,9 @@ class MainWindow(QMainWindow):
         group = QGroupBox("Sprecherzuordnung", self)
         layout = QVBoxLayout(group)
 
-        self.speaker_table = QTableWidget(0, 4, self)
+        self.speaker_table = QTableWidget(0, 5, self)
         self.speaker_table.setHorizontalHeaderLabels(
-            ["Technische Sprecher-ID", "Segmente", "Sprechdauer", "Name"]
+            ["Technische Sprecher-ID", "Segmente", "Sprechdauer", "Name", "Stimme"]
         )
         self.speaker_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
         self.speaker_table.setEditTriggers(QAbstractItemView.DoubleClicked | QAbstractItemView.SelectedClicked)
@@ -1381,8 +1382,57 @@ class MainWindow(QMainWindow):
             self.speaker_table.setItem(row, 2, duration_item)
 
             self.speaker_table.setItem(row, 3, QTableWidgetItem(entry["anzeigename"]))
+            self.speaker_table.setCellWidget(row, 4, self._build_voice_buttons(entry["sprecher_id"]))
 
         self.apply_names_button.setEnabled(len(entries) > 0)
+
+    def _build_voice_buttons(self, sprecher_id: str) -> QWidget:
+        """Schaltflaechen 'Anhoeren' und 'Exportieren' fuer eine Tabellenzeile."""
+        zelle = QWidget(self.speaker_table)
+        layout = QHBoxLayout(zelle)
+        layout.setContentsMargins(2, 0, 2, 0)
+        hoeren = QPushButton("▶ Anhören", zelle)
+        hoeren.setToolTip("Spielt eine kurze Hörprobe dieses Sprechers ab.")
+        hoeren.clicked.connect(functools.partial(self._listen_to_speaker, sprecher_id))
+        exportieren = QPushButton("Exportieren …", zelle)
+        exportieren.setToolTip("Speichert Audio und Text dieses Sprechers als Dateien.")
+        exportieren.clicked.connect(functools.partial(self._export_speaker, sprecher_id))
+        layout.addWidget(hoeren)
+        layout.addWidget(exportieren)
+        return zelle
+
+    def _listen_to_speaker(self, sprecher_id: str, _checked: bool = False) -> None:
+        if self._last_transcription_result is None:
+            return
+        result = self._last_transcription_result
+        ziel = result.work_dir / f"hoerprobe_{sprecher_id}.wav"
+        try:
+            sprecher_export_service.hoerprobe_erstellen(result.export_paths.json, sprecher_id, ziel)
+        except (sprecher_export_service.SprecherExportFehler, RuntimeError, OSError) as error:
+            show_error(self, "Hörprobe nicht möglich", str(error))
+            return
+        # Mit dem Standardprogramm des Systems abspielen: keine zusaetzlichen
+        # Qt-Module noetig, und die Wiedergabe laeuft unabhaengig vom Fenster.
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(ziel)))
+
+    def _export_speaker(self, sprecher_id: str, _checked: bool = False) -> None:
+        if self._last_transcription_result is None:
+            return
+        result = self._last_transcription_result
+        start = str(result.export_paths.json.parent)
+        ordner = QFileDialog.getExistingDirectory(self, "Zielordner für den Sprecher-Export wählen", start)
+        if not ordner:
+            return
+        try:
+            wav, txt = sprecher_export_service.sprecher_exportieren(
+                result.export_paths.json, sprecher_id, Path(ordner)
+            )
+        except (sprecher_export_service.SprecherExportFehler, RuntimeError, OSError) as error:
+            show_error(self, "Export nicht möglich", str(error))
+            return
+        QMessageBox.information(
+            self, "Sprecher exportiert", f"Audio und Text wurden gespeichert:\n{wav}\n{txt}"
+        )
 
     @staticmethod
     def _editable_flag():

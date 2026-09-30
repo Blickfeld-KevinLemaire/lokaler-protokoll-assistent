@@ -313,3 +313,60 @@ def extract_chunk_wav(
         raise RuntimeError(f"FFmpeg konnte den Chunk nicht erstellen: {completed.stderr.strip()[-1000:]}")
     _fertigstellen(unfertig, destination_wav)
     return destination_wav
+
+
+def extract_speaker_audio(
+    normalized_source: Path,
+    destination_wav: Path,
+    turns: list[tuple[float, float]],
+    ffmpeg_path: Path | None = None,
+    sample_rate: int = 16000,
+) -> Path:
+    """Schneidet mehrere Zeitbereiche aus der normalisierten WAV-Datei aus
+    und haengt sie hintereinander (``atrim`` + ``concat``).
+
+    Die Filterbeschreibung geht ueber eine Skriptdatei statt ueber die
+    Kommandozeile: Bei einem Sprecher mit hunderten Abschnitten waere die
+    Kommandozeile unter Windows (Grenze etwa 32.000 Zeichen) zu lang.
+    """
+    gueltig = [(start, ende) for start, ende in turns if ende > start]
+    if not gueltig:
+        raise ValueError("Es gibt keine Abschnitte zum Ausschneiden.")
+    ffmpeg_path = ffmpeg_path or find_ffmpeg()
+    if not ffmpeg_path:
+        raise RuntimeError("FFmpeg wurde nicht gefunden.")
+    destination_wav.parent.mkdir(parents=True, exist_ok=True)
+
+    teile = [
+        f"[0:a]atrim=start={start:.3f}:end={ende:.3f},asetpts=PTS-STARTPTS[a{index}]"
+        for index, (start, ende) in enumerate(gueltig)
+    ]
+    eingaenge = "".join(f"[a{index}]" for index in range(len(gueltig)))
+    filter_text = ";".join(teile) + f";{eingaenge}concat=n={len(gueltig)}:v=0:a=1[aus]"
+
+    unfertig = _unfertiger_pfad(destination_wav)
+    _unfertige_reste_entfernen(unfertig)
+    skript = destination_wav.with_name(f"{destination_wav.stem}.filter.txt")
+    skript.write_text(filter_text, encoding="utf-8")
+    try:
+        command = [
+            str(ffmpeg_path),
+            "-hide_banner",
+            "-loglevel", "error",
+            "-y",
+            "-i", str(normalized_source),
+            "-filter_complex_script", str(skript),
+            "-map", "[aus]",
+            "-ac", "1",
+            "-ar", str(sample_rate),
+            "-c:a", "pcm_s16le",
+            str(unfertig),
+        ]
+        completed = subprocess.run(command, capture_output=True, text=True, check=False, timeout=600)
+    finally:
+        skript.unlink(missing_ok=True)
+    if completed.returncode != 0 or not unfertig.exists():
+        _unfertige_reste_entfernen(unfertig)
+        raise RuntimeError(f"FFmpeg konnte die Sprecher-Audiodatei nicht erstellen: {completed.stderr.strip()[-1000:]}")
+    _fertigstellen(unfertig, destination_wav)
+    return destination_wav

@@ -16,6 +16,13 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
   Runde, und bei sehr langen Aufnahmen konnte das Kontextfenster des Modells
   überlaufen. Zwischenstände je Runde bleiben fortsetzbar.
 
+- Sprecher anhören und exportieren: In der Sprechertabelle gibt es je
+  Sprecher „▶ Anhören“ (kurze Hörprobe) und „Exportieren …“ (Audio als WAV
+  und Text als TXT nur dieses Sprechers). Dafür speichert das JSON jetzt
+  die Sprecherabschnitte (`sprecher_turns`) und den Pfad der aufbereiteten
+  Audiodatei (`audio_pfad`). Transkripte aus älteren Versionen enthalten
+  beides nicht; dort weist die Anwendung darauf hin, neu zu transkribieren.
+
 ### Changed
 
 - Sprecherzuordnung wortgenau: Wechselt der Sprecher mitten in einem
