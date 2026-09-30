@@ -24,8 +24,15 @@ Daten, oft von Menschen, die der Aufnahme nur im Rahmen der Besprechung
 zugestimmt haben. Entsprechend gelten hier ein paar Punkte besonders:
 
 * **Aufnahmen und Transkripte gehoeren niemals ins Repository.** Die Ordner
-  `ausgabe/`, `aufnahmen/` und `arbeitsdaten/` sind ausgeschlossen, ebenso
-  Medien- und Protokolldateien ueberall im Baum.
+  `ausgabe/`, `aufnahmen/`, `arbeitsdaten/` und `sprecherprofile/` sind
+  ausgeschlossen, ebenso Medien- und Protokolldateien ueberall im Baum.
+* **Sprecherprofile sind biometrische Daten.** Ein gespeicherter
+  Stimmabdruck (`sprecherprofile/profile.json`) erlaubt, eine Person in
+  anderen Aufnahmen wiederzuerkennen. Die Profile entstehen nur nach
+  ausdruecklicher Bestaetigung, bleiben ausschliesslich auf dem Rechner, gehen
+  nie in den API-Modus und nie in den Installer, und lassen sich in der
+  Anwendung loeschen. Bei der Deinstallation bleiben sie absichtlich stehen —
+  wie die uebrigen Anwenderdaten. Die Funktion gibt es nur im lokalen Modus.
 * **Schluessel und Token stehen nie im Code und nie in einer Klartext-Datei.**
   Sie kommen aus Umgebungsvariablen (`OPENROUTER_API_KEY`, `HF_TOKEN`), aus
   einer verdeckten Eingabe (`getpass`), oder — nur wenn der Anwender das

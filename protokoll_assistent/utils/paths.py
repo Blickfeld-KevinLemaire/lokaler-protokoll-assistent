@@ -118,6 +118,15 @@ def get_work_dir() -> Path:
     return directory
 
 
+def get_sprecherprofile_dir() -> Path:
+    """Ablage der gespeicherten Sprecherprofile (Stimmabdruecke).
+
+    Stimmabdruecke sind biometrische Daten: Der Ordner wird nicht versioniert,
+    nicht in den Installer aufgenommen und bei der Deinstallation absichtlich
+    nicht angefasst. Er wird nur beim ersten Speichern eines Profils angelegt."""
+    return get_app_dir() / "sprecherprofile"
+
+
 def get_default_output_dir() -> Path:
     directory = get_app_dir() / "ausgabe"
     directory.mkdir(parents=True, exist_ok=True)

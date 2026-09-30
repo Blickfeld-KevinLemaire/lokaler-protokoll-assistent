@@ -84,3 +84,47 @@ def test_sprecherzahl_wird_durchgereicht():
     diarization_service.diarize_waveform(aufruf, {}, min_speakers=2, max_speakers=5)
 
     assert gesehen == {"min_speakers": 2, "max_speakers": 5}
+
+
+class _AnnotationMitLabels(_Annotation):
+    def labels(self):
+        return sorted({sprecher for _, _, sprecher in self._spuren})
+
+
+def _mit_embeddings(embeddings):
+    ergebnis = _DiarizeOutput(_AnnotationMitLabels(SPUREN))
+    ergebnis.speaker_embeddings = embeddings
+    return ergebnis
+
+
+def test_embeddings_werden_den_sprechern_in_labelreihenfolge_zugeordnet():
+    sammlung: dict[str, list[float]] = {}
+    diarization_service.diarize_waveform(
+        _pipeline(_mit_embeddings([[1.0, 0.0], [0.0, 1.0]])), {}, embeddings_out=sammlung
+    )
+    assert sammlung == {"SPEAKER_00": [1.0, 0.0], "SPEAKER_01": [0.0, 1.0]}
+
+
+def test_embeddings_ohne_feld_falsche_anzahl_oder_nan_ergeben_keine_profile():
+    ohne: dict[str, list[float]] = {}
+    diarization_service.diarize_waveform(_pipeline(_DiarizeOutput(_AnnotationMitLabels(SPUREN))), {}, embeddings_out=ohne)
+    assert ohne == {}
+
+    falsch: dict[str, list[float]] = {}
+    diarization_service.diarize_waveform(_pipeline(_mit_embeddings([[1.0]])), {}, embeddings_out=falsch)
+    assert falsch == {}
+
+    nan = float("nan")
+    teilweise: dict[str, list[float]] = {}
+    diarization_service.diarize_waveform(
+        _pipeline(_mit_embeddings([[nan, nan], [0.0, 1.0]])), {}, embeddings_out=teilweise
+    )
+    assert teilweise == {"SPEAKER_01": [0.0, 1.0]}
+
+
+def test_annotation_ohne_labels_liefert_keine_embeddings_und_keinen_fehler():
+    ergebnis = _DiarizeOutput(_Annotation(SPUREN))
+    ergebnis.speaker_embeddings = [[1.0], [2.0]]
+    sammlung: dict[str, list[float]] = {}
+    abschnitte = diarization_service.diarize_waveform(_pipeline(ergebnis), {}, embeddings_out=sammlung)
+    assert sammlung == {} and len(abschnitte) == 2

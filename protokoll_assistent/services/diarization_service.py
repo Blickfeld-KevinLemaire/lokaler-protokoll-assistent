@@ -29,9 +29,15 @@ def diarize_waveform(
     waveform_dict: dict[str, Any],
     min_speakers: int | None = None,
     max_speakers: int | None = None,
+    embeddings_out: dict[str, list[float]] | None = None,
 ) -> list[dict[str, Any]]:
     """Fuehrt die Diarisierung aus und liefert eine einfache Liste globaler
-    Sprecherabschnitte ``[{"start", "end", "speaker"}]``."""
+    Sprecherabschnitte ``[{"start", "end", "speaker"}]``.
+
+    Wird ``embeddings_out`` uebergeben, traegt die Funktion dort je Sprecher
+    den Stimm-Embedding-Vektor ein -- sofern pyannote ihn mitliefert
+    (``DiarizeOutput.speaker_embeddings``, ab 4.x). Grundlage der
+    dauerhaften Sprecherprofile."""
     call_kwargs: dict[str, Any] = {}
     if min_speakers is not None:
         call_kwargs["min_speakers"] = min_speakers
@@ -53,11 +59,33 @@ def diarize_waveform(
     # Sprecherzuordnung und gehoert getrennt entschieden.
     annotation = getattr(ergebnis, "speaker_diarization", ergebnis)
 
+    if embeddings_out is not None:
+        embeddings_out.update(_embeddings_je_sprecher(ergebnis, annotation))
+
     turns = []
     for segment, _, speaker in annotation.itertracks(yield_label=True):
         turns.append({"start": float(segment.start), "end": float(segment.end), "speaker": str(speaker)})
     turns.sort(key=lambda turn: float(turn["start"]))  # type: ignore[arg-type]
     return turns
+
+
+def _embeddings_je_sprecher(ergebnis: Any, annotation: Any) -> dict[str, list[float]]:
+    """Ordnet ``speaker_embeddings`` (eine Zeile je Sprecher, in der
+    Reihenfolge von ``annotation.labels()``) den Sprecherbezeichnungen zu.
+    Fehlt das Feld oder passt die Zahl nicht, gibt es keine Embeddings --
+    lieber keine Profile als falsch zugeordnete."""
+    roh = getattr(ergebnis, "speaker_embeddings", None)
+    if roh is None:
+        return {}
+    try:
+        labels = [str(label) for label in annotation.labels()]
+        zeilen = [[float(x) for x in zeile] for zeile in roh]
+    except (AttributeError, TypeError, ValueError):
+        return {}
+    if len(labels) != len(zeilen):
+        return {}
+    # NaN (kein verwertbarer Abschnitt) taugt nicht als Stimmabdruck.
+    return {label: zeile for label, zeile in zip(labels, zeilen, strict=True) if zeile and all(x == x for x in zeile)}
 
 
 def extract_speaker_embedding(

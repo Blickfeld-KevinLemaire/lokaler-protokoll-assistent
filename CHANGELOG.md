@@ -23,6 +23,16 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
   Audiodatei (`audio_pfad`). Transkripte aus älteren Versionen enthalten
   beides nicht; dort weist die Anwendung darauf hin, neu zu transkribieren.
 
+- Dauerhafte Sprecherprofile (nur lokaler Modus): Stimmen lassen sich in der
+  Sprechertabelle mit „Als Profil speichern“ merken, nach ausdrücklicher
+  Bestätigung. In späteren Aufnahmen schlägt die Anwendung den Namen vor
+  (mit Fragezeichen bei knapper Ähnlichkeit) und übernimmt ihn nur auf
+  Klick. „Sprecherprofile verwalten …“ zeigt, benennt um und löscht Profile.
+  Die Stimmabdrücke (biometrische Daten) liegen nur lokal im Ordner
+  `sprecherprofile/`, der nicht versioniert und nicht in den Installer
+  aufgenommen wird. Die Ähnlichkeitsschwelle (0,72) ist noch nicht an
+  echten Aufnahmen abgestimmt.
+
 ### Changed
 
 - Sprecherzuordnung wortgenau: Wechselt der Sprecher mitten in einem

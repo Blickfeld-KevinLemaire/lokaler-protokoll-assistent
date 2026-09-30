@@ -86,7 +86,7 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 ; mitinstalliert. Alles, was wirklich gebraucht wird, enthaelt Dateien.
 Source: "..\dist\Protokoll-Assistent\*"; DestDir: "{app}"; \
     Flags: ignoreversion recursesubdirs; \
-    Excludes: "eingabe\*,ausgabe\*,zwischenstaende\*,einstellungen\*,Ergebnis des Meetings wie gew*"
+    Excludes: "eingabe\*,ausgabe\*,sprecherprofile\*,zwischenstaende\*,einstellungen\*,Ergebnis des Meetings wie gew*"
 
 ; 2) Dieselben Programmdateien als Quelltext. Gebraucht werden sie nur im
 ;    lokalen Modus: Dort richtet 'bootstrap.py' eine eigene Umgebung mit
@@ -96,7 +96,7 @@ Source: "..\dist\Protokoll-Assistent\*"; DestDir: "{app}"; \
 ; (tests, __pycache__, ...) wenigstens leer mitinstalliert.
 Source: "..\protokoll_assistent\*"; DestDir: "{app}\protokoll_assistent"; \
     Flags: ignoreversion recursesubdirs; \
-    Excludes: "tests\*,__pycache__\*,*.pyc,runtime\*,logs\*,build\*,dist\*,dist-probe\*,.venv*\*,ausgabe\*"
+    Excludes: "tests\*,__pycache__\*,*.pyc,runtime\*,logs\*,build\*,dist\*,dist-probe\*,.venv*\*,ausgabe\*,sprecherprofile\*"
 
 ; 3) Mitgelieferte Python-Laufzeitumgebung. Damit muss der Anwender kein
 ;    Python selbst installieren. Es ist ein eigenstaendiger Build von

@@ -155,3 +155,47 @@ def test_show_error_nutzt_messagebox(qt_app, monkeypatch):
     assert aufrufe == [("Titel", "Meldung")]
 
 
+
+
+# --------------------------------------------------------------------------
+# SprecherprofileDialog
+# --------------------------------------------------------------------------
+def test_profildialog_listet_benennt_um_und_loescht(qt_app, tmp_path, monkeypatch):
+    from PySide6.QtWidgets import QInputDialog, QMessageBox
+
+    from protokoll_assistent.services import sprecherprofil_service as sp
+
+    sp.profil_speichern("Anna", [1.0, 0.0], tmp_path)
+    dialog = dialogs.SprecherprofileDialog(ordner=tmp_path)
+    assert dialog.liste.count() == 1 and "Anna" in dialog.liste.item(0).text()
+
+    monkeypatch.setattr(QInputDialog, "getText", staticmethod(lambda *a, **k: ("Anna Muster", True)))
+    dialog._umbenennen()
+    assert [p["name"] for p in sp.lade_profile(tmp_path)] == ["Anna Muster"]
+
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a: QMessageBox.No))
+    dialog._loeschen()
+    assert len(sp.lade_profile(tmp_path)) == 1
+
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a: QMessageBox.Yes))
+    dialog._loeschen()
+    assert sp.lade_profile(tmp_path) == []
+    assert not dialog.loeschen_button.isEnabled()
+    dialog._umbenennen()  # ohne Auswahl: darf nicht werfen
+    dialog._loeschen()
+
+
+def test_profildialog_meldet_umbenennfehler(qt_app, tmp_path, monkeypatch):
+    from PySide6.QtWidgets import QInputDialog
+
+    from protokoll_assistent.services import sprecherprofil_service as sp
+
+    sp.profil_speichern("Anna", [1.0, 0.0], tmp_path)
+    sp.profil_speichern("Ben", [0.0, 1.0], tmp_path)
+    dialog = dialogs.SprecherprofileDialog(ordner=tmp_path)
+    fehler = []
+    monkeypatch.setattr(dialogs, "show_error", lambda parent, titel, text: fehler.append(titel))
+    monkeypatch.setattr(QInputDialog, "getText", staticmethod(lambda *a, **k: ("Ben", True)))
+    dialog.liste.setCurrentRow(0)
+    dialog._umbenennen()
+    assert fehler == ["Umbenennen nicht möglich"]

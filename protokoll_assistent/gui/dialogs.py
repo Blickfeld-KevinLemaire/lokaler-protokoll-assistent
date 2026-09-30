@@ -7,17 +7,26 @@ Den Systemprompt bearbeitet der Anwender inzwischen direkt im Hauptfenster
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
+    QHBoxLayout,
     QHeaderView,
+    QInputDialog,
     QLabel,
+    QListWidget,
+    QListWidgetItem,
     QMessageBox,
+    QPushButton,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
 )
+
+from protokoll_assistent.services import sprecherprofil_service
 
 
 class DiagnosticsRunner(QThread):
@@ -90,6 +99,92 @@ class DiagnosticsDialog(QDialog):
         for row, check in enumerate(results):
             self.table.setItem(row, 0, QTableWidgetItem(check.label))
             self.table.setItem(row, 1, render_check_item(check))
+
+
+class SprecherprofileDialog(QDialog):
+    """Verwaltung der gespeicherten Sprecherprofile: ansehen, umbenennen,
+    loeschen. Neue Profile entstehen in der Sprechertabelle des Hauptfensters."""
+
+    def __init__(self, parent=None, ordner: Path | None = None):
+        super().__init__(parent)
+        self._ordner = ordner
+        self.setWindowTitle("Sprecherprofile verwalten")
+        self.resize(520, 420)
+
+        layout = QVBoxLayout(self)
+        hinweis = QLabel(
+            "Gespeicherte Stimmen werden zur Wiedererkennung in neuen Aufnahmen benutzt. "
+            "Ein Stimmabdruck ist ein biometrisches Datum: Er bleibt ausschließlich auf diesem "
+            "Rechner und wird nie übertragen. Jedes Profil lässt sich hier löschen.",
+            self,
+        )
+        hinweis.setWordWrap(True)
+        layout.addWidget(hinweis)
+
+        self.liste = QListWidget(self)
+        layout.addWidget(self.liste)
+
+        zeile = QHBoxLayout()
+        self.umbenennen_button = QPushButton("Umbenennen …", self)
+        self.umbenennen_button.clicked.connect(self._umbenennen)
+        self.loeschen_button = QPushButton("Löschen …", self)
+        self.loeschen_button.clicked.connect(self._loeschen)
+        zeile.addWidget(self.umbenennen_button)
+        zeile.addWidget(self.loeschen_button)
+        zeile.addStretch(1)
+        layout.addLayout(zeile)
+
+        knoepfe = QDialogButtonBox(QDialogButtonBox.Close, self)
+        knoepfe.rejected.connect(self.reject)
+        knoepfe.accepted.connect(self.accept)
+        layout.addWidget(knoepfe)
+
+        self._laden()
+
+    def _laden(self) -> None:
+        self.liste.clear()
+        for profil in sprecherprofil_service.lade_profile(self._ordner):
+            proben = int(profil.get("anzahl_proben", 1))
+            eintrag = QListWidgetItem(f"{profil['name']}  ({proben} {'Probe' if proben == 1 else 'Proben'})")
+            eintrag.setData(Qt.UserRole, profil["id"])
+            self.liste.addItem(eintrag)
+        leer = self.liste.count() == 0
+        self.umbenennen_button.setEnabled(not leer)
+        self.loeschen_button.setEnabled(not leer)
+        if not leer:
+            self.liste.setCurrentRow(0)
+
+    def _gewaehlte_id(self) -> str | None:
+        eintrag = self.liste.currentItem()
+        return None if eintrag is None else str(eintrag.data(Qt.UserRole))
+
+    def _umbenennen(self) -> None:
+        profil_id = self._gewaehlte_id()
+        if profil_id is None:
+            return
+        aktuell = self.liste.currentItem().text().rsplit("  (", 1)[0]
+        name, ok = QInputDialog.getText(self, "Profil umbenennen", "Neuer Name:", text=aktuell)
+        if not ok:
+            return
+        try:
+            sprecherprofil_service.profil_umbenennen(profil_id, name, self._ordner)
+        except sprecherprofil_service.ProfilFehler as error:
+            show_error(self, "Umbenennen nicht möglich", str(error))
+            return
+        self._laden()
+
+    def _loeschen(self) -> None:
+        profil_id = self._gewaehlte_id()
+        if profil_id is None:
+            return
+        name = self.liste.currentItem().text().rsplit("  (", 1)[0]
+        antwort = QMessageBox.question(
+            self, "Profil löschen", f"Das Profil „{name}“ und der gespeicherte Stimmabdruck werden gelöscht."
+        )
+        if antwort != QMessageBox.Yes:
+            return
+        sprecherprofil_service.profil_loeschen(profil_id, self._ordner)
+        self._laden()
 
 
 def show_error(parent, title: str, message: str) -> None:

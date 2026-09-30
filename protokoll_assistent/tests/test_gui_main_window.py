@@ -1339,3 +1339,94 @@ def test_sprecher_exportieren_abgebrochen_und_fehler(fenster, tmp_path, monkeypa
     monkeypatch.setattr(mw.sprecher_export_service, "sprecher_exportieren", werfen)
     fenster._export_speaker("SPEAKER_00")
     assert gemeldete_fehler == ["Export nicht möglich"]
+
+
+# --------------------------------------------------------------------------
+# Sprecherprofile
+# --------------------------------------------------------------------------
+@pytest.fixture
+def profilordner(tmp_path, monkeypatch):
+    """Sprecherprofile duerfen nie in den echten Ordner der Anwendung schreiben."""
+    from protokoll_assistent.services import sprecherprofil_service
+
+    ordner = tmp_path / "profile"
+    monkeypatch.setattr(sprecherprofil_service, "get_sprecherprofile_dir", lambda: ordner)
+    return ordner
+
+
+def _ergebnis_mit_embeddings(tmp_path, embeddings):
+    from protokoll_assistent.services import sprecherprofil_service
+
+    ergebnis = _ergebnis_mit_sprecher(tmp_path)
+    sprecherprofil_service.speichere_lauf_embeddings(tmp_path, embeddings)
+    return ergebnis
+
+
+def test_profilzelle_bietet_speichern_an_wenn_stimmabdruck_vorliegt(fenster, tmp_path, profilordner):
+    fenster._populate_speaker_table(_ergebnis_mit_embeddings(tmp_path, {"SPEAKER_00": [1.0, 0.0]}))
+    knoepfe = [k.text() for k in fenster.speaker_table.cellWidget(0, 5).findChildren(mw.QPushButton)]
+    assert knoepfe == ["Als Profil speichern"]
+
+
+def test_profilzelle_ohne_stimmabdruck_zeigt_strich(fenster, tmp_path, profilordner):
+    fenster._populate_speaker_table(_ergebnis_mit_sprecher(tmp_path))
+    zelle = fenster.speaker_table.cellWidget(0, 5)
+    assert zelle.findChildren(mw.QPushButton) == []
+    assert [label.text() for label in zelle.findChildren(mw.QLabel)] == ["–"]
+
+
+def test_profil_vorschlag_wird_angezeigt_und_nur_auf_klick_uebernommen(fenster, tmp_path, profilordner):
+    from protokoll_assistent.services import sprecherprofil_service
+
+    sprecherprofil_service.profil_speichern("Ben Muster", [1.0, 0.0])
+    fenster._populate_speaker_table(_ergebnis_mit_embeddings(tmp_path, {"SPEAKER_00": [1.0, 0.0]}))
+    zelle = fenster.speaker_table.cellWidget(0, 5)
+    assert "Ben Muster (1,00)" in [label.text() for label in zelle.findChildren(mw.QLabel)]
+    assert fenster.speaker_table.item(0, 3).text() == "Anna"  # noch nichts uebernommen
+
+    uebernehmen = next(k for k in zelle.findChildren(mw.QPushButton) if k.text() == "Vorschlag übernehmen")
+    uebernehmen.click()
+    assert fenster.speaker_table.item(0, 3).text() == "Ben Muster"
+
+
+def test_profil_speichern_nach_bestaetigung(fenster, tmp_path, profilordner, monkeypatch):
+    from protokoll_assistent.services import sprecherprofil_service
+
+    fenster._populate_speaker_table(_ergebnis_mit_embeddings(tmp_path, {"SPEAKER_00": [1.0, 0.0]}))
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a: QMessageBox.Yes))
+    monkeypatch.setattr(QMessageBox, "information", staticmethod(lambda *a: None))
+
+    fenster._save_speaker_profile("SPEAKER_00")
+
+    assert [p["name"] for p in sprecherprofil_service.lade_profile()] == ["Anna"]
+
+
+def test_profil_speichern_abgelehnt_oder_ohne_namen_speichert_nichts(fenster, tmp_path, profilordner, monkeypatch):
+    from protokoll_assistent.services import sprecherprofil_service
+
+    fenster._populate_speaker_table(_ergebnis_mit_embeddings(tmp_path, {"SPEAKER_00": [1.0, 0.0]}))
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a: QMessageBox.No))
+    fenster._save_speaker_profile("SPEAKER_00")
+    assert sprecherprofil_service.lade_profile() == []
+
+    fenster.speaker_table.item(0, 3).setText("Sprecher 1")
+    monkeypatch.setattr(mw.QInputDialog, "getText", staticmethod(lambda *a, **k: ("", False)))
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a: QMessageBox.Yes))
+    fenster._save_speaker_profile("SPEAKER_00")
+    assert sprecherprofil_service.lade_profile() == []
+
+
+def test_profil_speichern_meldet_fehler(fenster, tmp_path, profilordner, monkeypatch, gemeldete_fehler):
+    fenster._populate_speaker_table(_ergebnis_mit_embeddings(tmp_path, {"SPEAKER_00": [1.0, 0.0]}))
+    fenster.speaker_table.item(0, 3).setText("Sprecher 1")
+    monkeypatch.setattr(mw.QInputDialog, "getText", staticmethod(lambda *a, **k: ("   ", True)))
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a: QMessageBox.Yes))
+    fenster._save_speaker_profile("SPEAKER_00")
+    assert gemeldete_fehler == ["Profil nicht gespeichert"]
+
+
+def test_profile_verwalten_oeffnet_dialog(fenster, monkeypatch):
+    geoeffnet = []
+    monkeypatch.setattr(mw.SprecherprofileDialog, "exec", lambda self: geoeffnet.append(True))
+    fenster._manage_speaker_profiles()
+    assert geoeffnet == [True]

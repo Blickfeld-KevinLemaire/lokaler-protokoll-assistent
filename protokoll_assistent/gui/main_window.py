@@ -62,7 +62,7 @@ from PySide6.QtWidgets import (
 )
 
 # Verarbeitungskette und Hilfsmodule der Anwendung.
-from protokoll_assistent.gui.dialogs import show_error
+from protokoll_assistent.gui.dialogs import SprecherprofileDialog, show_error
 from protokoll_assistent.gui.settings_dialog import DATENSCHUTZ_HINWEIS_API, SettingsDialog
 from protokoll_assistent.gui.strings import PRIVACY_NOTICE
 from protokoll_assistent.gui.worker import (
@@ -81,6 +81,7 @@ from protokoll_assistent.services import (
     pipeline_service,
     secret_store,
     sprecher_export_service,
+    sprecherprofil_service,
 )
 from protokoll_assistent.utils import app_config
 from protokoll_assistent.utils.paths import (
@@ -170,6 +171,7 @@ class MainWindow(QMainWindow):
         self._start_time: float | None = None
         self._chunk_progress = (0, 0)
         self._last_transcription_result: pipeline_service.TranscriptionResult | None = None
+        self._speaker_embeddings: dict[str, list[float]] = {}
         self._last_protocol_result: pipeline_service.ProtocolResult | None = None
         self._selected_transcript_path: Path | None = None
         self._hash_worker: DateiHashWorker | None = None
@@ -703,9 +705,9 @@ class MainWindow(QMainWindow):
         group = QGroupBox("Sprecherzuordnung", self)
         layout = QVBoxLayout(group)
 
-        self.speaker_table = QTableWidget(0, 5, self)
+        self.speaker_table = QTableWidget(0, 6, self)
         self.speaker_table.setHorizontalHeaderLabels(
-            ["Technische Sprecher-ID", "Segmente", "Sprechdauer", "Name", "Stimme"]
+            ["Technische Sprecher-ID", "Segmente", "Sprechdauer", "Name", "Stimme", "Profil"]
         )
         self.speaker_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
         self.speaker_table.setEditTriggers(QAbstractItemView.DoubleClicked | QAbstractItemView.SelectedClicked)
@@ -715,6 +717,11 @@ class MainWindow(QMainWindow):
         self.apply_names_button.setEnabled(False)
         self.apply_names_button.clicked.connect(self._apply_speaker_names)
         layout.addWidget(self.apply_names_button)
+
+        self.profiles_button = QPushButton("Sprecherprofile verwalten …", self)
+        self.profiles_button.setToolTip("Gespeicherte Stimmen ansehen, umbenennen oder löschen.")
+        self.profiles_button.clicked.connect(self._manage_speaker_profiles)
+        layout.addWidget(self.profiles_button)
 
         return group
 
@@ -1367,6 +1374,14 @@ class MainWindow(QMainWindow):
     def _populate_speaker_table(self, result: pipeline_service.TranscriptionResult) -> None:
         data = json.loads(result.export_paths.json.read_text(encoding="utf-8"))
         entries = data.get("sprecher_zuordnung", [])
+        # Stimmabdruecke dieses Laufs gibt es nur im lokalen Modus.
+        arbeitsordner = getattr(result, "work_dir", None)
+        self._speaker_embeddings = (
+            sprecherprofil_service.lade_lauf_embeddings(arbeitsordner) if arbeitsordner else {}
+        )
+        vorschlaege = sprecherprofil_service.finde_vorschlaege(
+            self._speaker_embeddings, sprecherprofil_service.lade_profile()
+        )
         self.speaker_table.setRowCount(len(entries))
         for row, entry in enumerate(entries):
             id_item = QTableWidgetItem(entry["sprecher_id"])
@@ -1383,6 +1398,9 @@ class MainWindow(QMainWindow):
 
             self.speaker_table.setItem(row, 3, QTableWidgetItem(entry["anzeigename"]))
             self.speaker_table.setCellWidget(row, 4, self._build_voice_buttons(entry["sprecher_id"]))
+            self.speaker_table.setCellWidget(
+                row, 5, self._build_profile_cell(entry["sprecher_id"], vorschlaege.get(entry["sprecher_id"]))
+            )
 
         self.apply_names_button.setEnabled(len(entries) > 0)
 
@@ -1400,6 +1418,74 @@ class MainWindow(QMainWindow):
         layout.addWidget(hoeren)
         layout.addWidget(exportieren)
         return zelle
+
+    def _build_profile_cell(self, sprecher_id: str, vorschlag: dict[str, Any] | None) -> QWidget:
+        """Zelle 'Profil': Namensvorschlag aus einem gespeicherten Profil oder
+        'Als Profil speichern'. Uebernommen wird nichts ohne Klick."""
+        zelle = QWidget(self.speaker_table)
+        layout = QHBoxLayout(zelle)
+        layout.setContentsMargins(2, 0, 2, 0)
+        if vorschlag is not None:
+            fragezeichen = "" if vorschlag["sicher"] else "?"
+            aehnlichkeit = f"{vorschlag['aehnlichkeit']:.2f}".replace(".", ",")
+            layout.addWidget(QLabel(f"{vorschlag['name']}{fragezeichen} ({aehnlichkeit})", zelle))
+            uebernehmen = QPushButton("Vorschlag übernehmen", zelle)
+            uebernehmen.clicked.connect(
+                functools.partial(self._accept_profile_suggestion, sprecher_id, vorschlag["name"])
+            )
+            layout.addWidget(uebernehmen)
+        if sprecher_id in self._speaker_embeddings:
+            speichern = QPushButton("Als Profil speichern", zelle)
+            speichern.setToolTip("Merkt sich die Stimme dieses Sprechers für spätere Aufnahmen.")
+            speichern.clicked.connect(functools.partial(self._save_speaker_profile, sprecher_id))
+            layout.addWidget(speichern)
+        elif vorschlag is None:
+            layout.addWidget(QLabel("–", zelle))
+        return zelle
+
+    def _row_of_speaker(self, sprecher_id: str) -> int | None:
+        for row in range(self.speaker_table.rowCount()):
+            zelle = self.speaker_table.item(row, 0)
+            if zelle is not None and zelle.text() == sprecher_id:
+                return row
+        return None
+
+    def _accept_profile_suggestion(self, sprecher_id: str, name: str, _checked: bool = False) -> None:
+        row = self._row_of_speaker(sprecher_id)
+        if row is not None:
+            self.speaker_table.setItem(row, 3, QTableWidgetItem(name))
+
+    def _save_speaker_profile(self, sprecher_id: str, _checked: bool = False) -> None:
+        row = self._row_of_speaker(sprecher_id)
+        embedding = self._speaker_embeddings.get(sprecher_id)
+        if row is None or not embedding:
+            return
+        zelle = self.speaker_table.item(row, 3)
+        name = zelle.text().strip() if zelle is not None else ""
+        if not name or name.startswith("Sprecher "):
+            name, ok = QInputDialog.getText(self, "Profil speichern", "Name der Person:")
+            if not ok:
+                return
+        antwort = QMessageBox.question(
+            self,
+            "Stimmabdruck speichern?",
+            f"Der Stimmabdruck von „{name.strip()}“ wird ausschließlich lokal auf diesem Rechner "
+            "gespeichert und für die Wiedererkennung in späteren Aufnahmen benutzt. Ein Stimmabdruck ist "
+            "ein biometrisches Datum - bitte nur mit Einverständnis der Person speichern. "
+            "Unter „Sprecherprofile verwalten“ lässt er sich jederzeit löschen.\n\nSpeichern?",
+        )
+        if antwort != QMessageBox.Yes:
+            return
+        try:
+            sprecherprofil_service.profil_speichern(name, embedding)
+        except (sprecherprofil_service.ProfilFehler, OSError) as error:
+            show_error(self, "Profil nicht gespeichert", str(error))
+            return
+        self.speaker_table.setItem(row, 3, QTableWidgetItem(name.strip()))
+        QMessageBox.information(self, "Profil gespeichert", f"„{name.strip()}“ wird künftig wiedererkannt.")
+
+    def _manage_speaker_profiles(self) -> None:
+        SprecherprofileDialog(self).exec()
 
     def _listen_to_speaker(self, sprecher_id: str, _checked: bool = False) -> None:
         if self._last_transcription_result is None:
