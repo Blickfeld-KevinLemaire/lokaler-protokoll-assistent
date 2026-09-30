@@ -207,6 +207,17 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central)
         root_layout = QVBoxLayout(central)
 
+        # Kopfzeile im Stil einer modernen Arbeitsflaeche: Titel mit
+        # Untertitel, darunter der Datenschutzhinweis und die Einstellungen.
+        title_label = QLabel("Protokoll-Assistent", self)
+        title_label.setObjectName("PageTitle")
+        subtitle_label = QLabel(
+            "Aufnahme oder Datei transkribieren, Sprecher zuordnen und ein Protokoll erstellen.", self
+        )
+        subtitle_label.setObjectName("PageSubtitle")
+        root_layout.addWidget(title_label)
+        root_layout.addWidget(subtitle_label)
+
         header_row = QHBoxLayout()
         privacy_label = QLabel(PRIVACY_NOTICE, self)
         privacy_label.setObjectName("PrivacyBanner")
@@ -322,6 +333,7 @@ class MainWindow(QMainWindow):
         self.recording_pause_button.hide()
         button_row.addWidget(self.recording_pause_button)
         self.recording_stop_button = QPushButton("Aufnahme beenden", self)
+        self.recording_stop_button.setObjectName("DangerButton")
         self.recording_stop_button.clicked.connect(self._stop_recording)
         self.recording_stop_button.hide()
         button_row.addWidget(self.recording_stop_button)
@@ -640,9 +652,11 @@ class MainWindow(QMainWindow):
 
         button_row = QHBoxLayout()
         self.start_button = QPushButton("Transkription starten", self)
+        self.start_button.setObjectName("PrimaryButton")
         self.start_button.clicked.connect(self._start_transcription)
         button_row.addWidget(self.start_button)
         self.cancel_button = QPushButton("Abbrechen", self)
+        self.cancel_button.setObjectName("DangerButton")
         self.cancel_button.setEnabled(False)
         self.cancel_button.clicked.connect(self._cancel_transcription)
         button_row.addWidget(self.cancel_button)
@@ -976,9 +990,11 @@ class MainWindow(QMainWindow):
 
         button_row = QHBoxLayout()
         self.protocol_start_button = QPushButton("Nachbearbeitung starten", self)
+        self.protocol_start_button.setObjectName("PrimaryButton")
         self.protocol_start_button.clicked.connect(self._start_protocol)
         button_row.addWidget(self.protocol_start_button)
         self.protocol_cancel_button = QPushButton("Abbrechen", self)
+        self.protocol_cancel_button.setObjectName("DangerButton")
         self.protocol_cancel_button.setEnabled(False)
         self.protocol_cancel_button.clicked.connect(self._cancel_protocol)
         button_row.addWidget(self.protocol_cancel_button)

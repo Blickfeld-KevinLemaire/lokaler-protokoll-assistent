@@ -53,6 +53,9 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 ### Changed
 
+- Oberfläche näher an moderne Arbeitsflächen gerückt: Titelzeile mit
+  Untertitel, größere Rundungen, blauer Akzent, „Starten“-Schaltflächen
+  hervorgehoben und „Abbrechen“/„Aufnahme beenden“ rot.
 - Sprecherzuordnung wortgenau: Wechselt der Sprecher mitten in einem
   Segment, wird das Segment an dieser Stelle geteilt. Vorher ging das ganze
   Segment an den Sprecher mit der größten Überlappung, der Rest war falsch

@@ -9,18 +9,19 @@ runde Ecken, eine Akzentfarbe fuer primaere Aktionen).
 
 from __future__ import annotations
 
-ACCENT = "#2f6fed"
-ACCENT_HOVER = "#255bc4"
+ACCENT = "#2563eb"
+ACCENT_HOVER = "#1d4fc4"
 ACCENT_TEXT = "#ffffff"
-BACKGROUND = "#f4f6f9"
+BACKGROUND = "#f5f7fb"
 SURFACE = "#ffffff"
-BORDER = "#dde1e8"
+BORDER = "#e3e7ee"
 TEXT_PRIMARY = "#1c1e21"
 TEXT_SECONDARY = "#5b6270"
 SUCCESS = "#1f8a4c"
 SUCCESS_BG = "#eaf6ee"
 SUCCESS_BORDER = "#bfe6cc"
-DANGER = "#c0392b"
+DANGER = "#d93025"
+DANGER_HOVER = "#b3261e"
 
 APP_QSS = f"""
 QWidget {{
@@ -40,9 +41,9 @@ QWidget#WizardRoot, QWidget#WizardSidebar, QWidget#WizardPage {{
 QGroupBox {{
     background-color: {SURFACE};
     border: 1px solid {BORDER};
-    border-radius: 10px;
+    border-radius: 14px;
     margin-top: 16px;
-    padding: 14px;
+    padding: 16px;
     font-weight: 600;
 }}
 QGroupBox::title {{
@@ -54,8 +55,8 @@ QGroupBox::title {{
 QPushButton {{
     background-color: {SURFACE};
     border: 1px solid {BORDER};
-    border-radius: 8px;
-    padding: 8px 16px;
+    border-radius: 10px;
+    padding: 9px 18px;
 }}
 QPushButton:hover {{
     border-color: {ACCENT};
@@ -82,11 +83,25 @@ QPushButton#PrimaryButton:disabled {{
     color: #eef2fc;
 }}
 
+QPushButton#DangerButton {{
+    background-color: {DANGER};
+    border: none;
+    color: {ACCENT_TEXT};
+    font-weight: 600;
+}}
+QPushButton#DangerButton:hover {{
+    background-color: {DANGER_HOVER};
+}}
+QPushButton#DangerButton:disabled {{
+    background-color: #f0b8b4;
+    color: #fdf1f0;
+}}
+
 QLineEdit, QComboBox, QSpinBox, QPlainTextEdit, QTextEdit, QListWidget {{
     background-color: {SURFACE};
     border: 1px solid {BORDER};
-    border-radius: 6px;
-    padding: 5px 8px;
+    border-radius: 8px;
+    padding: 6px 10px;
     selection-background-color: {ACCENT};
     selection-color: white;
 }}
@@ -121,8 +136,9 @@ QProgressBar::chunk {{
 QTableWidget {{
     background-color: {SURFACE};
     border: 1px solid {BORDER};
-    border-radius: 8px;
+    border-radius: 12px;
     gridline-color: {BORDER};
+    alternate-background-color: {BACKGROUND};
 }}
 QHeaderView::section {{
     background-color: {BACKGROUND};
@@ -152,7 +168,7 @@ QLabel#StepIndicatorActive {{
 }}
 
 QLabel#PageTitle {{
-    font-size: 17pt;
+    font-size: 20pt;
     font-weight: 700;
 }}
 QLabel#PageSubtitle {{
