@@ -2,7 +2,9 @@
 das lokale Ollama-Modell.
 
 Stufe 1: jeder Transkript-Chunk wird einzeln analysiert.
-Stufe 2: benachbarte Chunk-Analysen werden gruppenweise konsolidiert.
+Stufe 2: benachbarte Chunk-Analysen werden gruppenweise konsolidiert. Passt
+das Ergebnis danach noch nicht in den Kontext der Stufe 3, wird in weiteren
+Runden erneut verdichtet (hoechstens ``MAX_VERDICHTUNGSRUNDEN`` insgesamt).
 Stufe 3: alle konsolidierten Zwischenanalysen werden zum finalen,
 strukturierten Protokoll zusammengefuehrt.
 
@@ -27,6 +29,12 @@ from typing import Any
 
 from protokoll_assistent.services import ollama_service
 from protokoll_assistent.utils.json_validation import validate_chunk_analysis_json, validate_protocol_json
+
+# Stufe 2 laeuft immer mindestens einmal. Danach wird weiter verdichtet, solange
+# die Zwischenanalysen zusammen laenger als dieser Wert sind (Zeichen der
+# JSON-Darstellung; grob 4 Zeichen je Token) und mehr als eine uebrig ist.
+MAX_KONTEXT_ZEICHEN = 40_000
+MAX_VERDICHTUNGSRUNDEN = 8
 
 GenerateFn = Callable[[str, str], dict[str, Any]]
 Validator = Callable[[Any], tuple[bool, list[str]]]
@@ -186,6 +194,40 @@ def run_stage3_final_protocol(
     return _load_or_compute(output_path, compute)
 
 
+def _verdichtungsrunde(
+    analysen: list[dict[str, Any]],
+    runde: int,
+    gruppengroesse: int,
+    zusammen_dir: Path,
+    system_prompt: str,
+    generate_fn: GenerateFn,
+    raw_dump_dir: Path,
+    progress_cb: Callable[[str, int, int], None] | None,
+) -> list[dict[str, Any]]:
+    """Eine Verdichtungsrunde: fasst je ``gruppengroesse`` benachbarte
+    Analysen zu einer zusammen. Runde 1 behaelt die urspruenglichen
+    Dateinamen (``zwischenanalyse_0001.json``), damit vorhandene
+    Zwischenstaende aus aelteren Laeufen weiter genutzt werden."""
+    gruppen = [analysen[i : i + gruppengroesse] for i in range(0, len(analysen), gruppengroesse)]
+    stufe = "stufe2_zwischenzusammenfuehrung" if runde == 1 else f"stufe2_verdichtung_runde_{runde}"
+    ergebnis = []
+    for index, gruppe in enumerate(gruppen):
+        if progress_cb:
+            progress_cb(stufe, index, len(gruppen))
+        if runde == 1:
+            name = f"zwischenanalyse_{index + 1:04d}.json"
+        else:
+            name = f"zwischenanalyse_r{runde:02d}_{index + 1:04d}.json"
+        pfad = zusammen_dir / name
+        if len(gruppe) == 1:
+            if not pfad.is_file():
+                pfad.write_text(json.dumps(gruppe[0], ensure_ascii=False, indent=2), encoding="utf-8")
+            ergebnis.append(json.loads(pfad.read_text(encoding="utf-8")))
+        else:
+            ergebnis.append(run_stage2_merge(gruppe, index, system_prompt, generate_fn, pfad, raw_dump_dir))
+    return ergebnis
+
+
 def run_full_protocol_pipeline(
     chunk_texts: list[dict[str, Any]],
     work_dir: Path,
@@ -193,6 +235,7 @@ def run_full_protocol_pipeline(
     generate_fn: GenerateFn | None = None,
     group_size: int = 4,
     progress_cb: Callable[[str, int, int], None] | None = None,
+    max_kontext_zeichen: int = MAX_KONTEXT_ZEICHEN,
 ) -> dict[str, Any]:
     """``chunk_texts``: Liste von ``{"index", "start_str", "end_str", "text"}``.
 
@@ -223,19 +266,25 @@ def run_full_protocol_pipeline(
         )
         stage1_results.append(result)
 
-    groups = [stage1_results[i : i + group_size] for i in range(0, len(stage1_results), group_size)]
-    consolidated = []
-    for group_index, group in enumerate(groups):
-        if progress_cb:
-            progress_cb("stufe2_zwischenzusammenfuehrung", group_index, len(groups))
-        path = zusammen_dir / f"zwischenanalyse_{group_index + 1:04d}.json"
-        if len(group) == 1:
-            if not path.is_file():
-                path.write_text(json.dumps(group[0], ensure_ascii=False, indent=2), encoding="utf-8")
-            result = json.loads(path.read_text(encoding="utf-8"))
-        else:
-            result = run_stage2_merge(group, group_index, system_prompt, generate_fn, path, raw_dump_dir)
-        consolidated.append(result)
+    consolidated = stage1_results
+    runde = 1
+    while True:
+        gruppengroesse = group_size if runde == 1 else max(group_size, 2)
+        consolidated = _verdichtungsrunde(
+            consolidated,
+            runde,
+            gruppengroesse,
+            zusammen_dir,
+            system_prompt,
+            generate_fn,
+            raw_dump_dir,
+            progress_cb,
+        )
+        if len(consolidated) <= 1 or runde >= MAX_VERDICHTUNGSRUNDEN:
+            break
+        if len(json.dumps(consolidated, ensure_ascii=False, indent=2)) <= max_kontext_zeichen:
+            break
+        runde += 1
 
     if progress_cb:
         progress_cb("stufe3_gesamtprotokoll", 0, 1)

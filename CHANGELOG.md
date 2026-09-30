@@ -8,6 +8,14 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+### Added
+
+- Sehr lange Aufnahmen: Die Verdichtung der Teilanalysen (Stufe 2) läuft
+  jetzt in mehreren Runden, bis das Ergebnis in den Kontext der
+  Gesamtprotokoll-Stufe passt (höchstens 8 Runden). Vorher gab es genau eine
+  Runde, und bei sehr langen Aufnahmen konnte das Kontextfenster des Modells
+  überlaufen. Zwischenstände je Runde bleiben fortsetzbar.
+
 ### Changed
 
 - Sprecherzuordnung wortgenau: Wechselt der Sprecher mitten in einem
