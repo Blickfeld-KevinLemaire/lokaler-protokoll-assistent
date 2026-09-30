@@ -198,3 +198,32 @@ def test_verdichtung_wiederaufnahme_fragt_fertige_runden_nicht_erneut(tmp_path):
         _chunks(4), tmp_path, "System", generate_fn2, group_size=2, max_kontext_zeichen=1
     )
     assert calls2["count"] == 1  # nur das finale Protokoll
+
+
+def test_stufe3_prompt_enthaelt_die_json_struktur_auch_ohne_systemprompt_struktur():
+    prompt = protocol_service.build_stage3_prompt([{"kernaussagen": ["a"]}])
+    assert '"unsichere_transkriptstellen": []' in prompt
+    assert "finale strukturierte Protokoll" in prompt
+
+
+def test_vorlagenwechsel_erzeugt_nur_das_gesamtprotokoll_neu(tmp_path):
+    generate_fn, calls = _fake_generate_factory()
+    protocol_service.run_full_protocol_pipeline(_chunks(2), tmp_path, "Vorlage A", generate_fn, group_size=2)
+    nach_erstem_lauf = calls["count"]
+
+    # Gleiche Vorlage: alles kommt aus dem Zwischenspeicher.
+    protocol_service.run_full_protocol_pipeline(_chunks(2), tmp_path, "Vorlage A", generate_fn, group_size=2)
+    assert calls["count"] == nach_erstem_lauf
+
+    # Andere Vorlage: nur Stufe 3 laeuft erneut.
+    protocol_service.run_full_protocol_pipeline(_chunks(2), tmp_path, "Vorlage B", generate_fn, group_size=2)
+    assert calls["count"] == nach_erstem_lauf + 1
+
+
+def test_altes_protokoll_ohne_prompt_hash_wird_einmal_neu_erzeugt(tmp_path):
+    generate_fn, calls = _fake_generate_factory()
+    protocol_service.run_full_protocol_pipeline(_chunks(1), tmp_path, "System", generate_fn, group_size=2)
+    (tmp_path / "zusammengefuehrt" / "protokoll.prompt.sha256").unlink()
+    vorher = calls["count"]
+    protocol_service.run_full_protocol_pipeline(_chunks(1), tmp_path, "System", generate_fn, group_size=2)
+    assert calls["count"] == vorher + 1

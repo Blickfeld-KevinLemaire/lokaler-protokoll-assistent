@@ -33,6 +33,24 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
   aufgenommen wird. Die Ähnlichkeitsschwelle (0,72) ist noch nicht an
   echten Aufnahmen abgestimmt.
 
+- Fünf neue Protokollvorlagen mit festen Abschnitten und Erfindungsverbot:
+  Formelles Protokoll, Projektbesprechung, Stand-up, Technische Besprechung
+  und Interview. Sie legen fest, was in welches Feld des Protokolls gehört
+  (z. B. Tagesordnungspunkte, Beschlüsse, Aufgaben mit Verantwortlichen und
+  Fristen).
+
+### Fixed
+
+- Wer die Vorlage wechselte und die Nachbearbeitung erneut startete, bekam
+  stillschweigend das fertige Protokoll der alten Vorlage zurück. Das
+  Gesamtprotokoll wird jetzt neu erzeugt, sobald sich der Systemprompt
+  ändert; Teilanalysen (Stufe 1 und 2) bleiben erhalten. Ein vorhandenes
+  Protokoll aus einer älteren Version wird dabei einmal neu erzeugt.
+- Die JSON-Struktur des Protokolls stand nur im mitgelieferten
+  Standard-Systemprompt. Jede Vorlage und jeder freie Text ersetzt ihn
+  vollständig - die letzte Stufe kannte die Struktur dann nicht. Sie wird
+  jetzt in der Anfrage der letzten Stufe selbst mitgegeben.
+
 ### Changed
 
 - Sprecherzuordnung wortgenau: Wechselt der Sprecher mitten in einem
