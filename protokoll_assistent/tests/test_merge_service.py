@@ -64,3 +64,12 @@ def test_full_merge_produces_sorted_global_segments_with_numbers():
     assert [segment["nummer"] for segment in merged] == list(range(1, len(merged) + 1))
     # Globale Zeitstempel: Chunk-Index 1 beginnt bei 590s, also global 595s.
     assert any(abs(segment["start"] - 595.0) < 0.001 for segment in merged)
+
+
+def test_to_global_segments_verschiebt_auch_die_wortzeiten():
+    from protokoll_assistent.services.merge_service import to_global_segments
+
+    lokal = [{"start": 1.0, "end": 2.0, "text": "a", "words": [{"word": " a", "start": 1.0, "end": 2.0}]}]
+    global_ = to_global_segments(lokal, 100.0)
+    assert global_[0]["words"] == [{"word": " a", "start": 101.0, "end": 102.0}]
+    assert lokal[0]["words"][0]["start"] == 1.0

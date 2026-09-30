@@ -408,7 +408,7 @@ def _run_transcription_stage(
 
     callbacks.on_stage("zusammenfuehrung", STAGE_LABELS["zusammenfuehrung"])
     merged_segments = merge_service.merge_chunk_transcripts(chunk_plans, chunk_segment_lists)
-    merged_segments = speaker_merge_service.assign_speakers_by_overlap(merged_segments, diarization_turns)
+    merged_segments = speaker_merge_service.assign_speakers_by_words(merged_segments, diarization_turns)
     callbacks.on_preview(build_preview_text(merged_segments, settings.enable_diarization))
 
     callbacks.on_stage("export_transkript", STAGE_LABELS["export_transkript"])

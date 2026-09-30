@@ -8,6 +8,14 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+### Changed
+
+- Sprecherzuordnung wortgenau: Wechselt der Sprecher mitten in einem
+  Segment, wird das Segment an dieser Stelle geteilt. Vorher ging das ganze
+  Segment an den Sprecher mit der größten Überlappung, der Rest war falsch
+  zugeordnet. Segmente ohne Wortzeitstempel (z. B. von API-Endpunkten, die
+  nur Segmente liefern) werden wie bisher zugeordnet.
+
 ## [0.3.1] - 2026-09-25
 
 ### Fixed

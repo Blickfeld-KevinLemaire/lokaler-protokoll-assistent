@@ -77,6 +77,19 @@ dieses Programm wird ausdruecklich die **LGPL-3.0** gewaehlt.
 
 * Lizenz: Python Software Foundation License, Version 2
 
+### Meet2Notes (0.6.2) — Vorbild, kein mitgelieferter Fremdcode
+
+* Lizenz: MIT — Copyright (c) 2026 Meet2Notes contributors
+  ([`lizenzen/meet2notes-mit.txt`](lizenzen/meet2notes-mit.txt))
+* Aus Meet2Notes stammen die **Ideen** fuer: wortgenaue Sprecherzuordnung,
+  wiederholte Verdichtung, Anhoeren/Export je Sprecher, dauerhafte
+  Sprecherprofile und Protokollvorlagen mit festen Abschnitten. Die
+  Umsetzung im Protokoll-Assistenten ist eigener Code auf Basis der
+  vorhandenen Dienste (pyannote-Embeddings, FFmpeg, Ollama/API).
+* Der Lizenztext liegt der Transparenz halber bei. Wird kuenftig Code oder
+  Text unveraendert oder angepasst uebernommen, gehoert der Kopfkommentar
+  der betroffenen Datei dazu.
+
 ### PyInstaller (6.22.3) — nur der Startlader
 
 * Lizenz: GPL-2.0 **mit Ausnahmeregelung**
