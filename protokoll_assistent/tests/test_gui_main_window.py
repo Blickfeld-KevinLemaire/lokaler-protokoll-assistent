@@ -1524,3 +1524,60 @@ def test_fehler_und_abbruch_setzen_protokollwunsch_zurueck(fenster, gemeldete_fe
     fenster._protokoll_nach_transkription = True
     fenster._on_transcription_cancelled()
     assert fenster._protokoll_nach_transkription is False
+
+
+# --------------------------------------------------------------------------
+# Aufnahmegeraete: Platzhalter, Neu einlesen
+# --------------------------------------------------------------------------
+def test_ohne_geraete_steht_ein_deaktivierter_platzhalter_im_auswahlfeld(fenster):
+    combo = fenster.recording_device_combo
+    assert combo.count() == 1
+    assert combo.itemText(0) == "Kein Aufnahmegerät verfügbar"
+    assert not combo.model().item(0).isEnabled()
+    assert app_config.load_config().get("aufnahmegeraet") != "Kein Aufnahmegerät verfügbar"
+
+
+def test_neu_einlesen_findet_nachtraeglich_angesteckte_geraete(fenster, monkeypatch):
+    assert not fenster.recording_start_button.isEnabled()
+    geraete = [_geraet("Headset-Mikrofon")]
+    monkeypatch.setattr(recording_service, "liste_aufnahmegeraete", lambda: geraete)
+    monkeypatch.setattr(recording_service, "standard_eingabe_index", lambda: None)
+
+    fenster.recording_refresh_button.click()
+
+    assert [fenster.recording_device_combo.itemText(i) for i in range(fenster.recording_device_combo.count())] == [
+        "Headset-Mikrofon (WASAPI)"
+    ]
+    assert fenster.recording_start_button.isEnabled()
+
+
+def test_neu_einlesen_fehler_zeigt_grund_und_platzhalter(fenster, monkeypatch):
+    def werfen():
+        raise OSError("PortAudio library not found")
+
+    monkeypatch.setattr(recording_service, "liste_aufnahmegeraete", werfen)
+    fenster._refresh_recording_devices()
+    assert "PortAudio library not found" in fenster.recording_hint_label.text()
+    assert fenster.recording_device_combo.itemText(0) == "Kein Aufnahmegerät verfügbar"
+    assert not fenster.recording_start_button.isEnabled()
+
+
+def test_neu_einlesen_waehrend_der_aufnahme_tut_nichts(fenster, monkeypatch):
+    fenster._recording = object()  # laeuft gerade
+    monkeypatch.setattr(
+        recording_service, "liste_aufnahmegeraete", lambda: (_ for _ in ()).throw(AssertionError("nicht aufrufen"))
+    )
+    fenster._refresh_recording_devices()
+    fenster._recording = None
+
+
+def test_audioquelle_dialog_bekommt_nur_echte_geraete(fenster, monkeypatch):
+    gesehen = {}
+
+    def dialog(geraete, aktuell, verfuegbar, parent):
+        gesehen["geraete"] = geraete
+        return _DialogAttrappe(False)
+
+    monkeypatch.setattr(mw, "AudioquelleDialog", dialog)
+    fenster._new_transcription()  # ohne Geraete: kein Platzhalter im Dialog
+    assert gesehen["geraete"] == []

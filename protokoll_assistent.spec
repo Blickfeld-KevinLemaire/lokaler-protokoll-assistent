@@ -35,6 +35,10 @@ PACKAGES_TO_COLLECT = (
     "huggingface_hub",
     "ctranslate2",
     "faster_whisper",
+    # Mikrofonaufnahme: 'sounddevice' laedt die PortAudio-Bibliothek aus
+    # '_sounddevice_data'. Fehlt sie in der EXE, ist die Geraeteliste leer.
+    "sounddevice",
+    "_sounddevice_data",
 )
 
 collected_datas = []
@@ -72,6 +76,8 @@ collected_hiddenimports += [
     "protokoll_assistent.services.recording_service",
     "protokoll_assistent.services.secret_store",
     "protokoll_assistent.services.speaker_merge_service",
+    "protokoll_assistent.services.sprecher_export_service",
+    "protokoll_assistent.services.sprecherprofil_service",
     "protokoll_assistent.services.transcription_service",
     "protokoll_assistent.utils.app_config",
     "protokoll_assistent.utils.diagnostics",

@@ -46,6 +46,12 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 ### Fixed
 
+- Aufnahmegerät-Auswahl: Der Pfeil des Auswahlfelds öffnete bei leerer Liste
+  nichts und sagte nicht, warum. Jetzt steht ein Platzhalter „Kein
+  Aufnahmegerät verfügbar“ darin, der Grund steht darunter, und „↻“ liest die
+  Geräte neu ein (z. B. nach dem Anstecken eines Headsets). Auswahllisten
+  klappen unter dem Feld auf. Die gebaute EXE bündelt jetzt ausdrücklich
+  `sounddevice` samt PortAudio-Bibliothek.
 - Wer die Vorlage wechselte und die Nachbearbeitung erneut startete, bekam
   stillschweigend das fertige Protokoll der alten Vorlage zurück. Das
   Gesamtprotokoll wird jetzt neu erzeugt, sobald sich der Systemprompt

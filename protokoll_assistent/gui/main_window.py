@@ -318,6 +318,11 @@ class MainWindow(QMainWindow):
         self.recording_device_combo = QComboBox(self)
         self.recording_device_combo.currentIndexChanged.connect(self._on_recording_device_changed)
         device_row.addWidget(self.recording_device_combo, stretch=1)
+        self.recording_refresh_button = QPushButton("↻", self)
+        self.recording_refresh_button.setToolTip("Aufnahmegeräte neu einlesen (z. B. nach dem Anstecken eines Headsets).")
+        self.recording_refresh_button.setFixedWidth(40)
+        self.recording_refresh_button.clicked.connect(self._refresh_recording_devices)
+        device_row.addWidget(self.recording_refresh_button)
         layout.addLayout(device_row)
 
         self.recording_hint_label = QLabel("", self)
@@ -357,12 +362,31 @@ class MainWindow(QMainWindow):
         self._populate_recording_devices()
         return group
 
+    def _show_no_recording_device(self) -> None:
+        """Statt eines leeren Auswahlfelds (dessen Pfeil nichts oeffnet und
+        keine Erklaerung bietet) steht ein deaktivierter Platzhalter in der
+        Liste; der Grund steht darunter im Hinweis."""
+        combo = self.recording_device_combo
+        combo.blockSignals(True)
+        combo.clear()
+        combo.addItem("Kein Aufnahmegerät verfügbar")
+        eintrag = combo.model().item(0)
+        if eintrag is not None:
+            eintrag.setEnabled(False)
+        combo.blockSignals(False)
+
+    def _refresh_recording_devices(self) -> None:
+        if self._recording is not None:
+            return
+        self._populate_recording_devices()
+
     def _populate_recording_devices(self) -> None:
         try:
             aufnahme_modul = lade_recording_service()
             self._recording_devices = aufnahme_modul.liste_aufnahmegeraete()
         except ImportError as error:
             self._recording_devices = []
+            self._show_no_recording_device()
             self.recording_hint_label.setText(
                 "Die Mikrofonaufnahme steht in dieser Laufzeitumgebung nicht zur "
                 f"Verfügung ({error}). Alles andere funktioniert unverändert; eine "
@@ -372,12 +396,18 @@ class MainWindow(QMainWindow):
             return
         except Exception as error:  # PortAudio-Fehler in ungewoehnlicher Umgebung
             self._recording_devices = []
+            self._show_no_recording_device()
             self.recording_hint_label.setText(f"Aufnahmegeräte konnten nicht ermittelt werden: {error}")
             self.recording_start_button.setEnabled(False)
             return
 
         if not self._recording_devices:
-            self.recording_hint_label.setText("Keine Audioeingabegeräte gefunden.")
+            self._show_no_recording_device()
+            self.recording_hint_label.setText(
+                "Keine Audioeingabegeräte gefunden. Gerät anstecken und mit ↻ neu einlesen; "
+                "in den Windows-Datenschutzeinstellungen muss der Mikrofonzugriff für "
+                "Desktop-Apps erlaubt sein."
+            )
             self.recording_start_button.setEnabled(False)
             return
 
@@ -683,7 +713,7 @@ class MainWindow(QMainWindow):
         Aufnahme- bzw. Dateiauswahl aus."""
         if self._recording is not None:
             return
-        geraete = [self.recording_device_combo.itemText(i) for i in range(self.recording_device_combo.count())]
+        geraete = [geraet.anzeigename for geraet in self._recording_devices]
         dialog = AudioquelleDialog(
             geraete,
             self.recording_device_combo.currentIndex(),

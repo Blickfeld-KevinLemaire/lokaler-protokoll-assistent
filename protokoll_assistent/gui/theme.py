@@ -125,8 +125,14 @@ QLineEdit, QComboBox, QSpinBox, QPlainTextEdit, QTextEdit, QListWidget {{
 QComboBox {{
     min-width: 300px;
     min-height: 26px;
+    /* Die Liste klappt unter dem Feld auf, wie bei Windows-Anwendungen
+       ueblich. Ohne diese Angabe waehlt der Fusion-Stil bei einem per
+       Stylesheet gestalteten Feld die Overlay-Darstellung, die auf
+       manchen Systemen leer bleibt. */
+    combobox-popup: 0;
 }}
 QComboBox QAbstractItemView {{
+    min-width: 300px;
     background-color: {SURFACE};
     border: 1px solid {BORDER};
     selection-background-color: {ACCENT};
