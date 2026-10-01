@@ -27,6 +27,14 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      version:
+        description: >-
+          Optional: Version fuer ein Release ohne Tag-Push, z. B. 0.4.0-rc1.
+          Der Tag 'v<Version>' wird dabei beim Veroeffentlichen angelegt.
+          Leer lassen = nur bauen, kein Release.
+        required: false
+        default: ""
 
 permissions:
   contents: write # noetig, um das Release anzulegen
@@ -92,12 +100,17 @@ jobs:
 
       - name: Installer uebersetzen
         shell: pwsh
+        env:
+          EINGABE_VERSION: ${{ inputs.version }}
         run: |
-          # Version aus dem Tag ('v1.2.3' -> '1.2.3'). Ohne Tag (manueller
-          # Lauf) entsteht ein klar erkennbarer Testbuild.
+          # Version aus dem Tag ('v1.2.3' -> '1.2.3'), sonst aus der Eingabe
+          # des manuellen Laufs. Ohne beides entsteht ein klar erkennbarer
+          # Testbuild.
           $version = "0.0.0-test"
           if ($env:GITHUB_REF -like "refs/tags/v*") {
             $version = $env:GITHUB_REF_NAME.Substring(1)
+          } elseif ($env:EINGABE_VERSION -match '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$') {
+            $version = $env:EINGABE_VERSION
           }
           Write-Host "Version: $version"
           "VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
@@ -143,7 +156,7 @@ jobs:
   veroeffentlichen:
     name: Release anlegen
     needs: [bauen]
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || inputs.version != ''
     runs-on: ubuntu-latest
     steps:
       - name: Artefakte holen
@@ -155,13 +168,17 @@ jobs:
       - name: Release anlegen
         uses: softprops/action-gh-release@v3
         with:
+          # Bei einem Tag-Push gilt der Tag; bei einem manuellen Lauf mit
+          # Versionseingabe legt dieser Schritt den Tag am gebauten Stand an.
+          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('v{0}', inputs.version) }}
+          target_commitish: ${{ github.sha }}
           files: |
             artefakte/Protokoll-Assistent-Setup-*.exe
             artefakte/Protokoll-Assistent-windows.zip
           generate_release_notes: true
           # Ein Tag mit Bindestrich ('v0.4.0-rc1') ist ein Testrelease und darf
           # nicht als "neueste Version" erscheinen.
-          prerelease: ${{ contains(github.ref_name, '-') }}
+          prerelease: ${{ contains(github.ref_type == 'tag' && github.ref_name || inputs.version, '-') }}
           body: |
             ## Was Sie herunterladen sollten
 
