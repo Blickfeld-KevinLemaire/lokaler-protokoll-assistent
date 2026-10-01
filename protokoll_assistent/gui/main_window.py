@@ -318,9 +318,11 @@ class MainWindow(QMainWindow):
         self.recording_device_combo = QComboBox(self)
         self.recording_device_combo.currentIndexChanged.connect(self._on_recording_device_changed)
         device_row.addWidget(self.recording_device_combo, stretch=1)
-        self.recording_refresh_button = QPushButton("↻", self)
+        # Beschriftet statt nur mit einem Symbol: Ein Zeichen in einem
+        # schmalen Knopf wurde mit dem Innenabstand des Themes zu einem Punkt
+        # abgeschnitten.
+        self.recording_refresh_button = QPushButton("Neu einlesen", self)
         self.recording_refresh_button.setToolTip("Aufnahmegeräte neu einlesen (z. B. nach dem Anstecken eines Headsets).")
-        self.recording_refresh_button.setFixedWidth(40)
         self.recording_refresh_button.clicked.connect(self._refresh_recording_devices)
         device_row.addWidget(self.recording_refresh_button)
         layout.addLayout(device_row)
@@ -404,7 +406,7 @@ class MainWindow(QMainWindow):
         if not self._recording_devices:
             self._show_no_recording_device()
             self.recording_hint_label.setText(
-                "Keine Audioeingabegeräte gefunden. Gerät anstecken und mit ↻ neu einlesen; "
+                "Keine Audioeingabegeräte gefunden. Gerät anstecken und auf „Neu einlesen“ klicken; "
                 "in den Windows-Datenschutzeinstellungen muss der Mikrofonzugriff für "
                 "Desktop-Apps erlaubt sein."
             )

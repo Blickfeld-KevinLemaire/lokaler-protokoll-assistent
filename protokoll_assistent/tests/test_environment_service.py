@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 from protokoll_assistent.services import environment_service as env
@@ -315,3 +316,11 @@ def test_pip_befehle_uebernehmen_den_vorgegebenen_index(tmp_path):
     torch_befehl = befehle[1]
     assert "--index-url" in torch_befehl
     assert torch_befehl[torch_befehl.index("--index-url") + 1] == "https://example.invalid/cu999"
+
+
+def test_laufzeitumgebung_enthaelt_sounddevice_fuer_die_mikrofonaufnahme():
+    # Die lokale Anwendung laeuft in der selbst eingerichteten Umgebung. Fehlt
+    # 'sounddevice' dort, bleibt die Geraeteliste leer, obwohl ein Geraet
+    # angeschlossen ist.
+    namen = {re.split(r"[<>=~!\[; ]", requirement)[0].lower() for requirement in env.RUNTIME_PACKAGES}
+    assert "sounddevice" in namen

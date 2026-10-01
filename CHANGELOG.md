@@ -48,10 +48,13 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 - Aufnahmegerät-Auswahl: Der Pfeil des Auswahlfelds öffnete bei leerer Liste
   nichts und sagte nicht, warum. Jetzt steht ein Platzhalter „Kein
-  Aufnahmegerät verfügbar“ darin, der Grund steht darunter, und „↻“ liest die
-  Geräte neu ein (z. B. nach dem Anstecken eines Headsets). Auswahllisten
+  Aufnahmegerät verfügbar“ darin, der Grund steht darunter, und „Neu einlesen“
+  liest die Geräte neu ein (z. B. nach dem Anstecken eines Headsets). Auswahllisten
   klappen unter dem Feld auf. Die gebaute EXE bündelt jetzt ausdrücklich
-  `sounddevice` samt PortAudio-Bibliothek.
+  `sounddevice` samt PortAudio-Bibliothek, und die selbst eingerichtete
+  Laufzeitumgebung des lokalen Modus installiert es mit. Dort fehlte es, deshalb
+  blieb die Geräteliste im lokalen Modus leer, auch bei angeschlossenem Gerät.
+  Beim nächsten Start richtet sich die Umgebung einmalig neu ein (Internet nötig).
 - Wer die Vorlage wechselte und die Nachbearbeitung erneut startete, bekam
   stillschweigend das fertige Protokoll der alten Vorlage zurück. Das
   Gesamtprotokoll wird jetzt neu erzeugt, sobald sich der Systemprompt
