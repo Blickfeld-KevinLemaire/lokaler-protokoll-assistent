@@ -159,6 +159,9 @@ jobs:
             artefakte/Protokoll-Assistent-Setup-*.exe
             artefakte/Protokoll-Assistent-windows.zip
           generate_release_notes: true
+          # Ein Tag mit Bindestrich ('v0.4.0-rc1') ist ein Testrelease und darf
+          # nicht als "neueste Version" erscheinen.
+          prerelease: ${{ contains(github.ref_name, '-') }}
           body: |
             ## Was Sie herunterladen sollten
 
