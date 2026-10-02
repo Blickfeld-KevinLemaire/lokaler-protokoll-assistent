@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 from protokoll_assistent.services import export_service
 
@@ -261,3 +262,37 @@ def test_reexport_behaelt_die_nummern_der_nicht_benannten_sprecher(tmp_path):
     assert "Anna: eins" in inhalt
     assert "Sprecher 2: zwei" in inhalt
     assert "Sprecher 3: drei" in inhalt
+
+
+def test_sprecher_turns_und_audio_pfad_landen_im_json_und_ueberleben_umbenennung(tmp_path):
+    turns = [
+        {"start": 0.0, "end": 2.0, "speaker": "SPEAKER_00"},
+        {"start": 2.2, "end": 4.0, "speaker": "SPEAKER_00"},  # Luecke klein -> zusammengefasst
+        {"start": 4.0, "end": 6.0, "speaker": "SPEAKER_01"},
+    ]
+    namen = export_service.build_speaker_names(["SPEAKER_00", "SPEAKER_01"])
+    pfade = export_service.write_transcript_exports(
+        tmp_path, "a.mp3", "a", "20260101_100000", "2026-01-01T10:00:00+01:00", "m", "de", "cpu", 1.0,
+        _sample_segments(), namen, True, turns, tmp_path / "audio_normalisiert.wav",
+    )
+    daten = json.loads(pfade.json.read_text(encoding="utf-8"))
+    assert daten["sprecher_turns"] == [
+        {"sprecher_id": "SPEAKER_00", "start_sekunden": 0.0, "ende_sekunden": 4.0},
+        {"sprecher_id": "SPEAKER_01", "start_sekunden": 4.0, "ende_sekunden": 6.0},
+    ]
+    assert Path(daten["audio_pfad"]) == tmp_path / "audio_normalisiert.wav"
+
+    export_service.reexport_with_new_names(pfade.json, {"SPEAKER_00": "Anna"})
+    neu = json.loads(pfade.json.read_text(encoding="utf-8"))
+    assert neu["sprecher_turns"] == daten["sprecher_turns"]
+    assert neu["audio_pfad"] == daten["audio_pfad"]
+
+
+def test_json_ohne_turns_bleibt_lesbar(tmp_path):
+    namen = export_service.build_speaker_names(["SPEAKER_00", "SPEAKER_01"])
+    pfade = export_service.write_transcript_exports(
+        tmp_path, "a.mp3", "a", "20260101_100000", "2026-01-01T10:00:00+01:00", "m", "de", "cpu", 1.0,
+        _sample_segments(), namen,
+    )
+    daten = json.loads(pfade.json.read_text(encoding="utf-8"))
+    assert daten["sprecher_turns"] == [] and daten["audio_pfad"] is None

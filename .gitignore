@@ -55,6 +55,8 @@ laufzeit-aufgeloest.txt
 ausgabe/
 aufnahmen/
 arbeitsdaten/
+# Gespeicherte Stimmabdruecke (biometrische Daten) - nie versionieren.
+sprecherprofile/
 
 # Sicherheitsnetz: Medien- und Protokolldateien gehoeren nie ins Repository,
 # egal in welchem Ordner sie auftauchen.

@@ -138,3 +138,92 @@ def test_faulty_single_chunk_does_not_lose_previous_progress(tmp_path):
     assert calls2["count"] < calls_before_retry + 3  # nur Chunk 1 + Gruppe + Protokoll, nicht Chunk 0 erneut
     assert json.loads(chunk0_path.read_text(encoding="utf-8")) == chunk0_before
     assert result["titel"] == "Test"
+
+
+def _chunks(anzahl):
+    return [
+        {"index": i, "start_str": "00:00:00", "end_str": "00:10:00", "text": f"Chunk {i}"} for i in range(anzahl)
+    ]
+
+
+def test_verdichtung_laeuft_in_runden_bis_es_passt(tmp_path):
+    generate_fn, calls = _fake_generate_factory()
+    stufen = []
+    # Winziges Budget: jede Runde ist "zu gross", bis nur noch eine Analyse uebrig ist.
+    result = protocol_service.run_full_protocol_pipeline(
+        _chunks(8),
+        tmp_path,
+        "System",
+        generate_fn,
+        group_size=2,
+        progress_cb=lambda stage, current, total: stufen.append(stage),
+        max_kontext_zeichen=1,
+    )
+    assert result["titel"] == "Test"
+    # 8 Analysen + (4 + 2 + 1) Verdichtungen + 1 Protokoll
+    assert calls["count"] == 8 + 7 + 1
+    assert "stufe2_zwischenzusammenfuehrung" in stufen
+    assert "stufe2_verdichtung_runde_2" in stufen
+    assert "stufe2_verdichtung_runde_3" in stufen
+    assert (tmp_path / "zusammengefuehrt" / "zwischenanalyse_r02_0001.json").is_file()
+
+
+def test_verdichtung_stoppt_wenn_es_passt(tmp_path):
+    generate_fn, calls = _fake_generate_factory()
+    protocol_service.run_full_protocol_pipeline(_chunks(8), tmp_path, "System", generate_fn, group_size=2)
+    # Standardbudget ist gross genug: 8 + 4 (eine Runde) + 1
+    assert calls["count"] == 13
+    assert not list((tmp_path / "zusammengefuehrt").glob("zwischenanalyse_r*"))
+
+
+def test_verdichtung_hoechstens_acht_runden(tmp_path):
+    generate_fn, _ = _fake_generate_factory()
+    # Gruppengroesse 1 wuerde nie schrumpfen; ab Runde 2 gilt mindestens 2.
+    protocol_service.run_full_protocol_pipeline(
+        _chunks(3), tmp_path, "System", generate_fn, group_size=1, max_kontext_zeichen=1
+    )
+    runden = {p.name.split("_")[1] for p in (tmp_path / "zusammengefuehrt").glob("zwischenanalyse_r*")}
+    assert len(runden) <= protocol_service.MAX_VERDICHTUNGSRUNDEN
+    assert (tmp_path / "zusammengefuehrt" / "protokoll.json").is_file()
+
+
+def test_verdichtung_wiederaufnahme_fragt_fertige_runden_nicht_erneut(tmp_path):
+    generate_fn, _ = _fake_generate_factory()
+    protocol_service.run_full_protocol_pipeline(
+        _chunks(4), tmp_path, "System", generate_fn, group_size=2, max_kontext_zeichen=1
+    )
+    (tmp_path / "zusammengefuehrt" / "protokoll.json").unlink()
+    generate_fn2, calls2 = _fake_generate_factory()
+    protocol_service.run_full_protocol_pipeline(
+        _chunks(4), tmp_path, "System", generate_fn2, group_size=2, max_kontext_zeichen=1
+    )
+    assert calls2["count"] == 1  # nur das finale Protokoll
+
+
+def test_stufe3_prompt_enthaelt_die_json_struktur_auch_ohne_systemprompt_struktur():
+    prompt = protocol_service.build_stage3_prompt([{"kernaussagen": ["a"]}])
+    assert '"unsichere_transkriptstellen": []' in prompt
+    assert "finale strukturierte Protokoll" in prompt
+
+
+def test_vorlagenwechsel_erzeugt_nur_das_gesamtprotokoll_neu(tmp_path):
+    generate_fn, calls = _fake_generate_factory()
+    protocol_service.run_full_protocol_pipeline(_chunks(2), tmp_path, "Vorlage A", generate_fn, group_size=2)
+    nach_erstem_lauf = calls["count"]
+
+    # Gleiche Vorlage: alles kommt aus dem Zwischenspeicher.
+    protocol_service.run_full_protocol_pipeline(_chunks(2), tmp_path, "Vorlage A", generate_fn, group_size=2)
+    assert calls["count"] == nach_erstem_lauf
+
+    # Andere Vorlage: nur Stufe 3 laeuft erneut.
+    protocol_service.run_full_protocol_pipeline(_chunks(2), tmp_path, "Vorlage B", generate_fn, group_size=2)
+    assert calls["count"] == nach_erstem_lauf + 1
+
+
+def test_altes_protokoll_ohne_prompt_hash_wird_einmal_neu_erzeugt(tmp_path):
+    generate_fn, calls = _fake_generate_factory()
+    protocol_service.run_full_protocol_pipeline(_chunks(1), tmp_path, "System", generate_fn, group_size=2)
+    (tmp_path / "zusammengefuehrt" / "protokoll.prompt.sha256").unlink()
+    vorher = calls["count"]
+    protocol_service.run_full_protocol_pipeline(_chunks(1), tmp_path, "System", generate_fn, group_size=2)
+    assert calls["count"] == vorher + 1

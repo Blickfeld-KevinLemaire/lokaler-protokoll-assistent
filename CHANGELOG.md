@@ -8,6 +8,87 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+### Added
+
+- Sehr lange Aufnahmen: Die Verdichtung der Teilanalysen (Stufe 2) läuft
+  jetzt in mehreren Runden, bis das Ergebnis in den Kontext der
+  Gesamtprotokoll-Stufe passt (höchstens 8 Runden). Vorher gab es genau eine
+  Runde, und bei sehr langen Aufnahmen konnte das Kontextfenster des Modells
+  überlaufen. Zwischenstände je Runde bleiben fortsetzbar.
+
+- Sprecher anhören und exportieren: In der Sprechertabelle gibt es je
+  Sprecher „▶ Anhören“ (kurze Hörprobe) und „Exportieren …“ (Audio als WAV
+  und Text als TXT nur dieses Sprechers). Dafür speichert das JSON jetzt
+  die Sprecherabschnitte (`sprecher_turns`) und den Pfad der aufbereiteten
+  Audiodatei (`audio_pfad`). Transkripte aus älteren Versionen enthalten
+  beides nicht; dort weist die Anwendung darauf hin, neu zu transkribieren.
+
+- Dauerhafte Sprecherprofile (nur lokaler Modus): Stimmen lassen sich in der
+  Sprechertabelle mit „Als Profil speichern“ merken, nach ausdrücklicher
+  Bestätigung. In späteren Aufnahmen schlägt die Anwendung den Namen vor
+  (mit Fragezeichen bei knapper Ähnlichkeit) und übernimmt ihn nur auf
+  Klick. „Sprecherprofile verwalten …“ zeigt, benennt um und löscht Profile.
+  Die Stimmabdrücke (biometrische Daten) liegen nur lokal im Ordner
+  `sprecherprofile/`, der nicht versioniert und nicht in den Installer
+  aufgenommen wird. Die Ähnlichkeitsschwelle (0,72) ist noch nicht an
+  echten Aufnahmen abgestimmt.
+
+- Fünf neue Protokollvorlagen mit festen Abschnitten und Erfindungsverbot:
+  Formelles Protokoll, Projektbesprechung, Stand-up, Technische Besprechung
+  und Interview. Sie legen fest, was in welches Feld des Protokolls gehört
+  (z. B. Tagesordnungspunkte, Beschlüsse, Aufgaben mit Verantwortlichen und
+  Fristen).
+
+- Neue Dialoge: „Neue Transkription …“ fragt die Audioquelle ab (Mikrofon
+  mit Geräteliste oder Mediendatei); vor „Transkription starten“ fragt
+  „Verarbeitung wählen“ nach Sprechererkennung (automatisch oder bekannte
+  Anzahl) und ob danach direkt das Protokoll mit einer Vorlage erstellt wird.
+
+### Fixed
+
+- Aufnahmegerät-Auswahl: Der Pfeil des Auswahlfelds öffnete bei leerer Liste
+  nichts und sagte nicht, warum. Jetzt steht ein Platzhalter „Kein
+  Aufnahmegerät verfügbar“ darin, der Grund steht darunter, und „Neu einlesen“
+  liest die Geräte neu ein (z. B. nach dem Anstecken eines Headsets). Auswahllisten
+  klappen unter dem Feld auf. Die gebaute EXE bündelt jetzt ausdrücklich
+  `sounddevice` samt PortAudio-Bibliothek, und die selbst eingerichtete
+  Laufzeitumgebung des lokalen Modus installiert es mit. Dort fehlte es, deshalb
+  blieb die Geräteliste im lokalen Modus leer, auch bei angeschlossenem Gerät.
+  Beim nächsten Start richtet sich die Umgebung einmalig neu ein (Internet nötig).
+- Wer die Vorlage wechselte und die Nachbearbeitung erneut startete, bekam
+  stillschweigend das fertige Protokoll der alten Vorlage zurück. Das
+  Gesamtprotokoll wird jetzt neu erzeugt, sobald sich der Systemprompt
+  ändert; Teilanalysen (Stufe 1 und 2) bleiben erhalten. Ein vorhandenes
+  Protokoll aus einer älteren Version wird dabei einmal neu erzeugt.
+- Die JSON-Struktur des Protokolls stand nur im mitgelieferten
+  Standard-Systemprompt. Jede Vorlage und jeder freie Text ersetzt ihn
+  vollständig - die letzte Stufe kannte die Struktur dann nicht. Sie wird
+  jetzt in der Anfrage der letzten Stufe selbst mitgegeben.
+
+### Changed
+
+- Erscheinungsbild VERMERK: Das große Logo (Fassung für dunklen Grund) steht
+  oben in der Seitenleiste, die Bildmarke ist Programmsymbol für Fenster,
+  Dialoge, die EXE und den Installer. Die Dateien liegen in
+  `protokoll_assistent/resources/` und entstehen mit
+  `python -m protokoll_assistent.tools.logo_erzeugen` aus der EPS-Vorlage.
+- Neues Hauptfenster mit Seitenleiste: Links stehen „Neue Transkription“, die
+  Seiten **Transkription**, **Nachbearbeitung** und **Ergebnis und Sprecher**
+  sowie unten „Ausgabeordner öffnen“ und „Einstellungen“. Die sieben
+  Bereiche der alten linken Spalte sind auf diese Seiten verteilt; der
+  Fortschritt steht kompakt unter jeder Seite. Schaltflächen sind überall
+  gleich hoch und gleich gerundet (blau = Hauptaktion, weiß = Nebenaktion,
+  rot = Abbrechen). Nach einer fertigen Transkription öffnet sich die Seite
+  „Ergebnis und Sprecher“ von selbst.
+- Oberfläche näher an moderne Arbeitsflächen gerückt: Titelzeile mit
+  Untertitel, größere Rundungen, blauer Akzent, „Starten“-Schaltflächen
+  hervorgehoben und „Abbrechen“/„Aufnahme beenden“ rot.
+- Sprecherzuordnung wortgenau: Wechselt der Sprecher mitten in einem
+  Segment, wird das Segment an dieser Stelle geteilt. Vorher ging das ganze
+  Segment an den Sprecher mit der größten Überlappung, der Rest war falsch
+  zugeordnet. Segmente ohne Wortzeitstempel (z. B. von API-Endpunkten, die
+  nur Segmente liefern) werden wie bisher zugeordnet.
+
 ## [0.3.1] - 2026-09-25
 
 ### Fixed

@@ -9,18 +9,22 @@ runde Ecken, eine Akzentfarbe fuer primaere Aktionen).
 
 from __future__ import annotations
 
-ACCENT = "#2f6fed"
-ACCENT_HOVER = "#255bc4"
+ACCENT = "#2563eb"
+ACCENT_HOVER = "#1d4fc4"
 ACCENT_TEXT = "#ffffff"
-BACKGROUND = "#f4f6f9"
+BACKGROUND = "#f5f7fb"
 SURFACE = "#ffffff"
-BORDER = "#dde1e8"
+BORDER = "#e3e7ee"
 TEXT_PRIMARY = "#1c1e21"
 TEXT_SECONDARY = "#5b6270"
 SUCCESS = "#1f8a4c"
 SUCCESS_BG = "#eaf6ee"
 SUCCESS_BORDER = "#bfe6cc"
-DANGER = "#c0392b"
+DANGER = "#d93025"
+DANGER_HOVER = "#b3261e"
+SIDEBAR = "#0f2a4a"
+SIDEBAR_TEXT = "#dbe5f4"
+SIDEBAR_MUTED = "#8fa6c4"
 
 APP_QSS = f"""
 QWidget {{
@@ -40,9 +44,9 @@ QWidget#WizardRoot, QWidget#WizardSidebar, QWidget#WizardPage {{
 QGroupBox {{
     background-color: {SURFACE};
     border: 1px solid {BORDER};
-    border-radius: 10px;
+    border-radius: 14px;
     margin-top: 16px;
-    padding: 14px;
+    padding: 16px;
     font-weight: 600;
 }}
 QGroupBox::title {{
@@ -51,11 +55,14 @@ QGroupBox::title {{
     padding: 0 6px;
 }}
 
+/* Alle Schaltflaechen sind gleich hoch und gleich gerundet; nur die Farbe
+   unterscheidet Haupt- (blau), Neben- (weiss) und Abbruchaktion (rot). */
 QPushButton {{
     background-color: {SURFACE};
     border: 1px solid {BORDER};
-    border-radius: 8px;
-    padding: 8px 16px;
+    border-radius: 10px;
+    padding: 8px 18px;
+    min-height: 20px;
 }}
 QPushButton:hover {{
     border-color: {ACCENT};
@@ -72,7 +79,7 @@ QPushButton#PrimaryButton {{
     border: none;
     color: {ACCENT_TEXT};
     font-weight: 600;
-    padding: 10px 24px;
+    padding: 8px 18px;
 }}
 QPushButton#PrimaryButton:hover {{
     background-color: {ACCENT_HOVER};
@@ -82,11 +89,45 @@ QPushButton#PrimaryButton:disabled {{
     color: #eef2fc;
 }}
 
+/* In Tabellenzeilen waeren die grossen Schaltflaechen zu hoch. */
+QTableWidget QPushButton {{
+    padding: 3px 10px;
+    min-height: 0;
+    border-radius: 8px;
+}}
+
+QPushButton#DangerButton {{
+    background-color: {DANGER};
+    border: none;
+    color: {ACCENT_TEXT};
+    font-weight: 600;
+}}
+QPushButton#DangerButton:hover {{
+    background-color: {DANGER_HOVER};
+}}
+QPushButton#DangerButton:disabled {{
+    background-color: #f0b8b4;
+    color: #fdf1f0;
+}}
+
+QPushButton#SourceCard {{
+    text-align: left;
+    padding: 14px 16px;
+    border-radius: 14px;
+}}
+QPushButton#SourceCard:checked {{
+    background-color: #eaf1ff;
+    border: 2px solid {ACCENT};
+}}
+QPushButton#SourceCard:disabled {{
+    color: #9aa0a8;
+}}
+
 QLineEdit, QComboBox, QSpinBox, QPlainTextEdit, QTextEdit, QListWidget {{
     background-color: {SURFACE};
     border: 1px solid {BORDER};
-    border-radius: 6px;
-    padding: 5px 8px;
+    border-radius: 8px;
+    padding: 6px 10px;
     selection-background-color: {ACCENT};
     selection-color: white;
 }}
@@ -97,8 +138,14 @@ QLineEdit, QComboBox, QSpinBox, QPlainTextEdit, QTextEdit, QListWidget {{
 QComboBox {{
     min-width: 300px;
     min-height: 26px;
+    /* Die Liste klappt unter dem Feld auf, wie bei Windows-Anwendungen
+       ueblich. Ohne diese Angabe waehlt der Fusion-Stil bei einem per
+       Stylesheet gestalteten Feld die Overlay-Darstellung, die auf
+       manchen Systemen leer bleibt. */
+    combobox-popup: 0;
 }}
 QComboBox QAbstractItemView {{
+    min-width: 300px;
     background-color: {SURFACE};
     border: 1px solid {BORDER};
     selection-background-color: {ACCENT};
@@ -121,8 +168,9 @@ QProgressBar::chunk {{
 QTableWidget {{
     background-color: {SURFACE};
     border: 1px solid {BORDER};
-    border-radius: 8px;
+    border-radius: 12px;
     gridline-color: {BORDER};
+    alternate-background-color: {BACKGROUND};
 }}
 QHeaderView::section {{
     background-color: {BACKGROUND};
@@ -130,6 +178,47 @@ QHeaderView::section {{
     border-bottom: 1px solid {BORDER};
     padding: 6px;
     font-weight: 600;
+}}
+
+QFrame#Sidebar {{
+    background-color: {SIDEBAR};
+}}
+QFrame#Sidebar QLabel {{
+    background: transparent;
+    color: #ffffff;
+}}
+QLabel#BrandTitle {{
+    font-size: 15pt;
+    font-weight: 700;
+}}
+QFrame#Sidebar QLabel#BrandSubtitle {{
+    color: {SIDEBAR_MUTED};
+    font-size: 9pt;
+}}
+QPushButton#NavButton {{
+    background-color: transparent;
+    border: none;
+    color: {SIDEBAR_TEXT};
+    text-align: left;
+    padding: 10px 14px;
+    font-weight: 600;
+}}
+QPushButton#NavButton:hover {{
+    background-color: rgba(255, 255, 255, 0.10);
+}}
+QPushButton#NavButton:checked {{
+    background-color: {ACCENT};
+    color: #ffffff;
+}}
+QWidget#ContentArea, QWidget#PageContent {{
+    background-color: {BACKGROUND};
+}}
+QScrollArea {{
+    background: transparent;
+}}
+QLabel#FieldCaption {{
+    color: {TEXT_SECONDARY};
+    font-size: 9pt;
 }}
 
 QLabel#PrivacyBanner {{
@@ -152,7 +241,7 @@ QLabel#StepIndicatorActive {{
 }}
 
 QLabel#PageTitle {{
-    font-size: 17pt;
+    font-size: 20pt;
     font-weight: 700;
 }}
 QLabel#PageSubtitle {{

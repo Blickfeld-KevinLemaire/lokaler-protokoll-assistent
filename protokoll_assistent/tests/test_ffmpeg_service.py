@@ -226,3 +226,45 @@ def test_alte_unfertige_datei_wird_vor_dem_schreiben_entfernt(monkeypatch, tmp_p
     ffmpeg_service.normalize_audio(tmp_path / "quelle.mp3", ziel, ffmpeg_path=Path("ffmpeg"))
 
     assert ziel.read_bytes() == b"RIFF-testdaten"
+
+
+def test_extract_speaker_audio_baut_atrim_concat_ueber_skriptdatei(monkeypatch, tmp_path):
+    gesehen = {}
+
+    def attrappe(command, **kwargs):
+        skript = Path(command[command.index("-filter_complex_script") + 1])
+        gesehen["filter"] = skript.read_text(encoding="utf-8")
+        Path(command[-1]).write_bytes(b"RIFF-testdaten")
+        return type("Abgeschlossen", (), {"returncode": 0, "stderr": ""})()
+
+    monkeypatch.setattr(ffmpeg_service.subprocess, "run", attrappe)
+    ziel = tmp_path / "sprecher.wav"
+
+    ffmpeg_service.extract_speaker_audio(
+        tmp_path / "q.wav", ziel, [(1.0, 2.5), (10.0, 12.0), (5.0, 5.0)], ffmpeg_path=Path("ffmpeg")
+    )
+
+    assert ziel.is_file()
+    assert "atrim=start=1.000:end=2.500" in gesehen["filter"]
+    assert "atrim=start=10.000:end=12.000" in gesehen["filter"]
+    assert "concat=n=2:v=0:a=1[aus]" in gesehen["filter"]  # der leere Abschnitt entfaellt
+    assert not list(tmp_path.glob("*.filter.txt"))  # Skriptdatei aufgeraeumt
+
+
+def test_extract_speaker_audio_ohne_abschnitte_und_bei_fehler(monkeypatch, tmp_path):
+    with pytest.raises(ValueError):
+        ffmpeg_service.extract_speaker_audio(tmp_path / "q.wav", tmp_path / "o.wav", [], ffmpeg_path=Path("f"))
+
+    ffmpeg = _FFmpegAttrappe(returncode=1)
+    monkeypatch.setattr(ffmpeg_service.subprocess, "run", ffmpeg)
+    ziel = tmp_path / "o.wav"
+    with pytest.raises(RuntimeError):
+        ffmpeg_service.extract_speaker_audio(tmp_path / "q.wav", ziel, [(0.0, 3.0)], ffmpeg_path=Path("f"))
+    assert not ziel.exists()
+    assert not list(tmp_path.glob("*.filter.txt"))
+
+
+def test_extract_speaker_audio_ohne_ffmpeg(monkeypatch, tmp_path):
+    monkeypatch.setattr(ffmpeg_service, "find_ffmpeg", lambda: None)
+    with pytest.raises(RuntimeError, match="FFmpeg"):
+        ffmpeg_service.extract_speaker_audio(tmp_path / "q.wav", tmp_path / "o.wav", [(0.0, 1.0)])
