@@ -30,6 +30,27 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
   unter „Gespeicherte Chats“. Ein Klick öffnet ihn samt Nachrichten und den
   damals gewählten Unterlagen; Umbenennen und Löschen sind möglich.
   Die Dateien liegen lokal im Ordner `chatverlaeufe/` (nicht versioniert, nicht im Installer).
+- **Rechner-Analyse als erster Schritt der lokalen Einrichtung:** Bevor etwas
+  heruntergeladen wird, prüft das Programm Arbeitsspeicher, Prozessorkerne,
+  NVIDIA-Grafikkarte und freien Platz und bewertet jedes Modell
+  (Transkription, Nachbearbeitung, Suche im Chat) mit „Läuft gut“, „Läuft
+  langsam / knapp“ oder „Eher nicht geeignet“, samt Hinweisen und Empfehlung.
+  Das empfohlene Sprachmodell wird für die Einrichtung vorausgewählt – eine
+  bewusst getroffene Wahl in den Einstellungen bleibt unberührt. Es sind
+  Schätzungen; jedes Modell lässt sich weiterhin wählen.
+- **Systemtest: „Fehlendes nachladen“.** Fehlen FFmpeg, Ollama oder das
+  Ollama-Modell, lädt ein Knopf sie herunter und zeigt den Grund, falls es
+  scheitert; danach wird automatisch neu geprüft.
+
+### Fixed
+
+- Ein gescheiterter FFmpeg-Download (kein Netz, Proxy, beschädigtes Paket)
+  wurde in der Einrichtung nur still ins Protokoll geschrieben und die
+  Einrichtung meldete trotzdem „abgeschlossen“. Jetzt wird die Lücke
+  benannt (FFmpeg, Ollama, pyannote, Ollama-Modell).
+- Ollama wurde direkt nach der Installation nicht gefunden, weil der neue
+  PATH erst für neu gestartete Programme gilt. Die üblichen
+  Installationsorte unter Windows werden jetzt mit durchsucht.
 
 ### Added
 

@@ -387,3 +387,34 @@ def test_chat_stream_fehler():
         ollama_service.chat_stream([], "m", opener=abgebrochen)
     # ohne Rueckruf und mit Text statt Bytes
     assert ollama_service.chat_stream([], "m", opener=lambda r, timeout=None: _PullAntwort(['{"message": {"content": "a"}}\n'])) == "a"
+
+
+# --------------------------------------------------------------------------
+# find_ollama_executable: Installationsorte unter Windows
+# --------------------------------------------------------------------------
+def _ohne_path(monkeypatch):
+    monkeypatch.setattr(ollama_service.shutil, "which", lambda name: None)
+
+
+def test_find_ollama_executable_nimmt_den_path(monkeypatch, tmp_path):
+    exe = tmp_path / "ollama.exe"
+    monkeypatch.setattr(ollama_service.shutil, "which", lambda name: str(exe) if name == "ollama" else None)
+    assert ollama_service.find_ollama_executable() == exe
+
+
+def test_find_ollama_executable_findet_installation_ausserhalb_des_path(monkeypatch, tmp_path):
+    # Direkt nach der Installation kennt der laufende Prozess den neuen PATH noch nicht.
+    _ohne_path(monkeypatch)
+    ziel = tmp_path / "Programs" / "Ollama"
+    ziel.mkdir(parents=True)
+    (ziel / "ollama.exe").write_bytes(b"")
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.delenv("PROGRAMFILES", raising=False)
+    assert ollama_service.find_ollama_executable() == ziel / "ollama.exe"
+
+
+def test_find_ollama_executable_ohne_fund(monkeypatch, tmp_path):
+    _ohne_path(monkeypatch)
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setenv("PROGRAMFILES", str(tmp_path))
+    assert ollama_service.find_ollama_executable() is None

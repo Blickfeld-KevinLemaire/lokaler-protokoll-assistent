@@ -8,6 +8,7 @@ damit keine zusaetzliche Abhaengigkeit noetig ist.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import urllib.error
@@ -136,10 +137,28 @@ def get_modell_option(model_id: str) -> OllamaModellOption | None:
 
 
 def find_ollama_executable():
+    """Sucht das Ollama-Programm: erst im PATH, dann an den ueblichen
+    Installationsorten unter Windows.
+
+    Der Installer traegt Ollama in den PATH ein, aber nur fuer *neu
+    gestartete* Programme. Direkt nach einer Installation aus der
+    laufenden Anwendung heraus fand ``shutil.which`` es deshalb nicht --
+    der Systemtest meldete "nicht gefunden", obwohl es installiert war."""
     from pathlib import Path
 
     found = shutil.which("ollama") or shutil.which("ollama.exe")
-    return Path(found) if found else None
+    if found:
+        return Path(found)
+    for variable, unterordner in (
+        ("LOCALAPPDATA", Path("Programs") / "Ollama"),
+        ("PROGRAMFILES", Path("Ollama")),
+    ):
+        basis = os.environ.get(variable)
+        if basis:
+            kandidat = Path(basis) / unterordner / "ollama.exe"
+            if kandidat.is_file():
+                return kandidat
+    return None
 
 
 def _get_json(url: str, timeout: float) -> dict[str, Any]:

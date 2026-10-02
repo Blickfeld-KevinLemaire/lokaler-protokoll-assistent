@@ -214,6 +214,7 @@ def test_lokal_einrichten_oeffnet_dialog(dialog, monkeypatch):
     from protokoll_assistent.gui import wizard
 
     monkeypatch.setattr(wizard.LokalEinrichtungDialog, "exec", lambda self: None)
+    monkeypatch.setattr(wizard.RechnerAnalysePage, "start", lambda self: None)
     monkeypatch.setattr(wizard.InstallPage, "start", lambda self: None)
 
     dialog._open_lokal_einrichtung()  # darf nicht werfen
