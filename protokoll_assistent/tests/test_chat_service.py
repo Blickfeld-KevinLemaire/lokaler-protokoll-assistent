@@ -192,3 +192,123 @@ def test_funktionen_aus_einstellungen_lokal_und_api(monkeypatch):
     embed, chat = cs.funktionen_aus_einstellungen(api)
     tokens = []
     assert embed(["a"]) == [[2.0]] and chat([], tokens.append) == "api-antwort" and tokens == ["api-antwort"]
+
+
+# --------------------------------------------------------------------------
+# Systemcheck und fehlende Modelle
+# --------------------------------------------------------------------------
+def _ollama(monkeypatch, installiert=None, erreichbar=True, exe=True):
+    installiert = installiert if installiert is not None else []
+
+    def liste(base_url=cs.ollama_service.OLLAMA_BASE_URL, timeout=5):
+        if not erreichbar:
+            raise cs.ollama_service.OllamaError("Ollama ist nicht erreichbar (weg)")
+        return list(installiert)
+
+    monkeypatch.setattr(cs.ollama_service, "list_models", liste)
+    monkeypatch.setattr(cs.ollama_service, "find_ollama_executable", lambda: Path("/usr/bin/ollama") if exe else None)
+
+
+LOKAL = cs.ChatEinstellungen("lokal", "qwen3:8b", "bge-m3")
+
+
+def test_fehlendes_modell_zuerst_einbettung_dann_chat(monkeypatch):
+    _ollama(monkeypatch, [])
+    assert cs.fehlendes_modell(LOKAL) == "bge-m3"
+    _ollama(monkeypatch, ["bge-m3"])
+    assert cs.fehlendes_modell(LOKAL) == "qwen3:8b"
+    _ollama(monkeypatch, ["bge-m3", "qwen3:8b"])
+    assert cs.fehlendes_modell(LOKAL) is None
+    _ollama(monkeypatch, [], erreichbar=False)
+    assert cs.fehlendes_modell(LOKAL) is None  # anderes Problem, kein "Modell fehlt"
+    assert cs.fehlendes_modell(cs.ChatEinstellungen("api", "m", "e")) is None
+
+
+def _ergebnis(checks):
+    return {c.key: c for c in checks}
+
+
+def test_systemcheck_lokal_alles_in_ordnung(monkeypatch):
+    _ollama(monkeypatch, ["bge-m3", "qwen3:8b"])
+    antworten = []
+    ergebnis = _ergebnis(
+        cs.systemcheck(LOKAL, lambda texte: [[0.1, 0.2, 0.3]], lambda n, t: antworten.append(n) or "<think>x</think>OK")
+    )
+    assert all(c.ok for c in ergebnis.values())
+    assert "3 Dimensionen" in ergebnis["embedding_test"].detail
+    assert antworten  # der Antworttest wurde wirklich gestellt
+
+
+def test_systemcheck_ohne_antworttest(monkeypatch):
+    _ollama(monkeypatch, ["bge-m3", "qwen3:8b"])
+    ergebnis = _ergebnis(cs.systemcheck(LOKAL, lambda t: [[1.0]], lambda n, t: "x", mit_antworttest=False))
+    assert "chat_test" not in ergebnis
+
+
+def test_systemcheck_ollama_nicht_erreichbar_und_ohne_programm(monkeypatch):
+    _ollama(monkeypatch, erreichbar=False, exe=False)
+    ergebnis = _ergebnis(cs.systemcheck(LOKAL))
+    assert ergebnis["ollama_installiert"].ok is False and ergebnis["ollama_installiert"].critical is False
+    assert ergebnis["ollama_dienst"].ok is False
+    assert "embedding_modell" not in ergebnis  # danach geht es nicht weiter
+
+
+def test_systemcheck_meldet_fehlende_modelle_und_stoppt_vor_den_tests(monkeypatch):
+    _ollama(monkeypatch, ["qwen3:8b"])
+    aufgerufen = []
+    ergebnis = _ergebnis(cs.systemcheck(LOKAL, lambda t: aufgerufen.append(1) or [[1.0]], lambda n, t: "x"))
+    assert ergebnis["embedding_modell"].ok is False and "herunterladen" in ergebnis["embedding_modell"].detail
+    assert ergebnis["chat_modell"].ok is True
+    assert aufgerufen == [] and "embedding_test" not in ergebnis
+
+
+def test_systemcheck_testfehler_werden_pro_pruefung_gemeldet(monkeypatch):
+    _ollama(monkeypatch, ["bge-m3", "qwen3:8b"])
+
+    def embed(texte):
+        raise cs.ollama_service.OllamaError("Modell ist kein Einbettungsmodell")
+
+    def chat(nachrichten, on_token):
+        raise cs.ChatFehler("kaputt")
+
+    ergebnis = _ergebnis(cs.systemcheck(LOKAL, embed, chat))
+    assert ergebnis["embedding_test"].ok is False and "kein Einbettungsmodell" in ergebnis["embedding_test"].detail
+    assert ergebnis["chat_test"].ok is False and "kaputt" in ergebnis["chat_test"].detail
+
+
+def test_systemcheck_unerwartete_einbettungsantworten(monkeypatch):
+    _ollama(monkeypatch, ["bge-m3", "qwen3:8b"])
+    leer = _ergebnis(cs.systemcheck(LOKAL, lambda t: [[]], lambda n, t: "x"))
+    assert leer["embedding_test"].ok is False and "leeren Vektor" in leer["embedding_test"].detail
+    kaputt = _ergebnis(cs.systemcheck(LOKAL, lambda t: [], lambda n, t: "x"))
+    assert kaputt["embedding_test"].ok is False and "Unerwartete" in kaputt["embedding_test"].detail
+    keine = _ergebnis(cs.systemcheck(LOKAL, lambda t: [[1.0]], lambda n, t: "<think>nur</think>"))
+    assert keine["chat_test"].ok is False and "keine Antwort" in keine["chat_test"].detail
+
+
+def test_systemcheck_api(monkeypatch):
+    ohne = _ergebnis(cs.systemcheck(cs.ChatEinstellungen("api", "m", "e", "u", "v", "")))
+    assert ohne["api_schluessel"].ok is False and len(ohne) == 1
+
+    api = cs.ChatEinstellungen("api", "m", "e", "https://x/chat", "https://x/emb", "k")
+    monkeypatch.setattr(cs.api_chat_service, "embed", lambda texte, modell, **k: [[1.0, 2.0]])
+    monkeypatch.setattr(cs.api_chat_service, "chat", lambda n, modell, **k: "OK")
+    ergebnis = _ergebnis(cs.systemcheck(api))
+    assert all(c.ok for c in ergebnis.values()) and set(ergebnis) == {"api_schluessel", "embedding_test", "chat_test"}
+
+    def fehler(*a, **k):
+        raise cs.api_chat_service.ApiChatError("HTTP 401")
+
+    monkeypatch.setattr(cs.api_chat_service, "embed", fehler)
+    assert _ergebnis(cs.systemcheck(api))["embedding_test"].ok is False
+
+
+def test_systemcheck_meldet_fehlende_funktionen_lesbar(monkeypatch):
+    _ollama(monkeypatch, ["bge-m3", "qwen3:8b"])
+
+    def werfen(einstellungen):
+        raise cs.ChatFehler("nicht moeglich")
+
+    monkeypatch.setattr(cs, "funktionen_aus_einstellungen", werfen)
+    ergebnis = _ergebnis(cs.systemcheck(LOKAL))
+    assert ergebnis["funktionen"].ok is False

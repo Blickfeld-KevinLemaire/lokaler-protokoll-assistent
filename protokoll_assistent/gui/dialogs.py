@@ -283,6 +283,38 @@ class EndverarbeitungDialog(QDialog):
         return self.vorlage_combo.currentText() if self.protokoll_erstellen else None
 
 
+class ChatSystemcheckDialog(QDialog):
+    """Ergebnis des Systemchecks fuer den Chatbot: eine Zeile je Pruefung."""
+
+    def __init__(self, pruefungen: list, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Systemcheck Chatbot")
+        self.resize(720, 360)
+        layout = QVBoxLayout(self)
+
+        alles_ok = all(p.ok or not p.critical for p in pruefungen)
+        self.zusammenfassung = QLabel(
+            "✓ Der Chatbot ist einsatzbereit." if alles_ok else "✗ Der Chatbot ist noch nicht einsatzbereit - siehe unten.",
+            self,
+        )
+        self.zusammenfassung.setObjectName("PageTitle")
+        layout.addWidget(self.zusammenfassung)
+
+        self.tabelle = QTableWidget(len(pruefungen), 2, self)
+        self.tabelle.setHorizontalHeaderLabels(["Prüfung", "Ergebnis"])
+        self.tabelle.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.tabelle.verticalHeader().setVisible(False)
+        for zeile, pruefung in enumerate(pruefungen):
+            self.tabelle.setItem(zeile, 0, QTableWidgetItem(pruefung.label))
+            self.tabelle.setItem(zeile, 1, render_check_item(pruefung))
+        layout.addWidget(self.tabelle)
+
+        knoepfe = QDialogButtonBox(QDialogButtonBox.Close, self)
+        knoepfe.rejected.connect(self.reject)
+        knoepfe.accepted.connect(self.accept)
+        layout.addWidget(knoepfe)
+
+
 class SprecherprofileDialog(QDialog):
     """Verwaltung der gespeicherten Sprecherprofile: ansehen, umbenennen,
     loeschen. Neue Profile entstehen in der Sprechertabelle des Hauptfensters."""

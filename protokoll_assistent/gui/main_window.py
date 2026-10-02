@@ -95,6 +95,7 @@ from protokoll_assistent.services import (
 )
 from protokoll_assistent.utils import app_config
 from protokoll_assistent.utils.paths import (
+    get_chatverlaeufe_dir,
     get_default_output_dir,
     get_recordings_dir,
     get_system_prompt_file,
@@ -290,6 +291,7 @@ class MainWindow(QMainWindow):
             lambda: self._output_dir,
             lambda: get_work_dir() / "chat_index",
             self._chat_api_schluessel,
+            get_chatverlaeufe_dir,
         )
         self.page_stack.addWidget(self.chat_page)
 

@@ -57,6 +57,8 @@ aufnahmen/
 arbeitsdaten/
 # Gespeicherte Stimmabdruecke (biometrische Daten) - nie versionieren.
 sprecherprofile/
+# Gespeicherte Chatverlaeufe (Inhalte aus Besprechungen) - nie versionieren.
+chatverlaeufe/
 
 # Sicherheitsnetz: Medien- und Protokolldateien gehoeren nie ins Repository,
 # egal in welchem Ordner sie auftauchen.

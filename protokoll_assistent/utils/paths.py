@@ -127,6 +127,15 @@ def get_sprecherprofile_dir() -> Path:
     return get_app_dir() / "sprecherprofile"
 
 
+def get_chatverlaeufe_dir() -> Path:
+    """Ablage der gespeicherten Chatverlaeufe ("Frag mein Meeting").
+
+    Enthaelt Inhalte aus Besprechungen: nicht versioniert, nicht im Installer,
+    bei der Deinstallation absichtlich nicht angefasst. Wird erst beim ersten
+    Speichern angelegt."""
+    return get_app_dir() / "chatverlaeufe"
+
+
 def get_default_output_dir() -> Path:
     directory = get_app_dir() / "ausgabe"
     directory.mkdir(parents=True, exist_ok=True)

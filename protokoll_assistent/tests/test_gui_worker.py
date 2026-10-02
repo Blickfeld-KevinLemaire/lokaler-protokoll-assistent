@@ -394,3 +394,39 @@ def test_chat_arbeiter_bildet_ohne_hereingereichte_funktionen_die_aus_den_einste
     arbeiter.fertig.connect(lambda antwort, quellen: fertig.append(antwort))
     arbeiter.run()
     assert fertig == ["ok"]
+
+
+# --------------------------------------------------------------------------
+# ChatCheckWorker
+# --------------------------------------------------------------------------
+def test_chat_check_arbeiter_liefert_die_pruefungen(qt_app):
+    from protokoll_assistent.utils.diagnostics import DiagnosticCheck
+
+    ergebnis = [DiagnosticCheck("a", "A", True, "ok")]
+    arbeiter = worker_modul.ChatCheckWorker(object(), check_fn=lambda e: ergebnis)
+    erhalten = []
+    arbeiter.fertig.connect(erhalten.append)
+    arbeiter.run()
+    assert erhalten == [ergebnis]
+
+
+def test_chat_check_arbeiter_macht_aus_einem_unerwarteten_fehler_eine_pruefung(qt_app):
+    def werfen(e):
+        raise ValueError("kaputt")
+
+    arbeiter = worker_modul.ChatCheckWorker(object(), check_fn=werfen)
+    erhalten = []
+    arbeiter.fertig.connect(erhalten.append)
+    arbeiter.run()
+    assert erhalten[0][0].ok is False and "kaputt" in erhalten[0][0].detail
+
+
+def test_chat_check_arbeiter_nutzt_standardmaessig_den_systemcheck(qt_app, monkeypatch):
+    from protokoll_assistent.services import chat_service
+
+    monkeypatch.setattr(chat_service, "systemcheck", lambda e: ["gerufen"])
+    arbeiter = worker_modul.ChatCheckWorker(object())
+    erhalten = []
+    arbeiter.fertig.connect(erhalten.append)
+    arbeiter.run()
+    assert erhalten == [["gerufen"]]

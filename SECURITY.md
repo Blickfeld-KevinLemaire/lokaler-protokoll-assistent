@@ -24,7 +24,7 @@ Daten, oft von Menschen, die der Aufnahme nur im Rahmen der Besprechung
 zugestimmt haben. Entsprechend gelten hier ein paar Punkte besonders:
 
 * **Aufnahmen und Transkripte gehoeren niemals ins Repository.** Die Ordner
-  `ausgabe/`, `aufnahmen/`, `arbeitsdaten/` und `sprecherprofile/` sind
+  `ausgabe/`, `aufnahmen/`, `arbeitsdaten/`, `sprecherprofile/` und `chatverlaeufe/` sind
   ausgeschlossen, ebenso Medien- und Protokolldateien ueberall im Baum.
 * **Sprecherprofile sind biometrische Daten.** Ein gespeicherter
   Stimmabdruck (`sprecherprofile/profile.json`) erlaubt, eine Person in
@@ -50,7 +50,9 @@ zugestimmt haben. Entsprechend gelten hier ein paar Punkte besonders:
   Transkripte und Zusammenfassungen gehen an den eingetragenen Endpunkt. Im
   lokalen Modus (Ollama auf 127.0.0.1) verlaesst nichts den Rechner. Die
   berechneten Suchvektoren liegen als Zwischenspeicher im Ordner
-  `arbeitsdaten/chat_index/`, der nicht versioniert wird.
+  `arbeitsdaten/chat_index/`, der nicht versioniert wird. Gespeicherte Chats
+  (Fragen, Antworten, Quellen) liegen lokal in `chatverlaeufe/`; sie werden
+  nicht versioniert, nicht ausgeliefert und nie uebertragen.
 * **Im API-Modus wird die Aufnahme bzw. das Transkript uebertragen** an einen
   vom Anwender gewaehlten Endpunkt — fuer Transkription und Nachbearbeitung
   getrennt umschaltbar. Ist fuer einen Schritt der API-Modus aktiv, zeigt die

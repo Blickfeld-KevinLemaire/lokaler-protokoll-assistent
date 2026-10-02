@@ -112,6 +112,7 @@ def isolierte_konfiguration(tmp_path, monkeypatch):
     monkeypatch.setattr(mw, "get_default_output_dir", lambda: ausgabe, raising=False)
     monkeypatch.setattr(mw, "get_recordings_dir", lambda: aufnahmen, raising=False)
     monkeypatch.setattr(mw, "get_work_dir", lambda: arbeit, raising=False)
+    monkeypatch.setattr(mw, "get_chatverlaeufe_dir", lambda: tmp_path / "chatverlaeufe", raising=False)
     monkeypatch.setattr(mw, "get_system_prompt_file", lambda: prompt, raising=False)
 
     monkeypatch.setattr(model_service, "get_gpu_description", lambda: "Testhardware")

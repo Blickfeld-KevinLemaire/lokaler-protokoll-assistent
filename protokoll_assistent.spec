@@ -63,6 +63,7 @@ collected_hiddenimports += [
     "protokoll_assistent.services.api_protocol_service",
     "protokoll_assistent.services.api_transcription_service",
     "protokoll_assistent.services.chat_service",
+    "protokoll_assistent.services.chat_verlauf_service",
     "protokoll_assistent.services.chunking_service",
     "protokoll_assistent.services.diarization_service",
     "protokoll_assistent.services.environment_service",

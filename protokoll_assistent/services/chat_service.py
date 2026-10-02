@@ -28,6 +28,7 @@ from typing import Any
 
 from protokoll_assistent.services import api_chat_service, ollama_service
 from protokoll_assistent.services.speaker_merge_service import cosine_similarity
+from protokoll_assistent.utils.diagnostics import DiagnosticCheck
 from protokoll_assistent.utils.timeformat import format_timestamp
 
 EmbedFn = Callable[[list[str]], list[list[float]]]
@@ -384,3 +385,111 @@ def beantworte(
     if not antwort:
         raise ChatFehler("Das Modell hat keine Antwort geliefert.")
     return antwort, quellenliste(treffer)
+
+
+# ---------------------------------------------------------------------------
+# Systemcheck
+# ---------------------------------------------------------------------------
+def fehlendes_modell(einstellungen: ChatEinstellungen) -> str | None:
+    """Das erste fehlende Ollama-Modell des lokalen Chatbots (zuerst das
+    Einbettungsmodell, dann das Chatmodell) oder None. Auch None, wenn Ollama
+    nicht erreichbar ist - das meldet der Systemcheck gesondert."""
+    if einstellungen.modus != "lokal":
+        return None
+    try:
+        ollama_service.list_models(timeout=1.5)
+    except ollama_service.OllamaError:
+        return None
+    for modell in (einstellungen.embedding_modell, einstellungen.chat_modell):
+        if modell and not ollama_service.is_model_available(modell):
+            return modell
+    return None
+
+
+def systemcheck(
+    einstellungen: ChatEinstellungen,
+    embed_fn: EmbedFn | None = None,
+    chat_fn: ChatFn | None = None,
+    mit_antworttest: bool = True,
+) -> list[DiagnosticCheck]:
+    """Prueft, ob der Chatbot mit den aktuellen Einstellungen funktioniert.
+
+    Lokal: Ollama vorhanden und erreichbar, beide Modelle installiert, dann ein
+    kurzer Test von Einbettung und Antwort. API: Schluessel vorhanden und je ein
+    Testaufruf an beide Endpunkte. ``embed_fn``/``chat_fn`` sind fuer Tests
+    austauschbar."""
+    ergebnisse: list[DiagnosticCheck] = []
+
+    def melden(schluessel: str, bezeichnung: str, ok: bool, detail: str, kritisch: bool = True) -> None:
+        ergebnisse.append(DiagnosticCheck(schluessel, bezeichnung, ok, detail, kritisch))
+
+    if einstellungen.modus == "api":
+        if not einstellungen.api_schluessel:
+            melden("api_schluessel", "API-Schluessel", False, "Es ist kein API-Schluessel hinterlegt (Einstellungen, Reiter Chatbot).")
+            return ergebnisse
+        melden("api_schluessel", "API-Schluessel", True, "Ein Schluessel ist hinterlegt.")
+    else:
+        executable = ollama_service.find_ollama_executable()
+        melden(
+            "ollama_installiert",
+            "Ollama installiert",
+            executable is not None,
+            str(executable) if executable else "Ollama-Programm wurde nicht im Suchpfad gefunden.",
+            kritisch=False,
+        )
+        try:
+            ollama_service.list_models(timeout=3)
+        except ollama_service.OllamaError as fehler:
+            melden("ollama_dienst", "Ollama-Dienst erreichbar", False, str(fehler))
+            return ergebnisse
+        melden("ollama_dienst", "Ollama-Dienst erreichbar", True, "Ollama-Dienst antwortet.")
+        fehlt = False
+        for schluessel, bezeichnung, modell in (
+            ("embedding_modell", "Einbettungsmodell installiert", einstellungen.embedding_modell),
+            ("chat_modell", "Chatmodell installiert", einstellungen.chat_modell),
+        ):
+            vorhanden = bool(modell) and ollama_service.is_model_available(modell)
+            fehlt = fehlt or not vorhanden
+            melden(
+                schluessel,
+                bezeichnung,
+                vorhanden,
+                f"'{modell}' ist installiert." if vorhanden else f"'{modell}' fehlt - im Chat oder in den Einstellungen herunterladen.",
+            )
+        if fehlt:
+            return ergebnisse
+
+    if embed_fn is None or chat_fn is None:
+        try:
+            standard_embed, standard_chat = funktionen_aus_einstellungen(einstellungen)
+        except ChatFehler as fehler:
+            melden("funktionen", "Chatbot", False, str(fehler))
+            return ergebnisse
+        embed_fn, chat_fn = embed_fn or standard_embed, chat_fn or standard_chat
+
+    fehlerarten = (ChatFehler, ollama_service.OllamaError, api_chat_service.ApiChatError)
+    try:
+        vektor = embed_fn(["Dies ist ein Test."])[0]
+        melden(
+            "embedding_test",
+            "Einbettungstest",
+            bool(vektor),
+            f"Einbettung funktioniert ({len(vektor)} Dimensionen)." if vektor else "Das Modell lieferte einen leeren Vektor.",
+        )
+    except fehlerarten as fehler:
+        melden("embedding_test", "Einbettungstest", False, str(fehler))
+    except (IndexError, TypeError, ValueError) as fehler:
+        melden("embedding_test", "Einbettungstest", False, f"Unerwartete Antwort des Einbettungsmodells: {fehler}")
+
+    if mit_antworttest:
+        try:
+            antwort = bereinige_antwort(chat_fn([{"role": "user", "content": "Antworte nur mit dem Wort OK."}], None))
+            melden(
+                "chat_test",
+                "Antworttest",
+                bool(antwort),
+                "Das Chatmodell antwortet." if antwort else "Das Chatmodell lieferte keine Antwort.",
+            )
+        except fehlerarten as fehler:
+            melden("chat_test", "Antworttest", False, str(fehler))
+    return ergebnisse

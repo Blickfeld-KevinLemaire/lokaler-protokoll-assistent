@@ -259,3 +259,28 @@ class ChatWorker(QThread):
             self.fehlgeschlagen.emit(f"Unerwarteter Fehler: {fehler}")
             return
         self.fertig.emit(antwort, quellen)
+
+
+class ChatCheckWorker(QThread):
+    """Fuehrt den Systemcheck des Chatbots im Hintergrund aus (das kann beim
+    ersten Aufruf eines lokalen Modells einige Sekunden dauern)."""
+
+    fertig = Signal(list)
+
+    def __init__(self, einstellungen: Any, parent=None, check_fn: Callable[..., Any] | None = None):
+        super().__init__(parent)
+        self._einstellungen = einstellungen
+        self._check_fn = check_fn
+
+    def run(self) -> None:
+        from protokoll_assistent.services import chat_service
+
+        pruefen = self._check_fn or chat_service.systemcheck
+        try:
+            ergebnisse = pruefen(self._einstellungen)
+        except Exception as fehler:  # unerwartet - als Pruefergebnis zeigen, nicht abstuerzen
+            logger.exception("Unerwarteter Fehler im Systemcheck des Chatbots")
+            from protokoll_assistent.utils.diagnostics import DiagnosticCheck
+
+            ergebnisse = [DiagnosticCheck("systemcheck", "Systemcheck", False, f"Unerwarteter Fehler: {fehler}", True)]
+        self.fertig.emit(ergebnisse)

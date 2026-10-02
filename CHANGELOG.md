@@ -21,6 +21,15 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
   herunterladen“. Im API-Modus gibt es Endpunkt und Modell für Chat und
   Einbettungen sowie einen eigenen oder gemeinsamen Schlüssel; ein
   Datenschutzhinweis erscheint, weil dort Texte übertragen werden.
+- **Frag mein Meeting – Hinweisleiste und Systemcheck:** Fehlt ein Modell, steht
+  das als erster Hinweis oben auf der Seite, mit „Jetzt herunterladen“. Das
+  Einbettungsmodell wird nur auf Wunsch geladen, nie von allein; der Hinweis
+  verschwindet, sobald es da ist. Der Knopf „Systemcheck“ prüft Ollama bzw.
+  den API-Zugang, die Modelle und macht je einen Probelauf für Suche und Antwort.
+- **Gespeicherte Chats:** Jeder Chat wird automatisch gespeichert und steht links
+  unter „Gespeicherte Chats“. Ein Klick öffnet ihn samt Nachrichten und den
+  damals gewählten Unterlagen; Umbenennen und Löschen sind möglich.
+  Die Dateien liegen lokal im Ordner `chatverlaeufe/` (nicht versioniert, nicht im Installer).
 
 ### Added
 

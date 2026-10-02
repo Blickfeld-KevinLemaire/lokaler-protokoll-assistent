@@ -18,7 +18,9 @@ pytest.importorskip("PySide6", reason="PySide6 ist nicht installiert.")
 from PySide6.QtCore import Qt  # noqa: E402
 
 from protokoll_assistent.gui import chat_page as cp  # noqa: E402
+from protokoll_assistent.services import chat_verlauf_service, ollama_service  # noqa: E402
 from protokoll_assistent.utils import app_config  # noqa: E402
+from protokoll_assistent.utils.diagnostics import DiagnosticCheck  # noqa: E402
 
 
 class _Signal:
@@ -50,6 +52,16 @@ class _ArbeiterAttrappe:
         self.gestartet = True
 
 
+@pytest.fixture(autouse=True)
+def ollama_nicht_erreichbar(monkeypatch):
+    """Kein Test fragt einen echten Ollama-Dienst."""
+
+    def unerreichbar(base_url=ollama_service.OLLAMA_BASE_URL, timeout=5):
+        raise ollama_service.OllamaError("kein Dienst im Test")
+
+    monkeypatch.setattr(ollama_service, "list_models", unerreichbar)
+
+
 @pytest.fixture
 def ordner(tmp_path, monkeypatch):
     konfig = tmp_path / "konfiguration.json"
@@ -79,7 +91,9 @@ def _protokoll(ordner: Path, name: str, alter: float = 0) -> Path:
 def seite(qt_widgets, ordner, tmp_path, monkeypatch):
     _ArbeiterAttrappe.instanzen.clear()
     monkeypatch.setattr(cp, "ChatWorker", _ArbeiterAttrappe)
-    return qt_widgets(cp.ChatPage(lambda: ordner, lambda: tmp_path / "cache", lambda: "schluessel"))
+    return qt_widgets(
+        cp.ChatPage(lambda: ordner, lambda: tmp_path / "cache", lambda: "schluessel", lambda: tmp_path / "verlaeufe")
+    )
 
 
 def _eintraege(seite):
@@ -206,3 +220,280 @@ def test_einstellungen_lokal_und_api_mit_datenschutzhinweis(seite):
     e = seite.einstellungen()
     assert (e.modus, e.chat_modell, e.api_schluessel) == ("api", "gpt-x", "schluessel")
     assert e.modell_kennung == "api:emb-x"
+
+
+
+# --------------------------------------------------------------------------
+# Hinweisleiste: fehlendes Modell, Download erst auf Wunsch
+# --------------------------------------------------------------------------
+class _PullAttrappe:
+    instanzen: ClassVar[list] = []
+
+    def __init__(self, modell, parent=None):
+        self.modell = modell
+        self.gestartet = False
+        self.fortschritt = _Signal()
+        self.fertig = _Signal()
+        self.fehlgeschlagen = _Signal()
+        _PullAttrappe.instanzen.append(self)
+
+    def start(self):
+        self.gestartet = True
+
+
+def _ollama_mit(monkeypatch, installiert):
+    monkeypatch.setattr(ollama_service, "list_models", lambda base_url=None, timeout=5: list(installiert))
+
+
+def test_ohne_ollama_steht_ein_hinweis_ohne_download_knopf(seite):
+    seite.hinweis_pruefen()
+    assert seite.hinweis_rahmen.isVisibleTo(seite)
+    assert "Ollama ist nicht erreichbar" in seite.hinweis_label.text()
+    assert not seite.hinweis_download_button.isVisibleTo(seite)
+
+
+def test_fehlendes_einbettungsmodell_steht_als_erster_hinweis_und_wird_nicht_ungefragt_geladen(seite, monkeypatch):
+    _PullAttrappe.instanzen.clear()
+    monkeypatch.setattr(cp, "OllamaPullWorker", _PullAttrappe)
+    _ollama_mit(monkeypatch, ["qwen3:8b"])  # Chatmodell da, Einbettungsmodell fehlt
+
+    seite.hinweis_pruefen()
+
+    assert seite.hinweis_rahmen.isVisibleTo(seite)
+    assert "Einbettungsmodell „bge-m3“ (ca. 1.2 GB)" in seite.hinweis_label.text()
+    assert "erst heruntergeladen, wenn Sie es möchten" in seite.hinweis_label.text()
+    assert seite.hinweis_download_button.isVisibleTo(seite)
+    assert _PullAttrappe.instanzen == []  # nichts ungefragt
+
+
+def test_hinweis_verschwindet_nach_dem_download(seite, monkeypatch):
+    _PullAttrappe.instanzen.clear()
+    monkeypatch.setattr(cp, "OllamaPullWorker", _PullAttrappe)
+    installiert = ["qwen3:8b"]
+    _ollama_mit(monkeypatch, installiert)
+    seite.hinweis_pruefen()
+
+    seite.hinweis_download_button.click()
+    arbeiter = _PullAttrappe.instanzen[-1]
+    assert arbeiter.gestartet and arbeiter.modell == "bge-m3"
+    assert not seite.hinweis_download_button.isEnabled()
+    seite.hinweis_download_button.click()  # zweiter Klick: kein zweiter Download
+    assert len(_PullAttrappe.instanzen) == 1
+
+    arbeiter.fortschritt.emit("pulling abc", 600_000_000, 1_200_000_000)
+    assert seite.hinweis_fortschritt.value() == 50 and "0.6 von 1.2 GB" in seite.hinweis_label.text()
+    arbeiter.fortschritt.emit("verifying", 0, 0)
+    assert seite.hinweis_label.text() == "verifying"
+
+    installiert.append("bge-m3")
+    arbeiter.fertig.emit("bge-m3")
+    assert not seite.hinweis_rahmen.isVisibleTo(seite)  # Meldung ist weg
+
+
+def test_nach_dem_ersten_modell_wird_das_naechste_fehlende_gezeigt(seite, monkeypatch):
+    _PullAttrappe.instanzen.clear()
+    monkeypatch.setattr(cp, "OllamaPullWorker", _PullAttrappe)
+    installiert: list[str] = []
+    _ollama_mit(monkeypatch, installiert)
+    seite.hinweis_pruefen()
+    assert "Einbettungsmodell" in seite.hinweis_label.text()
+    seite.hinweis_download_button.click()
+    installiert.append("bge-m3")
+    _PullAttrappe.instanzen[-1].fertig.emit("bge-m3")
+    assert "Chatmodell „qwen3:8b“" in seite.hinweis_label.text()
+
+
+def test_download_fehler_bleibt_sichtbar_und_erneuter_versuch_ist_moeglich(seite, monkeypatch):
+    _PullAttrappe.instanzen.clear()
+    monkeypatch.setattr(cp, "OllamaPullWorker", _PullAttrappe)
+    _ollama_mit(monkeypatch, ["qwen3:8b"])
+    seite.hinweis_pruefen()
+    seite.hinweis_download_button.click()
+    _PullAttrappe.instanzen[-1].fehlgeschlagen.emit("bge-m3", "kein Speicherplatz")
+    assert "kein Speicherplatz" in seite.hinweis_label.text()
+    assert seite.hinweis_rahmen.isVisibleTo(seite) and seite.hinweis_download_button.isEnabled()
+
+
+def test_senden_wird_bei_fehlendem_modell_nicht_gestartet(seite, ordner, monkeypatch):
+    _transkript(ordner, "a")
+    seite.aktualisieren()
+    _ollama_mit(monkeypatch, ["qwen3:8b"])
+    seite.hinweis_pruefen()
+    seite.eingabe.setText("Frage")
+    seite.senden()
+    assert "fehlende Modell herunterladen" in seite.status_label.text()
+    assert _ArbeiterAttrappe.instanzen == []
+
+
+def test_hinweis_im_api_modus_ohne_schluessel(qt_widgets, ordner, tmp_path, monkeypatch):
+    monkeypatch.setattr(cp, "ChatWorker", _ArbeiterAttrappe)
+    app_config.update_config(chatbot_modus="api")
+    ohne = qt_widgets(cp.ChatPage(lambda: ordner, lambda: tmp_path / "c", lambda: "", lambda: tmp_path / "v"))
+    assert "kein API-Schlüssel" in ohne.hinweis_label.text() and not ohne.hinweis_download_button.isVisibleTo(ohne)
+    mit = qt_widgets(cp.ChatPage(lambda: ordner, lambda: tmp_path / "c", lambda: "k", lambda: tmp_path / "v"))
+    assert not mit.hinweis_rahmen.isVisibleTo(mit)
+
+
+# --------------------------------------------------------------------------
+# Systemcheck
+# --------------------------------------------------------------------------
+class _CheckAttrappe:
+    instanzen: ClassVar[list] = []
+
+    def __init__(self, einstellungen, parent=None):
+        self.einstellungen = einstellungen
+        self.gestartet = False
+        self.fertig = _Signal()
+        _CheckAttrappe.instanzen.append(self)
+
+    def start(self):
+        self.gestartet = True
+
+
+def test_systemcheck_zeigt_das_ergebnis_in_einem_dialog(seite, monkeypatch):
+    _CheckAttrappe.instanzen.clear()
+    monkeypatch.setattr(cp, "ChatCheckWorker", _CheckAttrappe)
+    gezeigt = []
+    monkeypatch.setattr(
+        cp,
+        "ChatSystemcheckDialog",
+        lambda ergebnisse, parent=None: type("D", (), {"exec": lambda self: gezeigt.append(ergebnisse)})(),
+    )
+
+    seite.systemcheck_starten()
+    arbeiter = _CheckAttrappe.instanzen[-1]
+    assert arbeiter.gestartet and not seite.systemcheck_button.isEnabled()
+    assert arbeiter.einstellungen.modus == "lokal"
+    seite.systemcheck_starten()  # laeuft schon
+    assert len(_CheckAttrappe.instanzen) == 1
+
+    ergebnisse = [DiagnosticCheck("a", "Ollama", True, "ok", True)]
+    arbeiter.fertig.emit(ergebnisse)
+    assert gezeigt == [ergebnisse]
+    assert seite.systemcheck_button.isEnabled() and seite.status_label.text() == ""
+
+
+# --------------------------------------------------------------------------
+# Gespeicherte Chats
+# --------------------------------------------------------------------------
+def _frage_stellen(seite, frage, antwort, quellen=()):
+    seite.eingabe.setText(frage)
+    seite.senden()
+    _ArbeiterAttrappe.instanzen[-1].fertig.emit(antwort, list(quellen))
+
+
+def test_beantwortete_frage_wird_als_chat_gespeichert_und_in_der_liste_gezeigt(seite, ordner, tmp_path):
+    t = _transkript(ordner, "a")
+    seite.aktualisieren()
+    _frage_stellen(seite, "Wie hoch ist das Budget?", "5000 Euro.", ["a ab 00:00:05"])
+
+    gespeichert = chat_verlauf_service.lade_alle(tmp_path / "verlaeufe")
+    assert len(gespeichert) == 1
+    assert gespeichert[0].titel == "Wie hoch ist das Budget?"
+    assert gespeichert[0].dokumente == [str(t)]
+    assert [n["role"] for n in gespeichert[0].nachrichten] == ["user", "assistant"]
+    assert gespeichert[0].nachrichten[1]["quellen"] == ["a ab 00:00:05"]
+    assert seite.verlaeufe_liste.count() == 1
+    assert "Wie hoch ist das Budget?" in seite.verlaeufe_liste.item(0).text()
+
+    _frage_stellen(seite, "Und der Termin?", "Freitag.")
+    assert len(chat_verlauf_service.lade_alle(tmp_path / "verlaeufe")) == 1  # derselbe Chat
+    assert len(chat_verlauf_service.lade_alle(tmp_path / "verlaeufe")[0].nachrichten) == 4
+
+
+def test_fehler_und_unbeantwortete_fragen_werden_nicht_gespeichert(seite, ordner, tmp_path):
+    _transkript(ordner, "a")
+    seite.aktualisieren()
+    seite.eingabe.setText("Frage")
+    seite.senden()
+    _ArbeiterAttrappe.instanzen[-1].fehlgeschlagen.emit("kaputt")
+    assert chat_verlauf_service.lade_alle(tmp_path / "verlaeufe") == []
+
+
+def test_gespeicherten_chat_oeffnen_stellt_nachrichten_und_unterlagen_wieder_her(seite, ordner, tmp_path):
+    a = _transkript(ordner, "a", alter=100)
+    b = _protokoll(ordner, "b", alter=50)
+    seite.aktualisieren()
+    seite.keine_button.click()
+    seite.unterlagen_liste.item(1).setCheckState(Qt.Checked)  # nur 'a'
+    _frage_stellen(seite, "Frage 1", "Antwort 1", ["a ab 00:00:01"])
+    seite.neuer_chat()
+    assert "Welche Beschlüsse" in seite.verlauf_anzeige.toPlainText()
+    seite.alle_button.click()
+
+    seite._verlauf_angeklickt(seite.verlaeufe_liste.item(0))
+
+    text = seite.verlauf_anzeige.toPlainText()
+    assert "Frage 1" in text and "Antwort 1" in text and "Quellen: a ab 00:00:01" in text
+    assert seite.ausgewaehlte_pfade() == [a]
+    # ... und der Chat laesst sich fortsetzen: der Verlauf geht ans Modell
+    seite.eingabe.setText("Frage 2")
+    seite.senden()
+    assert _ArbeiterAttrappe.instanzen[-1].verlauf[0] == {"role": "user", "content": "Frage 1"}
+    assert b.exists()
+
+
+def test_chat_oeffnen_meldet_fehlende_unterlagen_und_kaputte_dateien(seite, ordner, tmp_path):
+    t = _transkript(ordner, "a")
+    seite.aktualisieren()
+    _frage_stellen(seite, "Frage", "Antwort")
+    t.unlink()
+    seite.aktualisieren()
+    seite._verlauf_angeklickt(seite.verlaeufe_liste.item(0))
+    assert "gibt es nicht mehr" in seite.status_label.text()
+
+    kennung = seite.verlaeufe_liste.item(0).data(Qt.UserRole)
+    (tmp_path / "verlaeufe" / f"{kennung}.json").write_text("{kaputt", encoding="utf-8")
+    seite._verlauf_angeklickt(seite.verlaeufe_liste.item(0))
+    assert "nicht gelesen" in seite.status_label.text()
+    assert seite.verlaeufe_liste.count() == 0
+
+
+def test_chat_umbenennen_und_loeschen(seite, ordner, tmp_path, monkeypatch):
+    from PySide6.QtWidgets import QInputDialog, QMessageBox
+
+    _transkript(ordner, "a")
+    seite.aktualisieren()
+    _frage_stellen(seite, "Frage", "Antwort")
+    seite.verlaeufe_liste.setCurrentRow(0)
+
+    monkeypatch.setattr(QInputDialog, "getText", staticmethod(lambda *a, **k: ("Budget-Runde", True)))
+    seite._verlauf_umbenennen()
+    assert "Budget-Runde" in seite.verlaeufe_liste.item(0).text()
+    assert chat_verlauf_service.lade_alle(tmp_path / "verlaeufe")[0].titel == "Budget-Runde"
+
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a: QMessageBox.No))
+    seite._verlauf_loeschen()
+    assert seite.verlaeufe_liste.count() == 1
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a: QMessageBox.Yes))
+    seite._verlauf_loeschen()
+    assert seite.verlaeufe_liste.count() == 0
+    assert "Welche Beschlüsse" in seite.verlauf_anzeige.toPlainText()  # der geoeffnete Chat wurde geschlossen
+
+
+def test_umbenennen_und_loeschen_ohne_auswahl_tun_nichts(seite):
+    seite._verlauf_umbenennen()
+    seite._verlauf_loeschen()
+
+
+def test_neuer_chat_beginnt_einen_neuen_gespeicherten_verlauf(seite, ordner, tmp_path):
+    _transkript(ordner, "a")
+    seite.aktualisieren()
+    _frage_stellen(seite, "Erste Frage", "A1")
+    seite.neuer_chat()
+    _frage_stellen(seite, "Zweite Frage", "A2")
+    titel = {v.titel for v in chat_verlauf_service.lade_alle(tmp_path / "verlaeufe")}
+    assert titel == {"Erste Frage", "Zweite Frage"}
+
+
+def test_speicherfehler_wird_gemeldet_ohne_abzustuerzen(seite, ordner, monkeypatch):
+    _transkript(ordner, "a")
+    seite.aktualisieren()
+
+    def werfen(ordner, verlauf):
+        raise OSError("Platte voll")
+
+    monkeypatch.setattr(chat_verlauf_service, "speichern", werfen)
+    _frage_stellen(seite, "Frage", "Antwort")
+    assert "nicht gespeichert werden" in seite.status_label.text()
+    assert "Antwort" in seite.verlauf_anzeige.toPlainText()
