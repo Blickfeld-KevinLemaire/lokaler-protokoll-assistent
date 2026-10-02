@@ -1581,3 +1581,71 @@ def test_audioquelle_dialog_bekommt_nur_echte_geraete(fenster, monkeypatch):
     monkeypatch.setattr(mw, "AudioquelleDialog", dialog)
     fenster._new_transcription()  # ohne Geraete: kein Platzhalter im Dialog
     assert gesehen["geraete"] == []
+
+
+# --------------------------------------------------------------------------
+# Seitenleiste und Seiten
+# --------------------------------------------------------------------------
+def test_seitenleiste_hat_drei_seiten_und_startet_auf_der_transkription(fenster):
+    assert [k.text().split()[-1] for k in fenster.nav_buttons] == ["Transkription", "Nachbearbeitung", "Sprecher"]
+    assert fenster.page_stack.count() == 3
+    assert fenster.page_stack.currentIndex() == 0
+    assert fenster.page_title_label.text() == "Transkription"
+    assert fenster.nav_buttons[0].isChecked()
+
+
+def test_navigation_wechselt_seite_titel_und_markierung(fenster):
+    fenster.nav_buttons[1].click()
+    assert fenster.page_stack.currentIndex() == 1
+    assert fenster.page_title_label.text() == "Nachbearbeitung"
+    assert fenster.nav_buttons[1].isChecked() and not fenster.nav_buttons[0].isChecked()
+
+    fenster.nav_buttons[2].click()
+    assert fenster.page_title_label.text() == "Ergebnis und Sprecher"
+
+
+def test_jede_funktionsgruppe_liegt_auf_der_richtigen_seite(fenster):
+    def seite_von(widget):
+        for index in range(fenster.page_stack.count()):
+            if fenster.page_stack.widget(index).isAncestorOf(widget):
+                return index
+        return None
+
+    assert seite_von(fenster.recording_device_combo) == 0
+    assert seite_von(fenster.file_list) == 0
+    assert seite_von(fenster.language_combo) == 0
+    assert seite_von(fenster.resume_combo) == 0
+    assert seite_von(fenster.start_button) == 0
+    assert seite_von(fenster.protocol_start_button) == 1
+    assert seite_von(fenster.systemprompt_editor) == 1
+    assert seite_von(fenster.preview_edit) == 2
+    assert seite_von(fenster.speaker_table) == 2
+    # Der Fortschritt steht nicht auf einer Seite, sondern immer sichtbar darunter.
+    assert seite_von(fenster.overall_progress_bar) is None
+
+
+def test_fertige_transkription_zeigt_die_ergebnisseite(fenster, tmp_path, monkeypatch):
+    monkeypatch.setattr(QMessageBox, "information", staticmethod(lambda *a: None))
+    fenster._on_transcription_finished_ok(_transkript_ergebnis_bauen(tmp_path, []))
+    assert fenster.page_stack.currentIndex() == 2
+
+
+def test_neue_transkription_wechselt_zur_transkriptionsseite(fenster, monkeypatch):
+    fenster.nav_buttons[2].click()
+    monkeypatch.setattr(mw, "AudioquelleDialog", lambda *a, **k: _DialogAttrappe(False))
+    fenster._new_transcription()
+    assert fenster.page_stack.currentIndex() == 0
+
+
+def test_ausgabeordner_oeffnen_und_einstellungen_in_der_seitenleiste(fenster, monkeypatch):
+    geoeffnet = []
+    monkeypatch.setattr(mw.QDesktopServices, "openUrl", staticmethod(lambda url: geoeffnet.append(url)))
+    fenster.open_output_button.click()
+    assert geoeffnet and geoeffnet[0].toLocalFile() == str(fenster._output_dir)
+
+    aufrufe = []
+    monkeypatch.setattr(fenster, "_open_settings", lambda: aufrufe.append(True))
+    fenster.settings_button.clicked.disconnect()
+    fenster.settings_button.clicked.connect(fenster._open_settings)
+    fenster.settings_button.click()
+    assert aufrufe == [True]

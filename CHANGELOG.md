@@ -67,6 +67,14 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 ### Changed
 
+- Neues Hauptfenster mit Seitenleiste: Links stehen „Neue Transkription“, die
+  Seiten **Transkription**, **Nachbearbeitung** und **Ergebnis und Sprecher**
+  sowie unten „Ausgabeordner öffnen“ und „Einstellungen“. Die sieben
+  Bereiche der alten linken Spalte sind auf diese Seiten verteilt; der
+  Fortschritt steht kompakt unter jeder Seite. Schaltflächen sind überall
+  gleich hoch und gleich gerundet (blau = Hauptaktion, weiß = Nebenaktion,
+  rot = Abbrechen). Nach einer fertigen Transkription öffnet sich die Seite
+  „Ergebnis und Sprecher“ von selbst.
 - Oberfläche näher an moderne Arbeitsflächen gerückt: Titelzeile mit
   Untertitel, größere Rundungen, blauer Akzent, „Starten“-Schaltflächen
   hervorgehoben und „Abbrechen“/„Aufnahme beenden“ rot.

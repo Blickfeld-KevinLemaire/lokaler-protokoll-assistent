@@ -28,7 +28,7 @@ import json
 import time
 from pathlib import Path
 from types import ModuleType
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from PySide6.QtCore import Qt, QTimer, QUrl
 from PySide6.QtGui import QCloseEvent, QDesktopServices, QDragEnterEvent, QDropEvent
@@ -40,6 +40,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QFormLayout,
     QFrame,
+    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QHeaderView,
@@ -55,6 +56,7 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSpinBox,
     QSplitter,
+    QStackedWidget,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -210,82 +212,154 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     # UI-Aufbau
     # ------------------------------------------------------------------
+    # Seiten der Navigation: (Titel, Untertitel). Die Reihenfolge entspricht den
+    # Seiten im 'QStackedWidget' aus '_build_ui'.
+    SEITEN: ClassVar[tuple[tuple[str, str], ...]] = (
+        ("Transkription", "Aufnahme oder Datei auswählen und in Text umwandeln."),
+        ("Nachbearbeitung", "Aus einem vorhandenen Transkript ein Protokoll erstellen."),
+        ("Ergebnis und Sprecher", "Vorschau ansehen, Sprecher benennen, Stimmen anhören."),
+    )
+
     def _build_ui(self) -> None:
+        """Seitenleiste mit Navigation links, rechts die gewaehlte Seite und
+        darunter immer sichtbar der Fortschritt. Die Gruppen selbst
+        ('_build_*_group') sind unveraendert; sie werden hier nur auf Seiten
+        verteilt."""
         central = QWidget(self)
         self.setCentralWidget(central)
-        root_layout = QVBoxLayout(central)
+        root_layout = QHBoxLayout(central)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+        root_layout.setSpacing(0)
 
-        # Kopfzeile im Stil einer modernen Arbeitsflaeche: Titel mit
-        # Untertitel, darunter der Datenschutzhinweis und die Einstellungen.
-        title_label = QLabel("Protokoll-Assistent", self)
-        title_label.setObjectName("PageTitle")
-        subtitle_label = QLabel(
-            "Aufnahme oder Datei transkribieren, Sprecher zuordnen und ein Protokoll erstellen.", self
-        )
-        subtitle_label.setObjectName("PageSubtitle")
-        root_layout.addWidget(title_label)
-        root_layout.addWidget(subtitle_label)
+        root_layout.addWidget(self._build_sidebar())
 
-        header_row = QHBoxLayout()
+        content = QWidget(self)
+        content.setObjectName("ContentArea")
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(28, 22, 28, 18)
+        content_layout.setSpacing(12)
+        root_layout.addWidget(content, stretch=1)
+
+        self.page_title_label = QLabel("", self)
+        self.page_title_label.setObjectName("PageTitle")
+        self.page_subtitle_label = QLabel("", self)
+        self.page_subtitle_label.setObjectName("PageSubtitle")
+        content_layout.addWidget(self.page_title_label)
+        content_layout.addWidget(self.page_subtitle_label)
+
         privacy_label = QLabel(PRIVACY_NOTICE, self)
         privacy_label.setObjectName("PrivacyBanner")
         privacy_label.setWordWrap(True)
-        header_row.addWidget(privacy_label, stretch=1)
-        settings_button = QPushButton("Einstellungen …", self)
-        settings_button.clicked.connect(self._open_settings)
-        header_row.addWidget(settings_button, alignment=Qt.AlignTop)
-        root_layout.addLayout(header_row)
+        content_layout.addWidget(privacy_label)
 
-        splitter = QSplitter(self)
-        root_layout.addWidget(splitter, stretch=1)
+        self.page_stack = QStackedWidget(self)
+        content_layout.addWidget(self.page_stack, stretch=1)
 
-        left_panel = QWidget(self)
-        left_layout = QVBoxLayout(left_panel)
+        self.page_stack.addWidget(
+            self._scroll_page(
+                [
+                    self._build_recording_group(),
+                    self._build_file_group(),
+                    self._build_settings_group(),
+                    self._build_resume_group(),
+                    self._build_control_group(),
+                ]
+            )
+        )
+        self.page_stack.addWidget(
+            self._scroll_page(
+                [
+                    self._build_transcript_selection_group(),
+                    self._build_protocol_control_group(),
+                ]
+            )
+        )
+        ergebnis_seite = QSplitter(Qt.Vertical, self)
+        ergebnis_seite.addWidget(self._build_preview_group())
+        ergebnis_seite.addWidget(self._build_speaker_group())
+        ergebnis_seite.setSizes([300, 300])
+        self.page_stack.addWidget(ergebnis_seite)
 
-        self.new_transcription_button = QPushButton("+  Neue Transkription …", self)
+        # Der Fortschritt steht unter jeder Seite, damit nach "Starten" sofort
+        # zu sehen ist, dass etwas passiert - egal, welche Seite offen ist.
+        content_layout.addWidget(self._build_progress_group())
+
+        self._show_page(0)
+
+    def _build_sidebar(self) -> QFrame:
+        leiste = QFrame(self)
+        leiste.setObjectName("Sidebar")
+        leiste.setFixedWidth(250)
+        layout = QVBoxLayout(leiste)
+        layout.setContentsMargins(14, 20, 14, 16)
+        layout.setSpacing(6)
+
+        marke = QLabel("Protokoll-Assistent", self)
+        marke.setObjectName("BrandTitle")
+        untermarke = QLabel("Privater Besprechungsassistent", self)
+        untermarke.setObjectName("BrandSubtitle")
+        layout.addWidget(marke)
+        layout.addWidget(untermarke)
+        layout.addSpacing(14)
+
+        self.new_transcription_button = QPushButton("+  Neue Transkription", self)
         self.new_transcription_button.setObjectName("PrimaryButton")
         self.new_transcription_button.setToolTip("Audioquelle wählen: Mikrofon oder Mediendatei.")
         self.new_transcription_button.clicked.connect(self._new_transcription)
-        left_layout.addWidget(self.new_transcription_button)
+        layout.addWidget(self.new_transcription_button)
+        layout.addSpacing(10)
 
-        left_layout.addWidget(self._build_recording_group())
-        left_layout.addWidget(self._build_file_group())
-        left_layout.addWidget(self._build_settings_group())
-        left_layout.addWidget(self._build_resume_group())
-        left_layout.addWidget(self._build_control_group())
+        self._nav_gruppe = QButtonGroup(self)
+        self._nav_gruppe.setExclusive(True)
+        self.nav_buttons: list[QPushButton] = []
+        symbole = ("🎙", "📝", "👥")
+        for index, ((titel, _), symbol) in enumerate(zip(self.SEITEN, symbole, strict=True)):
+            knopf = QPushButton(f"{symbol}   {titel}", self)
+            knopf.setObjectName("NavButton")
+            knopf.setCheckable(True)
+            knopf.clicked.connect(functools.partial(self._show_page, index))
+            self._nav_gruppe.addButton(knopf, index)
+            self.nav_buttons.append(knopf)
+            layout.addWidget(knopf)
 
-        separator = QFrame(self)
-        separator.setFrameShape(QFrame.HLine)
-        left_layout.addWidget(separator)
-        nachbearbeitung_label = QLabel(
-            "Nachbearbeitung (separater Schritt - jederzeit für ein vorhandenes Transkript)", self
-        )
-        nachbearbeitung_label.setStyleSheet("font-weight: 700;")
-        left_layout.addWidget(nachbearbeitung_label)
+        layout.addStretch(1)
 
-        left_layout.addWidget(self._build_transcript_selection_group())
-        left_layout.addWidget(self._build_protocol_control_group())
-        left_layout.addStretch(1)
+        self.open_output_button = QPushButton("📂   Ausgabeordner öffnen", self)
+        self.open_output_button.setObjectName("NavButton")
+        self.open_output_button.clicked.connect(self._open_output_folder)
+        layout.addWidget(self.open_output_button)
 
-        left_scroll = QScrollArea(self)
-        left_scroll.setWidget(left_panel)
-        left_scroll.setWidgetResizable(True)
-        left_scroll.setFrameShape(QFrame.NoFrame)
-        left_scroll.setMinimumWidth(480)
-        splitter.addWidget(left_scroll)
+        self.settings_button = QPushButton("⚙   Einstellungen", self)
+        self.settings_button.setObjectName("NavButton")
+        self.settings_button.clicked.connect(self._open_settings)
+        layout.addWidget(self.settings_button)
+        return leiste
 
-        # 'Fortschritt' steht bewusst im rechten Bereich, nicht in der
-        # scrollbaren linken Spalte: dort waere sie nach "Transkription
-        # starten" erst nach mehrfachem Scrollen zu sehen - genau das hat in
-        # der Praxis den Eindruck erweckt, es passiere gar nichts.
-        right_panel = QWidget(self)
-        splitter.addWidget(right_panel)
-        right_layout = QVBoxLayout(right_panel)
-        right_layout.addWidget(self._build_progress_group())
-        right_layout.addWidget(self._build_preview_group(), stretch=1)
-        right_layout.addWidget(self._build_speaker_group(), stretch=1)
+    @staticmethod
+    def _scroll_page(gruppen: list[QGroupBox]) -> QScrollArea:
+        inhalt = QWidget()
+        inhalt.setObjectName("PageContent")
+        layout = QVBoxLayout(inhalt)
+        layout.setContentsMargins(0, 0, 8, 0)
+        for gruppe in gruppen:
+            layout.addWidget(gruppe)
+        layout.addStretch(1)
+        scroll = QScrollArea()
+        scroll.setWidget(inhalt)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        return scroll
 
-        splitter.setSizes([650, 770])
+    def _show_page(self, index: int, _checked: bool = False) -> None:
+        self.page_stack.setCurrentIndex(index)
+        titel, untertitel = self.SEITEN[index]
+        self.page_title_label.setText(titel)
+        self.page_subtitle_label.setText(untertitel)
+        self.nav_buttons[index].setChecked(True)
+
+    def _open_output_folder(self) -> None:
+        self._output_dir.mkdir(parents=True, exist_ok=True)
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(self._output_dir)))
 
     def _open_settings(self) -> None:
         dialog = SettingsDialog(self)
@@ -310,7 +384,7 @@ class MainWindow(QMainWindow):
     # im selben Auswahlmechanismus wie eine per Hand gewaehlte Datei.
     # ------------------------------------------------------------------
     def _build_recording_group(self) -> QGroupBox:
-        group = QGroupBox("1. Aufnahmegerät", self)
+        group = QGroupBox("Aufnahmegerät", self)
         layout = QVBoxLayout(group)
 
         device_row = QHBoxLayout()
@@ -509,7 +583,7 @@ class MainWindow(QMainWindow):
     # Gruppe 2: Eingabeordner und Datei
     # ------------------------------------------------------------------
     def _build_file_group(self) -> QGroupBox:
-        group = QGroupBox("2. Eingabeordner und Datei", self)
+        group = QGroupBox("Datei und Ordner", self)
         layout = QVBoxLayout(group)
 
         folder_row = QHBoxLayout()
@@ -557,7 +631,7 @@ class MainWindow(QMainWindow):
     # gehoeren in 'SettingsDialog', nicht hierher.
     # ------------------------------------------------------------------
     def _build_settings_group(self) -> QGroupBox:
-        group = QGroupBox("3. Einstellungen", self)
+        group = QGroupBox("Einstellungen für diesen Lauf", self)
         layout = QFormLayout(group)
         layout.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
         layout.setHorizontalSpacing(12)
@@ -639,7 +713,7 @@ class MainWindow(QMainWindow):
     # Gruppe 4: Fortsetzen bei Langzeitaufnahmen
     # ------------------------------------------------------------------
     def _build_resume_group(self) -> QGroupBox:
-        group = QGroupBox("4. Fortsetzen bei Langzeitaufnahmen", self)
+        group = QGroupBox("Fortsetzen bei Langzeitaufnahmen", self)
         layout = QVBoxLayout(group)
 
         self.resume_status_label = QLabel(
@@ -668,7 +742,7 @@ class MainWindow(QMainWindow):
     # nicht jedes Mal die Einstellungen geoeffnet werden muessen.
     # ------------------------------------------------------------------
     def _build_control_group(self) -> QGroupBox:
-        group = QGroupBox("5. Transkription", self)
+        group = QGroupBox("Transkription starten", self)
         layout = QVBoxLayout(group)
 
         modus_row = QHBoxLayout()
@@ -715,6 +789,7 @@ class MainWindow(QMainWindow):
         Aufnahme- bzw. Dateiauswahl aus."""
         if self._recording is not None:
             return
+        self._show_page(0)
         geraete = [geraet.anzeigename for geraet in self._recording_devices]
         dialog = AudioquelleDialog(
             geraete,
@@ -782,35 +857,42 @@ class MainWindow(QMainWindow):
     # Gemeinsame Fortschrittsgruppe
     # ------------------------------------------------------------------
     def _build_progress_group(self) -> QGroupBox:
+        """Kompakter Fortschritt, dauerhaft unter der aktuellen Seite."""
         group = QGroupBox("Fortschritt", self)
-        layout = QFormLayout(group)
+        layout = QGridLayout(group)
+        layout.setHorizontalSpacing(18)
+        layout.setVerticalSpacing(6)
 
         self.status_label = QLabel("Bereit.", self)
         self.status_label.setWordWrap(True)
-        layout.addRow("Status:", self.status_label)
-
         self.transcription_status_label = QLabel("wartet", self)
-        layout.addRow("Transkriptionsstatus:", self.transcription_status_label)
-
         self.protocol_status_label = QLabel("wartet", self)
-        layout.addRow("Status Nachbearbeitung:", self.protocol_status_label)
-
         self.chunk_progress_bar = QProgressBar(self)
-        layout.addRow("Aktueller Chunk:", self.chunk_progress_bar)
-
         self.overall_progress_bar = QProgressBar(self)
         self.overall_progress_bar.setRange(0, 100)
-        layout.addRow("Gesamtfortschritt:", self.overall_progress_bar)
-
         self.elapsed_label = QLabel("00:00", self)
-        layout.addRow("Laufzeit:", self.elapsed_label)
-
         self.remaining_label = QLabel("--", self)
-        layout.addRow("Geschätzte Restdauer:", self.remaining_label)
-
         self.hardware_label = QLabel("--", self)
-        layout.addRow("Hardware:", self.hardware_label)
 
+        def beschriftet(text: str, widget: QWidget) -> QWidget:
+            zelle = QWidget(self)
+            zeile = QVBoxLayout(zelle)
+            zeile.setContentsMargins(0, 0, 0, 0)
+            zeile.setSpacing(2)
+            ueberschrift = QLabel(text, self)
+            ueberschrift.setObjectName("FieldCaption")
+            zeile.addWidget(ueberschrift)
+            zeile.addWidget(widget)
+            return zelle
+
+        layout.addWidget(beschriftet("Status", self.status_label), 0, 0, 1, 4)
+        layout.addWidget(beschriftet("Transkription", self.transcription_status_label), 1, 0)
+        layout.addWidget(beschriftet("Nachbearbeitung", self.protocol_status_label), 1, 1)
+        layout.addWidget(beschriftet("Aktueller Chunk", self.chunk_progress_bar), 1, 2)
+        layout.addWidget(beschriftet("Gesamtfortschritt", self.overall_progress_bar), 1, 3)
+        layout.addWidget(beschriftet("Laufzeit", self.elapsed_label), 2, 0)
+        layout.addWidget(beschriftet("Geschätzte Restdauer", self.remaining_label), 2, 1)
+        layout.addWidget(beschriftet("Hardware", self.hardware_label), 2, 2, 1, 2)
         return group
 
     def _build_preview_group(self) -> QGroupBox:
@@ -1015,7 +1097,7 @@ class MainWindow(QMainWindow):
     # Gruppe 6: Transkript auswaehlen (Eingang fuer die Nachbearbeitung)
     # ------------------------------------------------------------------
     def _build_transcript_selection_group(self) -> QGroupBox:
-        group = QGroupBox("6. Transkript auswählen", self)
+        group = QGroupBox("Transkript auswählen", self)
         layout = QVBoxLayout(group)
 
         row = QHBoxLayout()
@@ -1049,7 +1131,7 @@ class MainWindow(QMainWindow):
     # (Vorlage per Dropdown oder freier Text, wie vom Auftrag verlangt).
     # ------------------------------------------------------------------
     def _build_protocol_control_group(self) -> QGroupBox:
-        group = QGroupBox("7. Nachbearbeitung", self)
+        group = QGroupBox("Protokoll erstellen", self)
         layout = QVBoxLayout(group)
 
         modus_row = QHBoxLayout()
@@ -1445,6 +1527,7 @@ class MainWindow(QMainWindow):
         self._populate_speaker_table(result)
         self._set_transcript_path(result.export_paths.json)
         self.status_label.setText("Transkription abgeschlossen.")
+        self._show_page(2)
         if self._protokoll_nach_transkription and self._transcription_worker is not None:
             # Erst starten, wenn der Transkriptions-Thread beendet ist: Dessen
             # 'finished' schaltet die Bedienelemente wieder frei und stoppt den

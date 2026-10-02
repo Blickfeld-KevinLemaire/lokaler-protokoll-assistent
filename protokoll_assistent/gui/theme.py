@@ -22,6 +22,9 @@ SUCCESS_BG = "#eaf6ee"
 SUCCESS_BORDER = "#bfe6cc"
 DANGER = "#d93025"
 DANGER_HOVER = "#b3261e"
+SIDEBAR = "#0f2a4a"
+SIDEBAR_TEXT = "#dbe5f4"
+SIDEBAR_MUTED = "#8fa6c4"
 
 APP_QSS = f"""
 QWidget {{
@@ -52,11 +55,14 @@ QGroupBox::title {{
     padding: 0 6px;
 }}
 
+/* Alle Schaltflaechen sind gleich hoch und gleich gerundet; nur die Farbe
+   unterscheidet Haupt- (blau), Neben- (weiss) und Abbruchaktion (rot). */
 QPushButton {{
     background-color: {SURFACE};
     border: 1px solid {BORDER};
     border-radius: 10px;
-    padding: 9px 18px;
+    padding: 8px 18px;
+    min-height: 20px;
 }}
 QPushButton:hover {{
     border-color: {ACCENT};
@@ -73,7 +79,7 @@ QPushButton#PrimaryButton {{
     border: none;
     color: {ACCENT_TEXT};
     font-weight: 600;
-    padding: 10px 24px;
+    padding: 8px 18px;
 }}
 QPushButton#PrimaryButton:hover {{
     background-color: {ACCENT_HOVER};
@@ -81,6 +87,13 @@ QPushButton#PrimaryButton:hover {{
 QPushButton#PrimaryButton:disabled {{
     background-color: #a9c1f2;
     color: #eef2fc;
+}}
+
+/* In Tabellenzeilen waeren die grossen Schaltflaechen zu hoch. */
+QTableWidget QPushButton {{
+    padding: 3px 10px;
+    min-height: 0;
+    border-radius: 8px;
 }}
 
 QPushButton#DangerButton {{
@@ -165,6 +178,47 @@ QHeaderView::section {{
     border-bottom: 1px solid {BORDER};
     padding: 6px;
     font-weight: 600;
+}}
+
+QFrame#Sidebar {{
+    background-color: {SIDEBAR};
+}}
+QFrame#Sidebar QLabel {{
+    background: transparent;
+    color: #ffffff;
+}}
+QLabel#BrandTitle {{
+    font-size: 15pt;
+    font-weight: 700;
+}}
+QFrame#Sidebar QLabel#BrandSubtitle {{
+    color: {SIDEBAR_MUTED};
+    font-size: 9pt;
+}}
+QPushButton#NavButton {{
+    background-color: transparent;
+    border: none;
+    color: {SIDEBAR_TEXT};
+    text-align: left;
+    padding: 10px 14px;
+    font-weight: 600;
+}}
+QPushButton#NavButton:hover {{
+    background-color: rgba(255, 255, 255, 0.10);
+}}
+QPushButton#NavButton:checked {{
+    background-color: {ACCENT};
+    color: #ffffff;
+}}
+QWidget#ContentArea, QWidget#PageContent {{
+    background-color: {BACKGROUND};
+}}
+QScrollArea {{
+    background: transparent;
+}}
+QLabel#FieldCaption {{
+    color: {TEXT_SECONDARY};
+    font-size: 9pt;
 }}
 
 QLabel#PrivacyBanner {{
