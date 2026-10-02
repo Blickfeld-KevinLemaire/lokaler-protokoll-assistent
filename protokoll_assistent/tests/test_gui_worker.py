@@ -261,3 +261,57 @@ def test_hash_arbeiter_meldet_lesefehler(qt_app, tmp_path):
     arbeiter.run()
 
     assert len(fehler) == 1
+
+
+# --------------------------------------------------------------------------
+# OllamaPullWorker
+# --------------------------------------------------------------------------
+def test_ollama_pull_arbeiter_meldet_fortschritt_und_ende(qt_app):
+    from protokoll_assistent.services import ollama_service  # noqa: F401
+
+    def pull(modell, progress_cb):
+        progress_cb("pulling", 5, 10)
+
+    arbeiter = worker_modul.OllamaPullWorker("qwen3:4b", pull_fn=pull)
+    fortschritt, fertig = [], []
+    arbeiter.fortschritt.connect(lambda *a: fortschritt.append(a))
+    arbeiter.fertig.connect(fertig.append)
+
+    arbeiter.run()
+
+    assert fortschritt == [("pulling", 5, 10)]
+    assert fertig == ["qwen3:4b"]
+
+
+def test_ollama_pull_arbeiter_meldet_ollama_fehler_lesbar(qt_app):
+    from protokoll_assistent.services import ollama_service
+
+    def pull(modell, progress_cb):
+        raise ollama_service.OllamaError("nicht erreichbar")
+
+    arbeiter = worker_modul.OllamaPullWorker("m", pull_fn=pull)
+    fehler = []
+    arbeiter.fehlgeschlagen.connect(lambda *a: fehler.append(a))
+    arbeiter.run()
+    assert fehler == [("m", "nicht erreichbar")]
+
+
+def test_ollama_pull_arbeiter_faengt_unerwartete_fehler(qt_app):
+    def pull(modell, progress_cb):
+        raise ValueError("kaputt")
+
+    arbeiter = worker_modul.OllamaPullWorker("m", pull_fn=pull)
+    fehler = []
+    arbeiter.fehlgeschlagen.connect(lambda *a: fehler.append(a))
+    arbeiter.run()
+    assert fehler and "kaputt" in fehler[0][1]
+
+
+def test_ollama_pull_arbeiter_nutzt_standardmaessig_den_dienst(qt_app, monkeypatch):
+    from protokoll_assistent.services import ollama_service
+
+    aufrufe = []
+    monkeypatch.setattr(ollama_service, "pull_model", lambda modell, progress_cb: aufrufe.append(modell))
+    arbeiter = worker_modul.OllamaPullWorker("qwen3:8b")
+    arbeiter.run()
+    assert aufrufe == ["qwen3:8b"]

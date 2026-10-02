@@ -261,15 +261,12 @@ class MainWindow(QMainWindow):
         self.page_stack = QStackedWidget(self)
         content_layout.addWidget(self.page_stack, stretch=1)
 
+        # Zwei Spalten, damit nichts gescrollt werden muss: links die Quelle
+        # (Aufnahme oder Datei), rechts die Einstellungen und der Start.
         self.page_stack.addWidget(
-            self._scroll_page(
-                [
-                    self._build_recording_group(),
-                    self._build_file_group(),
-                    self._build_settings_group(),
-                    self._build_resume_group(),
-                    self._build_control_group(),
-                ]
+            self._two_column_page(
+                [self._build_recording_group(), self._build_file_group()],
+                [self._build_settings_group(), self._build_resume_group(), self._build_control_group()],
             )
         )
         self.page_stack.addWidget(
@@ -350,6 +347,29 @@ class MainWindow(QMainWindow):
         return leiste
 
     @staticmethod
+    def _two_column_page(links: list[QGroupBox], rechts: list[QGroupBox]) -> QScrollArea:
+        """Seite mit zwei gleich breiten Spalten. Die Bildlaufleiste erscheint nur,
+        wenn das Fenster dafuer zu klein ist."""
+        inhalt = QWidget()
+        inhalt.setObjectName("PageContent")
+        zeile = QHBoxLayout(inhalt)
+        zeile.setContentsMargins(0, 0, 8, 0)
+        zeile.setSpacing(16)
+        for gruppen, dehnen in ((links, links[-1]), (rechts, None)):
+            spalte = QVBoxLayout()
+            spalte.setSpacing(12)
+            for gruppe in gruppen:
+                spalte.addWidget(gruppe, stretch=1 if gruppe is dehnen else 0)
+            if dehnen is None:
+                spalte.addStretch(1)
+            zeile.addLayout(spalte, stretch=1)
+        scroll = QScrollArea()
+        scroll.setWidget(inhalt)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        return scroll
+
+    @staticmethod
     def _scroll_page(gruppen: list[QGroupBox]) -> QScrollArea:
         inhalt = QWidget()
         inhalt.setObjectName("PageContent")
@@ -398,11 +418,11 @@ class MainWindow(QMainWindow):
     # im selben Auswahlmechanismus wie eine per Hand gewaehlte Datei.
     # ------------------------------------------------------------------
     def _build_recording_group(self) -> QGroupBox:
-        group = QGroupBox("Aufnahmegerät", self)
+        group = QGroupBox("Aufnahme", self)
         layout = QVBoxLayout(group)
+        layout.setSpacing(8)
 
         device_row = QHBoxLayout()
-        device_row.addWidget(QLabel("Aufnahmegerät:", self))
         self.recording_device_combo = QComboBox(self)
         self.recording_device_combo.currentIndexChanged.connect(self._on_recording_device_changed)
         device_row.addWidget(self.recording_device_combo, stretch=1)
@@ -415,26 +435,17 @@ class MainWindow(QMainWindow):
         device_row.addWidget(self.recording_refresh_button)
         layout.addLayout(device_row)
 
+        # Der Hinweis (warum kein Geraet gefunden wurde o. ae.) ist meist leer und
+        # nimmt dann keinen Platz ein.
         self.recording_hint_label = QLabel("", self)
         self.recording_hint_label.setWordWrap(True)
         self.recording_hint_label.setObjectName("RecordingHint")
+        self.recording_hint_label.setVisible(False)
         layout.addWidget(self.recording_hint_label)
 
-        status_row = QHBoxLayout()
-        self.recording_status_label = QLabel("", self)
-        status_row.addWidget(self.recording_status_label)
-        self.recording_duration_label = QLabel("", self)
-        status_row.addWidget(self.recording_duration_label)
-        status_row.addStretch(1)
-        layout.addLayout(status_row)
-
-        self.recording_level_bar = QProgressBar(self)
-        self.recording_level_bar.setRange(0, 100)
-        self.recording_level_bar.setTextVisible(False)
-        layout.addWidget(self.recording_level_bar)
-
+        # Knoepfe, Status und Dauer in einer Zeile, darunter der schmale Pegel.
         button_row = QHBoxLayout()
-        self.recording_start_button = QPushButton("Voice Recording starten", self)
+        self.recording_start_button = QPushButton("Aufnahme starten", self)
         self.recording_start_button.clicked.connect(self._start_recording)
         button_row.addWidget(self.recording_start_button)
         self.recording_pause_button = QPushButton("Pause", self)
@@ -446,11 +457,25 @@ class MainWindow(QMainWindow):
         self.recording_stop_button.clicked.connect(self._stop_recording)
         self.recording_stop_button.hide()
         button_row.addWidget(self.recording_stop_button)
+        self.recording_status_label = QLabel("", self)
+        button_row.addWidget(self.recording_status_label)
+        self.recording_duration_label = QLabel("", self)
+        button_row.addWidget(self.recording_duration_label)
         button_row.addStretch(1)
         layout.addLayout(button_row)
 
+        self.recording_level_bar = QProgressBar(self)
+        self.recording_level_bar.setRange(0, 100)
+        self.recording_level_bar.setTextVisible(False)
+        self.recording_level_bar.setFixedHeight(10)
+        layout.addWidget(self.recording_level_bar)
+
         self._populate_recording_devices()
         return group
+
+    def _set_recording_hint(self, text: str) -> None:
+        self.recording_hint_label.setText(text)
+        self.recording_hint_label.setVisible(bool(text))
 
     def _show_no_recording_device(self) -> None:
         """Statt eines leeren Auswahlfelds (dessen Pfeil nichts oeffnet und
@@ -477,7 +502,7 @@ class MainWindow(QMainWindow):
         except ImportError as error:
             self._recording_devices = []
             self._show_no_recording_device()
-            self.recording_hint_label.setText(
+            self._set_recording_hint(
                 "Die Mikrofonaufnahme steht in dieser Laufzeitumgebung nicht zur "
                 f"Verfügung ({error}). Alles andere funktioniert unverändert; eine "
                 "bereits vorhandene Aufnahme kann wie jede andere Datei ausgewählt werden."
@@ -487,13 +512,13 @@ class MainWindow(QMainWindow):
         except Exception as error:  # PortAudio-Fehler in ungewoehnlicher Umgebung
             self._recording_devices = []
             self._show_no_recording_device()
-            self.recording_hint_label.setText(f"Aufnahmegeräte konnten nicht ermittelt werden: {error}")
+            self._set_recording_hint(f"Aufnahmegeräte konnten nicht ermittelt werden: {error}")
             self.recording_start_button.setEnabled(False)
             return
 
         if not self._recording_devices:
             self._show_no_recording_device()
-            self.recording_hint_label.setText(
+            self._set_recording_hint(
                 "Keine Audioeingabegeräte gefunden. Gerät anstecken und auf „Neu einlesen“ klicken; "
                 "in den Windows-Datenschutzeinstellungen muss der Mikrofonzugriff für "
                 "Desktop-Apps erlaubt sein."
@@ -518,14 +543,14 @@ class MainWindow(QMainWindow):
                 self.recording_device_combo.setCurrentIndex(index)
         self.recording_device_combo.blockSignals(False)
 
-        self.recording_hint_label.setText(hint or "")
+        self._set_recording_hint(hint or "")
         self.recording_start_button.setEnabled(True)
 
     def _on_recording_device_changed(self, _index: int) -> None:
         anzeigename = self.recording_device_combo.currentText()
         if anzeigename:
             app_config.update_config(aufnahmegeraet=anzeigename)
-            self.recording_hint_label.setText("")
+            self._set_recording_hint("")
 
     def _start_recording(self) -> None:
         anzeigename = self.recording_device_combo.currentText()
@@ -597,8 +622,9 @@ class MainWindow(QMainWindow):
     # Gruppe 2: Eingabeordner und Datei
     # ------------------------------------------------------------------
     def _build_file_group(self) -> QGroupBox:
-        group = QGroupBox("Datei und Ordner", self)
+        group = QGroupBox("Datei", self)
         layout = QVBoxLayout(group)
+        layout.setSpacing(8)
 
         folder_row = QHBoxLayout()
         folder_text = str(self._input_folder) if self._input_folder else "Kein Eingabeordner ausgewählt"
@@ -610,10 +636,12 @@ class MainWindow(QMainWindow):
         folder_row.addWidget(self.folder_label, stretch=1)
         layout.addLayout(folder_row)
 
+        # Die Liste nimmt den uebrigen Platz der Spalte ein, statt eine feste
+        # Hoehe zu haben.
         self.file_list = QListWidget(self)
-        self.file_list.setMaximumHeight(140)
+        self.file_list.setMinimumHeight(90)
         self.file_list.itemSelectionChanged.connect(self._on_file_list_selection_changed)
-        layout.addWidget(self.file_list)
+        layout.addWidget(self.file_list, stretch=1)
         if self._input_folder is not None:
             self._populate_file_list(self._input_folder)
 
@@ -621,12 +649,10 @@ class MainWindow(QMainWindow):
         choose_file_button = QPushButton("Andere Datei wählen …", self)
         choose_file_button.clicked.connect(self._choose_file)
         other_file_row.addWidget(choose_file_button)
-        other_file_row.addStretch(1)
-        layout.addLayout(other_file_row)
-
         self.file_label = QLabel("Keine Datei ausgewählt", self)
         self.file_label.setWordWrap(True)
-        layout.addWidget(self.file_label)
+        other_file_row.addWidget(self.file_label, stretch=1)
+        layout.addLayout(other_file_row)
 
         output_row = QHBoxLayout()
         self.output_label = QLabel(str(self._output_dir), self)
@@ -656,24 +682,20 @@ class MainWindow(QMainWindow):
         self.language_combo.addItem("Automatisch erkennen", None)
         layout.addRow("Sprache:", self.language_combo)
 
-        self.diarization_checkbox = QCheckBox("Sprechertrennung aktivieren (Sprecher erkennen)", self)
+        self.diarization_checkbox = QCheckBox("Sprechertrennung (Sprecher erkennen)", self)
         self.diarization_checkbox.setChecked(True)
         self.diarization_checkbox.toggled.connect(self._toggle_diarization)
+        self.diarization_checkbox.setToolTip(
+            "Abwählen, wenn nur der Inhalt zählt und die Aussagen anonym bleiben sollen "
+            "(keine Sprecherzuordnung im Ergebnis)."
+        )
         layout.addRow(self.diarization_checkbox)
 
-        diarization_hint = QLabel(
-            "Deaktivieren, wenn nur der Inhalt zaehlt und die Aussagen anonym bleiben "
-            "sollen (keine Sprecherzuordnung im Ergebnis).",
-            self,
-        )
-        diarization_hint.setWordWrap(True)
-        layout.addRow(diarization_hint)
-
-        self.limit_speakers_checkbox = QCheckBox("Sprecherzahl manuell begrenzen", self)
-        self.limit_speakers_checkbox.toggled.connect(self._toggle_speaker_limits)
-        layout.addRow(self.limit_speakers_checkbox)
-
+        # Begrenzung der Sprecherzahl in einer Zeile: Haken, Min., Max.
         speaker_row = QHBoxLayout()
+        self.limit_speakers_checkbox = QCheckBox("Sprecherzahl begrenzen", self)
+        self.limit_speakers_checkbox.toggled.connect(self._toggle_speaker_limits)
+        speaker_row.addWidget(self.limit_speakers_checkbox)
         self.min_speakers_spin = QSpinBox(self)
         self.min_speakers_spin.setRange(1, 30)
         self.min_speakers_spin.setValue(2)
@@ -686,6 +708,7 @@ class MainWindow(QMainWindow):
         speaker_row.addWidget(self.min_speakers_spin)
         speaker_row.addWidget(QLabel("Max.:", self))
         speaker_row.addWidget(self.max_speakers_spin)
+        speaker_row.addStretch(1)
         layout.addRow(speaker_row)
 
         # Vorher stand 'allow_download=False' fest im
@@ -696,16 +719,11 @@ class MainWindow(QMainWindow):
         # Einsatz im lokalen Modus automatisch heruntergeladen").
         self.offline_checkbox = QCheckBox("Offline-Modus (empfohlen)", self)
         self.offline_checkbox.setChecked(True)
-        layout.addRow(self.offline_checkbox)
-
-        offline_hint = QLabel(
-            "Verhindert jeden Netzwerkzugriff der Modelle. Für den ersten Lauf mit "
-            "einem noch nicht eingerichteten Whisper-Modell einmal abwählen, damit es "
-            "heruntergeladen werden darf.",
-            self,
+        self.offline_checkbox.setToolTip(
+            "Verhindert jeden Netzwerkzugriff der Modelle. Für den ersten Lauf mit einem noch nicht "
+            "eingerichteten Whisper-Modell einmal abwählen, damit es heruntergeladen werden darf."
         )
-        offline_hint.setWordWrap(True)
-        layout.addRow(offline_hint)
+        layout.addRow(self.offline_checkbox)
 
         return group
 
@@ -1451,6 +1469,18 @@ class MainWindow(QMainWindow):
                     raise ollama_service.OllamaError(str(fehler)) from fehler
 
             protocol_generate_fn = _api_nachbearbeitung
+
+        if not self.nachbearbeitung_api_radio.isChecked():
+            lokales_modell = config["ollama_modell"] or ollama_service.DEFAULT_MODEL
+            if ollama_service.modell_fehlt(lokales_modell):
+                show_error(
+                    self,
+                    "Ollama-Modell fehlt",
+                    f"Das Modell '{lokales_modell}' ist bei Ollama nicht installiert.\n\n"
+                    "Bitte in den Einstellungen unter „Nachbearbeitung“ auf „Jetzt herunterladen“ klicken "
+                    "oder ein anderes, bereits installiertes Modell wählen.",
+                )
+                return
 
         settings = pipeline_service.ProtocolSettings(
             transcript_json_path=self._selected_transcript_path,

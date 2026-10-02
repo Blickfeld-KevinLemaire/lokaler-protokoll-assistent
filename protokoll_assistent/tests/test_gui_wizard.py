@@ -78,8 +78,14 @@ def test_install_worker_token_abfrage(install_worker):
     assert angefragt == [True]
 
 
-def test_install_worker_laeuft_durch(install_worker, monkeypatch):
+def test_install_worker_laeuft_durch(install_worker, monkeypatch, tmp_path):
     from protokoll_assistent.services import ffmpeg_service, model_download_service, ollama_service
+    from protokoll_assistent.utils import app_config
+
+    # Die Konfiguration liegt im Temp-Ordner, nie in der echten Datei.
+    konfig = tmp_path / "konfiguration.json"
+    monkeypatch.setattr(app_config, "get_config_file", lambda: konfig)
+    app_config.update_config(ollama_modell="qwen3:14b")
 
     monkeypatch.setattr(ffmpeg_service, "ensure_ffmpeg_available", lambda progress_cb: None)
     monkeypatch.setattr(
@@ -88,7 +94,12 @@ def test_install_worker_laeuft_durch(install_worker, monkeypatch):
     monkeypatch.setattr(
         model_download_service, "download_pyannote", lambda log, get_token: True
     )
-    monkeypatch.setattr(model_download_service, "download_ollama_model", lambda log: True)
+    geladene_ollama_modelle = []
+    monkeypatch.setattr(
+        model_download_service,
+        "download_ollama_model",
+        lambda log, model=None: geladene_ollama_modelle.append(model) or True,
+    )
 
     ergebnisse, meldungen = [], []
     install_worker.finished_ok.connect(ergebnisse.append)
@@ -98,6 +109,8 @@ def test_install_worker_laeuft_durch(install_worker, monkeypatch):
 
     assert ergebnisse == [{"pyannote": True, "ollama_modell": True}]
     assert any("FFmpeg" in m for m in meldungen)
+    # Heruntergeladen wird das in den Einstellungen gewaehlte Modell.
+    assert geladene_ollama_modelle == ["qwen3:14b"]
 
 
 def test_install_worker_meldet_fehler_ohne_traceback(install_worker, monkeypatch):

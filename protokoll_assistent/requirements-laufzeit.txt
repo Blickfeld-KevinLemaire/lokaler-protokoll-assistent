@@ -45,3 +45,8 @@ python-docx>=1.1
 # dieser Umgebung; ohne das Paket bleibt die Geraeteliste leer. Das Windows-Rad
 # bringt die PortAudio-Bibliothek mit.
 sounddevice>=0.4.6
+
+# Dauerhaftes Merken von API-Schluesseln ('services/secret_store.py', Windows-
+# Anmeldeinformationsverwaltung). Ohne das Paket meldete die Anwendung beim
+# Speichern der Einstellungen, dass es fehlt.
+keyring>=25.0

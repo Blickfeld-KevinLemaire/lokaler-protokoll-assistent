@@ -324,3 +324,8 @@ def test_laufzeitumgebung_enthaelt_sounddevice_fuer_die_mikrofonaufnahme():
     # angeschlossen ist.
     namen = {re.split(r"[<>=~!\[; ]", requirement)[0].lower() for requirement in env.RUNTIME_PACKAGES}
     assert "sounddevice" in namen
+
+
+def test_laufzeitumgebung_enthaelt_keyring_fuer_gemerkte_schluessel():
+    namen = {re.split(r"[<>=~!\[; ]", requirement)[0].lower() for requirement in env.RUNTIME_PACKAGES}
+    assert "keyring" in namen

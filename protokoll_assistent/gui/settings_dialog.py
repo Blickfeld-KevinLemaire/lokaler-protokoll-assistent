@@ -33,6 +33,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMessageBox,
+    QProgressBar,
     QPushButton,
     QRadioButton,
     QStackedWidget,
@@ -41,8 +42,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from protokoll_assistent.services import secret_store
+from protokoll_assistent.gui.worker import OllamaPullWorker
+from protokoll_assistent.services import ollama_service, secret_store
 from protokoll_assistent.utils import app_config
+
+# Auswahlpunkt, hinter dem ein frei eingegebener Ollama-Modellname gilt.
+EIGENES_OLLAMA_MODELL = "__eigenes_modell__"
 
 DATENSCHUTZ_HINWEIS_API = (
     "Bei aktiver API-Schnittstelle wird die Aufnahme an den oben eingetragenen, "
@@ -254,9 +259,138 @@ class SettingsDialog(QDialog):
     def _build_nachbearbeitung_lokal_seite(self) -> QWidget:
         seite = QWidget(self)
         layout = QFormLayout(seite)
-        self.ollama_modell_edit = QLineEdit(self._config["ollama_modell"], seite)
-        layout.addRow("Ollama-Modellname:", self.ollama_modell_edit)
+        self._ollama_worker: OllamaPullWorker | None = None
+
+        self.ollama_modell_combo = QComboBox(seite)
+        for option in ollama_service.OLLAMA_MODELLE:
+            self.ollama_modell_combo.addItem(f"{option.label} - ca. {option.groesse_gb:g} GB", option.id)
+        self.ollama_modell_combo.addItem("Eigenen Modellnamen eingeben …", EIGENES_OLLAMA_MODELL)
+        layout.addRow("Ollama-Modell:", self.ollama_modell_combo)
+
+        self.ollama_modell_edit = QLineEdit(seite)
+        self.ollama_modell_edit.setPlaceholderText("z. B. phi4 oder qwen3:30b (Namen siehe ollama.com/library)")
+        layout.addRow("Modellname:", self.ollama_modell_edit)
+
+        gespeichert = (self._config.get("ollama_modell") or ollama_service.DEFAULT_MODEL).strip()
+        index = self.ollama_modell_combo.findData(gespeichert)
+        if index >= 0:
+            self.ollama_modell_combo.setCurrentIndex(index)
+        else:
+            self.ollama_modell_combo.setCurrentIndex(self.ollama_modell_combo.findData(EIGENES_OLLAMA_MODELL))
+            self.ollama_modell_edit.setText(gespeichert)
+        self.ollama_modell_combo.currentIndexChanged.connect(self._ollama_auswahl_geaendert)
+        self.ollama_modell_edit.editingFinished.connect(self._ollama_status_aktualisieren)
+
+        self.ollama_hinweis_label = QLabel("", seite)
+        self.ollama_hinweis_label.setWordWrap(True)
+        layout.addRow(self.ollama_hinweis_label)
+
+        self.ollama_status_label = QLabel("", seite)
+        self.ollama_status_label.setWordWrap(True)
+        layout.addRow("Status:", self.ollama_status_label)
+
+        self.ollama_fortschritt = QProgressBar(seite)
+        self.ollama_fortschritt.setRange(0, 100)
+        self.ollama_fortschritt.setVisible(False)
+        layout.addRow(self.ollama_fortschritt)
+
+        knopfzeile = QHBoxLayout()
+        self.ollama_download_button = QPushButton("Jetzt herunterladen", seite)
+        self.ollama_download_button.setObjectName("PrimaryButton")
+        self.ollama_download_button.clicked.connect(self._ollama_herunterladen)
+        self.ollama_pruefen_button = QPushButton("Status prüfen", seite)
+        self.ollama_pruefen_button.clicked.connect(self._ollama_status_aktualisieren)
+        knopfzeile.addWidget(self.ollama_download_button)
+        knopfzeile.addWidget(self.ollama_pruefen_button)
+        knopfzeile.addStretch(1)
+        layout.addRow(knopfzeile)
+
+        hinweis = QLabel(
+            "Das gewählte Modell wird für die Nachbearbeitung benutzt. Beim ersten Start der "
+            "lokalen Einrichtung wird das hier eingestellte Modell mit heruntergeladen. Ein anderes "
+            "lässt sich jederzeit auswählen und hier nachladen; ein Download kann je nach Modell "
+            "mehrere Gigabyte groß sein.",
+            seite,
+        )
+        hinweis.setWordWrap(True)
+        layout.addRow(hinweis)
+
+        self._ollama_auswahl_geaendert()
         return seite
+
+    def ollama_modell(self) -> str:
+        """Der aktuell eingestellte Ollama-Modellname."""
+        if self.ollama_modell_combo.currentData() == EIGENES_OLLAMA_MODELL:
+            return self.ollama_modell_edit.text().strip()
+        return str(self.ollama_modell_combo.currentData())
+
+    def _ollama_auswahl_geaendert(self, _index: int = 0) -> None:
+        eigenes = self.ollama_modell_combo.currentData() == EIGENES_OLLAMA_MODELL
+        self.ollama_modell_edit.setVisible(eigenes)
+        option = ollama_service.get_modell_option(self.ollama_modell())
+        self.ollama_hinweis_label.setText(option.hinweis if option else "")
+        self._ollama_status_aktualisieren()
+
+    def _ollama_status_aktualisieren(self) -> None:
+        modell = self.ollama_modell()
+        if not modell:
+            self.ollama_status_label.setText("Bitte einen Modellnamen eingeben.")
+            self.ollama_download_button.setEnabled(False)
+            return
+        try:
+            installiert = ollama_service.list_models(timeout=1.5)
+        except ollama_service.OllamaError:
+            self.ollama_status_label.setText(
+                "Ollama ist nicht erreichbar. Ollama starten oder über „Einrichtung starten“ "
+                "(Reiter Transkription) installieren, dann „Status prüfen“."
+            )
+            self.ollama_download_button.setEnabled(self._ollama_worker is None)
+            return
+        if ollama_service.is_model_available(modell):
+            self.ollama_status_label.setText(f"✓ '{modell}' ist installiert.")
+            self.ollama_download_button.setEnabled(False)
+        else:
+            weitere = [name for name in installiert if name]
+            zusatz = f" Bereits installiert: {', '.join(weitere)}." if weitere else ""
+            self.ollama_status_label.setText(f"'{modell}' ist noch nicht installiert.{zusatz}")
+            self.ollama_download_button.setEnabled(self._ollama_worker is None)
+
+    def _ollama_herunterladen(self) -> None:
+        modell = self.ollama_modell()
+        if not modell or self._ollama_worker is not None:
+            return
+        self.ollama_download_button.setEnabled(False)
+        self.ollama_modell_combo.setEnabled(False)
+        self.ollama_fortschritt.setValue(0)
+        self.ollama_fortschritt.setVisible(True)
+        self.ollama_status_label.setText(f"Lade '{modell}' herunter …")
+        self._ollama_worker = OllamaPullWorker(modell, self)
+        self._ollama_worker.fortschritt.connect(self._ollama_fortschritt_anzeigen)
+        self._ollama_worker.fertig.connect(self._ollama_download_fertig)
+        self._ollama_worker.fehlgeschlagen.connect(self._ollama_download_fehlgeschlagen)
+        self._ollama_worker.start()
+
+    def _ollama_fortschritt_anzeigen(self, status: str, fertig: int, gesamt: int) -> None:
+        if gesamt > 0:
+            self.ollama_fortschritt.setRange(0, 100)
+            self.ollama_fortschritt.setValue(round(fertig / gesamt * 100))
+            self.ollama_status_label.setText(f"{status}: {fertig / 1e9:.1f} von {gesamt / 1e9:.1f} GB")
+        else:
+            self.ollama_status_label.setText(status)
+
+    def _ollama_download_beendet(self) -> None:
+        self._ollama_worker = None
+        self.ollama_fortschritt.setVisible(False)
+        self.ollama_modell_combo.setEnabled(True)
+
+    def _ollama_download_fertig(self, modell: str) -> None:
+        self._ollama_download_beendet()
+        self._ollama_status_aktualisieren()
+
+    def _ollama_download_fehlgeschlagen(self, modell: str, meldung: str) -> None:
+        self._ollama_download_beendet()
+        self.ollama_status_label.setText(f"Download fehlgeschlagen: {meldung}")
+        self.ollama_download_button.setEnabled(True)
 
     def _build_nachbearbeitung_api_seite(self) -> QWidget:
         seite = QWidget(self)
@@ -325,7 +459,7 @@ class SettingsDialog(QDialog):
             "api_transkription_anbieter": self.api_transkription_anbieter_edit.text().strip(),
             "api_transkription_schluessel_merken": self.api_transkription_merken_checkbox.isChecked(),
             "nachbearbeitung_modus": "api" if self.nachbearbeitung_api_radio.isChecked() else "lokal",
-            "ollama_modell": self.ollama_modell_edit.text().strip(),
+            "ollama_modell": self.ollama_modell() or ollama_service.DEFAULT_MODEL,
             "api_nachbearbeitung_endpunkt": self.api_nachbearbeitung_endpunkt_edit.text().strip(),
             "api_nachbearbeitung_modell": self.api_nachbearbeitung_modell_edit.text().strip(),
             "api_nachbearbeitung_eigener_schluessel": (
@@ -368,10 +502,17 @@ class SettingsDialog(QDialog):
 
     def _schluessel_anwenden(self, *, merken: bool, schluessel_name: str, eingabefeld: QLineEdit) -> None:
         wert = eingabefeld.text().strip()
-        try:
-            if merken and wert:
+        if merken and wert:
+            try:
                 secret_store.save_api_key(schluessel_name, wert)
-            elif not merken:
+            except secret_store.SecretStoreUnavailableError as error:
+                QMessageBox.warning(self, "Schlüssel nicht gespeichert", str(error))
+        elif not merken:
+            # Ein zuvor gemerkter Schluessel wird entfernt. Ist der
+            # Anmeldeinformationsspeicher nicht verfuegbar, gibt es auch nichts zu
+            # entfernen - und der Anwender wollte ohnehin nichts merken. Eine
+            # Meldung waere hier nur Laerm.
+            try:
                 secret_store.delete_api_key(schluessel_name)
-        except secret_store.SecretStoreUnavailableError as error:
-            QMessageBox.warning(self, "Schlüssel nicht gespeichert", str(error))
+            except secret_store.SecretStoreUnavailableError:
+                return

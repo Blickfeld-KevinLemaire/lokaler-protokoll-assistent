@@ -117,6 +117,7 @@ class InstallWorker(QThread):
     def run(self) -> None:
         try:
             from protokoll_assistent.services import ffmpeg_service, model_download_service, ollama_service
+            from protokoll_assistent.utils import app_config
             from protokoll_assistent.utils.paths import get_app_dir
 
             self.log_line.emit("Prüfe FFmpeg ...")
@@ -134,7 +135,9 @@ class InstallWorker(QThread):
                 "pyannote": model_download_service.download_pyannote(
                     self.log_line.emit, get_token=self._get_token
                 ),
-                "ollama_modell": model_download_service.download_ollama_model(self.log_line.emit),
+                "ollama_modell": model_download_service.download_ollama_model(
+                    self.log_line.emit, app_config.load_config()["ollama_modell"] or ollama_service.DEFAULT_MODEL
+                ),
             }
             self.log_line.emit(
                 "\nHinweis: Das Transkriptionsmodell wird im naechsten Schritt "

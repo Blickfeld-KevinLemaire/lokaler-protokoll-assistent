@@ -10,6 +10,33 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 ### Added
 
+- Ollama-Modell wählbar: In den Einstellungen (Nachbearbeitung, lokal) gibt es
+  jetzt eine Auswahl mit Qwen3 (4B, 8B, 14B), Gemma 3, Llama 3.1 und Mistral
+  Nemo samt Größenangabe und Hinweis, dazu „Eigenen Modellnamen eingeben …“
+  für jedes Modell aus der Ollama-Bibliothek. Der Status zeigt, ob das Modell
+  installiert ist; „Jetzt herunterladen“ lädt es mit Fortschrittsanzeige
+  nach. Vorausgewählt bleibt Qwen3 8B. Die lokale Ersteinrichtung lädt das
+  hier eingestellte Modell, die Systemdiagnose prüft es, und die
+  Nachbearbeitung meldet ein fehlendes Modell vor dem Start verständlich.
+
+### Changed
+
+- Seite „Transkription“ ohne Bildlauf: Links stehen Aufnahme und Datei, rechts
+  die Einstellungen für den Lauf, das Fortsetzen und der Start. Aufnahmeknöpfe,
+  Status und Pegel sitzen in einer Zeile, die Begrenzung der Sprecherzahl in
+  einer Zeile, Erklärungen sind als Tooltips hinterlegt.
+
+### Fixed
+
+- Beim Speichern der Einstellungen erschien im lokalen Modus die Meldung, dass
+  `keyring` fehlt, auch wenn der Anwender keinen Schlüssel merken wollte. Die
+  Meldung kommt jetzt nur noch, wenn ein Schlüssel wirklich dauerhaft
+  gespeichert werden soll. Zusätzlich installiert die selbst eingerichtete
+  Laufzeitumgebung `keyring` jetzt mit, sodass das Merken dort funktioniert
+  (beim nächsten Start einmalig mit Internetverbindung).
+
+### Added
+
 - Sehr lange Aufnahmen: Die Verdichtung der Teilanalysen (Stufe 2) läuft
   jetzt in mehreren Runden, bis das Ergebnis in den Kontext der
   Gesamtprotokoll-Stufe passt (höchstens 8 Runden). Vorher gab es genau eine
