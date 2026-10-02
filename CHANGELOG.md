@@ -19,6 +19,13 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
   hier eingestellte Modell, die Systemdiagnose prüft es, und die
   Nachbearbeitung meldet ein fehlendes Modell vor dem Start verständlich.
 
+### Changed
+
+- Seite „Transkription“ ohne Bildlauf: Links stehen Aufnahme und Datei, rechts
+  die Einstellungen für den Lauf, das Fortsetzen und der Start. Aufnahmeknöpfe,
+  Status und Pegel sitzen in einer Zeile, die Begrenzung der Sprecherzahl in
+  einer Zeile, Erklärungen sind als Tooltips hinterlegt.
+
 ### Fixed
 
 - Beim Speichern der Einstellungen erschien im lokalen Modus die Meldung, dass

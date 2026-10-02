@@ -1702,3 +1702,43 @@ def test_nachbearbeitung_startet_wenn_das_ollama_modell_installiert_ist(fenster,
 
     assert gemeldete_fehler == []
     assert _WorkerAttrappe.instanzen[-1].gestartet is True
+
+
+# --------------------------------------------------------------------------
+# Seite "Transkription": zwei Spalten, ohne Bildlauf
+# --------------------------------------------------------------------------
+def test_transkriptionsseite_hat_links_die_quelle_und_rechts_die_einstellungen(fenster):
+    seite = fenster.page_stack.widget(0)
+
+    def liegt_in_spalte(widget):
+        spalten = seite.widget().layout()
+        for index in range(spalten.count()):
+            spalte = spalten.itemAt(index).layout()
+            for zeile in range(spalte.count()):
+                gruppe = spalte.itemAt(zeile).widget()
+                if gruppe is not None and gruppe.isAncestorOf(widget):
+                    return index
+        return None
+
+    assert liegt_in_spalte(fenster.recording_device_combo) == 0
+    assert liegt_in_spalte(fenster.file_list) == 0
+    assert liegt_in_spalte(fenster.language_combo) == 1
+    assert liegt_in_spalte(fenster.resume_combo) == 1
+    assert liegt_in_spalte(fenster.start_button) == 1
+
+
+def test_aufnahmehinweis_ist_nur_sichtbar_wenn_er_text_hat(fenster):
+    fenster._set_recording_hint("Kein Gerät gefunden")
+    assert fenster.recording_hint_label.isVisibleTo(fenster)
+    fenster._set_recording_hint("")
+    assert not fenster.recording_hint_label.isVisibleTo(fenster)
+
+
+def test_transkriptionsseite_passt_im_standardfenster_ohne_bildlauf(fenster, qt_app):
+    fenster.resize(1420, 900)
+    fenster.show()
+    qt_app.processEvents()
+    seite = fenster.page_stack.widget(0)
+    # Der Bildlauf ist nur ein Notnagel fuer kleine Fenster; im Standardfenster
+    # muss alles ohne ihn sichtbar sein.
+    assert seite.verticalScrollBar().maximum() == 0
