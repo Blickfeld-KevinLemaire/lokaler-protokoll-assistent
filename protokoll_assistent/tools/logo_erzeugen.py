@@ -46,6 +46,14 @@ def inhaltsstrom_lesen(eps: bytes) -> str:
     return eps[anfang:ende].decode("latin-1")
 
 
+def _als_zahl(wort: str) -> float | None:
+    """Zahl oder None, wenn das Wort ein Operator ist."""
+    try:
+        return float(wort)
+    except ValueError:
+        return None
+
+
 def formen_lesen(inhalt: str) -> list[Form]:
     """Liest Pfade und Fuellfarben. Unterstuetzt wird, was Ghostscript hier
     schreibt: ``cm`` nur als gleichmaessige Skalierung am Anfang, ``rg`` fuer die
@@ -65,11 +73,10 @@ def formen_lesen(inhalt: str) -> list[Form]:
         aktuell = []
 
     for wort in inhalt.split():
-        try:
-            zahlen.append(float(wort))
+        zahl = _als_zahl(wort)
+        if zahl is not None:
+            zahlen.append(zahl)
             continue
-        except ValueError:
-            pass
         if wort == "cm" and len(zahlen) >= 6:
             skala = zahlen[-6]
         elif wort == "rg" and len(zahlen) >= 3:
