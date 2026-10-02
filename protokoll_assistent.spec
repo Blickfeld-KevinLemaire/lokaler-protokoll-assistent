@@ -89,6 +89,7 @@ collected_hiddenimports += [
     "protokoll_assistent.utils.setup_status",
     "protokoll_assistent.utils.systemprompt_vorlagen",
     "protokoll_assistent.utils.timeformat",
+    "protokoll_assistent.gui.branding",
     "protokoll_assistent.gui.dialogs",
     "protokoll_assistent.gui.main_window",
     "protokoll_assistent.gui.settings_dialog",
@@ -107,6 +108,8 @@ a = Analysis(
     datas=collected_datas
     + [
         ("protokoll_assistent/einstellungen", "einstellungen"),
+        # Logo und Programmsymbol (siehe 'gui/branding.py').
+        ("protokoll_assistent/resources", "resources"),
         # Lizenzhinweise muessen mit ausgeliefert werden. Die LGPL-3.0 von Qt
         # verlangt, dass der Lizenztext beiliegt - die Qt-Wheels selbst
         # enthalten nur einen Verweis auf die kommerzielle Lizenz, nicht den
@@ -132,6 +135,7 @@ exe = EXE(
     [],
     exclude_binaries=True,
     name="Protokoll-Assistent",
+    icon="protokoll_assistent/resources/vermerk_icon.ico",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

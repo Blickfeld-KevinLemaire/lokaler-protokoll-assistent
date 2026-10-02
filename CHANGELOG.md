@@ -67,6 +67,11 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 ### Changed
 
+- Erscheinungsbild VERMERK: Das große Logo (Fassung für dunklen Grund) steht
+  oben in der Seitenleiste, die Bildmarke ist Programmsymbol für Fenster,
+  Dialoge, die EXE und den Installer. Die Dateien liegen in
+  `protokoll_assistent/resources/` und entstehen mit
+  `python -m protokoll_assistent.tools.logo_erzeugen` aus der EPS-Vorlage.
 - Neues Hauptfenster mit Seitenleiste: Links stehen „Neue Transkription“, die
   Seiten **Transkription**, **Nachbearbeitung** und **Ergebnis und Sprecher**
   sowie unten „Ausgabeordner öffnen“ und „Einstellungen“. Die sieben

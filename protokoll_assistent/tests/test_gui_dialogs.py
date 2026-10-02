@@ -247,3 +247,38 @@ def test_endverarbeitung_ergebnisse(qt_app):
 def test_endverarbeitung_vorbelegung_mit_bekannter_sprecherzahl(qt_app):
     dialog = dialogs.EndverarbeitungDialog(True, 4, ["A"], None)
     assert dialog.bekannt_radio.isChecked() and dialog.sprecherzahl == 4
+
+
+# --------------------------------------------------------------------------
+# branding (Logo und Programmsymbol)
+# --------------------------------------------------------------------------
+def test_programmsymbol_und_logos_sind_vorhanden(qt_app):
+    from protokoll_assistent.gui import branding
+
+    assert not branding.app_icon().isNull()
+    normal = branding.logo_pixmap(200)
+    hell = branding.logo_pixmap(200, hell=True)
+    assert normal is not None and not normal.isNull()
+    assert hell is not None and not hell.isNull()
+    assert normal.devicePixelRatio() == 2.0
+
+
+def test_fehlende_dateien_ergeben_kein_symbol_und_kein_logo(qt_app, tmp_path, monkeypatch):
+    from protokoll_assistent.gui import branding
+
+    monkeypatch.setattr(branding, "ressourcen_ordner", lambda: tmp_path)
+    assert branding.app_icon().isNull()
+    assert branding.logo_pixmap(200) is None
+    (tmp_path / branding.LOGO_DATEI).write_bytes(b"kein bild")
+    assert branding.logo_pixmap(200) is None  # beschaedigte Datei
+
+
+def test_ressourcen_ordner_im_quellcode_und_in_der_gebauten_anwendung(monkeypatch, tmp_path):
+    import sys
+
+    from protokoll_assistent.gui import branding
+
+    assert (branding.ressourcen_ordner() / branding.ICON_DATEI).is_file()
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path), raising=False)
+    assert branding.ressourcen_ordner() == tmp_path / "resources"

@@ -34,6 +34,7 @@ from PySide6.QtCore import Qt, QTimer, QUrl
 from PySide6.QtGui import QCloseEvent, QDesktopServices, QDragEnterEvent, QDropEvent
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QApplication,
     QButtonGroup,
     QCheckBox,
     QComboBox,
@@ -64,6 +65,7 @@ from PySide6.QtWidgets import (
 )
 
 # Verarbeitungskette und Hilfsmodule der Anwendung.
+from protokoll_assistent.gui import branding
 from protokoll_assistent.gui.dialogs import (
     AudioquelleDialog,
     EndverarbeitungDialog,
@@ -152,6 +154,10 @@ class MainWindow(QMainWindow):
     def __init__(self, initial_folder: Path | None = None, initial_file: str | None = None) -> None:
         super().__init__()
         self.setWindowTitle("Protokoll-Assistent")
+        # Programmsymbol fuer dieses Fenster und alle Dialoge der Anwendung.
+        symbol = branding.app_icon()
+        self.setWindowIcon(symbol)
+        QApplication.setWindowIcon(symbol)
         self.resize(1420, 900)
         self.setAcceptDrops(True)
 
@@ -294,11 +300,19 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(14, 20, 14, 16)
         layout.setSpacing(6)
 
-        marke = QLabel("Protokoll-Assistent", self)
-        marke.setObjectName("BrandTitle")
-        untermarke = QLabel("Privater Besprechungsassistent", self)
+        # Das grosse Logo (Fassung fuer dunklen Grund) oben in der Seitenleiste;
+        # fehlt die Datei, steht der Name als Text da.
+        self.brand_label = QLabel(self)
+        logo = branding.logo_pixmap(210, hell=True, geraetepixelverhaeltnis=self.devicePixelRatioF())
+        if logo is not None:
+            self.brand_label.setPixmap(logo)
+            self.brand_label.setAccessibleName("VERMERK")
+        else:
+            self.brand_label.setText("Protokoll-Assistent")
+            self.brand_label.setObjectName("BrandTitle")
+        layout.addWidget(self.brand_label)
+        untermarke = QLabel("Protokoll-Assistent", self)
         untermarke.setObjectName("BrandSubtitle")
-        layout.addWidget(marke)
         layout.addWidget(untermarke)
         layout.addSpacing(14)
 

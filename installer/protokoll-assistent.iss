@@ -65,6 +65,7 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 UninstallDisplayName={#MeinName} {#MeineVersion}
 UninstallDisplayIcon={app}\{#MeineExe}
+SetupIconFile=..\protokoll_assistent\resources\vermerk_icon.ico
 
 [Languages]
 Name: "deutsch"; MessagesFile: "compiler:Languages\German.isl"

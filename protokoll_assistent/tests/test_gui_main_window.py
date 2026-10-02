@@ -1649,3 +1649,15 @@ def test_ausgabeordner_oeffnen_und_einstellungen_in_der_seitenleiste(fenster, mo
     fenster.settings_button.clicked.connect(fenster._open_settings)
     fenster.settings_button.click()
     assert aufrufe == [True]
+
+
+def test_fenster_hat_programmsymbol_und_logo_in_der_seitenleiste(fenster):
+    assert not fenster.windowIcon().isNull()
+    assert fenster.brand_label.pixmap() is not None and not fenster.brand_label.pixmap().isNull()
+
+
+def test_ohne_logodatei_steht_der_name_als_text_da(qt_widgets, isolierte_konfiguration, schluessel_speicher, monkeypatch):
+    monkeypatch.setattr(mw.branding, "logo_pixmap", lambda *a, **k: None)
+    monkeypatch.setattr(mw.MainWindow, "_lokale_laufzeitumgebung_verfuegbar", staticmethod(lambda: True))
+    fenster_ohne_logo = qt_widgets(mw.MainWindow())
+    assert fenster_ohne_logo.brand_label.text() == "Protokoll-Assistent"
