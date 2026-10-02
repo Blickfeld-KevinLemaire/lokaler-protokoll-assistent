@@ -1641,7 +1641,7 @@ def test_ausgabeordner_oeffnen_und_einstellungen_in_der_seitenleiste(fenster, mo
     geoeffnet = []
     monkeypatch.setattr(mw.QDesktopServices, "openUrl", staticmethod(lambda url: geoeffnet.append(url)))
     fenster.open_output_button.click()
-    assert geoeffnet and geoeffnet[0].toLocalFile() == str(fenster._output_dir)
+    assert geoeffnet and Path(geoeffnet[0].toLocalFile()) == fenster._output_dir
 
     aufrufe = []
     monkeypatch.setattr(fenster, "_open_settings", lambda: aufrufe.append(True))
