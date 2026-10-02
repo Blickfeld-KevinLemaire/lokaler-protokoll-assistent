@@ -199,3 +199,18 @@ def test_cuda_meldung_deckt_sich_mit_der_geraetewahl(monkeypatch):
     geraet, _rechenart = model_service.get_device_and_compute_type("cuda")
 
     assert ergebnis.ok is (geraet == "cuda")
+
+
+def test_check_ollama_model_prueft_das_eingestellte_modell(monkeypatch, tmp_path):
+    from protokoll_assistent.services import ollama_service
+    from protokoll_assistent.utils import app_config
+
+    monkeypatch.setattr(app_config, "get_config_file", lambda: tmp_path / "konfiguration.json")
+    app_config.update_config(ollama_modell="qwen3:14b")
+    gefragt = []
+    monkeypatch.setattr(ollama_service, "is_model_available", lambda modell: gefragt.append(modell) or False)
+
+    ergebnis = diagnostics.check_ollama_model()
+
+    assert gefragt == ["qwen3:14b"]
+    assert ergebnis.ok is False and "qwen3:14b" in ergebnis.detail

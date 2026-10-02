@@ -13,6 +13,7 @@ import subprocess
 import urllib.error
 import urllib.request
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -35,6 +36,71 @@ DownloadFn = Callable[[str, Path], None]
 
 class OllamaError(RuntimeError):
     pass
+
+
+@dataclass(frozen=True)
+class OllamaModellOption:
+    id: str
+    label: str
+    groesse_gb: float
+    hinweis: str
+
+
+# Kuratierte Auswahl fuer die Protokollauswertung. Wie bei den Whisper-Modellen
+# ist das keine Einschraenkung: In den Einstellungen laesst sich jeder Name aus
+# der Ollama-Bibliothek (https://ollama.com/library) eintragen. Groessen sind
+# gerundete Downloadgroessen der Standardfassung (Q4).
+OLLAMA_MODELLE: list[OllamaModellOption] = [
+    OllamaModellOption(
+        id=DEFAULT_MODEL,
+        label="Qwen3 8B (empfohlener Standard)",
+        groesse_gb=5.2,
+        hinweis="Guter Kompromiss aus Qualitaet und Tempo, solide auf Deutsch. Ab etwa 8 GB Grafikspeicher oder 16 GB RAM.",
+    ),
+    OllamaModellOption(
+        id="qwen3:4b",
+        label="Qwen3 4B (schwaechere Rechner)",
+        groesse_gb=2.5,
+        hinweis="Braucht deutlich weniger Speicher und ist schneller, fasst aber ungenauer zusammen.",
+    ),
+    OllamaModellOption(
+        id="qwen3:14b",
+        label="Qwen3 14B (genauer, braucht mehr Speicher)",
+        groesse_gb=9.3,
+        hinweis="Bessere Qualitaet bei langen oder schwierigen Besprechungen. Ab etwa 12 GB Grafikspeicher oder 32 GB RAM.",
+    ),
+    OllamaModellOption(
+        id="gemma3:12b",
+        label="Gemma 3 12B (Google)",
+        groesse_gb=8.1,
+        hinweis="Gute Textqualitaet und Mehrsprachigkeit. Ab etwa 10 GB Grafikspeicher oder 32 GB RAM.",
+    ),
+    OllamaModellOption(
+        id="gemma3:4b",
+        label="Gemma 3 4B (Google, klein)",
+        groesse_gb=3.3,
+        hinweis="Kleines, schnelles Modell fuer einfache Besprechungen.",
+    ),
+    OllamaModellOption(
+        id="llama3.1:8b",
+        label="Llama 3.1 8B (Meta)",
+        groesse_gb=4.9,
+        hinweis=(
+            "Verbreitetes Modell mit eigener Lizenz (Meta Llama 3.1 Community License) - "
+            "vor kommerzieller Nutzung pruefen, siehe NOTICES.md."
+        ),
+    ),
+    OllamaModellOption(
+        id="mistral-nemo",
+        label="Mistral Nemo 12B",
+        groesse_gb=7.1,
+        hinweis="Mehrsprachig, gut im Deutschen. Ab etwa 10 GB Grafikspeicher oder 32 GB RAM.",
+    ),
+]
+
+
+def get_modell_option(model_id: str) -> OllamaModellOption | None:
+    return next((option for option in OLLAMA_MODELLE if option.id == model_id), None)
 
 
 def find_ollama_executable():
@@ -87,6 +153,74 @@ def is_model_available(model: str = DEFAULT_MODEL, base_url: str = OLLAMA_BASE_U
     if ":" in model:
         return model in available
     return any(name == model or name.split(":")[0] == model for name in available)
+
+
+def modell_fehlt(model: str, base_url: str = OLLAMA_BASE_URL) -> bool:
+    """True nur, wenn Ollama erreichbar ist und das Modell wirklich nicht hat.
+    Ist Ollama nicht erreichbar, bleibt die Antwort False: Dann ist der
+    Fehler ein anderer und wird an der Stelle gemeldet, an der er auftritt."""
+    try:
+        list_models(base_url)
+    except OllamaError:
+        return False
+    return not is_model_available(model, base_url)
+
+
+PullFortschrittFn = Callable[[str, int, int], None]
+OeffneFn = Callable[..., Any]
+
+
+def pull_model(
+    model: str,
+    progress_cb: PullFortschrittFn | None = None,
+    base_url: str = OLLAMA_BASE_URL,
+    opener: OeffneFn | None = None,
+    timeout: float = 3600,
+) -> None:
+    """Laedt ein Modell ueber ``/api/pull`` herunter.
+
+    ``progress_cb(status, fertig_bytes, gesamt_bytes)`` wird fuer jede Meldung
+    von Ollama aufgerufen; die Zahlen sind 0, solange Ollama keine nennt (z.B.
+    bei "verifying sha256 digest"). Fehler werden als ``OllamaError`` mit lesbarer
+    Meldung gemeldet. Nur die Standardbibliothek, kein Programmaufruf: Es
+    genuegt der laufende Dienst, die Programmdatei muss nicht im Suchpfad liegen.
+    """
+    name = model.strip()
+    if not name:
+        raise OllamaError("Bitte einen Modellnamen angeben.")
+    log = progress_cb or (lambda status, fertig, gesamt: None)
+    body = json.dumps({"model": name, "stream": True}).encode("utf-8")
+    request = urllib.request.Request(
+        f"{base_url}/api/pull",
+        data=body,
+        headers={"Content-Type": "application/json; charset=utf-8"},
+        method="POST",
+    )
+    oeffnen = opener or urllib.request.urlopen
+    try:
+        with oeffnen(request, timeout=timeout) as response:
+            for zeile in response:
+                text = zeile.decode("utf-8", errors="replace").strip() if isinstance(zeile, bytes) else str(zeile).strip()
+                if not text:
+                    continue
+                try:
+                    meldung = json.loads(text)
+                except ValueError:
+                    continue
+                if not isinstance(meldung, dict):
+                    continue
+                if meldung.get("error"):
+                    raise OllamaError(f"Ollama konnte '{name}' nicht laden: {meldung['error']}")
+                log(str(meldung.get("status", "")), int(meldung.get("completed") or 0), int(meldung.get("total") or 0))
+    except urllib.error.HTTPError as error:
+        details = error.read().decode("utf-8", errors="replace")[:500]
+        raise OllamaError(f"Ollama-Fehler HTTP {error.code}: {details}") from error
+    except urllib.error.URLError as error:
+        raise OllamaError(
+            f"Ollama ist nicht erreichbar ({error.reason}). Bitte Ollama starten bzw. installieren."
+        ) from error
+    except (OSError, TimeoutError) as error:
+        raise OllamaError(f"Der Download wurde unterbrochen: {error}") from error
 
 
 def generate_json(

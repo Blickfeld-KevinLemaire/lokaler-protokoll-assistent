@@ -273,13 +273,17 @@ def check_ollama_running() -> DiagnosticCheck:
 
 def check_ollama_model() -> DiagnosticCheck:
     from protokoll_assistent.services import ollama_service
+    from protokoll_assistent.utils import app_config
 
     try:
-        ok = ollama_service.is_model_available(ollama_service.DEFAULT_MODEL)
+        # Geprueft wird das in den Einstellungen gewaehlte Modell.
+        modell = app_config.load_config()["ollama_modell"] or ollama_service.DEFAULT_MODEL
+        ok = ollama_service.is_model_available(modell)
         detail = (
-            f"Modell '{ollama_service.DEFAULT_MODEL}' vorhanden."
+            f"Modell '{modell}' vorhanden."
             if ok
-            else f"Modell '{ollama_service.DEFAULT_MODEL}' fehlt (ollama pull {ollama_service.DEFAULT_MODEL})."
+            else f"Modell '{modell}' fehlt (in den Einstellungen unter Nachbearbeitung herunterladen "
+            f"oder: ollama pull {modell})."
         )
         return DiagnosticCheck("ollama_model", "Ollama-Modell vorhanden", ok, detail)
     except Exception as error:

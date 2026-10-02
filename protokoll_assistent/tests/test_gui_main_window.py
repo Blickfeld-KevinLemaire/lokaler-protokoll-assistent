@@ -1661,3 +1661,44 @@ def test_ohne_logodatei_steht_der_name_als_text_da(qt_widgets, isolierte_konfigu
     monkeypatch.setattr(mw.MainWindow, "_lokale_laufzeitumgebung_verfuegbar", staticmethod(lambda: True))
     fenster_ohne_logo = qt_widgets(mw.MainWindow())
     assert fenster_ohne_logo.brand_label.text() == "Protokoll-Assistent"
+
+
+
+# --------------------------------------------------------------------------
+# Ollama-Modell fehlt
+# --------------------------------------------------------------------------
+@pytest.fixture(autouse=True)
+def ollama_nicht_erreichbar(monkeypatch):
+    """Kein Test fragt einen echten Ollama-Dienst."""
+
+    def unerreichbar(base_url=ollama_service.OLLAMA_BASE_URL, timeout=5):
+        raise ollama_service.OllamaError("kein Dienst im Test")
+
+    monkeypatch.setattr(ollama_service, "list_models", unerreichbar)
+
+
+def test_nachbearbeitung_meldet_fehlendes_ollama_modell_vor_dem_start(fenster, tmp_path, monkeypatch, gemeldete_fehler):
+    transkript = tmp_path / "ergebnis.json"
+    transkript.write_text("{}", encoding="utf-8")
+    fenster._set_transcript_path(transkript)
+    fenster.systemprompt_editor.setPlainText("Fasse zusammen.")
+    monkeypatch.setattr(ollama_service, "list_models", lambda base_url=None, timeout=5: ["gemma3:4b"])
+    vorher = len(_WorkerAttrappe.instanzen)
+
+    fenster._start_protocol()
+
+    assert gemeldete_fehler == ["Ollama-Modell fehlt"]
+    assert len(_WorkerAttrappe.instanzen) == vorher  # nichts gestartet
+
+
+def test_nachbearbeitung_startet_wenn_das_ollama_modell_installiert_ist(fenster, tmp_path, monkeypatch, gemeldete_fehler):
+    transkript = tmp_path / "ergebnis.json"
+    transkript.write_text("{}", encoding="utf-8")
+    fenster._set_transcript_path(transkript)
+    fenster.systemprompt_editor.setPlainText("Fasse zusammen.")
+    monkeypatch.setattr(ollama_service, "list_models", lambda base_url=None, timeout=5: ["qwen3:8b"])
+
+    fenster._start_protocol()
+
+    assert gemeldete_fehler == []
+    assert _WorkerAttrappe.instanzen[-1].gestartet is True

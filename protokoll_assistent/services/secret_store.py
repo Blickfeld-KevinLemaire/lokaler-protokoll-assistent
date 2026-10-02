@@ -36,7 +36,9 @@ def _keyring():
         raise SecretStoreUnavailableError(
             "Fuer das dauerhafte Merken eines API-Schluessels wird das Paket "
             "'keyring' benoetigt, das in dieser Laufzeitumgebung nicht "
-            "installiert ist."
+            "installiert ist. Die Anwendung richtet es beim naechsten Start mit "
+            "Internetverbindung selbst ein; bis dahin gilt der Schluessel nur fuer "
+            "diese Sitzung."
         ) from error
     return keyring
 

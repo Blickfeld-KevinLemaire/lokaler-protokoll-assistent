@@ -167,3 +167,33 @@ class DateiHashWorker(QThread):
             self.fehlgeschlagen.emit(str(self._pfad), str(fehler))
             return
         self.fertig.emit(str(self._pfad), hashwert)
+
+
+class OllamaPullWorker(QThread):
+    """Laedt ein Ollama-Modell im Hintergrund herunter (Einstellungen,
+    Schaltflaeche "Jetzt herunterladen"). ``pull_fn`` ist austauschbar, damit
+    Tests kein Netz brauchen."""
+
+    fortschritt = Signal(str, int, int)
+    fertig = Signal(str)
+    fehlgeschlagen = Signal(str, str)
+
+    def __init__(self, modell: str, parent=None, pull_fn: Callable[..., None] | None = None):
+        super().__init__(parent)
+        self._modell = modell
+        self._pull_fn = pull_fn
+
+    def run(self) -> None:
+        from protokoll_assistent.services import ollama_service
+
+        pull = self._pull_fn or ollama_service.pull_model
+        try:
+            pull(self._modell, progress_cb=lambda status, fertig, gesamt: self.fortschritt.emit(status, fertig, gesamt))
+        except ollama_service.OllamaError as fehler:
+            self.fehlgeschlagen.emit(self._modell, str(fehler))
+            return
+        except Exception as fehler:  # unerwartet - keine Tracebacks in der Oberflaeche
+            logger.exception("Unerwarteter Fehler beim Laden des Ollama-Modells")
+            self.fehlgeschlagen.emit(self._modell, f"Unerwarteter Fehler: {fehler}")
+            return
+        self.fertig.emit(self._modell)

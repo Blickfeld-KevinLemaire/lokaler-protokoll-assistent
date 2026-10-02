@@ -1452,6 +1452,18 @@ class MainWindow(QMainWindow):
 
             protocol_generate_fn = _api_nachbearbeitung
 
+        if not self.nachbearbeitung_api_radio.isChecked():
+            lokales_modell = config["ollama_modell"] or ollama_service.DEFAULT_MODEL
+            if ollama_service.modell_fehlt(lokales_modell):
+                show_error(
+                    self,
+                    "Ollama-Modell fehlt",
+                    f"Das Modell '{lokales_modell}' ist bei Ollama nicht installiert.\n\n"
+                    "Bitte in den Einstellungen unter „Nachbearbeitung“ auf „Jetzt herunterladen“ klicken "
+                    "oder ein anderes, bereits installiertes Modell wählen.",
+                )
+                return
+
         settings = pipeline_service.ProtocolSettings(
             transcript_json_path=self._selected_transcript_path,
             output_dir=self._output_dir,

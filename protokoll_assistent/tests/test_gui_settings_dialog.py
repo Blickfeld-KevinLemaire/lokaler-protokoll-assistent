@@ -8,13 +8,25 @@ nicht getestet."""
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 import pytest
 
 pytest.importorskip("PySide6", reason="PySide6 ist nicht installiert.")
 
 from protokoll_assistent.gui import settings_dialog as sd  # noqa: E402
-from protokoll_assistent.services import secret_store  # noqa: E402
+from protokoll_assistent.services import ollama_service, secret_store  # noqa: E402
 from protokoll_assistent.utils import app_config  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def ollama_nicht_erreichbar(monkeypatch):
+    """Kein Test fragt einen echten Ollama-Dienst: Standard ist "nicht erreichbar"."""
+
+    def unerreichbar(base_url=ollama_service.OLLAMA_BASE_URL, timeout=5):
+        raise ollama_service.OllamaError("kein Dienst im Test")
+
+    monkeypatch.setattr(ollama_service, "list_models", unerreichbar)
 
 
 @pytest.fixture
@@ -254,3 +266,179 @@ def test_systemdiagnose_nimmt_ohne_einstellung_den_standardausgabeordner(
     dialog._open_diagnostics()
 
     assert uebergeben == [standard]
+
+
+# --------------------------------------------------------------------------
+# Schluessel: Meldung nur, wenn der Anwender wirklich merken will
+# --------------------------------------------------------------------------
+def _speicher_nicht_verfuegbar(monkeypatch):
+    def werfen(*a, **k):
+        raise secret_store.SecretStoreUnavailableError("keyring fehlt")
+
+    for name in ("save_api_key", "load_api_key", "delete_api_key"):
+        monkeypatch.setattr(secret_store, name, werfen)
+
+
+def test_ohne_merken_keine_meldung_auch_wenn_keyring_fehlt(qt_widgets, isolierte_konfiguration, monkeypatch):
+    from PySide6.QtWidgets import QMessageBox
+
+    _speicher_nicht_verfuegbar(monkeypatch)
+    gewarnt = []
+    monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a: gewarnt.append(a)))
+    dialog = qt_widgets(sd.SettingsDialog())  # Aufbau darf ebenfalls nichts melden
+    dialog.api_transkription_schluessel_edit.setText("nur-fuer-diese-sitzung")
+    dialog.api_transkription_merken_checkbox.setChecked(False)
+    dialog.api_nachbearbeitung_merken_checkbox.setChecked(False)
+
+    dialog._speichern_und_schliessen()
+
+    assert gewarnt == []
+    assert dialog.eingegebene_schluessel["transkription"] == "nur-fuer-diese-sitzung"
+
+
+def test_mit_merken_und_fehlendem_keyring_gibt_es_die_meldung(qt_widgets, isolierte_konfiguration, monkeypatch):
+    from PySide6.QtWidgets import QMessageBox
+
+    _speicher_nicht_verfuegbar(monkeypatch)
+    gewarnt = []
+    monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a: gewarnt.append(a)))
+    dialog = qt_widgets(sd.SettingsDialog())
+    dialog.api_transkription_schluessel_edit.setText("geheim")
+    dialog.api_transkription_merken_checkbox.setChecked(True)
+
+    dialog._speichern_und_schliessen()
+
+    assert len(gewarnt) == 1
+
+
+def test_mit_merken_aber_ohne_eingegebenen_schluessel_keine_meldung(qt_widgets, isolierte_konfiguration, monkeypatch):
+    from PySide6.QtWidgets import QMessageBox
+
+    _speicher_nicht_verfuegbar(monkeypatch)
+    gewarnt = []
+    monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a: gewarnt.append(a)))
+    dialog = qt_widgets(sd.SettingsDialog())
+    dialog.api_transkription_merken_checkbox.setChecked(True)
+
+    dialog._speichern_und_schliessen()
+
+    assert gewarnt == []
+
+
+# --------------------------------------------------------------------------
+# Ollama-Modell: Auswahl, Status, Herunterladen
+# --------------------------------------------------------------------------
+def test_ollama_standard_ist_vorausgewaehlt(dialog):
+    assert dialog.ollama_modell() == ollama_service.DEFAULT_MODEL
+    ids = [dialog.ollama_modell_combo.itemData(i) for i in range(dialog.ollama_modell_combo.count())]
+    assert ids[: len(ollama_service.OLLAMA_MODELLE)] == [o.id for o in ollama_service.OLLAMA_MODELLE]
+    assert ids[-1] == sd.EIGENES_OLLAMA_MODELL
+    assert not dialog.ollama_modell_edit.isVisibleTo(dialog)
+    assert dialog.ollama_hinweis_label.text()  # Beschreibung des Standardmodells
+
+
+def test_ollama_andere_auswahl_wird_gespeichert(dialog):
+    dialog.ollama_modell_combo.setCurrentIndex(dialog.ollama_modell_combo.findData("qwen3:4b"))
+    assert dialog.ollama_modell() == "qwen3:4b"
+    dialog._speichern_und_schliessen()
+    assert app_config.load_config()["ollama_modell"] == "qwen3:4b"
+
+
+def test_ollama_eigener_name_wird_vorbelegt_und_gespeichert(qt_widgets, isolierte_konfiguration, schluessel_speicher):
+    app_config.update_config(ollama_modell="phi4")
+    dialog = qt_widgets(sd.SettingsDialog())
+    assert dialog.ollama_modell_combo.currentData() == sd.EIGENES_OLLAMA_MODELL
+    assert dialog.ollama_modell_edit.text() == "phi4"
+    assert dialog.ollama_modell() == "phi4"
+    assert dialog.ollama_hinweis_label.text() == ""
+
+    dialog.ollama_modell_edit.setText("  qwen3:30b ")
+    dialog._speichern_und_schliessen()
+    assert app_config.load_config()["ollama_modell"] == "qwen3:30b"
+
+
+def test_ollama_leerer_eigener_name_faellt_auf_den_standard_zurueck(dialog):
+    dialog.ollama_modell_combo.setCurrentIndex(dialog.ollama_modell_combo.findData(sd.EIGENES_OLLAMA_MODELL))
+    dialog.ollama_modell_edit.setText("   ")
+    dialog._ollama_status_aktualisieren()
+    assert "Modellnamen" in dialog.ollama_status_label.text()
+    assert not dialog.ollama_download_button.isEnabled()
+    dialog._speichern_und_schliessen()
+    assert app_config.load_config()["ollama_modell"] == ollama_service.DEFAULT_MODEL
+
+
+def test_ollama_status_nicht_erreichbar_installiert_und_fehlend(dialog, monkeypatch):
+    dialog._ollama_status_aktualisieren()
+    assert "nicht erreichbar" in dialog.ollama_status_label.text()
+    assert dialog.ollama_download_button.isEnabled()  # ein Versuch bleibt moeglich
+
+    monkeypatch.setattr(ollama_service, "list_models", lambda base_url=None, timeout=5: ["qwen3:8b", "gemma3:4b"])
+    dialog._ollama_status_aktualisieren()
+    assert "installiert" in dialog.ollama_status_label.text() and "✓" in dialog.ollama_status_label.text()
+    assert not dialog.ollama_download_button.isEnabled()
+
+    dialog.ollama_modell_combo.setCurrentIndex(dialog.ollama_modell_combo.findData("qwen3:14b"))
+    assert "noch nicht installiert" in dialog.ollama_status_label.text()
+    assert "gemma3:4b" in dialog.ollama_status_label.text()  # bereits Vorhandenes wird genannt
+    assert dialog.ollama_download_button.isEnabled()
+
+
+class _PullArbeiterAttrappe:
+    instanzen: ClassVar[list] = []
+
+    class _Signal:
+        def __init__(self):
+            self.empfaenger = []
+
+        def connect(self, funktion):
+            self.empfaenger.append(funktion)
+
+        def emit(self, *args):
+            for funktion in self.empfaenger:
+                funktion(*args)
+
+    def __init__(self, modell, parent=None):
+        self.modell = modell
+        self.gestartet = False
+        self.fortschritt = self._Signal()
+        self.fertig = self._Signal()
+        self.fehlgeschlagen = self._Signal()
+        _PullArbeiterAttrappe.instanzen.append(self)
+
+    def start(self):
+        self.gestartet = True
+
+
+def test_ollama_herunterladen_zeigt_fortschritt_und_aktualisiert_den_status(dialog, monkeypatch):
+    _PullArbeiterAttrappe.instanzen.clear()
+    monkeypatch.setattr(sd, "OllamaPullWorker", _PullArbeiterAttrappe)
+    dialog.ollama_modell_combo.setCurrentIndex(dialog.ollama_modell_combo.findData("qwen3:4b"))
+
+    dialog._ollama_herunterladen()
+    arbeiter = _PullArbeiterAttrappe.instanzen[-1]
+    assert arbeiter.gestartet and arbeiter.modell == "qwen3:4b"
+    assert not dialog.ollama_download_button.isEnabled()
+    assert not dialog.ollama_modell_combo.isEnabled()  # waehrend des Downloads gesperrt
+    dialog._ollama_herunterladen()  # zweiter Klick: darf keinen zweiten Arbeiter starten
+    assert len(_PullArbeiterAttrappe.instanzen) == 1
+
+    arbeiter.fortschritt.emit("pulling abc", 500_000_000, 2_000_000_000)
+    assert dialog.ollama_fortschritt.value() == 25
+    assert "0.5 von 2.0 GB" in dialog.ollama_status_label.text()
+    arbeiter.fortschritt.emit("verifying sha256 digest", 0, 0)
+    assert dialog.ollama_status_label.text() == "verifying sha256 digest"
+
+    monkeypatch.setattr(ollama_service, "list_models", lambda base_url=None, timeout=5: ["qwen3:4b"])
+    arbeiter.fertig.emit("qwen3:4b")
+    assert dialog.ollama_modell_combo.isEnabled()
+    assert "✓" in dialog.ollama_status_label.text()
+
+
+def test_ollama_download_fehler_wird_angezeigt_und_erneuter_versuch_ist_moeglich(dialog, monkeypatch):
+    _PullArbeiterAttrappe.instanzen.clear()
+    monkeypatch.setattr(sd, "OllamaPullWorker", _PullArbeiterAttrappe)
+    dialog._ollama_herunterladen()
+    _PullArbeiterAttrappe.instanzen[-1].fehlgeschlagen.emit("qwen3:8b", "kein Speicherplatz")
+    assert "kein Speicherplatz" in dialog.ollama_status_label.text()
+    assert dialog.ollama_download_button.isEnabled()
+    assert dialog.ollama_modell_combo.isEnabled()

@@ -194,3 +194,107 @@ def test_generate_json_liest_antwort_mit_klammer_in_zeichenkette(monkeypatch):
     ergebnis = ollama_service.generate_json("Frage", "System")
 
     assert ergebnis["kernaussagen"] == ["Platzhalter } im Text"]
+
+
+# --------------------------------------------------------------------------
+# Modellliste und Modell herunterladen
+# --------------------------------------------------------------------------
+def test_modellliste_beginnt_mit_dem_standard_und_hat_eindeutige_namen():
+    ids = [option.id for option in ollama_service.OLLAMA_MODELLE]
+    assert ids[0] == ollama_service.DEFAULT_MODEL
+    assert len(ids) == len(set(ids)) >= 5
+    assert ollama_service.get_modell_option("qwen3:4b").groesse_gb < 3
+    assert ollama_service.get_modell_option("gibt-es-nicht") is None
+
+
+class _PullAntwort:
+    def __init__(self, zeilen):
+        self._zeilen = zeilen
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+    def __iter__(self):
+        return iter(self._zeilen)
+
+
+def _opener(zeilen, gesehen=None):
+    def oeffnen(request, timeout=None):
+        if gesehen is not None:
+            gesehen["body"] = json.loads(request.data.decode("utf-8"))
+            gesehen["url"] = request.full_url
+        return _PullAntwort(zeilen)
+
+    return oeffnen
+
+
+def test_pull_model_meldet_fortschritt_und_ignoriert_unlesbare_zeilen():
+    zeilen = [
+        b'{"status": "pulling manifest"}\n',
+        b"\n",
+        b"kein json\n",
+        b'["kein objekt"]\n',
+        b'{"status": "pulling abc", "total": 1000, "completed": 250}\n',
+        b'{"status": "success"}\n',
+        '{"status": "als text"}\n',
+    ]
+    meldungen, gesehen = [], {}
+    ollama_service.pull_model(
+        " qwen3:4b ", lambda s, c, t: meldungen.append((s, c, t)), opener=_opener(zeilen, gesehen)
+    )
+    assert meldungen == [
+        ("pulling manifest", 0, 0),
+        ("pulling abc", 250, 1000),
+        ("success", 0, 0),
+        ("als text", 0, 0),
+    ]
+    assert gesehen["body"] == {"model": "qwen3:4b", "stream": True}
+    assert gesehen["url"].endswith("/api/pull")
+
+
+def test_pull_model_ohne_fortschrittsfunktion_und_ohne_namen():
+    ollama_service.pull_model("x", opener=_opener([b'{"status": "success"}\n']))
+    with pytest.raises(ollama_service.OllamaError, match="Modellnamen"):
+        ollama_service.pull_model("   ")
+
+
+def test_pull_model_fehlermeldung_von_ollama():
+    with pytest.raises(ollama_service.OllamaError, match="file does not exist"):
+        ollama_service.pull_model("gibtsnicht", opener=_opener([b'{"error": "file does not exist"}\n']))
+
+
+def test_pull_model_netzwerkfehler_werden_lesbar_gemeldet():
+    def nicht_erreichbar(request, timeout=None):
+        raise urllib.error.URLError("Verbindung verweigert")
+
+    with pytest.raises(ollama_service.OllamaError, match="nicht erreichbar"):
+        ollama_service.pull_model("qwen3:8b", opener=nicht_erreichbar)
+
+    def abgebrochen(request, timeout=None):
+        raise ConnectionResetError("zurueckgesetzt")
+
+    with pytest.raises(ollama_service.OllamaError, match="unterbrochen"):
+        ollama_service.pull_model("qwen3:8b", opener=abgebrochen)
+
+    import io
+
+    def http_fehler(request, timeout=None):
+        raise urllib.error.HTTPError("u", 500, "Fehler", {}, io.BytesIO(b"kaputt"))
+
+    with pytest.raises(ollama_service.OllamaError, match="HTTP 500"):
+        ollama_service.pull_model("qwen3:8b", opener=http_fehler)
+
+
+def test_modell_fehlt_nur_wenn_ollama_erreichbar_ist(monkeypatch):
+    def unerreichbar(base_url=ollama_service.OLLAMA_BASE_URL, timeout=5):
+        raise ollama_service.OllamaError("weg")
+
+    monkeypatch.setattr(ollama_service, "list_models", unerreichbar)
+    assert ollama_service.modell_fehlt("qwen3:8b") is False  # anderer Fehler, nicht "Modell fehlt"
+
+    monkeypatch.setattr(ollama_service, "list_models", lambda base_url=ollama_service.OLLAMA_BASE_URL, timeout=5: ["qwen3:4b"])
+    assert ollama_service.modell_fehlt("qwen3:8b") is True
+    assert ollama_service.modell_fehlt("qwen3:4b") is False
