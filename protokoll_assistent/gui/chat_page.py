@@ -457,7 +457,7 @@ class ChatPage(QWidget):
         self._nachrichten.clear()
         self._verlauf = None
         self.verlaeufe_liste.clearSelection()
-        self.verlaeufe_liste.setCurrentItem(None)
+        self.verlaeufe_liste.setCurrentRow(-1)
         self.status_label.setText("")
         self._darstellen()
 
