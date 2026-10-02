@@ -1586,9 +1586,15 @@ def test_audioquelle_dialog_bekommt_nur_echte_geraete(fenster, monkeypatch):
 # --------------------------------------------------------------------------
 # Seitenleiste und Seiten
 # --------------------------------------------------------------------------
-def test_seitenleiste_hat_drei_seiten_und_startet_auf_der_transkription(fenster):
-    assert [k.text().split()[-1] for k in fenster.nav_buttons] == ["Transkription", "Nachbearbeitung", "Sprecher"]
-    assert fenster.page_stack.count() == 3
+def test_seitenleiste_hat_vier_seiten_und_startet_auf_der_transkription(fenster):
+    assert [k.text().split()[-1] for k in fenster.nav_buttons] == [
+        "Transkription",
+        "Nachbearbeitung",
+        "Sprecher",
+        "Meeting",
+    ]
+    assert fenster.nav_buttons[3].text().endswith("Frag mein Meeting")
+    assert fenster.page_stack.count() == 4
     assert fenster.page_stack.currentIndex() == 0
     assert fenster.page_title_label.text() == "Transkription"
     assert fenster.nav_buttons[0].isChecked()
@@ -1742,3 +1748,46 @@ def test_transkriptionsseite_passt_im_standardfenster_ohne_bildlauf(fenster, qt_
     # Der Bildlauf ist nur ein Notnagel fuer kleine Fenster; im Standardfenster
     # muss alles ohne ihn sichtbar sein.
     assert seite.verticalScrollBar().maximum() == 0
+
+
+
+# --------------------------------------------------------------------------
+# Chatbot "Frag mein Meeting"
+# --------------------------------------------------------------------------
+def test_chatseite_liegt_auf_der_vierten_seite_und_liest_beim_oeffnen_den_ausgabeordner_neu(fenster, monkeypatch):
+    assert fenster.page_stack.widget(3) is fenster.chat_page
+    aufrufe = []
+    monkeypatch.setattr(fenster.chat_page, "aktualisieren", lambda: aufrufe.append(True))
+    fenster.nav_buttons[3].click()
+    assert fenster.page_stack.currentIndex() == 3
+    assert fenster.page_title_label.text() == "Frag mein Meeting"
+    assert aufrufe == [True]
+    fenster.nav_buttons[0].click()
+    assert aufrufe == [True]  # nur die Chatseite liest neu
+
+
+def test_chat_schluessel_eigener_dann_nachbearbeitung_dann_transkription(fenster, schluessel_speicher):
+    schluessel_speicher.update({"transkription": "t", "nachbearbeitung": "n", "chatbot": "c"})
+    assert fenster._chat_api_schluessel() == "t"
+    app_config.update_config(api_nachbearbeitung_eigener_schluessel=True)
+    assert fenster._chat_api_schluessel() == "n"
+    app_config.update_config(chatbot_api_eigener_schluessel=True)
+    assert fenster._chat_api_schluessel() == "c"
+    schluessel_speicher.clear()
+    assert fenster._chat_api_schluessel() == ""
+
+
+def test_einstellungen_schliessen_aktualisiert_die_chat_anzeige(fenster, monkeypatch):
+    class _Dialog:
+        eingegebene_schluessel: ClassVar[dict] = {}
+
+        def __init__(self, parent=None):
+            pass
+
+        def exec(self):
+            app_config.update_config(chatbot_modus="api", chatbot_api_modell="gpt-x")
+            return 1
+
+    monkeypatch.setattr(mw, "SettingsDialog", _Dialog)
+    fenster._open_settings()
+    assert "API: gpt-x" in fenster.chat_page.modell_label.text()

@@ -10,6 +10,20 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 ### Added
 
+- **Frag mein Meeting:** Neuer Chatbot in der Seitenleiste. Links werden
+  Transkripte und Zusammenfassungen angehakt, rechts stellt man Fragen; die
+  Antworten stützen sich nur auf die ausgewählten Unterlagen und nennen ihre
+  Quellen (Dokument und Uhrzeit). Dahinter arbeitet eine Suche in
+  Textabschnitten (Einbettungen, zwischengespeichert) und ein Chatmodell.
+- Neuer Reiter **Chatbot** in den Einstellungen: lokal (Ollama) oder API, mit
+  Auswahl des Chatmodells und des Einbettungsmodells (BGE-M3, Nomic Embed
+  Text, MixedBread, EmbeddingGemma oder eigener Name), Status und „Jetzt
+  herunterladen“. Im API-Modus gibt es Endpunkt und Modell für Chat und
+  Einbettungen sowie einen eigenen oder gemeinsamen Schlüssel; ein
+  Datenschutzhinweis erscheint, weil dort Texte übertragen werden.
+
+### Added
+
 - Ollama-Modell wählbar: In den Einstellungen (Nachbearbeitung, lokal) gibt es
   jetzt eine Auswahl mit Qwen3 (4B, 8B, 14B), Gemma 3, Llama 3.1 und Mistral
   Nemo samt Größenangabe und Hinweis, dazu „Eigenen Modellnamen eingeben …“

@@ -123,7 +123,7 @@ QPushButton#SourceCard:disabled {{
     color: #9aa0a8;
 }}
 
-QLineEdit, QComboBox, QSpinBox, QPlainTextEdit, QTextEdit, QListWidget {{
+QLineEdit, QComboBox, QSpinBox, QPlainTextEdit, QTextEdit, QTextBrowser, QListWidget {{
     background-color: {SURFACE};
     border: 1px solid {BORDER};
     border-radius: 8px;

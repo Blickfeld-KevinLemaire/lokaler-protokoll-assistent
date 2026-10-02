@@ -197,3 +197,65 @@ class OllamaPullWorker(QThread):
             self.fehlgeschlagen.emit(self._modell, f"Unerwarteter Fehler: {fehler}")
             return
         self.fertig.emit(self._modell)
+
+
+class ChatWorker(QThread):
+    """Beantwortet eine Frage des Chatbots im Hintergrund ("Frag mein Meeting").
+
+    Einbettung und Chat sind ueber ``embed_fn``/``chat_fn`` austauschbar (Tests);
+    sonst werden sie aus den Einstellungen gebildet (lokal oder API)."""
+
+    status = Signal(str)
+    token = Signal(str)
+    fertig = Signal(str, list)
+    fehlgeschlagen = Signal(str)
+
+    def __init__(
+        self,
+        frage: str,
+        dokumente: list[Path],
+        verlauf: list[dict[str, str]],
+        einstellungen: Any,
+        cache_dir: Path,
+        parent=None,
+        embed_fn: Callable[..., Any] | None = None,
+        chat_fn: Callable[..., Any] | None = None,
+    ):
+        super().__init__(parent)
+        self._frage = frage
+        self._dokumente = dokumente
+        self._verlauf = verlauf
+        self._einstellungen = einstellungen
+        self._cache_dir = cache_dir
+        self._embed_fn = embed_fn
+        self._chat_fn = chat_fn
+
+    def run(self) -> None:
+        from protokoll_assistent.services import api_chat_service, chat_service, ollama_service
+
+        try:
+            dokumente = [chat_service.lade_dokument(pfad) for pfad in self._dokumente]
+            if self._embed_fn is not None and self._chat_fn is not None:
+                embed_fn, chat_fn = self._embed_fn, self._chat_fn
+            else:
+                embed_fn, chat_fn = chat_service.funktionen_aus_einstellungen(self._einstellungen)
+            antwort, quellen = chat_service.beantworte(
+                self._frage,
+                dokumente,
+                self._verlauf,
+                embed_fn,
+                chat_fn,
+                self._cache_dir,
+                self._einstellungen.modell_kennung,
+                self._einstellungen.chat_modell,
+                on_status=self.status.emit,
+                on_token=self.token.emit,
+            )
+        except (chat_service.ChatFehler, ollama_service.OllamaError, api_chat_service.ApiChatError) as fehler:
+            self.fehlgeschlagen.emit(str(fehler))
+            return
+        except Exception as fehler:  # unerwartet - keine Tracebacks in der Oberflaeche
+            logger.exception("Unerwarteter Fehler im Chatbot")
+            self.fehlgeschlagen.emit(f"Unerwarteter Fehler: {fehler}")
+            return
+        self.fertig.emit(antwort, quellen)

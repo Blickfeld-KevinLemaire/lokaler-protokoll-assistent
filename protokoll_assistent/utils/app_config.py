@@ -26,6 +26,11 @@ _STANDARD_TRANSKRIPTION_ANBIETER = "azure"
 _STANDARD_NACHBEARBEITUNG_ENDPUNKT = "https://openrouter.ai/api/v1/chat/completions"
 _STANDARD_NACHBEARBEITUNG_MODELL = "openai/gpt-4o-mini"
 _STANDARD_OLLAMA_MODELL = "qwen3:8b"
+_STANDARD_CHATBOT_EMBEDDING = "bge-m3"
+_STANDARD_CHATBOT_API_ENDPUNKT = "https://openrouter.ai/api/v1/chat/completions"
+_STANDARD_CHATBOT_API_MODELL = "openai/gpt-4o-mini"
+_STANDARD_CHATBOT_API_EMBEDDING_ENDPUNKT = "https://openrouter.ai/api/v1/embeddings"
+_STANDARD_CHATBOT_API_EMBEDDING_MODELL = "openai/text-embedding-3-small"
 
 DEFAULTS: dict[str, Any] = {
     "eingabeordner": None,
@@ -48,6 +53,16 @@ DEFAULTS: dict[str, Any] = {
     "api_nachbearbeitung_eigener_schluessel": False,
     "api_nachbearbeitung_schluessel_merken": False,
     "aktive_systemprompt_vorlage": None,
+    # Chatbot "Frag mein Meeting": "lokal" (Ollama) | "api"
+    "chatbot_modus": "lokal",
+    "chatbot_ollama_modell": _STANDARD_OLLAMA_MODELL,
+    "chatbot_embedding_modell": _STANDARD_CHATBOT_EMBEDDING,
+    "chatbot_api_endpunkt": _STANDARD_CHATBOT_API_ENDPUNKT,
+    "chatbot_api_modell": _STANDARD_CHATBOT_API_MODELL,
+    "chatbot_api_embedding_endpunkt": _STANDARD_CHATBOT_API_EMBEDDING_ENDPUNKT,
+    "chatbot_api_embedding_modell": _STANDARD_CHATBOT_API_EMBEDDING_MODELL,
+    "chatbot_api_eigener_schluessel": False,
+    "chatbot_api_schluessel_merken": False,
 }
 
 

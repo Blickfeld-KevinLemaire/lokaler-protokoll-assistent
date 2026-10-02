@@ -315,3 +315,82 @@ def test_ollama_pull_arbeiter_nutzt_standardmaessig_den_dienst(qt_app, monkeypat
     arbeiter = worker_modul.OllamaPullWorker("qwen3:8b")
     arbeiter.run()
     assert aufrufe == ["qwen3:8b"]
+
+
+# --------------------------------------------------------------------------
+# ChatWorker
+# --------------------------------------------------------------------------
+def _chat_arbeiter(tmp_path, embed_fn=None, chat_fn=None, dokumente=None, einstellungen=None):
+    from protokoll_assistent.services import chat_service
+
+    pfad = tmp_path / "a_lokal_transkript_1.json"
+    pfad.write_text('{"segmente": [{"start_sekunden": 1.0, "text": "Das Budget ist 5000 Euro."}]}', encoding="utf-8")
+    return worker_modul.ChatWorker(
+        "Wie hoch ist das Budget?",
+        dokumente if dokumente is not None else [pfad],
+        [],
+        einstellungen or chat_service.ChatEinstellungen("lokal", "qwen3:8b", "bge-m3"),
+        tmp_path / "cache",
+        embed_fn=embed_fn,
+        chat_fn=chat_fn,
+    )
+
+
+def test_chat_arbeiter_liefert_antwort_und_quellen(qt_app, tmp_path):
+    def chat(nachrichten, on_token):
+        on_token("Antwort")
+        return "Antwort"
+
+    arbeiter = _chat_arbeiter(tmp_path, lambda texte: [[1.0, 0.0] for _ in texte], chat)
+    status, tokens, fertig = [], [], []
+    arbeiter.status.connect(status.append)
+    arbeiter.token.connect(tokens.append)
+    arbeiter.fertig.connect(lambda antwort, quellen: fertig.append((antwort, quellen)))
+
+    arbeiter.run()
+
+    assert tokens == ["Antwort"] and status
+    assert fertig and fertig[0][0] == "Antwort" and fertig[0][1][0].startswith("a_lokal_transkript_1")
+
+
+def test_chat_arbeiter_meldet_bekannte_fehler_lesbar(qt_app, tmp_path):
+    from protokoll_assistent.services import ollama_service
+
+    def embed(texte):
+        raise ollama_service.OllamaError("Ollama ist nicht erreichbar")
+
+    arbeiter = _chat_arbeiter(tmp_path, embed, lambda n, t: "x")
+    fehler = []
+    arbeiter.fehlgeschlagen.connect(fehler.append)
+    arbeiter.run()
+    assert fehler == ["Ollama ist nicht erreichbar"]
+
+    fehlt = _chat_arbeiter(tmp_path, dokumente=[tmp_path / "gibt-es-nicht.json"])
+    fehler2 = []
+    fehlt.fehlgeschlagen.connect(fehler2.append)
+    fehlt.run()
+    assert "nicht gelesen" in fehler2[0]
+
+
+def test_chat_arbeiter_faengt_unerwartete_fehler(qt_app, tmp_path):
+    def chat(nachrichten, on_token):
+        raise ValueError("kaputt")
+
+    arbeiter = _chat_arbeiter(tmp_path, lambda texte: [[1.0] for _ in texte], chat)
+    fehler = []
+    arbeiter.fehlgeschlagen.connect(fehler.append)
+    arbeiter.run()
+    assert fehler and "kaputt" in fehler[0]
+
+
+def test_chat_arbeiter_bildet_ohne_hereingereichte_funktionen_die_aus_den_einstellungen(qt_app, tmp_path, monkeypatch):
+    from protokoll_assistent.services import chat_service
+
+    monkeypatch.setattr(
+        chat_service, "funktionen_aus_einstellungen", lambda e: (lambda texte: [[1.0] for _ in texte], lambda n, t: "ok")
+    )
+    arbeiter = _chat_arbeiter(tmp_path)
+    fertig = []
+    arbeiter.fertig.connect(lambda antwort, quellen: fertig.append(antwort))
+    arbeiter.run()
+    assert fertig == ["ok"]

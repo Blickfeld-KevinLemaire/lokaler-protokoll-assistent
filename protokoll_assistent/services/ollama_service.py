@@ -99,8 +99,40 @@ OLLAMA_MODELLE: list[OllamaModellOption] = [
 ]
 
 
+# Einbettungsmodelle fuer die Suche in Transkripten ("Frag mein Meeting"). Sie
+# erzeugen keine Texte, sondern Zahlenvektoren; Aehnliches liegt nah beieinander.
+OLLAMA_EMBEDDING_MODELLE: list[OllamaModellOption] = [
+    OllamaModellOption(
+        id="bge-m3",
+        label="BGE-M3 (mehrsprachig, empfohlen fuer Deutsch)",
+        groesse_gb=1.2,
+        hinweis="Starke mehrsprachige Suche, gut fuer deutsche Besprechungen. Verarbeitet lange Abschnitte.",
+    ),
+    OllamaModellOption(
+        id="nomic-embed-text",
+        label="Nomic Embed Text (klein und schnell)",
+        groesse_gb=0.3,
+        hinweis="Sehr klein und schnell, vor allem fuer Englisch optimiert; auf Deutsch weniger treffsicher.",
+    ),
+    OllamaModellOption(
+        id="mxbai-embed-large",
+        label="MixedBread Embed Large",
+        groesse_gb=0.7,
+        hinweis="Gute Qualitaet bei maessigem Speicherbedarf, ueberwiegend englisch trainiert.",
+    ),
+    OllamaModellOption(
+        id="embeddinggemma",
+        label="EmbeddingGemma (Google, mehrsprachig)",
+        groesse_gb=0.6,
+        hinweis="Kleines mehrsprachiges Modell von Google.",
+    ),
+]
+
+
 def get_modell_option(model_id: str) -> OllamaModellOption | None:
-    return next((option for option in OLLAMA_MODELLE if option.id == model_id), None)
+    return next(
+        (option for option in [*OLLAMA_MODELLE, *OLLAMA_EMBEDDING_MODELLE] if option.id == model_id), None
+    )
 
 
 def find_ollama_executable():
@@ -221,6 +253,98 @@ def pull_model(
         ) from error
     except (OSError, TimeoutError) as error:
         raise OllamaError(f"Der Download wurde unterbrochen: {error}") from error
+
+
+def _post_json(url: str, payload: dict[str, Any], timeout: float, opener: OeffneFn | None) -> Any:
+    request = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json; charset=utf-8"},
+        method="POST",
+    )
+    return (opener or urllib.request.urlopen)(request, timeout=timeout)
+
+
+def _ollama_fehler(error: Exception) -> OllamaError:
+    if isinstance(error, urllib.error.HTTPError):
+        details = error.read().decode("utf-8", errors="replace")[:500]
+        return OllamaError(f"Ollama-Fehler HTTP {error.code}: {details}")
+    if isinstance(error, urllib.error.URLError):
+        return OllamaError(f"Ollama ist nicht erreichbar ({error.reason}). Bitte Ollama starten bzw. installieren.")
+    return OllamaError(f"Die Anfrage an Ollama wurde unterbrochen: {error}")
+
+
+def embed(
+    model: str,
+    texts: list[str],
+    base_url: str = OLLAMA_BASE_URL,
+    opener: OeffneFn | None = None,
+    timeout: float = 300,
+) -> list[list[float]]:
+    """Berechnet Einbettungsvektoren ueber ``/api/embed`` (ein Vektor je Text)."""
+    if not texts:
+        return []
+    try:
+        with _post_json(f"{base_url}/api/embed", {"model": model, "input": texts}, timeout, opener) as response:
+            daten = json.loads(response.read().decode("utf-8"))
+    except (urllib.error.URLError, OSError, TimeoutError) as error:
+        raise _ollama_fehler(error) from error
+    except ValueError as error:
+        raise OllamaError("Die Antwort von Ollama (Einbettungen) war kein gueltiges JSON.") from error
+    vektoren = daten.get("embeddings") if isinstance(daten, dict) else None
+    if not isinstance(vektoren, list) or len(vektoren) != len(texts):
+        raise OllamaError(
+            f"Ollama hat fuer das Modell '{model}' keine passenden Einbettungen geliefert. "
+            "Ist es ein Einbettungsmodell und installiert?"
+        )
+    return [[float(x) for x in vektor] for vektor in vektoren]
+
+
+def chat_stream(
+    messages: list[dict[str, str]],
+    model: str,
+    on_token: Callable[[str], None] | None = None,
+    base_url: str = OLLAMA_BASE_URL,
+    opener: OeffneFn | None = None,
+    num_ctx: int = 8192,
+    temperature: float = 0.2,
+    timeout: float = DEFAULT_TIMEOUT_SECONDS,
+) -> str:
+    """Chat ueber ``/api/chat`` mit Textstrom. ``on_token`` bekommt jedes Stueck
+    der Antwort sofort; zurueck kommt der vollstaendige Text. ``num_ctx`` ist
+    bewusst groesser als Ollamas Standard (2048): Die Auszuege aus den
+    Transkripten wuerden sonst stillschweigend abgeschnitten."""
+    payload = {
+        "model": model,
+        "messages": messages,
+        "stream": True,
+        "options": {"num_ctx": num_ctx, "temperature": temperature},
+    }
+    teile: list[str] = []
+    try:
+        with _post_json(f"{base_url}/api/chat", payload, timeout, opener) as response:
+            for zeile in response:
+                text = zeile.decode("utf-8", errors="replace").strip() if isinstance(zeile, bytes) else str(zeile).strip()
+                if not text:
+                    continue
+                try:
+                    meldung = json.loads(text)
+                except ValueError:
+                    continue
+                if not isinstance(meldung, dict):
+                    continue
+                if meldung.get("error"):
+                    raise OllamaError(f"Ollama meldet einen Fehler: {meldung['error']}")
+                stueck = (meldung.get("message") or {}).get("content") or ""
+                if stueck:
+                    teile.append(stueck)
+                    if on_token:
+                        on_token(stueck)
+                if meldung.get("done"):
+                    break
+    except (urllib.error.URLError, OSError, TimeoutError) as error:
+        raise _ollama_fehler(error) from error
+    return "".join(teile)
 
 
 def generate_json(

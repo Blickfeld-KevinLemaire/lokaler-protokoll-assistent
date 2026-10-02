@@ -90,6 +90,15 @@ dieses Programm wird ausdruecklich die **LGPL-3.0** gewaehlt.
   Text unveraendert oder angepasst uebernommen, gehoert der Kopfkommentar
   der betroffenen Datei dazu.
 
+### Open WebUI — Vorbild, kein Fremdcode
+
+* Die Idee des Chatbots „Frag mein Meeting“ (Fragen an eigene Dokumente, mit
+  Suche in Textabschnitten und Antwort eines lokalen Modells) kennt man aus
+  Werkzeugen wie Open WebUI. Open WebUI ist eine Webanwendung mit eigener
+  Lizenz (BSD-3-Clause mit Zusatzbedingungen zum Markennamen) und schweren
+  Abhängigkeiten. Es wurde **kein Code daraus übernommen**; der Chatbot ist
+  eine eigene, kleine Umsetzung in `services/chat_service.py`.
+
 ### PyInstaller (6.22.3) — nur der Startlader
 
 * Lizenz: GPL-2.0 **mit Ausnahmeregelung**

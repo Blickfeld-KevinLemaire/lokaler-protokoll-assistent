@@ -45,6 +45,12 @@ zugestimmt haben. Entsprechend gelten hier ein paar Punkte besonders:
 * **Im lokalen Modus werden keine Audio- oder Videodaten uebertragen.**
   Bleibt das so, ist das eine Zusage an die Anwender — Aenderungen daran
   gehoeren ausdruecklich in die Release-Hinweise.
+* **Der Chatbot „Frag mein Meeting“ ueberträgt im API-Modus Texte.** Fragen, die
+  passenden Textstellen und - fuer die Suche - die Texte der ausgewaehlten
+  Transkripte und Zusammenfassungen gehen an den eingetragenen Endpunkt. Im
+  lokalen Modus (Ollama auf 127.0.0.1) verlaesst nichts den Rechner. Die
+  berechneten Suchvektoren liegen als Zwischenspeicher im Ordner
+  `arbeitsdaten/chat_index/`, der nicht versioniert wird.
 * **Im API-Modus wird die Aufnahme bzw. das Transkript uebertragen** an einen
   vom Anwender gewaehlten Endpunkt — fuer Transkription und Nachbearbeitung
   getrennt umschaltbar. Ist fuer einen Schritt der API-Modus aktiv, zeigt die

@@ -33,7 +33,6 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMessageBox,
-    QProgressBar,
     QPushButton,
     QRadioButton,
     QStackedWidget,
@@ -42,12 +41,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from protokoll_assistent.gui.worker import OllamaPullWorker
+from protokoll_assistent.gui.ollama_modellwahl import OllamaModellWahl
 from protokoll_assistent.services import ollama_service, secret_store
 from protokoll_assistent.utils import app_config
-
-# Auswahlpunkt, hinter dem ein frei eingegebener Ollama-Modellname gilt.
-EIGENES_OLLAMA_MODELL = "__eigenes_modell__"
 
 DATENSCHUTZ_HINWEIS_API = (
     "Bei aktiver API-Schnittstelle wird die Aufnahme an den oben eingetragenen, "
@@ -61,7 +57,7 @@ class SettingsDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Einstellungen")
-        self.resize(680, 520)
+        self.resize(720, 680)
 
         self._config = app_config.load_config()
         # Vom Aufrufer (MainWindow) ausgewertet, um die eingegebenen
@@ -78,6 +74,7 @@ class SettingsDialog(QDialog):
         layout.addWidget(tabs, stretch=1)
         tabs.addTab(self._build_transkription_tab(), "Transkription")
         tabs.addTab(self._build_nachbearbeitung_tab(), "Nachbearbeitung")
+        tabs.addTab(self._build_chatbot_tab(), "Chatbot")
 
         buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel, self)
         buttons.accepted.connect(self._speichern_und_schliessen)
@@ -258,52 +255,15 @@ class SettingsDialog(QDialog):
 
     def _build_nachbearbeitung_lokal_seite(self) -> QWidget:
         seite = QWidget(self)
-        layout = QFormLayout(seite)
-        self._ollama_worker: OllamaPullWorker | None = None
-
-        self.ollama_modell_combo = QComboBox(seite)
-        for option in ollama_service.OLLAMA_MODELLE:
-            self.ollama_modell_combo.addItem(f"{option.label} - ca. {option.groesse_gb:g} GB", option.id)
-        self.ollama_modell_combo.addItem("Eigenen Modellnamen eingeben …", EIGENES_OLLAMA_MODELL)
-        layout.addRow("Ollama-Modell:", self.ollama_modell_combo)
-
-        self.ollama_modell_edit = QLineEdit(seite)
-        self.ollama_modell_edit.setPlaceholderText("z. B. phi4 oder qwen3:30b (Namen siehe ollama.com/library)")
-        layout.addRow("Modellname:", self.ollama_modell_edit)
-
-        gespeichert = (self._config.get("ollama_modell") or ollama_service.DEFAULT_MODEL).strip()
-        index = self.ollama_modell_combo.findData(gespeichert)
-        if index >= 0:
-            self.ollama_modell_combo.setCurrentIndex(index)
-        else:
-            self.ollama_modell_combo.setCurrentIndex(self.ollama_modell_combo.findData(EIGENES_OLLAMA_MODELL))
-            self.ollama_modell_edit.setText(gespeichert)
-        self.ollama_modell_combo.currentIndexChanged.connect(self._ollama_auswahl_geaendert)
-        self.ollama_modell_edit.editingFinished.connect(self._ollama_status_aktualisieren)
-
-        self.ollama_hinweis_label = QLabel("", seite)
-        self.ollama_hinweis_label.setWordWrap(True)
-        layout.addRow(self.ollama_hinweis_label)
-
-        self.ollama_status_label = QLabel("", seite)
-        self.ollama_status_label.setWordWrap(True)
-        layout.addRow("Status:", self.ollama_status_label)
-
-        self.ollama_fortschritt = QProgressBar(seite)
-        self.ollama_fortschritt.setRange(0, 100)
-        self.ollama_fortschritt.setVisible(False)
-        layout.addRow(self.ollama_fortschritt)
-
-        knopfzeile = QHBoxLayout()
-        self.ollama_download_button = QPushButton("Jetzt herunterladen", seite)
-        self.ollama_download_button.setObjectName("PrimaryButton")
-        self.ollama_download_button.clicked.connect(self._ollama_herunterladen)
-        self.ollama_pruefen_button = QPushButton("Status prüfen", seite)
-        self.ollama_pruefen_button.clicked.connect(self._ollama_status_aktualisieren)
-        knopfzeile.addWidget(self.ollama_download_button)
-        knopfzeile.addWidget(self.ollama_pruefen_button)
-        knopfzeile.addStretch(1)
-        layout.addRow(knopfzeile)
+        layout = QVBoxLayout(seite)
+        self.ollama_wahl = OllamaModellWahl(
+            ollama_service.OLLAMA_MODELLE,
+            ollama_service.DEFAULT_MODEL,
+            self._config.get("ollama_modell"),
+            "Ollama-Modell:",
+            seite,
+        )
+        layout.addWidget(self.ollama_wahl)
 
         hinweis = QLabel(
             "Das gewählte Modell wird für die Nachbearbeitung benutzt. Beim ersten Start der "
@@ -313,84 +273,13 @@ class SettingsDialog(QDialog):
             seite,
         )
         hinweis.setWordWrap(True)
-        layout.addRow(hinweis)
-
-        self._ollama_auswahl_geaendert()
+        layout.addWidget(hinweis)
+        layout.addStretch(1)
         return seite
 
     def ollama_modell(self) -> str:
         """Der aktuell eingestellte Ollama-Modellname."""
-        if self.ollama_modell_combo.currentData() == EIGENES_OLLAMA_MODELL:
-            return self.ollama_modell_edit.text().strip()
-        return str(self.ollama_modell_combo.currentData())
-
-    def _ollama_auswahl_geaendert(self, _index: int = 0) -> None:
-        eigenes = self.ollama_modell_combo.currentData() == EIGENES_OLLAMA_MODELL
-        self.ollama_modell_edit.setVisible(eigenes)
-        option = ollama_service.get_modell_option(self.ollama_modell())
-        self.ollama_hinweis_label.setText(option.hinweis if option else "")
-        self._ollama_status_aktualisieren()
-
-    def _ollama_status_aktualisieren(self) -> None:
-        modell = self.ollama_modell()
-        if not modell:
-            self.ollama_status_label.setText("Bitte einen Modellnamen eingeben.")
-            self.ollama_download_button.setEnabled(False)
-            return
-        try:
-            installiert = ollama_service.list_models(timeout=1.5)
-        except ollama_service.OllamaError:
-            self.ollama_status_label.setText(
-                "Ollama ist nicht erreichbar. Ollama starten oder über „Einrichtung starten“ "
-                "(Reiter Transkription) installieren, dann „Status prüfen“."
-            )
-            self.ollama_download_button.setEnabled(self._ollama_worker is None)
-            return
-        if ollama_service.is_model_available(modell):
-            self.ollama_status_label.setText(f"✓ '{modell}' ist installiert.")
-            self.ollama_download_button.setEnabled(False)
-        else:
-            weitere = [name for name in installiert if name]
-            zusatz = f" Bereits installiert: {', '.join(weitere)}." if weitere else ""
-            self.ollama_status_label.setText(f"'{modell}' ist noch nicht installiert.{zusatz}")
-            self.ollama_download_button.setEnabled(self._ollama_worker is None)
-
-    def _ollama_herunterladen(self) -> None:
-        modell = self.ollama_modell()
-        if not modell or self._ollama_worker is not None:
-            return
-        self.ollama_download_button.setEnabled(False)
-        self.ollama_modell_combo.setEnabled(False)
-        self.ollama_fortschritt.setValue(0)
-        self.ollama_fortschritt.setVisible(True)
-        self.ollama_status_label.setText(f"Lade '{modell}' herunter …")
-        self._ollama_worker = OllamaPullWorker(modell, self)
-        self._ollama_worker.fortschritt.connect(self._ollama_fortschritt_anzeigen)
-        self._ollama_worker.fertig.connect(self._ollama_download_fertig)
-        self._ollama_worker.fehlgeschlagen.connect(self._ollama_download_fehlgeschlagen)
-        self._ollama_worker.start()
-
-    def _ollama_fortschritt_anzeigen(self, status: str, fertig: int, gesamt: int) -> None:
-        if gesamt > 0:
-            self.ollama_fortschritt.setRange(0, 100)
-            self.ollama_fortschritt.setValue(round(fertig / gesamt * 100))
-            self.ollama_status_label.setText(f"{status}: {fertig / 1e9:.1f} von {gesamt / 1e9:.1f} GB")
-        else:
-            self.ollama_status_label.setText(status)
-
-    def _ollama_download_beendet(self) -> None:
-        self._ollama_worker = None
-        self.ollama_fortschritt.setVisible(False)
-        self.ollama_modell_combo.setEnabled(True)
-
-    def _ollama_download_fertig(self, modell: str) -> None:
-        self._ollama_download_beendet()
-        self._ollama_status_aktualisieren()
-
-    def _ollama_download_fehlgeschlagen(self, modell: str, meldung: str) -> None:
-        self._ollama_download_beendet()
-        self.ollama_status_label.setText(f"Download fehlgeschlagen: {meldung}")
-        self.ollama_download_button.setEnabled(True)
+        return self.ollama_wahl.modell()
 
     def _build_nachbearbeitung_api_seite(self) -> QWidget:
         seite = QWidget(self)
@@ -448,6 +337,125 @@ class SettingsDialog(QDialog):
         return seite
 
     # ------------------------------------------------------------------
+    # Reiter "Chatbot" ("Frag mein Meeting")
+    # ------------------------------------------------------------------
+    def _build_chatbot_tab(self) -> QWidget:
+        tab = QWidget(self)
+        layout = QVBoxLayout(tab)
+
+        erklaerung = QLabel(
+            "Der Chatbot „Frag mein Meeting“ beantwortet Fragen zu den Transkripten und Zusammenfassungen, "
+            "die Sie in der Seitenleiste auswählen. Er braucht ein Chatmodell (formuliert die Antwort) und ein "
+            "Einbettungsmodell (findet die passenden Stellen in den Unterlagen).",
+            tab,
+        )
+        erklaerung.setWordWrap(True)
+        layout.addWidget(erklaerung)
+
+        modus_zeile = QHBoxLayout()
+        self.chatbot_lokal_radio = QRadioButton("Lokal (Ollama)", tab)
+        self.chatbot_api_radio = QRadioButton("API-Modell", tab)
+        self._chatbot_modus_gruppe = QButtonGroup(tab)
+        self._chatbot_modus_gruppe.addButton(self.chatbot_lokal_radio)
+        self._chatbot_modus_gruppe.addButton(self.chatbot_api_radio)
+        modus_zeile.addWidget(self.chatbot_lokal_radio)
+        modus_zeile.addWidget(self.chatbot_api_radio)
+        modus_zeile.addStretch(1)
+        layout.addLayout(modus_zeile)
+
+        self.chatbot_seiten = QStackedWidget(tab)
+        self.chatbot_seiten.addWidget(self._build_chatbot_lokal_seite())
+        self.chatbot_seiten.addWidget(self._build_chatbot_api_seite())
+        layout.addWidget(self.chatbot_seiten, stretch=1)
+
+        self.chatbot_lokal_radio.toggled.connect(self._chatbot_seite_umschalten)
+        self.chatbot_api_radio.toggled.connect(self._chatbot_seite_umschalten)
+        if self._config["chatbot_modus"] == "api":
+            self.chatbot_api_radio.setChecked(True)
+        else:
+            self.chatbot_lokal_radio.setChecked(True)
+        return tab
+
+    def _chatbot_seite_umschalten(self) -> None:
+        self.chatbot_seiten.setCurrentIndex(1 if self.chatbot_api_radio.isChecked() else 0)
+
+    def _build_chatbot_lokal_seite(self) -> QWidget:
+        seite = QWidget(self)
+        layout = QVBoxLayout(seite)
+        self.chatbot_chat_wahl = OllamaModellWahl(
+            ollama_service.OLLAMA_MODELLE,
+            ollama_service.DEFAULT_MODEL,
+            self._config.get("chatbot_ollama_modell"),
+            "Chatmodell:",
+            seite,
+        )
+        layout.addWidget(self.chatbot_chat_wahl)
+        self.chatbot_embedding_wahl = OllamaModellWahl(
+            ollama_service.OLLAMA_EMBEDDING_MODELLE,
+            ollama_service.OLLAMA_EMBEDDING_MODELLE[0].id,
+            self._config.get("chatbot_embedding_modell"),
+            "Einbettungsmodell:",
+            seite,
+        )
+        layout.addWidget(self.chatbot_embedding_wahl)
+        layout.addStretch(1)
+        return seite
+
+    def _build_chatbot_api_seite(self) -> QWidget:
+        seite = QWidget(self)
+        layout = QFormLayout(seite)
+
+        self.chatbot_api_endpunkt_edit = QLineEdit(self._config["chatbot_api_endpunkt"], seite)
+        layout.addRow("Chat-Endpunkt (Basis-URL):", self.chatbot_api_endpunkt_edit)
+        self.chatbot_api_modell_edit = QLineEdit(self._config["chatbot_api_modell"], seite)
+        layout.addRow("Chatmodell:", self.chatbot_api_modell_edit)
+        self.chatbot_api_embedding_endpunkt_edit = QLineEdit(self._config["chatbot_api_embedding_endpunkt"], seite)
+        layout.addRow("Einbettungs-Endpunkt:", self.chatbot_api_embedding_endpunkt_edit)
+        self.chatbot_api_embedding_modell_edit = QLineEdit(self._config["chatbot_api_embedding_modell"], seite)
+        layout.addRow("Einbettungsmodell:", self.chatbot_api_embedding_modell_edit)
+
+        self.chatbot_api_eigener_schluessel_checkbox = QCheckBox(
+            "Eigenen Schlüssel verwenden (sonst: derselbe wie bei der Nachbearbeitung)", seite
+        )
+        self.chatbot_api_eigener_schluessel_checkbox.setChecked(bool(self._config["chatbot_api_eigener_schluessel"]))
+        layout.addRow(self.chatbot_api_eigener_schluessel_checkbox)
+
+        schluessel_zeile = QHBoxLayout()
+        self.chatbot_api_schluessel_edit = QLineEdit(seite)
+        self.chatbot_api_schluessel_edit.setEchoMode(QLineEdit.Password)
+        vorhandener = self._gespeicherten_schluessel_laden("chatbot")
+        if vorhandener:
+            self.chatbot_api_schluessel_edit.setText(vorhandener)
+        schluessel_zeile.addWidget(self.chatbot_api_schluessel_edit)
+        anzeigen = QCheckBox("anzeigen", seite)
+        anzeigen.toggled.connect(
+            lambda checked: self.chatbot_api_schluessel_edit.setEchoMode(
+                QLineEdit.Normal if checked else QLineEdit.Password
+            )
+        )
+        schluessel_zeile.addWidget(anzeigen)
+        layout.addRow("Eigener API-Schlüssel:", schluessel_zeile)
+        self.chatbot_api_eigener_schluessel_checkbox.toggled.connect(self.chatbot_api_schluessel_edit.setEnabled)
+        self.chatbot_api_schluessel_edit.setEnabled(self.chatbot_api_eigener_schluessel_checkbox.isChecked())
+
+        self.chatbot_api_merken_checkbox = QCheckBox(
+            "Auf diesem Gerät merken (Windows-Anmeldeinformationsverwaltung)", seite
+        )
+        self.chatbot_api_merken_checkbox.setChecked(bool(self._config["chatbot_api_schluessel_merken"]))
+        layout.addRow(self.chatbot_api_merken_checkbox)
+
+        hinweis = QLabel(
+            "Im API-Modus werden Ihre Fragen, die passenden Textstellen und - für die Suche - die Texte der "
+            "ausgewählten Transkripte und Zusammenfassungen an den oben eingetragenen, externen Anbieter "
+            "übertragen. Der Anwender ist für die von ihm gewählte Schnittstelle selbst verantwortlich.",
+            seite,
+        )
+        hinweis.setObjectName("DatenschutzHinweis")
+        hinweis.setWordWrap(True)
+        layout.addRow(hinweis)
+        return seite
+
+    # ------------------------------------------------------------------
     # Speichern
     # ------------------------------------------------------------------
     def _speichern_und_schliessen(self) -> None:
@@ -459,13 +467,22 @@ class SettingsDialog(QDialog):
             "api_transkription_anbieter": self.api_transkription_anbieter_edit.text().strip(),
             "api_transkription_schluessel_merken": self.api_transkription_merken_checkbox.isChecked(),
             "nachbearbeitung_modus": "api" if self.nachbearbeitung_api_radio.isChecked() else "lokal",
-            "ollama_modell": self.ollama_modell() or ollama_service.DEFAULT_MODEL,
+            "ollama_modell": self.ollama_wahl.modell_oder_standard(),
             "api_nachbearbeitung_endpunkt": self.api_nachbearbeitung_endpunkt_edit.text().strip(),
             "api_nachbearbeitung_modell": self.api_nachbearbeitung_modell_edit.text().strip(),
             "api_nachbearbeitung_eigener_schluessel": (
                 self.api_nachbearbeitung_eigener_schluessel_checkbox.isChecked()
             ),
             "api_nachbearbeitung_schluessel_merken": self.api_nachbearbeitung_merken_checkbox.isChecked(),
+            "chatbot_modus": "api" if self.chatbot_api_radio.isChecked() else "lokal",
+            "chatbot_ollama_modell": self.chatbot_chat_wahl.modell_oder_standard(),
+            "chatbot_embedding_modell": self.chatbot_embedding_wahl.modell_oder_standard(),
+            "chatbot_api_endpunkt": self.chatbot_api_endpunkt_edit.text().strip(),
+            "chatbot_api_modell": self.chatbot_api_modell_edit.text().strip(),
+            "chatbot_api_embedding_endpunkt": self.chatbot_api_embedding_endpunkt_edit.text().strip(),
+            "chatbot_api_embedding_modell": self.chatbot_api_embedding_modell_edit.text().strip(),
+            "chatbot_api_eigener_schluessel": self.chatbot_api_eigener_schluessel_checkbox.isChecked(),
+            "chatbot_api_schluessel_merken": self.chatbot_api_merken_checkbox.isChecked(),
         }
         app_config.update_config(**aenderungen)
 
@@ -485,6 +502,14 @@ class SettingsDialog(QDialog):
             merken=self.api_nachbearbeitung_merken_checkbox.isChecked(),
             schluessel_name="nachbearbeitung",
             eingabefeld=self.api_nachbearbeitung_schluessel_edit,
+        )
+        chatbot_schluessel = self.chatbot_api_schluessel_edit.text().strip()
+        if chatbot_schluessel:
+            self.eingegebene_schluessel["chatbot"] = chatbot_schluessel
+        self._schluessel_anwenden(
+            merken=self.chatbot_api_merken_checkbox.isChecked(),
+            schluessel_name="chatbot",
+            eingabefeld=self.chatbot_api_schluessel_edit,
         )
 
         self.accept()

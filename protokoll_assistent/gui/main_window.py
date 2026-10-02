@@ -66,6 +66,7 @@ from PySide6.QtWidgets import (
 
 # Verarbeitungskette und Hilfsmodule der Anwendung.
 from protokoll_assistent.gui import branding
+from protokoll_assistent.gui.chat_page import ChatPage
 from protokoll_assistent.gui.dialogs import (
     AudioquelleDialog,
     EndverarbeitungDialog,
@@ -224,6 +225,7 @@ class MainWindow(QMainWindow):
         ("Transkription", "Aufnahme oder Datei auswählen und in Text umwandeln."),
         ("Nachbearbeitung", "Aus einem vorhandenen Transkript ein Protokoll erstellen."),
         ("Ergebnis und Sprecher", "Vorschau ansehen, Sprecher benennen, Stimmen anhören."),
+        ("Frag mein Meeting", "Fragen an die ausgewählten Transkripte und Zusammenfassungen stellen."),
     )
 
     def _build_ui(self) -> None:
@@ -283,6 +285,14 @@ class MainWindow(QMainWindow):
         ergebnis_seite.setSizes([300, 300])
         self.page_stack.addWidget(ergebnis_seite)
 
+        # Chatbot "Frag mein Meeting": Fragen an Transkripte und Zusammenfassungen.
+        self.chat_page = ChatPage(
+            lambda: self._output_dir,
+            lambda: get_work_dir() / "chat_index",
+            self._chat_api_schluessel,
+        )
+        self.page_stack.addWidget(self.chat_page)
+
         # Der Fortschritt steht unter jeder Seite, damit nach "Starten" sofort
         # zu sehen ist, dass etwas passiert - egal, welche Seite offen ist.
         content_layout.addWidget(self._build_progress_group())
@@ -323,7 +333,7 @@ class MainWindow(QMainWindow):
         self._nav_gruppe = QButtonGroup(self)
         self._nav_gruppe.setExclusive(True)
         self.nav_buttons: list[QPushButton] = []
-        symbole = ("🎙", "📝", "👥")
+        symbole = ("🎙", "📝", "👥", "💬")
         for index, ((titel, _), symbol) in enumerate(zip(self.SEITEN, symbole, strict=True)):
             knopf = QPushButton(f"{symbol}   {titel}", self)
             knopf.setObjectName("NavButton")
@@ -390,6 +400,8 @@ class MainWindow(QMainWindow):
         self.page_title_label.setText(titel)
         self.page_subtitle_label.setText(untertitel)
         self.nav_buttons[index].setChecked(True)
+        if self.SEITEN[index][0] == "Frag mein Meeting":
+            self.chat_page.aktualisieren()
 
     def _open_output_folder(self) -> None:
         self._output_dir.mkdir(parents=True, exist_ok=True)
@@ -400,6 +412,7 @@ class MainWindow(QMainWindow):
         if dialog.exec():
             self._session_api_keys.update(dialog.eingegebene_schluessel)
             self._apply_modus_from_config()
+            self.chat_page.einstellungen_aktualisiert()
 
     def _apply_modus_from_config(self) -> None:
         config = app_config.load_config()
@@ -1370,6 +1383,18 @@ class MainWindow(QMainWindow):
         Wechsel auf "Lokal" mitten in der Sitzung erst tief in der Pipeline
         mit einem kryptischen Fehler scheitern."""
         return importlib.util.find_spec("faster_whisper") is not None
+
+    def _chat_api_schluessel(self) -> str:
+        """API-Schluessel des Chatbots: der eigene, sonst derselbe wie bei der
+        Nachbearbeitung (dort wiederum eigener oder der der Transkription)."""
+        konfig = app_config.load_config()
+        if konfig["chatbot_api_eigener_schluessel"]:
+            name = "chatbot"
+        elif konfig["api_nachbearbeitung_eigener_schluessel"]:
+            name = "nachbearbeitung"
+        else:
+            name = "transkription"
+        return self._verwendbarer_api_schluessel(name) or ""
 
     def _verwendbarer_api_schluessel(self, schluessel_name: str) -> str | None:
         """Gemerkter Schluessel, sonst der nur fuer diese Sitzung eingegebene.

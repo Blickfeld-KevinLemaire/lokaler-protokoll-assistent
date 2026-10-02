@@ -298,3 +298,92 @@ def test_modell_fehlt_nur_wenn_ollama_erreichbar_ist(monkeypatch):
     monkeypatch.setattr(ollama_service, "list_models", lambda base_url=ollama_service.OLLAMA_BASE_URL, timeout=5: ["qwen3:4b"])
     assert ollama_service.modell_fehlt("qwen3:8b") is True
     assert ollama_service.modell_fehlt("qwen3:4b") is False
+
+
+# --------------------------------------------------------------------------
+# Einbettungen und Chat
+# --------------------------------------------------------------------------
+class _JsonAntwort:
+    def __init__(self, daten):
+        self._daten = json.dumps(daten).encode("utf-8")
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+    def read(self):
+        return self._daten
+
+
+def test_embedding_modelle_sind_in_der_optionsliste_auffindbar():
+    ids = [o.id for o in ollama_service.OLLAMA_EMBEDDING_MODELLE]
+    assert ids[0] == "bge-m3" and len(set(ids)) == len(ids)
+    assert ollama_service.get_modell_option("nomic-embed-text") is not None
+
+
+def test_embed_liefert_vektoren_und_prueft_die_anzahl():
+    gesehen = {}
+
+    def oeffnen(request, timeout=None):
+        gesehen["body"] = json.loads(request.data.decode("utf-8"))
+        gesehen["url"] = request.full_url
+        return _JsonAntwort({"embeddings": [[1, 2], [3, 4]]})
+
+    assert ollama_service.embed("bge-m3", ["a", "b"], opener=oeffnen) == [[1.0, 2.0], [3.0, 4.0]]
+    assert gesehen["url"].endswith("/api/embed") and gesehen["body"] == {"model": "bge-m3", "input": ["a", "b"]}
+    assert ollama_service.embed("bge-m3", []) == []
+    with pytest.raises(ollama_service.OllamaError, match="Einbettungsmodell"):
+        ollama_service.embed("x", ["a"], opener=lambda r, timeout=None: _JsonAntwort({"embeddings": []}))
+    with pytest.raises(ollama_service.OllamaError, match="Einbettungsmodell"):
+        ollama_service.embed("x", ["a"], opener=lambda r, timeout=None: _JsonAntwort([1]))
+
+
+def test_embed_fehler_werden_lesbar_gemeldet():
+    def nicht_erreichbar(request, timeout=None):
+        raise urllib.error.URLError("weg")
+
+    with pytest.raises(ollama_service.OllamaError, match="nicht erreichbar"):
+        ollama_service.embed("m", ["a"], opener=nicht_erreichbar)
+
+    class _Kaputt(_JsonAntwort):
+        def read(self):
+            return b"kein json"
+
+    with pytest.raises(ollama_service.OllamaError, match="gueltiges JSON"):
+        ollama_service.embed("m", ["a"], opener=lambda r, timeout=None: _Kaputt({}))
+
+
+def test_chat_stream_sammelt_stuecke_und_meldet_sie_sofort():
+    zeilen = [
+        b'{"message": {"content": "Hal"}, "done": false}\n',
+        b"\n",
+        b"kein json\n",
+        b'["x"]\n',
+        b'{"message": {"content": "lo"}, "done": false}\n',
+        b'{"message": {"content": ""}, "done": true}\n',
+        b'{"message": {"content": "nach dem Ende"}}\n',
+    ]
+    gesehen, stuecke = {}, []
+
+    def oeffnen(request, timeout=None):
+        gesehen["body"] = json.loads(request.data.decode("utf-8"))
+        return _PullAntwort(zeilen)
+
+    antwort = ollama_service.chat_stream([{"role": "user", "content": "x"}], "qwen3:8b", stuecke.append, opener=oeffnen)
+    assert antwort == "Hallo" and stuecke == ["Hal", "lo"]
+    assert gesehen["body"]["stream"] is True and gesehen["body"]["options"]["num_ctx"] >= 4096
+
+
+def test_chat_stream_fehler():
+    with pytest.raises(ollama_service.OllamaError, match="model not found"):
+        ollama_service.chat_stream([], "m", opener=lambda r, timeout=None: _PullAntwort([b'{"error": "model not found"}\n']))
+
+    def abgebrochen(request, timeout=None):
+        raise ConnectionResetError("weg")
+
+    with pytest.raises(ollama_service.OllamaError, match="unterbrochen"):
+        ollama_service.chat_stream([], "m", opener=abgebrochen)
+    # ohne Rueckruf und mit Text statt Bytes
+    assert ollama_service.chat_stream([], "m", opener=lambda r, timeout=None: _PullAntwort(['{"message": {"content": "a"}}\n'])) == "a"

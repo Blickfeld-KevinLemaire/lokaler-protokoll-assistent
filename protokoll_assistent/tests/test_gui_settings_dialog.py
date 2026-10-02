@@ -14,6 +14,7 @@ import pytest
 
 pytest.importorskip("PySide6", reason="PySide6 ist nicht installiert.")
 
+from protokoll_assistent.gui import ollama_modellwahl as omw  # noqa: E402
 from protokoll_assistent.gui import settings_dialog as sd  # noqa: E402
 from protokoll_assistent.services import ollama_service, secret_store  # noqa: E402
 from protokoll_assistent.utils import app_config  # noqa: E402
@@ -330,15 +331,15 @@ def test_mit_merken_aber_ohne_eingegebenen_schluessel_keine_meldung(qt_widgets, 
 # --------------------------------------------------------------------------
 def test_ollama_standard_ist_vorausgewaehlt(dialog):
     assert dialog.ollama_modell() == ollama_service.DEFAULT_MODEL
-    ids = [dialog.ollama_modell_combo.itemData(i) for i in range(dialog.ollama_modell_combo.count())]
+    ids = [dialog.ollama_wahl.combo.itemData(i) for i in range(dialog.ollama_wahl.combo.count())]
     assert ids[: len(ollama_service.OLLAMA_MODELLE)] == [o.id for o in ollama_service.OLLAMA_MODELLE]
-    assert ids[-1] == sd.EIGENES_OLLAMA_MODELL
-    assert not dialog.ollama_modell_edit.isVisibleTo(dialog)
-    assert dialog.ollama_hinweis_label.text()  # Beschreibung des Standardmodells
+    assert ids[-1] == omw.EIGENES_MODELL
+    assert not dialog.ollama_wahl.edit.isVisibleTo(dialog)
+    assert dialog.ollama_wahl.hinweis_label.text()  # Beschreibung des Standardmodells
 
 
 def test_ollama_andere_auswahl_wird_gespeichert(dialog):
-    dialog.ollama_modell_combo.setCurrentIndex(dialog.ollama_modell_combo.findData("qwen3:4b"))
+    dialog.ollama_wahl.combo.setCurrentIndex(dialog.ollama_wahl.combo.findData("qwen3:4b"))
     assert dialog.ollama_modell() == "qwen3:4b"
     dialog._speichern_und_schliessen()
     assert app_config.load_config()["ollama_modell"] == "qwen3:4b"
@@ -347,40 +348,40 @@ def test_ollama_andere_auswahl_wird_gespeichert(dialog):
 def test_ollama_eigener_name_wird_vorbelegt_und_gespeichert(qt_widgets, isolierte_konfiguration, schluessel_speicher):
     app_config.update_config(ollama_modell="phi4")
     dialog = qt_widgets(sd.SettingsDialog())
-    assert dialog.ollama_modell_combo.currentData() == sd.EIGENES_OLLAMA_MODELL
-    assert dialog.ollama_modell_edit.text() == "phi4"
+    assert dialog.ollama_wahl.combo.currentData() == omw.EIGENES_MODELL
+    assert dialog.ollama_wahl.edit.text() == "phi4"
     assert dialog.ollama_modell() == "phi4"
-    assert dialog.ollama_hinweis_label.text() == ""
+    assert dialog.ollama_wahl.hinweis_label.text() == ""
 
-    dialog.ollama_modell_edit.setText("  qwen3:30b ")
+    dialog.ollama_wahl.edit.setText("  qwen3:30b ")
     dialog._speichern_und_schliessen()
     assert app_config.load_config()["ollama_modell"] == "qwen3:30b"
 
 
 def test_ollama_leerer_eigener_name_faellt_auf_den_standard_zurueck(dialog):
-    dialog.ollama_modell_combo.setCurrentIndex(dialog.ollama_modell_combo.findData(sd.EIGENES_OLLAMA_MODELL))
-    dialog.ollama_modell_edit.setText("   ")
-    dialog._ollama_status_aktualisieren()
-    assert "Modellnamen" in dialog.ollama_status_label.text()
-    assert not dialog.ollama_download_button.isEnabled()
+    dialog.ollama_wahl.combo.setCurrentIndex(dialog.ollama_wahl.combo.findData(omw.EIGENES_MODELL))
+    dialog.ollama_wahl.edit.setText("   ")
+    dialog.ollama_wahl.aktualisieren()
+    assert "Modellnamen" in dialog.ollama_wahl.status_label.text()
+    assert not dialog.ollama_wahl.download_button.isEnabled()
     dialog._speichern_und_schliessen()
     assert app_config.load_config()["ollama_modell"] == ollama_service.DEFAULT_MODEL
 
 
 def test_ollama_status_nicht_erreichbar_installiert_und_fehlend(dialog, monkeypatch):
-    dialog._ollama_status_aktualisieren()
-    assert "nicht erreichbar" in dialog.ollama_status_label.text()
-    assert dialog.ollama_download_button.isEnabled()  # ein Versuch bleibt moeglich
+    dialog.ollama_wahl.aktualisieren()
+    assert "nicht erreichbar" in dialog.ollama_wahl.status_label.text()
+    assert dialog.ollama_wahl.download_button.isEnabled()  # ein Versuch bleibt moeglich
 
     monkeypatch.setattr(ollama_service, "list_models", lambda base_url=None, timeout=5: ["qwen3:8b", "gemma3:4b"])
-    dialog._ollama_status_aktualisieren()
-    assert "installiert" in dialog.ollama_status_label.text() and "✓" in dialog.ollama_status_label.text()
-    assert not dialog.ollama_download_button.isEnabled()
+    dialog.ollama_wahl.aktualisieren()
+    assert "installiert" in dialog.ollama_wahl.status_label.text() and "✓" in dialog.ollama_wahl.status_label.text()
+    assert not dialog.ollama_wahl.download_button.isEnabled()
 
-    dialog.ollama_modell_combo.setCurrentIndex(dialog.ollama_modell_combo.findData("qwen3:14b"))
-    assert "noch nicht installiert" in dialog.ollama_status_label.text()
-    assert "gemma3:4b" in dialog.ollama_status_label.text()  # bereits Vorhandenes wird genannt
-    assert dialog.ollama_download_button.isEnabled()
+    dialog.ollama_wahl.combo.setCurrentIndex(dialog.ollama_wahl.combo.findData("qwen3:14b"))
+    assert "noch nicht installiert" in dialog.ollama_wahl.status_label.text()
+    assert "gemma3:4b" in dialog.ollama_wahl.status_label.text()  # bereits Vorhandenes wird genannt
+    assert dialog.ollama_wahl.download_button.isEnabled()
 
 
 class _PullArbeiterAttrappe:
@@ -411,34 +412,96 @@ class _PullArbeiterAttrappe:
 
 def test_ollama_herunterladen_zeigt_fortschritt_und_aktualisiert_den_status(dialog, monkeypatch):
     _PullArbeiterAttrappe.instanzen.clear()
-    monkeypatch.setattr(sd, "OllamaPullWorker", _PullArbeiterAttrappe)
-    dialog.ollama_modell_combo.setCurrentIndex(dialog.ollama_modell_combo.findData("qwen3:4b"))
+    monkeypatch.setattr(omw, "OllamaPullWorker", _PullArbeiterAttrappe)
+    dialog.ollama_wahl.combo.setCurrentIndex(dialog.ollama_wahl.combo.findData("qwen3:4b"))
 
-    dialog._ollama_herunterladen()
+    dialog.ollama_wahl.herunterladen()
     arbeiter = _PullArbeiterAttrappe.instanzen[-1]
     assert arbeiter.gestartet and arbeiter.modell == "qwen3:4b"
-    assert not dialog.ollama_download_button.isEnabled()
-    assert not dialog.ollama_modell_combo.isEnabled()  # waehrend des Downloads gesperrt
-    dialog._ollama_herunterladen()  # zweiter Klick: darf keinen zweiten Arbeiter starten
+    assert not dialog.ollama_wahl.download_button.isEnabled()
+    assert not dialog.ollama_wahl.combo.isEnabled()  # waehrend des Downloads gesperrt
+    dialog.ollama_wahl.herunterladen()  # zweiter Klick: darf keinen zweiten Arbeiter starten
     assert len(_PullArbeiterAttrappe.instanzen) == 1
 
     arbeiter.fortschritt.emit("pulling abc", 500_000_000, 2_000_000_000)
-    assert dialog.ollama_fortschritt.value() == 25
-    assert "0.5 von 2.0 GB" in dialog.ollama_status_label.text()
+    assert dialog.ollama_wahl.fortschritt.value() == 25
+    assert "0.5 von 2.0 GB" in dialog.ollama_wahl.status_label.text()
     arbeiter.fortschritt.emit("verifying sha256 digest", 0, 0)
-    assert dialog.ollama_status_label.text() == "verifying sha256 digest"
+    assert dialog.ollama_wahl.status_label.text() == "verifying sha256 digest"
 
     monkeypatch.setattr(ollama_service, "list_models", lambda base_url=None, timeout=5: ["qwen3:4b"])
     arbeiter.fertig.emit("qwen3:4b")
-    assert dialog.ollama_modell_combo.isEnabled()
-    assert "✓" in dialog.ollama_status_label.text()
+    assert dialog.ollama_wahl.combo.isEnabled()
+    assert "✓" in dialog.ollama_wahl.status_label.text()
 
 
 def test_ollama_download_fehler_wird_angezeigt_und_erneuter_versuch_ist_moeglich(dialog, monkeypatch):
     _PullArbeiterAttrappe.instanzen.clear()
-    monkeypatch.setattr(sd, "OllamaPullWorker", _PullArbeiterAttrappe)
-    dialog._ollama_herunterladen()
+    monkeypatch.setattr(omw, "OllamaPullWorker", _PullArbeiterAttrappe)
+    dialog.ollama_wahl.herunterladen()
     _PullArbeiterAttrappe.instanzen[-1].fehlgeschlagen.emit("qwen3:8b", "kein Speicherplatz")
-    assert "kein Speicherplatz" in dialog.ollama_status_label.text()
-    assert dialog.ollama_download_button.isEnabled()
-    assert dialog.ollama_modell_combo.isEnabled()
+    assert "kein Speicherplatz" in dialog.ollama_wahl.status_label.text()
+    assert dialog.ollama_wahl.download_button.isEnabled()
+    assert dialog.ollama_wahl.combo.isEnabled()
+
+
+# --------------------------------------------------------------------------
+# Reiter "Chatbot"
+# --------------------------------------------------------------------------
+def test_chatbot_reiter_ist_vorhanden_und_vorbelegt(dialog):
+    from PySide6.QtWidgets import QTabWidget
+
+    tabs = dialog.findChild(QTabWidget)
+    assert [tabs.tabText(i) for i in range(tabs.count())] == ["Transkription", "Nachbearbeitung", "Chatbot"]
+    assert dialog.chatbot_lokal_radio.isChecked()
+    assert dialog.chatbot_chat_wahl.modell() == ollama_service.DEFAULT_MODEL
+    assert dialog.chatbot_embedding_wahl.modell() == "bge-m3"
+    ids = [dialog.chatbot_embedding_wahl.combo.itemData(i) for i in range(dialog.chatbot_embedding_wahl.combo.count())]
+    assert ids[: len(ollama_service.OLLAMA_EMBEDDING_MODELLE)] == [o.id for o in ollama_service.OLLAMA_EMBEDDING_MODELLE]
+    assert dialog.chatbot_seiten.currentIndex() == 0
+
+
+def test_chatbot_umschalten_auf_api_zeigt_die_api_seite_und_speichert(dialog, schluessel_speicher):
+    dialog.chatbot_api_radio.setChecked(True)
+    assert dialog.chatbot_seiten.currentIndex() == 1
+    dialog.chatbot_chat_wahl.combo.setCurrentIndex(dialog.chatbot_chat_wahl.combo.findData("qwen3:4b"))
+    dialog.chatbot_embedding_wahl.combo.setCurrentIndex(dialog.chatbot_embedding_wahl.combo.findData("nomic-embed-text"))
+    dialog.chatbot_api_endpunkt_edit.setText(" https://api.test/chat ")
+    dialog.chatbot_api_modell_edit.setText("modell-x")
+    dialog.chatbot_api_embedding_endpunkt_edit.setText("https://api.test/emb")
+    dialog.chatbot_api_embedding_modell_edit.setText("emb-x")
+    dialog.chatbot_api_eigener_schluessel_checkbox.setChecked(True)
+    dialog.chatbot_api_schluessel_edit.setText("chat-geheim")
+    dialog.chatbot_api_merken_checkbox.setChecked(True)
+
+    dialog._speichern_und_schliessen()
+
+    gespeichert = app_config.load_config()
+    assert gespeichert["chatbot_modus"] == "api"
+    assert gespeichert["chatbot_ollama_modell"] == "qwen3:4b"
+    assert gespeichert["chatbot_embedding_modell"] == "nomic-embed-text"
+    assert gespeichert["chatbot_api_endpunkt"] == "https://api.test/chat"
+    assert gespeichert["chatbot_api_modell"] == "modell-x"
+    assert gespeichert["chatbot_api_embedding_endpunkt"] == "https://api.test/emb"
+    assert gespeichert["chatbot_api_embedding_modell"] == "emb-x"
+    assert gespeichert["chatbot_api_eigener_schluessel"] is True
+    assert schluessel_speicher["chatbot"] == "chat-geheim"
+    assert dialog.eingegebene_schluessel["chatbot"] == "chat-geheim"
+
+
+def test_chatbot_gespeicherte_werte_werden_vorbelegt(qt_widgets, isolierte_konfiguration, schluessel_speicher):
+    schluessel_speicher["chatbot"] = "alt"
+    app_config.update_config(chatbot_modus="api", chatbot_embedding_modell="eigenes-embedding", chatbot_api_eigener_schluessel=True)
+    dialog = qt_widgets(sd.SettingsDialog())
+    assert dialog.chatbot_api_radio.isChecked()
+    assert dialog.chatbot_embedding_wahl.combo.currentData() == omw.EIGENES_MODELL
+    assert dialog.chatbot_embedding_wahl.modell() == "eigenes-embedding"
+    assert dialog.chatbot_api_schluessel_edit.text() == "alt"
+    assert dialog.chatbot_api_schluessel_edit.isEnabled()
+
+
+def test_chatbot_leere_modellnamen_fallen_auf_die_standards_zurueck(dialog):
+    dialog.chatbot_embedding_wahl.combo.setCurrentIndex(dialog.chatbot_embedding_wahl.combo.findData(omw.EIGENES_MODELL))
+    dialog.chatbot_embedding_wahl.edit.setText("  ")
+    dialog._speichern_und_schliessen()
+    assert app_config.load_config()["chatbot_embedding_modell"] == "bge-m3"
