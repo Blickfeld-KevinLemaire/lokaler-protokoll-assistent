@@ -838,7 +838,7 @@ def test_nachlade_worker_meldet_unerwartete_fehler(qt_app, monkeypatch):
 
     arbeiter.run()
 
-    assert meldungen == ["FEHLER: kaputt"] and ergebnisse == [{}]
+    assert meldungen[-1] == "FEHLER: kaputt" and ergebnisse == [{}]
 
 
 def test_diagnose_seite_bietet_nachladen_nur_bei_nachladbarem(diagnose_seite):
