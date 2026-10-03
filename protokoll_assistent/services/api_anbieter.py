@@ -6,6 +6,12 @@ muessen. Diese Tabelle kennt je Anbieter Basis-Adresse, Vorschlaege fuer die
 Modellnamen, die Faehigkeiten (Chat, Einbettungen, Transkription) und die
 Seiten, auf denen man einen Schluessel erzeugt bzw. die Dokumentation findet.
 
+Die Transkription ist nur bei Anbietern eingetragen, die das Audio -- wie
+OpenRouter -- im API-Aufruf selbst entgegennehmen (JSON mit Base64-Audio).
+Anbieter, die dafuer einen Dateiupload verlangen (multipart), sind dort
+bewusst NICHT aufgefuehrt: Es soll nichts als Datei irgendwohin uebertragen
+werden.
+
 Es ist **keine** Voreinstellung aktiv: Solange der Anwender keinen Anbieter
 gewaehlt hat, bleiben Endpunkte und Modelle leer -- frueher stand dort
 OpenRouter, und Texte bzw. Aufnahmen gingen ohne bewusste Entscheidung an
@@ -23,18 +29,6 @@ Die Anwendung kennt Qt nicht; die Datei haelt nur Daten und kleine Funktionen.
 from __future__ import annotations
 
 from dataclasses import dataclass
-
-# So wird das Audio uebertragen.
-#   json_base64 -- JSON mit Base64-Audio (OpenRouter), wie bisher.
-#   multipart   -- Dateiupload per multipart/form-data (OpenAI-Schnittstelle).
-FORMAT_JSON_BASE64 = "json_base64"
-FORMAT_MULTIPART = "multipart"
-
-# So kommen Sprecher in die Antwort.
-DIARISIERUNG_KEINE = "keine"
-DIARISIERUNG_OPENROUTER = "openrouter"  # provider.options.<anbieter>.diarization
-DIARISIERUNG_MISTRAL = "mistral"  # Formularfeld diarize=true
-DIARISIERUNG_MODELL = "modell"  # nur ueber ein Modell mit 'diarize' im Namen (OpenAI)
 
 ANBIETER_EIGENER = "eigener"
 
@@ -58,8 +52,6 @@ class ApiAnbieter:
     chat_modell: str = ""
     embedding_modell: str = ""
     transkription_modell: str = ""
-    transkription_format: str = FORMAT_MULTIPART
-    diarisierung: str = DIARISIERUNG_KEINE
     # Nur OpenRouter: Name des Anbieters, der die Sprechertrennung liefert.
     diarisierung_anbieter: str = ""
 
@@ -122,11 +114,9 @@ ANBIETER: tuple[ApiAnbieter, ...] = (
         schluessel_link="https://console.mistral.ai/api-keys",
         doku_link="https://docs.mistral.ai/capabilities/audio_transcription",
         standort="Anbieter aus Frankreich (EU)",
-        hinweis="Die Transkription (Voxtral) liefert auf Wunsch die Sprechertrennung gleich mit.",
+        hinweis="Chat und Einbettungen. Keine Transkription über diese Anwendung (sie erwartet das OpenRouter-Format).",
         chat_modell="mistral-small-latest",
         embedding_modell="mistral-embed",
-        transkription_modell="voxtral-mini-latest",
-        diarisierung=DIARISIERUNG_MISTRAL,
     ),
     ApiAnbieter(
         id="scaleway",
@@ -135,10 +125,9 @@ ANBIETER: tuple[ApiAnbieter, ...] = (
         schluessel_link="https://console.scaleway.com/iam/api-keys",
         doku_link="https://www.scaleway.com/en/docs/generative-apis/reference-content/openai-compatibility/",
         standort="Anbieter aus Frankreich (EU)",
-        hinweis="Transkription mit Whisper, ohne Sprechertrennung.",
+        hinweis="Chat und Einbettungen. Keine Transkription über diese Anwendung.",
         chat_modell="llama-3.3-70b-instruct",
         embedding_modell="bge-multilingual-gemma2",
-        transkription_modell="whisper-large-v3",
     ),
     ApiAnbieter(
         id="azure",
@@ -149,11 +138,11 @@ ANBIETER: tuple[ApiAnbieter, ...] = (
         standort="Region frei wählbar (z. B. Deutschland, Schweden)",
         hinweis=(
             f"In der Adresse „{PLATZHALTER_RESSOURCE}“ durch den Namen der eigenen Azure-Ressource ersetzen. "
-            "Als Modellname gilt der Name der Bereitstellung („Deployment“), nicht der Modellname."
+            "Als Modellname gilt der Name der Bereitstellung („Deployment“), nicht der Modellname. "
+            "Keine Transkription über diese Anwendung."
         ),
         chat_modell="gpt-4o-mini",
         embedding_modell="text-embedding-3-small",
-        transkription_modell="whisper",
     ),
     ApiAnbieter(
         id="openai",
@@ -162,14 +151,9 @@ ANBIETER: tuple[ApiAnbieter, ...] = (
         schluessel_link="https://platform.openai.com/api-keys",
         doku_link="https://developers.openai.com/docs/guides/speech-to-text",
         standort="Anbieter aus den USA",
-        hinweis=(
-            "Mit dem Transkriptionsmodell „gpt-4o-transcribe-diarize“ kommt die Sprechertrennung gleich mit; "
-            "„whisper-1“ liefert Zeitstempel, aber keine Sprecher."
-        ),
+        hinweis="Chat und Einbettungen. Keine Transkription über diese Anwendung.",
         chat_modell="gpt-4o-mini",
         embedding_modell="text-embedding-3-small",
-        transkription_modell="gpt-4o-transcribe-diarize",
-        diarisierung=DIARISIERUNG_MODELL,
     ),
     ApiAnbieter(
         id="anthropic",
@@ -202,9 +186,8 @@ ANBIETER: tuple[ApiAnbieter, ...] = (
         schluessel_link="https://console.groq.com/keys",
         doku_link="https://console.groq.com/docs/speech-to-text",
         standort="Anbieter aus den USA",
-        hinweis="Sehr schnelle Whisper-Transkription, ohne Sprechertrennung. Keine Einbettungen.",
+        hinweis="Nur Chat (sehr schnell). Keine Einbettungen und keine Transkription über diese Anwendung.",
         chat_modell="llama-3.3-70b-versatile",
-        transkription_modell="whisper-large-v3-turbo",
     ),
     ApiAnbieter(
         id="openrouter",
@@ -217,8 +200,6 @@ ANBIETER: tuple[ApiAnbieter, ...] = (
         chat_modell="openai/gpt-4o-mini",
         embedding_modell="openai/text-embedding-3-small",
         transkription_modell="microsoft/mai-transcribe-2",
-        transkription_format=FORMAT_JSON_BASE64,
-        diarisierung=DIARISIERUNG_OPENROUTER,
         diarisierung_anbieter="azure",
     ),
 )
@@ -245,18 +226,6 @@ def erkenne_anbieter(endpunkt: str | None) -> ApiAnbieter | None:
     if ".openai.azure.com/openai/v1" in adresse:
         return finde_anbieter("azure")
     return None
-
-
-def transkription_format_fuer(endpunkt: str | None) -> str:
-    """Eigene/unbekannte Adressen behalten das bisherige Format (JSON mit
-    Base64-Audio), damit bestehende Einstellungen unveraendert weiterlaufen."""
-    anbieter = erkenne_anbieter(endpunkt)
-    return anbieter.transkription_format if anbieter else FORMAT_JSON_BASE64
-
-
-def diarisierung_fuer(endpunkt: str | None) -> str:
-    anbieter = erkenne_anbieter(endpunkt)
-    return anbieter.diarisierung if anbieter else DIARISIERUNG_OPENROUTER
 
 
 def adresse_vollstaendig(endpunkt: str | None) -> bool:

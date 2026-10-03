@@ -53,8 +53,9 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
   (Claude), Google Gemini, Groq, OpenRouter oder „Eigener Endpunkt“ – und muss
   nur noch den API-Schlüssel eintragen. Adresse und Modellvorschlag werden
   eingesetzt; darunter stehen Standort, Hinweise und Links zum Schlüssel und
-  zur Dokumentation. Die Transkription kann dafür jetzt auch per Dateiupload
-  (multipart) laufen, nicht nur im OpenRouter-Format.
+  zur Dokumentation. Die Transkription über eine API bleibt bei OpenRouter bzw.
+  einem eigenen Endpunkt im selben Format (Audio im API-Aufruf, kein
+  Dateiupload); die übrigen Anbieter gibt es für Nachbearbeitung und Chatbot.
 
 ### Changed
 

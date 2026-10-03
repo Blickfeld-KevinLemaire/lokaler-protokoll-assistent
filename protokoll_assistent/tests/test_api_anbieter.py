@@ -39,12 +39,12 @@ def test_adressen_folgen_der_openai_schnittstelle():
     [
         ("openrouter", True, True, True),
         ("ionos", True, True, False),
-        ("openai", True, True, True),
+        ("openai", True, True, False),
         ("anthropic", True, False, False),
-        ("mistral", True, True, True),
-        ("azure", True, True, True),
+        ("mistral", True, True, False),
+        ("azure", True, True, False),
         ("google", True, True, False),
-        ("groq", True, False, True),
+        ("groq", True, False, False),
     ],
 )
 def test_faehigkeiten(kennung, chat, embeddings, transkription):
@@ -57,10 +57,15 @@ def test_faehigkeiten(kennung, chat, embeddings, transkription):
     )
 
 
-def test_nur_openrouter_nutzt_json_mit_base64_audio():
-    for anbieter in aa.ANBIETER:
-        erwartet = aa.FORMAT_JSON_BASE64 if anbieter.id == "openrouter" else aa.FORMAT_MULTIPART
-        assert anbieter.transkription_format == erwartet
+def test_transkription_gibt_es_nur_bei_openrouter():
+    """Das Audio geht nur im API-Aufruf selbst mit (JSON mit Base64, wie bei
+    OpenRouter). Anbieter, die einen Dateiupload (multipart) verlangen, sind
+    bewusst nicht fuer die Transkription eingetragen."""
+    mit_transkription = [a.id for a in aa.ANBIETER if a.kann_transkription]
+    assert mit_transkription == ["openrouter"]
+    openrouter = aa.finde_anbieter("openrouter")
+    assert openrouter.transkription_url() == "https://openrouter.ai/api/v1/audio/transcriptions"  # type: ignore[union-attr]
+    assert openrouter.diarisierung_anbieter == "azure"  # type: ignore[union-attr]
 
 
 def test_azure_hat_einen_platzhalter_der_ersetzt_werden_muss():
@@ -92,15 +97,3 @@ def test_finde_anbieter():
     assert aa.finde_anbieter("ionos").name.startswith("IONOS")  # type: ignore[union-attr]
     assert aa.finde_anbieter("") is None and aa.finde_anbieter(None) is None
     assert aa.finde_anbieter(aa.ANBIETER_EIGENER) is None
-
-
-def test_format_und_diarisierung_aus_der_adresse():
-    assert aa.transkription_format_fuer("https://api.openai.com/v1/audio/transcriptions") == aa.FORMAT_MULTIPART
-    assert aa.transkription_format_fuer("https://openrouter.ai/api/v1/audio/transcriptions") == aa.FORMAT_JSON_BASE64
-    # Eigene/unbekannte Adressen: wie bisher JSON mit Base64-Audio
-    assert aa.transkription_format_fuer("https://mein-anbieter.test/x") == aa.FORMAT_JSON_BASE64
-    assert aa.transkription_format_fuer(None) == aa.FORMAT_JSON_BASE64
-    assert aa.diarisierung_fuer("https://api.mistral.ai/v1/audio/transcriptions") == aa.DIARISIERUNG_MISTRAL
-    assert aa.diarisierung_fuer("https://api.openai.com/v1/audio/transcriptions") == aa.DIARISIERUNG_MODELL
-    assert aa.diarisierung_fuer("https://api.groq.com/openai/v1/audio/transcriptions") == aa.DIARISIERUNG_KEINE
-    assert aa.diarisierung_fuer("https://mein-anbieter.test/x") == aa.DIARISIERUNG_OPENROUTER

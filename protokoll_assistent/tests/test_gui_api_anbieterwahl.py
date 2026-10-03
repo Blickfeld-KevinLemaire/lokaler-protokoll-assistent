@@ -20,13 +20,13 @@ def test_voreinstellung_ermitteln():
 
 def test_anbieter_passt_je_faehigkeit():
     anthropic = api_anbieter.finde_anbieter("anthropic")
-    groq = api_anbieter.finde_anbieter("groq")
     mistral = api_anbieter.finde_anbieter("mistral")
+    openrouter = api_anbieter.finde_anbieter("openrouter")
     assert aw.anbieter_passt(anthropic, aw.FAEHIGKEIT_CHAT)
     assert not aw.anbieter_passt(anthropic, aw.FAEHIGKEIT_CHATBOT)
     assert not aw.anbieter_passt(anthropic, aw.FAEHIGKEIT_TRANSKRIPTION)
-    assert aw.anbieter_passt(groq, aw.FAEHIGKEIT_TRANSKRIPTION) and not aw.anbieter_passt(groq, aw.FAEHIGKEIT_CHATBOT)
-    assert all(aw.anbieter_passt(mistral, f) for f in (aw.FAEHIGKEIT_CHAT, aw.FAEHIGKEIT_CHATBOT, aw.FAEHIGKEIT_TRANSKRIPTION))
+    assert aw.anbieter_passt(mistral, aw.FAEHIGKEIT_CHATBOT) and not aw.anbieter_passt(mistral, aw.FAEHIGKEIT_TRANSKRIPTION)
+    assert all(aw.anbieter_passt(openrouter, f) for f in (aw.FAEHIGKEIT_CHAT, aw.FAEHIGKEIT_CHATBOT, aw.FAEHIGKEIT_TRANSKRIPTION))
 
 
 def test_beschreibung_nennt_standort_hinweis_und_links():

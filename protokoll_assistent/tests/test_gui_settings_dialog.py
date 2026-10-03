@@ -529,22 +529,17 @@ def test_ab_werk_ist_kein_anbieter_gewaehlt_und_die_felder_sind_leer(dialog):
 
 def test_transkription_anbieter_waehlen_fuellt_adresse_und_modell(dialog):
     wahl = dialog.api_transkription_anbieter_wahl
-    wahl.combo.setCurrentIndex(wahl.combo.findData("mistral"))
-    assert dialog.api_transkription_endpunkt_edit.text() == "https://api.mistral.ai/v1/audio/transcriptions"
-    assert dialog.api_transkription_modell_edit.text() == "voxtral-mini-latest"
-    assert dialog.api_transkription_anbieter_edit.text() == ""
-
     wahl.combo.setCurrentIndex(wahl.combo.findData("openrouter"))
     assert dialog.api_transkription_endpunkt_edit.text() == "https://openrouter.ai/api/v1/audio/transcriptions"
+    assert dialog.api_transkription_modell_edit.text() == "microsoft/mai-transcribe-2"
     assert dialog.api_transkription_anbieter_edit.text() == "azure"  # Sprechertrennung nur bei OpenRouter
 
 
-def test_transkription_bietet_nur_anbieter_mit_sprache_zu_text(dialog):
+def test_transkription_bietet_nur_openrouter_und_eigenen_endpunkt(dialog):
+    """Kein Dateiupload: Es gibt nur Anbieter, die das Audio im API-Aufruf selbst nehmen."""
     wahl = dialog.api_transkription_anbieter_wahl
-    angebotene = {wahl.combo.itemData(i) for i in range(wahl.combo.count())}
-    assert {"openai", "mistral", "azure", "openrouter", "groq"} <= angebotene
-    assert not {"ionos", "anthropic", "google", "stackit"} & angebotene
-    assert "" in angebotene and "eigener" in angebotene
+    angebotene = [wahl.combo.itemData(i) for i in range(wahl.combo.count())]
+    assert angebotene == ["", "openrouter", "eigener"]
 
 
 def test_nachbearbeitung_anbieter_waehlen_fuellt_chat_adresse_und_modell(dialog):
@@ -577,7 +572,7 @@ def test_anbieterwahl_wird_gespeichert(dialog):
     wahl = dialog.api_nachbearbeitung_anbieter_wahl
     wahl.combo.setCurrentIndex(wahl.combo.findData("openai"))
     dialog.api_transkription_anbieter_wahl.combo.setCurrentIndex(
-        dialog.api_transkription_anbieter_wahl.combo.findData("groq")
+        dialog.api_transkription_anbieter_wahl.combo.findData("openrouter")
     )
     dialog.chatbot_api_anbieter_wahl.combo.setCurrentIndex(dialog.chatbot_api_anbieter_wahl.combo.findData("google"))
 
@@ -587,8 +582,8 @@ def test_anbieterwahl_wird_gespeichert(dialog):
     assert gespeichert["api_nachbearbeitung_voreinstellung"] == "openai"
     assert gespeichert["api_nachbearbeitung_endpunkt"] == "https://api.openai.com/v1/chat/completions"
     assert gespeichert["api_nachbearbeitung_modell"] == "gpt-4o-mini"
-    assert gespeichert["api_transkription_voreinstellung"] == "groq"
-    assert gespeichert["api_transkription_endpunkt"] == "https://api.groq.com/openai/v1/audio/transcriptions"
+    assert gespeichert["api_transkription_voreinstellung"] == "openrouter"
+    assert gespeichert["api_transkription_endpunkt"] == "https://openrouter.ai/api/v1/audio/transcriptions"
     assert gespeichert["chatbot_api_voreinstellung"] == "google"
 
 

@@ -36,11 +36,8 @@ import base64
 import json
 import urllib.error
 import urllib.request
-import uuid
 from pathlib import Path
 from typing import Any
-
-from protokoll_assistent.services import api_anbieter
 
 MAX_DIRECT_AUDIO_SIZE = 36 * 1024 * 1024
 DEFAULT_TIMEOUT_SECONDS = 900.0
@@ -95,87 +92,13 @@ def call_endpoint(
     timeout: float = DEFAULT_TIMEOUT_SECONDS,
 ) -> dict[str, Any]:
     body = json.dumps(request_data, ensure_ascii=False).encode("utf-8")
-    return _senden(body, "application/json; charset=utf-8", endpoint_url, api_key, timeout)
-
-
-def build_multipart(
-    felder: list[tuple[str, str]],
-    datei_feld: str,
-    dateiname: str,
-    inhalt: bytes,
-    mime: str,
-) -> tuple[bytes, str]:
-    """Baut einen multipart/form-data-Koerper (ohne zusaetzliche Pakete).
-
-    Rueckgabe: Koerper und Wert fuer den ``Content-Type``-Kopf. Felder sind
-    Paare, damit ein Feldname mehrfach vorkommen kann."""
-    grenze = f"----ProtokollAssistent{uuid.uuid4().hex}"
-    teile: list[bytes] = []
-    for name, wert in felder:
-        teile.append(
-            f'--{grenze}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n{wert}\r\n'.encode()
-        )
-    teile.append(
-        (
-            f'--{grenze}\r\nContent-Disposition: form-data; name="{datei_feld}"; '
-            f'filename="{dateiname}"\r\nContent-Type: {mime}\r\n\r\n'
-        ).encode()
-    )
-    teile.append(inhalt)
-    teile.append(f"\r\n--{grenze}--\r\n".encode())
-    return b"".join(teile), f"multipart/form-data; boundary={grenze}"
-
-
-def build_multipart_fields(
-    model_name: str,
-    diarisierung: str,
-    diarization_enabled: bool,
-) -> list[tuple[str, str]]:
-    """Formularfelder je nach Anbieter.
-
-    * OpenAI-Schnittstelle (OpenAI, Azure, Groq, Scaleway): ``verbose_json``
-      mit Segment-Zeitstempeln. Ein Modell mit "diarize" im Namen
-      (``gpt-4o-transcribe-diarize``) liefert stattdessen ``diarized_json``
-      mit Sprechern und braucht ``chunking_strategy``.
-    * Mistral (Voxtral): kennt kein ``response_format``, dafuer ``diarize``.
-    """
-    felder: list[tuple[str, str]] = [("model", model_name)]
-    if diarisierung == api_anbieter.DIARISIERUNG_MISTRAL:
-        felder.append(("timestamp_granularities", "segment"))
-        if diarization_enabled:
-            felder.append(("diarize", "true"))
-        return felder
-    if "diarize" in model_name.lower():
-        felder.append(("response_format", "diarized_json"))
-        felder.append(("chunking_strategy", "auto"))
-        return felder
-    felder.append(("response_format", "verbose_json"))
-    felder.append(("timestamp_granularities[]", "segment"))
-    return felder
-
-
-def call_endpoint_multipart(
-    felder: list[tuple[str, str]],
-    audio_path: Path,
-    endpoint_url: str,
-    api_key: str,
-    timeout: float = DEFAULT_TIMEOUT_SECONDS,
-) -> dict[str, Any]:
-    body, content_type = build_multipart(felder, "file", audio_path.name, audio_path.read_bytes(), "audio/wav")
-    return _senden(body, content_type, endpoint_url, api_key, timeout)
-
-
-def _senden(
-    body: bytes,
-    content_type: str,
-    endpoint_url: str,
-    api_key: str,
-    timeout: float,
-) -> dict[str, Any]:
     request = urllib.request.Request(
         endpoint_url,
         data=body,
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": content_type},
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json; charset=utf-8",
+        },
         method="POST",
     )
     try:
@@ -190,8 +113,6 @@ def _senden(
         ) from error
     except TimeoutError as error:
         raise ApiTranscriptionError("Die Transkription hat das Zeitlimit ueberschritten.") from error
-    except ValueError as error:
-        raise ApiTranscriptionError(f"{endpoint_url} hat keine gueltige JSON-Antwort geliefert.") from error
 
     if not isinstance(result, dict):
         raise ApiTranscriptionError(f"{endpoint_url} hat kein JSON-Objekt geliefert.")
@@ -280,8 +201,7 @@ def normalize_segments(response: dict[str, Any]) -> list[dict[str, Any]]:
                 "start": start,
                 "end": end,
                 "text": text,
-                # 'speaker' (OpenRouter, OpenAI), 'speaker_id' (Mistral)
-                "speaker": raw_segment.get("speaker") or raw_segment.get("speaker_id"),
+                "speaker": raw_segment.get("speaker"),
                 "words": [],
             }
         )
@@ -299,38 +219,17 @@ def transcribe_chunk_via_api(
     timeout: float = DEFAULT_TIMEOUT_SECONDS,
 ) -> list[dict[str, Any]]:
     """Erfuellt exakt 'transcribe_chunk_fn: Callable[[Path], list[dict]]' -
-    ein Drop-in-Ersatz fuer die lokale Whisper-Transkription eines Chunks.
-
-    Das Uebertragungsformat ergibt sich aus der Adresse
-    (``api_anbieter.transkription_format_fuer``): OpenRouter und alle
-    eigenen/bekannten Altadressen bekommen JSON mit Base64-Audio wie bisher,
-    die uebrigen Anbieter einen Dateiupload per multipart/form-data."""
+    ein Drop-in-Ersatz fuer die lokale Whisper-Transkription eines Chunks."""
     pruefe_uebertragungsgroesse(chunk_wav_path)
-    if api_anbieter.transkription_format_fuer(endpoint_url) == api_anbieter.FORMAT_MULTIPART:
-        felder = build_multipart_fields(
-            model_name, api_anbieter.diarisierung_fuer(endpoint_url), diarization_enabled
-        )
-        response = call_endpoint_multipart(felder, chunk_wav_path, endpoint_url, api_key, timeout=timeout)
-    else:
-        request_data = build_request(
-            chunk_wav_path.read_bytes(),
-            audio_format="wav",
-            model_name=model_name,
-            provider_name=provider_name,
-            diarization_enabled=diarization_enabled,
-        )
-        response = call_endpoint(request_data, endpoint_url, api_key, timeout=timeout)
-    segmente = normalize_segments(response)
-    if not segmente and str(response.get("text", "")).strip():
-        # Nur Fliesstext, keine Zeitstempel (z. B. gpt-4o-transcribe ohne
-        # Segmente): Daraus laesst sich weder ein Protokoll mit Zeiten noch
-        # eine Sprecherzuordnung bauen -- lieber klar abbrechen.
-        raise ApiTranscriptionError(
-            f"Das Modell '{model_name}' liefert nur Fliesstext ohne Zeitstempel. "
-            "Bitte in den Einstellungen ein Modell mit Segment-Zeitstempeln waehlen "
-            "(z. B. 'whisper-1', 'gpt-4o-transcribe-diarize' oder 'voxtral-mini-latest')."
-        )
-    return segmente
+    request_data = build_request(
+        chunk_wav_path.read_bytes(),
+        audio_format="wav",
+        model_name=model_name,
+        provider_name=provider_name,
+        diarization_enabled=diarization_enabled,
+    )
+    response = call_endpoint(request_data, endpoint_url, api_key, timeout=timeout)
+    return normalize_segments(response)
 
 
 def diarize_via_api_speakers(
