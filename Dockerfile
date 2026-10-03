@@ -23,7 +23,10 @@ RUN apt-get update \
 
 WORKDIR /app
 COPY protokoll_assistent/requirements-server.txt /tmp/requirements-server.txt
-RUN if [ -n "$TORCH_INDEX_URL" ]; then \
+# Das pip von Ubuntu 22.04 (22.0.2) bricht bei dieser Paketmenge mit einem
+# AssertionError im Aufloeser ab -- deshalb zuerst ein aktuelles pip.
+RUN python3 -m pip install --upgrade pip \
+    && if [ -n "$TORCH_INDEX_URL" ]; then \
         python3 -m pip install --index-url "$TORCH_INDEX_URL" "torch~=2.11.0" "torchaudio~=2.11.0"; \
     fi \
     && python3 -m pip install -r /tmp/requirements-server.txt
