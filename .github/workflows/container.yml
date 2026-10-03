@@ -6,7 +6,9 @@ name: Container
 
 on:
   push:
-    branches: [main]
+    # TEMPORAER: Der Branch steht hier, solange es noch keinen Pull Request gibt (ein neuer
+    # Workflow laesst sich erst nach dem Zusammenfuehren ueber "Run workflow" starten).
+    branches: [main, chore/asr-modellvergleich]
     paths:
       - Dockerfile
       - .dockerignore
