@@ -35,7 +35,13 @@ COPY protokoll_assistent /app/protokoll_assistent
 
 # Daten liegen in Volumes unter /daten; der Dienst laeuft ohne Root-Rechte.
 # Die Modelle (Hugging Face) und die Zwischenstaende gehoeren ebenfalls dorthin.
-ENV PROTOKOLL_DATEN_DIR=/daten/intern \
+# Der Benutzer aus 'user:' in der docker-compose.yml hat keinen Eintrag in /etc/passwd:
+# PyTorch fragt dann 'getpass.getuser()' und bricht mit einem KeyError ab, solange
+# USER/LOGNAME nicht gesetzt sind. HOME zeigt auf einen beschreibbaren Ort.
+ENV USER=protokoll \
+    LOGNAME=protokoll \
+    HOME=/daten/intern \
+    PROTOKOLL_DATEN_DIR=/daten/intern \
     HF_HOME=/daten/modelle \
     PROTOKOLL_EINGANG=/daten/eingang \
     PROTOKOLL_AUSGANG=/daten/ausgang
