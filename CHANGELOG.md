@@ -69,6 +69,14 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
   nach dem Umbenennen von Sprechern neu geschrieben. Scheitert das, bleibt die
   Verarbeitung gültig; der Grund steht im Protokoll.
 
+- **Servermodus für Linux (Container):** Aufnahmen, die in einem Eingangsordner
+  ankommen, werden automatisch in Chunks verarbeitet, transkribiert und
+  zusammengefasst; Transkript, Protokoll und die zusammengefasste Word-Datei
+  liegen danach in einem Ausgangsordner (`ergebnis.json` meldet den Ausgang,
+  optional auch per Webhook). Läuft ohne Oberfläche per `docker compose`
+  (Prozessor oder NVIDIA-Grafikkarte, Ollama als eigener Dienst); Einstellungen
+  über Umgebungsvariablen. Anleitung: `protokoll_assistent/server/README.md`.
+
 ### Changed
 
 - **OpenRouter ist nicht mehr voreingestellt.** Endpunkte und Modelle sind ab

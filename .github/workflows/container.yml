@@ -1,0 +1,59 @@
+name: Container
+
+# Baut das Image des Servermodus und fuehrt den Selbsttest darin aus. Laeuft nur,
+# wenn sich etwas Betroffenes aendert (oder per "Run workflow") -- das Image
+# laedt PyTorch und braucht einige Minuten, es soll nicht jeden Lauf bremsen.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - Dockerfile
+      - .dockerignore
+      - docker-compose*.yml
+      - protokoll_assistent/server/**
+      - protokoll_assistent/requirements-server.txt
+      - .github/workflows/container.yml
+  pull_request:
+    paths:
+      - Dockerfile
+      - .dockerignore
+      - docker-compose*.yml
+      - protokoll_assistent/server/**
+      - protokoll_assistent/requirements-server.txt
+      - .github/workflows/container.yml
+  workflow_dispatch:
+
+concurrency:
+  group: container-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  image:
+    name: Image bauen und pruefen
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Compose-Dateien pruefen
+        run: |
+          cp .env.beispiel .env
+          docker compose -f docker-compose.yml config -q
+          docker compose -f docker-compose.yml -f docker-compose.gpu.yml config -q
+
+      - name: Image bauen (Prozessor)
+        run: docker build -t protokoll-server:test .
+
+      - name: Selbsttest im Image
+        # Ohne Ollama und HF_TOKEN: nur FFmpeg, Pakete und die Ordner sind kritisch.
+        run: docker run --rm protokoll-server:test python3 -m protokoll_assistent.server --pruefen
+
+      - name: Probelauf ohne Aufnahmen
+        run: |
+          mkdir -p probe/eingang probe/ausgang && chmod -R a+rwX probe
+          docker run --rm -v "$PWD/probe/eingang:/daten/eingang" -v "$PWD/probe/ausgang:/daten/ausgang" \
+            -e PROTOKOLL_PROTOKOLL_ERSTELLEN=0 protokoll-server:test python3 -m protokoll_assistent.server --einmal

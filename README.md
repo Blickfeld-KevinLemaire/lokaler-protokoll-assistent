@@ -152,6 +152,15 @@ Dateiupload verlangen (OpenAI, Mistral, Groq, Scaleway, Azure), sind hier
 bewusst nicht dabei - es soll nichts als Datei irgendwohin uebertragen werden.
 Fuer sie gibt es Nachbearbeitung und Chatbot.
 
+## Servermodus (Container)
+
+Fuer den Dauerbetrieb auf einem Linux-Server (z. B. gekoppelt mit einem
+Aufnahmegeraet) gibt es einen Betrieb **ohne Oberflaeche**: Aufnahmen im
+Eingangsordner werden automatisch transkribiert und zusammengefasst, die
+Ergebnisse liegen im Ausgangsordner. Start mit `docker compose up -d --build`;
+Einzelheiten, Einstellungen und die Kopplung mit dem Geraet stehen in
+[`protokoll_assistent/server/README.md`](protokoll_assistent/server/README.md).
+
 ## Export
 
 Neben den Ausgabedateien (TXT, JSON, SRT, VTT, Markdown) legt die Anwendung nach

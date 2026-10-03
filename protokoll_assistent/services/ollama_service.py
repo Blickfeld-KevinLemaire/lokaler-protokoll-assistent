@@ -13,14 +13,21 @@ import shutil
 import subprocess
 import urllib.error
 import urllib.request
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from protokoll_assistent.utils.json_validation import extract_json_object
 
-OLLAMA_BASE_URL = "http://127.0.0.1:11434"
+
+# Im Container laeuft Ollama als eigener Dienst: Adresse ueber 'OLLAMA_URL'
+# (z. B. http://ollama:11434). Ohne Angabe wie bisher der lokale Dienst.
+def basis_url_aus_umgebung(umgebung: Mapping[str, str]) -> str:
+    return umgebung.get("OLLAMA_URL", "").strip().rstrip("/") or "http://127.0.0.1:11434"
+
+
+OLLAMA_BASE_URL = basis_url_aus_umgebung(os.environ)
 DEFAULT_MODEL = "qwen3:8b"
 DEFAULT_TIMEOUT_SECONDS = 900
 

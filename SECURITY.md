@@ -53,6 +53,12 @@ zugestimmt haben. Entsprechend gelten hier ein paar Punkte besonders:
   `arbeitsdaten/chat_index/`, der nicht versioniert wird. Gespeicherte Chats
   (Fragen, Antworten, Quellen) liegen lokal in `chatverlaeufe/`; sie werden
   nicht versioniert, nicht ausgeliefert und nie uebertragen.
+* **Der Servermodus (Container) speichert Aufnahmen und Ergebnisse im Klartext**
+  in den eingebundenen Ordnern (`daten/`, nicht versioniert). Zugriffsschutz,
+  Plattenverschluesselung und ein Loeschkonzept sind Sache des Betreibers. Der
+  Dienst oeffnet keinen Port. Der optionale Webhook uebertraegt nur Dateiname,
+  Status und Ordnerpfade, nie Inhalte; sein Token und `HF_TOKEN` kommen aus der
+  Umgebung (nie ins Image, nie ins Repository, nie ins Log).
 * **Kein API-Anbieter ist voreingestellt.** Endpunkte und Modelle sind ab Werk
   leer; erst wenn der Anwender in den Einstellungen einen Anbieter waehlt (oder
   einen eigenen Endpunkt eintraegt), geht etwas dorthin. Ohne Auswahl bricht die

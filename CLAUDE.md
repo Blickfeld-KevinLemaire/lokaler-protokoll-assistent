@@ -23,6 +23,22 @@ arbeitet, braucht weder PyTorch noch ein Modell auf der Platte — die schwere
 Laufzeitumgebung wird nur eingerichtet, wenn der Transkriptionsmodus beim Start
 auf „lokal" steht.
 
+### Servermodus (Container, Linux)
+
+Zusätzlich gibt es einen Betrieb **ohne Oberfläche**: `protokoll_assistent/server/`
+beobachtet einen Eingangsordner, verarbeitet neue Aufnahmen mit derselben Kette
+(`pipeline_service`) und legt die Ergebnisse in einem Ausgangsordner ab. Er läuft
+im Container (`Dockerfile`, `docker-compose.yml`) auf Linux; Anleitung in
+`protokoll_assistent/server/README.md`.
+
+Das ändert die Zielplattform der **Anwendung** nicht: Oberfläche, Installer und
+Einrichtung bleiben Windows-only (Regeln 1, 7, 8). Der Servermodus nutzt nur
+`services/` und `utils/`, die ohnehin kein Qt kennen – diese Trennung ist die
+Voraussetzung dafür und soll bleiben. Das Paket `server/` darf deshalb **nie**
+`gui/` oder PySide6 importieren. Seine Pakete stehen in
+`requirements-server.txt` (Regel 8: nicht mit den anderen Listen vermischen).
+Die Tests des Servers laufen überall; das Image baut `.github/workflows/container.yml`.
+
 ### Vorgeschichte (wichtig beim Lesen alter Commits)
 
 Bis September 2026 waren das **drei** getrennte Anwendungen: eine

@@ -43,6 +43,7 @@ laufzeit-aufgeloest.txt
 # ---------------------------------------------------------------------------
 .env
 .env.*
+!.env.beispiel
 !.env.example
 *.pem
 *.key
@@ -94,3 +95,6 @@ desktop.ini
 # Mitarbeitende in die Irre fuehren. CLAUDE.md bleibt versioniert.
 .claude/skills/
 .claude/settings.local.json
+
+# Servermodus (docker-compose): Eingang, Ausgang -- enthalten Aufnahmen und Protokolle
+daten/

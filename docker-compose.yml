@@ -1,0 +1,61 @@
+# Servermodus: Aufnahmen kommen in ./daten/eingang an, die Ergebnisse liegen
+# danach in ./daten/ausgang. Einstellungen stehen in der Datei '.env'
+# (Vorlage: '.env.beispiel'). Mit NVIDIA-Grafikkarte zusaetzlich:
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    volumes:
+      - ollama:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+
+  # Laedt das Sprachmodell fuer das Protokoll einmalig (und bei Aenderung der Einstellung).
+  ollama-modell:
+    image: ollama/ollama:latest
+    restart: "no"
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["ollama", "pull", "${PROTOKOLL_OLLAMA_MODELL:-qwen3:8b}"]
+
+  protokoll:
+    build:
+      context: .
+    restart: unless-stopped
+    depends_on:
+      ollama:
+        condition: service_healthy
+    # Mit dem Benutzer, dem die Ordner unter ./daten gehoeren (id -u / id -g).
+    user: "${UID:-1000}:${GID:-1000}"
+    environment:
+      OLLAMA_URL: http://ollama:11434
+      HF_TOKEN: ${HF_TOKEN:-}
+      PROTOKOLL_GERAET: ${PROTOKOLL_GERAET:-cpu}
+      PROTOKOLL_SPRACHE: ${PROTOKOLL_SPRACHE:-de}
+      PROTOKOLL_WHISPER_MODELL: ${PROTOKOLL_WHISPER_MODELL:-large-v3-turbo}
+      PROTOKOLL_OLLAMA_MODELL: ${PROTOKOLL_OLLAMA_MODELL:-qwen3:8b}
+      PROTOKOLL_SPRECHERTRENNUNG: ${PROTOKOLL_SPRECHERTRENNUNG:-1}
+      PROTOKOLL_PROTOKOLL_ERSTELLEN: ${PROTOKOLL_PROTOKOLL_ERSTELLEN:-1}
+      PROTOKOLL_STABIL_SEKUNDEN: ${PROTOKOLL_STABIL_SEKUNDEN:-30}
+      PROTOKOLL_ABFRAGE_SEKUNDEN: ${PROTOKOLL_ABFRAGE_SEKUNDEN:-10}
+      PROTOKOLL_EXPORT_FORMATE: ${PROTOKOLL_EXPORT_FORMATE:-}
+      PROTOKOLL_WEBHOOK_URL: ${PROTOKOLL_WEBHOOK_URL:-}
+      PROTOKOLL_WEBHOOK_TOKEN: ${PROTOKOLL_WEBHOOK_TOKEN:-}
+    volumes:
+      - ./daten/eingang:/daten/eingang
+      - ./daten/ausgang:/daten/ausgang
+      - modelle:/daten/modelle
+      - intern:/daten/intern
+
+volumes:
+  ollama:
+  modelle:
+  intern:
