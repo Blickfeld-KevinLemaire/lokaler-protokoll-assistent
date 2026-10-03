@@ -57,6 +57,18 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
   einem eigenen Endpunkt im selben Format (Audio im API-Aufruf, kein
   Dateiupload); die übrigen Anbieter gibt es für Nachbearbeitung und Chatbot.
 
+- **Export in gängige Formate:** Der neue Knopf „Exportieren …“ (auf der
+  Ergebnisseite und unter „Nachbearbeitung“) speichert Transkript, Protokoll
+  oder beides in einem Dokument als Word, PDF, Markdown, Text, HTML oder
+  OpenDocument – das Transkript zusätzlich als Untertitel (SRT, VTT) und JSON –
+  in einen frei gewählten Ordner. Ziel und Formate werden für das nächste Mal
+  gemerkt; vorhandene Dateien werden nie überschrieben.
+- **Zusammengefasste Word-Datei von selbst:** Nach jeder Transkription entsteht
+  neben den übrigen Ausgaben eine Word-Datei mit dem Transkript, nach der
+  Nachbearbeitung eine mit Protokoll und Transkript in einem Dokument. Sie wird
+  nach dem Umbenennen von Sprechern neu geschrieben. Scheitert das, bleibt die
+  Verarbeitung gültig; der Grund steht im Protokoll.
+
 ### Changed
 
 - **OpenRouter ist nicht mehr voreingestellt.** Endpunkte und Modelle sind ab

@@ -73,6 +73,8 @@ from protokoll_assistent.gui.dialogs import (
     SprecherprofileDialog,
     show_error,
 )
+from protokoll_assistent.gui.dokument_qt import SCHREIBER as QT_SCHREIBER
+from protokoll_assistent.gui.export_dialog import ExportDialog
 from protokoll_assistent.gui.settings_dialog import DATENSCHUTZ_HINWEIS_API, SettingsDialog
 from protokoll_assistent.gui.strings import PRIVACY_NOTICE
 from protokoll_assistent.gui.worker import (
@@ -85,6 +87,7 @@ from protokoll_assistent.services import (
     api_anbieter,
     api_protocol_service,
     api_transcription_service,
+    dokument_export_service,
     export_service,
     manifest_service,
     model_service,
@@ -949,6 +952,14 @@ class MainWindow(QMainWindow):
         self.preview_edit = QPlainTextEdit(self)
         self.preview_edit.setReadOnly(True)
         layout.addWidget(self.preview_edit)
+
+        self.export_button = QPushButton("Exportieren …", self)
+        self.export_button.setToolTip(
+            "Transkript (und Protokoll) als Word, PDF, Markdown, Text, HTML, OpenDocument, Untertitel "
+            "oder JSON in einen Ordner Ihrer Wahl speichern."
+        )
+        self.export_button.clicked.connect(self._export_oeffnen)
+        layout.addWidget(self.export_button)
         return group
 
     def _build_speaker_group(self) -> QGroupBox:
@@ -1234,6 +1245,10 @@ class MainWindow(QMainWindow):
         self.protocol_cancel_button.setEnabled(False)
         self.protocol_cancel_button.clicked.connect(self._cancel_protocol)
         button_row.addWidget(self.protocol_cancel_button)
+        self.protocol_export_button = QPushButton("Exportieren …", self)
+        self.protocol_export_button.setToolTip("Protokoll und Transkript in ein gewünschtes Format exportieren.")
+        self.protocol_export_button.clicked.connect(self._export_oeffnen)
+        button_row.addWidget(self.protocol_export_button)
         layout.addLayout(button_row)
 
         return group
@@ -1641,6 +1656,34 @@ class MainWindow(QMainWindow):
             "oder jederzeit fuer ein anderes Transkript gestartet werden.",
         )
 
+    def _word_neu_erzeugen(self, transkript_json: Path) -> None:
+        """Die automatische Word-Datei mit den neuen Sprechernamen neu schreiben (still: scheitert das, bleibt der Rest gueltig)."""
+        protokoll = None
+        if self._last_protocol_result is not None and self._last_protocol_result.protocol_paths is not None:
+            protokoll = self._last_protocol_result.protocol_paths[0]
+        try:
+            dokument_export_service.automatisches_word(transkript_json, protokoll)
+        except dokument_export_service.ExportFehler as fehler:
+            self._on_log_message(f"Die Word-Datei wurde nicht aktualisiert: {fehler}")
+
+    def _export_oeffnen(self, _checked: bool = False) -> None:
+        """Dialog "Exportieren": gewaehltes Transkript, dazu das Protokoll des
+        letzten Laufs, falls es eines gibt (im Dialog austauschbar)."""
+        transkript = self._selected_transcript_path
+        if transkript is None or not transkript.is_file():
+            show_error(
+                self,
+                "Kein Transkript",
+                "Es ist noch kein Transkript vorhanden. Bitte zuerst eine Aufnahme transkribieren oder "
+                "unter „Nachbearbeitung“ ein Transkript auswählen.",
+            )
+            return
+        protokoll = None
+        if self._last_protocol_result is not None and self._last_protocol_result.protocol_paths is not None:
+            kandidat = self._last_protocol_result.protocol_paths[0]
+            protokoll = kandidat if kandidat.is_file() else None
+        ExportDialog(transkript, protokoll, self._output_dir, QT_SCHREIBER, self).exec()
+
     def _start_protocol_after_transcription(self) -> None:
         if self._protokoll_nach_transkription:
             self._protokoll_nach_transkription = False
@@ -1861,6 +1904,7 @@ class MainWindow(QMainWindow):
             show_error(self, "Export fehlgeschlagen", f"Die Ausgabedateien konnten nicht neu erzeugt werden:\n{error}")
             return
         self.preview_edit.setPlainText(new_paths.txt.read_text(encoding="utf-8")[:20000])
+        self._word_neu_erzeugen(new_paths.json)
         QMessageBox.information(
             self, "Ausgaben aktualisiert", f"TXT/JSON/SRT/VTT wurden mit den neuen Namen neu erzeugt:\n{new_paths.txt.parent}"
         )

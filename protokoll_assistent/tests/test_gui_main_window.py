@@ -29,6 +29,7 @@ from protokoll_assistent.services import (  # noqa: E402
     manifest_service,
     model_service,
     ollama_service,
+    pipeline_service,
     recording_service,
     secret_store,
 )
@@ -1850,3 +1851,87 @@ def test_einstellungen_schliessen_aktualisiert_die_chat_anzeige(fenster, monkeyp
     monkeypatch.setattr(mw, "SettingsDialog", _Dialog)
     fenster._open_settings()
     assert "API: gpt-x" in fenster.chat_page.modell_label.text()
+
+
+# --------------------------------------------------------------------------
+# Export
+# --------------------------------------------------------------------------
+class _ExportDialogAttrappe:
+    instanzen: ClassVar[list] = []
+
+    def __init__(self, transkript, protokoll, ordner, schreiber, parent=None):
+        self.argumente = (transkript, protokoll, ordner, schreiber)
+        self.ausgefuehrt = False
+        type(self).instanzen.append(self)
+
+    def exec(self):
+        self.ausgefuehrt = True
+        return 0
+
+
+def test_export_ohne_transkript_meldet_das(fenster, gemeldete_fehler, monkeypatch):
+    monkeypatch.setattr(mw, "ExportDialog", _ExportDialogAttrappe)
+    _ExportDialogAttrappe.instanzen.clear()
+    fenster._export_oeffnen()
+    assert gemeldete_fehler == ["Kein Transkript"] and _ExportDialogAttrappe.instanzen == []
+
+
+def test_export_oeffnet_den_dialog_mit_transkript_und_protokoll(fenster, tmp_path, monkeypatch):
+    monkeypatch.setattr(mw, "ExportDialog", _ExportDialogAttrappe)
+    _ExportDialogAttrappe.instanzen.clear()
+    transkript = tmp_path / "t.json"
+    transkript.write_text("{}", encoding="utf-8")
+    fenster._set_transcript_path(transkript)
+
+    fenster._export_oeffnen()
+    dialog = _ExportDialogAttrappe.instanzen[-1]
+    assert dialog.ausgefuehrt and dialog.argumente[0] == transkript and dialog.argumente[1] is None
+    assert set(dialog.argumente[3]) == {"pdf", "odt"}  # Qt-Schreiber
+
+    protokoll = tmp_path / "p.json"
+    protokoll.write_text("{}", encoding="utf-8")
+    fenster._last_protocol_result = pipeline_service.ProtocolResult(
+        work_dir=tmp_path, protocol_paths=(protokoll, tmp_path / "p.md"), report_paths=(tmp_path / "r.json", tmp_path / "r.md")
+    )
+    fenster._export_oeffnen()
+    assert _ExportDialogAttrappe.instanzen[-1].argumente[1] == protokoll
+
+    protokoll.unlink()  # Datei verschwunden: kein Protokoll anbieten
+    fenster._export_oeffnen()
+    assert _ExportDialogAttrappe.instanzen[-1].argumente[1] is None
+
+
+def test_beide_exportknoepfe_oeffnen_den_dialog(fenster, tmp_path, monkeypatch):
+    monkeypatch.setattr(mw, "ExportDialog", _ExportDialogAttrappe)
+    _ExportDialogAttrappe.instanzen.clear()
+    transkript = tmp_path / "t.json"
+    transkript.write_text("{}", encoding="utf-8")
+    fenster._set_transcript_path(transkript)
+    fenster.export_button.click()
+    fenster.protocol_export_button.click()
+    assert len(_ExportDialogAttrappe.instanzen) == 2
+
+
+def test_word_wird_nach_umbenennen_der_sprecher_neu_erzeugt(fenster, tmp_path, monkeypatch):
+    aufrufe = []
+    monkeypatch.setattr(
+        mw.dokument_export_service, "automatisches_word", lambda t, p=None: aufrufe.append((t, p)) or None
+    )
+    transkript = tmp_path / "t.json"
+    fenster._word_neu_erzeugen(transkript)
+    assert aufrufe == [(transkript, None)]
+
+    protokoll = tmp_path / "p.json"
+    fenster._last_protocol_result = pipeline_service.ProtocolResult(
+        work_dir=tmp_path, protocol_paths=(protokoll, tmp_path / "p.md"), report_paths=(tmp_path / "r.json", tmp_path / "r.md")
+    )
+    fenster._word_neu_erzeugen(transkript)
+    assert aufrufe[-1] == (transkript, protokoll)
+
+
+def test_word_fehler_stoert_nicht(fenster, tmp_path, monkeypatch):
+    def werfen(t, p=None):
+        raise mw.dokument_export_service.ExportFehler("gesperrt")
+
+    monkeypatch.setattr(mw.dokument_export_service, "automatisches_word", werfen)
+    fenster._word_neu_erzeugen(tmp_path / "t.json")  # darf nicht werfen

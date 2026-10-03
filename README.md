@@ -152,6 +152,16 @@ Dateiupload verlangen (OpenAI, Mistral, Groq, Scaleway, Azure), sind hier
 bewusst nicht dabei - es soll nichts als Datei irgendwohin uebertragen werden.
 Fuer sie gibt es Nachbearbeitung und Chatbot.
 
+## Export
+
+Neben den Ausgabedateien (TXT, JSON, SRT, VTT, Markdown) legt die Anwendung nach
+jeder Verarbeitung **von selbst eine zusammengefasste Word-Datei** ab
+(`.docx`: Protokoll und Transkript in einem Dokument, ohne Protokoll nur das
+Transkript). Zusaetzlich gibt es den Knopf **„Exportieren …“** (Ergebnisseite und
+„Nachbearbeitung“): Inhalt (Transkript, Protokoll oder beides), Formate und
+Zielordner waehlt der Anwender selbst. Formate: Word, PDF, Markdown, Text, HTML,
+OpenDocument sowie fuer das Transkript Untertitel (SRT, VTT) und JSON.
+
 ## API-Schluessel
 
 Schluessel werden im Einstellungsdialog eingegeben. Auf Wunsch merkt sich die

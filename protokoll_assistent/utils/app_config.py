@@ -48,6 +48,9 @@ DEFAULTS: dict[str, Any] = {
     "api_nachbearbeitung_eigener_schluessel": False,
     "api_nachbearbeitung_schluessel_merken": False,
     "aktive_systemprompt_vorlage": None,
+    # Letzte Wahl im Exportdialog
+    "export_zielordner": None,
+    "export_formate": ["docx", "pdf"],
     # Chatbot "Frag mein Meeting": "lokal" (Ollama) | "api"
     "chatbot_modus": "lokal",
     "chatbot_ollama_modell": _STANDARD_OLLAMA_MODELL,
