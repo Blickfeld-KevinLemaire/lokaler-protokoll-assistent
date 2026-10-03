@@ -11,8 +11,8 @@ zweiter Download, kein Neustart in eine andere Anwendung:
 
 | Schritt | lokal | ueber eine Schnittstelle (API) |
 |---|---|---|
-| **Transkription** | faster-whisper + pyannote.audio, vollstaendig offline | frei eintragbarer Endpunkt, Standard OpenRouter (`microsoft/mai-transcribe-2` mit Azure-Sprechertrennung) |
-| **Nachbearbeitung** | Ollama, dreistufig, vollstaendig offline | frei eintragbarer Endpunkt (Chat-Completions), z. B. `openai/gpt-4o-mini` |
+| **Transkription** | faster-whisper + pyannote.audio, vollstaendig offline | Anbieter aus einer Liste waehlbar (OpenAI, Mistral, Azure, Groq, Scaleway, OpenRouter) oder eigener Endpunkt - siehe [API-Anbieter](#api-anbieter) |
+| **Nachbearbeitung** | Ollama, dreistufig, vollstaendig offline | Anbieter aus einer Liste waehlbar (IONOS, STACKIT, Mistral, OpenAI, Anthropic, Azure, Google u. a.) oder eigener Endpunkt (Chat-Completions) |
 
 Beides laesst sich unabhaengig voneinander einstellen: lokal transkribieren und
 per API nachbearbeiten ist genauso moeglich wie umgekehrt.
@@ -119,6 +119,34 @@ python -m protokoll_assistent.app
   [`protokoll_assistent/README.md`](protokoll_assistent/README.md).
 * **Nur fuer den API-Modus:** ein API-Schluessel fuer den eingetragenen
   Endpunkt.
+
+## API-Anbieter
+
+Wer eine API nutzen will, waehlt in den Einstellungen (Reiter
+*Transkription*, *Nachbearbeitung*, *Chatbot*) den Anbieter aus einer Liste;
+Adresse und ein Modellvorschlag werden eingetragen, es fehlt nur noch der
+Schluessel. **Ab Werk ist kein Anbieter gewaehlt** - ohne Auswahl wird nichts
+uebertragen. Jeder andere Anbieter mit OpenAI-kompatibler Schnittstelle laesst
+sich ueber „Eigener Endpunkt“ eintragen.
+
+| Anbieter | Chat | Einbettungen | Transkription | Standort | Schluessel / Dokumentation |
+|---|---|---|---|---|---|
+| IONOS AI Model Hub | ja | ja | nein | Deutschland | [Doku](https://docs.ionos.com/cloud/ai/ai-model-hub/ai-model-hub) |
+| STACKIT AI Model Serving | ja | ja | nein | Deutschland | [Doku](https://docs.stackit.cloud/products/data-and-ai/ai-model-serving/basics/introduction/) |
+| Mistral AI | ja | ja | ja (Voxtral, mit Sprechern) | Frankreich/EU | [Schluessel](https://console.mistral.ai/api-keys) · [Doku](https://docs.mistral.ai/capabilities/audio_transcription) |
+| Scaleway Generative APIs | ja | ja | ja (Whisper) | Frankreich/EU | [Schluessel](https://console.scaleway.com/iam/api-keys) · [Doku](https://www.scaleway.com/en/docs/generative-apis/reference-content/openai-compatibility/) |
+| Microsoft Azure OpenAI | ja | ja | ja (Whisper) | Region waehlbar | [Portal](https://portal.azure.com/) · [Doku](https://learn.microsoft.com/en-us/azure/foundry/openai/reference) |
+| OpenAI | ja | ja | ja (auch mit Sprechern) | USA | [Schluessel](https://platform.openai.com/api-keys) · [Doku](https://developers.openai.com/docs/guides/speech-to-text) |
+| Anthropic (Claude) | ja | nein | nein | USA | [Schluessel](https://platform.claude.com/settings/keys) · [Doku](https://platform.claude.com/docs/en/api/openai-sdk) |
+| Google Gemini | ja | ja | nein | USA | [Schluessel](https://aistudio.google.com/apikey) · [Doku](https://ai.google.dev/gemini-api/docs/openai) |
+| Groq | ja | nein | ja (Whisper) | USA | [Schluessel](https://console.groq.com/keys) · [Doku](https://console.groq.com/docs/speech-to-text) |
+| OpenRouter | ja | ja | ja (mit Sprechern ueber Azure) | Vermittler | [Schluessel](https://openrouter.ai/keys) · [Doku](https://openrouter.ai/docs/guides/overview/multimodal/stt) |
+
+Die Modellnamen in der Anwendung sind Vorschlaege und aendern sich bei den
+Anbietern oft; sie lassen sich im Dialog anpassen. Eine Sprechertrennung bei der
+Transkription gibt es nur bei Mistral, OpenAI (Modell
+`gpt-4o-transcribe-diarize`) und OpenRouter; bei den uebrigen kommt das
+Transkript ohne Sprecher.
 
 ## API-Schluessel
 

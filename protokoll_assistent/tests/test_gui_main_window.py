@@ -100,6 +100,17 @@ def isolierte_konfiguration(tmp_path, monkeypatch):
     """Konfiguration, Arbeits- und Ausgabeordner liegen im Temp-Verzeichnis."""
     konfig_datei = tmp_path / "konfiguration.json"
     monkeypatch.setattr(app_config, "get_config_file", lambda: konfig_datei)
+    # Die API-Wege sind ab Werk leer (kein Anbieter vorgewaehlt). Die meisten Tests
+    # wollen aber den Weg DAHINTER pruefen und bekommen deshalb einen Anbieter.
+    app_config.save_config(
+        {
+            **app_config.DEFAULTS,
+            "api_transkription_endpunkt": "https://api.test/v1/audio/transcriptions",
+            "api_transkription_modell": "modell-t",
+            "api_nachbearbeitung_endpunkt": "https://api.test/v1/chat/completions",
+            "api_nachbearbeitung_modell": "modell-n",
+        }
+    )
 
     ausgabe = tmp_path / "ausgabe"
     arbeit = tmp_path / "arbeitsdaten"
@@ -415,6 +426,38 @@ def test_start_api_mit_gemerktem_schluessel_erzeugt_arbeiter_mit_api_funktion(
     assert arbeiter.kwargs["diarize_fn"] is api_transcription_service.diarize_via_api_speakers
 
 
+def test_start_api_ohne_anbieter_meldet_das_und_startet_nichts(fenster, audio_datei, schluessel_speicher, monkeypatch):
+    """Ab Werk ist kein Anbieter gewaehlt: Es darf nichts uebertragen werden,
+    stattdessen kommt ein klarer Hinweis (auch mit vorhandenem Schluessel)."""
+    gemeldete_fehler = []
+    monkeypatch.setattr(mw, "show_error", lambda parent, titel, text: gemeldete_fehler.append(titel))
+    schluessel_speicher["transkription"] = "geheim"
+    app_config.update_config(api_transkription_endpunkt="", api_transkription_modell="")
+    fenster._source_path = audio_datei
+    fenster.transkription_api_radio.setChecked(True)
+
+    fenster._start_transcription()
+
+    assert gemeldete_fehler == ["Kein Anbieter gewählt"]
+    assert _WorkerAttrappe.instanzen == []
+
+
+def test_start_api_mit_offenem_azure_platzhalter_meldet_das(fenster, audio_datei, schluessel_speicher, monkeypatch):
+    gemeldete_fehler = []
+    monkeypatch.setattr(mw, "show_error", lambda parent, titel, text: gemeldete_fehler.append(titel))
+    schluessel_speicher["transkription"] = "geheim"
+    app_config.update_config(
+        api_transkription_endpunkt="https://RESSOURCENNAME.openai.azure.com/openai/v1/audio/transcriptions"
+    )
+    fenster._source_path = audio_datei
+    fenster.transkription_api_radio.setChecked(True)
+
+    fenster._start_transcription()
+
+    assert gemeldete_fehler == ["Kein Anbieter gewählt"]
+    assert _WorkerAttrappe.instanzen == []
+
+
 def test_start_api_mit_sitzungsschluessel_erzeugt_arbeiter(fenster, audio_datei):
     fenster._source_path = audio_datei
     fenster.transkription_api_radio.setChecked(True)
@@ -506,6 +549,21 @@ def test_nachbearbeitung_api_ohne_schluessel_meldet_fehler(fenster, gemeldete_fe
     fenster._start_protocol()
 
     assert gemeldete_fehler == ["Kein API-Schlüssel"]
+
+
+def test_nachbearbeitung_api_ohne_anbieter_meldet_das(fenster, gemeldete_fehler, tmp_path, schluessel_speicher):
+    schluessel_speicher["transkription"] = "geheim"
+    app_config.update_config(api_nachbearbeitung_endpunkt="", api_nachbearbeitung_modell="")
+    transkript = tmp_path / "ergebnis.json"
+    transkript.write_text("{}", encoding="utf-8")
+    fenster._set_transcript_path(transkript)
+    fenster.systemprompt_editor.setPlainText("Fasse zusammen.")
+    fenster.nachbearbeitung_api_radio.setChecked(True)
+
+    fenster._start_protocol()
+
+    assert gemeldete_fehler == ["Kein Anbieter gewählt"]
+    assert _WorkerAttrappe.instanzen == []
 
 
 def _benutzter_api_schluessel(generate_fn, monkeypatch) -> str:

@@ -312,3 +312,23 @@ def test_systemcheck_meldet_fehlende_funktionen_lesbar(monkeypatch):
     monkeypatch.setattr(cs, "funktionen_aus_einstellungen", werfen)
     ergebnis = _ergebnis(cs.systemcheck(LOKAL))
     assert ergebnis["funktionen"].ok is False
+
+
+def test_api_ohne_anbieter_wird_klar_gemeldet(monkeypatch):
+    ohne_adresse = cs.ChatEinstellungen("api", "m", "e", "", "", "schluessel")
+    with pytest.raises(cs.ChatFehler, match="kein Anbieter gewaehlt"):
+        cs.funktionen_aus_einstellungen(ohne_adresse)
+    offener_platzhalter = cs.ChatEinstellungen(
+        "api",
+        "m",
+        "e",
+        "https://RESSOURCENNAME.openai.azure.com/openai/v1/chat/completions",
+        "https://x/emb",
+        "schluessel",
+    )
+    with pytest.raises(cs.ChatFehler, match="Adresse unvollstaendig"):
+        cs.funktionen_aus_einstellungen(offener_platzhalter)
+
+    ergebnis = {c.key: c for c in cs.systemcheck(ohne_adresse)}
+    assert ergebnis["api_schluessel"].ok and not ergebnis["api_anbieter"].ok
+    assert set(ergebnis) == {"api_schluessel", "api_anbieter"}  # danach geht es nicht weiter

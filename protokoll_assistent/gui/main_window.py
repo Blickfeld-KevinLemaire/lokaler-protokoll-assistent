@@ -82,6 +82,7 @@ from protokoll_assistent.gui.worker import (
     TranscriptionWorker,
 )
 from protokoll_assistent.services import (
+    api_anbieter,
     api_protocol_service,
     api_transcription_service,
     export_service,
@@ -1314,6 +1315,19 @@ class MainWindow(QMainWindow):
         transcribe_chunk_fn = None
         diarize_fn = None
         if self.transkription_api_radio.isChecked():
+            if not (
+                api_anbieter.adresse_vollstaendig(config["api_transkription_endpunkt"])
+                and config["api_transkription_modell"]
+            ):
+                show_error(
+                    self,
+                    "Kein Anbieter gewählt",
+                    "Für die Transkription über eine API ist noch kein Anbieter gewählt oder die Adresse "
+                    "unvollständig.\n\nBitte in den Einstellungen im Reiter „Transkription“ einen Anbieter "
+                    "wählen (bei Microsoft Azure außerdem den Namen der eigenen Ressource in der Adresse "
+                    "eintragen).",
+                )
+                return
             api_key = self._verwendbarer_api_schluessel("transkription")
             if not api_key:
                 show_error(
@@ -1459,6 +1473,19 @@ class MainWindow(QMainWindow):
         config = app_config.load_config()
         protocol_generate_fn: ProtocolGenerateFn | None = None
         if self.nachbearbeitung_api_radio.isChecked():
+            if not (
+                api_anbieter.adresse_vollstaendig(config["api_nachbearbeitung_endpunkt"])
+                and config["api_nachbearbeitung_modell"]
+            ):
+                show_error(
+                    self,
+                    "Kein Anbieter gewählt",
+                    "Für die Nachbearbeitung über eine API ist noch kein Anbieter gewählt oder die Adresse "
+                    "unvollständig.\n\nBitte in den Einstellungen im Reiter „Nachbearbeitung“ einen Anbieter "
+                    "wählen (bei Microsoft Azure außerdem den Namen der eigenen Ressource in der Adresse "
+                    "eintragen).",
+                )
+                return
             eigener_schluessel = config["api_nachbearbeitung_eigener_schluessel"]
             schluessel_name = "nachbearbeitung" if eigener_schluessel else "transkription"
             api_key = self._verwendbarer_api_schluessel(schluessel_name)

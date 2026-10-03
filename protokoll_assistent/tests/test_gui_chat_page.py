@@ -327,11 +327,25 @@ def test_senden_wird_bei_fehlendem_modell_nicht_gestartet(seite, ordner, monkeyp
 
 def test_hinweis_im_api_modus_ohne_schluessel(qt_widgets, ordner, tmp_path, monkeypatch):
     monkeypatch.setattr(cp, "ChatWorker", _ArbeiterAttrappe)
-    app_config.update_config(chatbot_modus="api")
+    app_config.update_config(
+        chatbot_modus="api",
+        chatbot_api_endpunkt="https://api.test/chat",
+        chatbot_api_embedding_endpunkt="https://api.test/emb",
+    )
     ohne = qt_widgets(cp.ChatPage(lambda: ordner, lambda: tmp_path / "c", lambda: "", lambda: tmp_path / "v"))
     assert "kein API-Schlüssel" in ohne.hinweis_label.text() and not ohne.hinweis_download_button.isVisibleTo(ohne)
     mit = qt_widgets(cp.ChatPage(lambda: ordner, lambda: tmp_path / "c", lambda: "k", lambda: tmp_path / "v"))
     assert not mit.hinweis_rahmen.isVisibleTo(mit)
+
+
+def test_hinweis_im_api_modus_ohne_anbieter(qt_widgets, ordner, tmp_path, monkeypatch):
+    """Ab Werk ist kein Anbieter gewaehlt -- das steht als Erstes oben, auch wenn
+    schon ein Schluessel da ist."""
+    monkeypatch.setattr(cp, "ChatWorker", _ArbeiterAttrappe)
+    app_config.update_config(chatbot_modus="api")
+    seite = qt_widgets(cp.ChatPage(lambda: ordner, lambda: tmp_path / "c", lambda: "k", lambda: tmp_path / "v"))
+    assert "noch kein Anbieter gewählt" in seite.hinweis_label.text()
+    assert seite.hinweis_rahmen.isVisibleTo(seite) and not seite.hinweis_download_button.isVisibleTo(seite)
 
 
 # --------------------------------------------------------------------------

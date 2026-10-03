@@ -506,3 +506,113 @@ def test_chatbot_leere_modellnamen_fallen_auf_die_standards_zurueck(dialog):
     dialog.chatbot_embedding_wahl.edit.setText("  ")
     dialog._speichern_und_schliessen()
     assert app_config.load_config()["chatbot_embedding_modell"] == "bge-m3"
+
+
+# --------------------------------------------------------------------------
+# API-Anbieter: Auswahl statt Voreinstellung
+# --------------------------------------------------------------------------
+def test_ab_werk_ist_kein_anbieter_gewaehlt_und_die_felder_sind_leer(dialog):
+    for wahl in (
+        dialog.api_transkription_anbieter_wahl,
+        dialog.api_nachbearbeitung_anbieter_wahl,
+        dialog.chatbot_api_anbieter_wahl,
+    ):
+        assert wahl.anbieter_id() == ""
+        assert wahl.combo.currentText() == "Bitte Anbieter wählen …"
+    assert dialog.api_transkription_endpunkt_edit.text() == ""
+    assert dialog.api_transkription_modell_edit.text() == ""
+    assert dialog.api_transkription_anbieter_edit.text() == ""
+    assert dialog.api_nachbearbeitung_endpunkt_edit.text() == ""
+    assert dialog.chatbot_api_endpunkt_edit.text() == ""
+    assert dialog.chatbot_api_embedding_endpunkt_edit.text() == ""
+
+
+def test_transkription_anbieter_waehlen_fuellt_adresse_und_modell(dialog):
+    wahl = dialog.api_transkription_anbieter_wahl
+    wahl.combo.setCurrentIndex(wahl.combo.findData("mistral"))
+    assert dialog.api_transkription_endpunkt_edit.text() == "https://api.mistral.ai/v1/audio/transcriptions"
+    assert dialog.api_transkription_modell_edit.text() == "voxtral-mini-latest"
+    assert dialog.api_transkription_anbieter_edit.text() == ""
+
+    wahl.combo.setCurrentIndex(wahl.combo.findData("openrouter"))
+    assert dialog.api_transkription_endpunkt_edit.text() == "https://openrouter.ai/api/v1/audio/transcriptions"
+    assert dialog.api_transkription_anbieter_edit.text() == "azure"  # Sprechertrennung nur bei OpenRouter
+
+
+def test_transkription_bietet_nur_anbieter_mit_sprache_zu_text(dialog):
+    wahl = dialog.api_transkription_anbieter_wahl
+    angebotene = {wahl.combo.itemData(i) for i in range(wahl.combo.count())}
+    assert {"openai", "mistral", "azure", "openrouter", "groq"} <= angebotene
+    assert not {"ionos", "anthropic", "google", "stackit"} & angebotene
+    assert "" in angebotene and "eigener" in angebotene
+
+
+def test_nachbearbeitung_anbieter_waehlen_fuellt_chat_adresse_und_modell(dialog):
+    wahl = dialog.api_nachbearbeitung_anbieter_wahl
+    wahl.combo.setCurrentIndex(wahl.combo.findData("anthropic"))
+    assert dialog.api_nachbearbeitung_endpunkt_edit.text() == "https://api.anthropic.com/v1/chat/completions"
+    assert dialog.api_nachbearbeitung_modell_edit.text() == "claude-sonnet-5-5"
+
+
+def test_chatbot_anbieter_waehlen_fuellt_chat_und_einbettung(dialog):
+    wahl = dialog.chatbot_api_anbieter_wahl
+    angebotene = {wahl.combo.itemData(i) for i in range(wahl.combo.count())}
+    assert "ionos" in angebotene
+    assert not {"anthropic", "groq"} & angebotene  # ohne Einbettungen taugen sie hier nicht
+
+    wahl.combo.setCurrentIndex(wahl.combo.findData("ionos"))
+    assert dialog.chatbot_api_endpunkt_edit.text() == "https://openai.inference.de-txl.ionos.com/v1/chat/completions"
+    assert dialog.chatbot_api_embedding_endpunkt_edit.text() == "https://openai.inference.de-txl.ionos.com/v1/embeddings"
+    assert dialog.chatbot_api_modell_edit.text() and dialog.chatbot_api_embedding_modell_edit.text() == "BAAI/bge-m3"
+
+
+def test_eigener_endpunkt_laesst_die_felder_unveraendert(dialog):
+    dialog.api_nachbearbeitung_endpunkt_edit.setText("https://mein.test/v1/chat/completions")
+    wahl = dialog.api_nachbearbeitung_anbieter_wahl
+    wahl.combo.setCurrentIndex(wahl.combo.findData("eigener"))
+    assert dialog.api_nachbearbeitung_endpunkt_edit.text() == "https://mein.test/v1/chat/completions"
+
+
+def test_anbieterwahl_wird_gespeichert(dialog):
+    wahl = dialog.api_nachbearbeitung_anbieter_wahl
+    wahl.combo.setCurrentIndex(wahl.combo.findData("openai"))
+    dialog.api_transkription_anbieter_wahl.combo.setCurrentIndex(
+        dialog.api_transkription_anbieter_wahl.combo.findData("groq")
+    )
+    dialog.chatbot_api_anbieter_wahl.combo.setCurrentIndex(dialog.chatbot_api_anbieter_wahl.combo.findData("google"))
+
+    dialog._speichern_und_schliessen()
+
+    gespeichert = app_config.load_config()
+    assert gespeichert["api_nachbearbeitung_voreinstellung"] == "openai"
+    assert gespeichert["api_nachbearbeitung_endpunkt"] == "https://api.openai.com/v1/chat/completions"
+    assert gespeichert["api_nachbearbeitung_modell"] == "gpt-4o-mini"
+    assert gespeichert["api_transkription_voreinstellung"] == "groq"
+    assert gespeichert["api_transkription_endpunkt"] == "https://api.groq.com/openai/v1/audio/transcriptions"
+    assert gespeichert["chatbot_api_voreinstellung"] == "google"
+
+
+def test_gespeicherter_anbieter_wird_beim_oeffnen_gewaehlt_ohne_felder_zu_ueberschreiben(
+    qt_widgets, isolierte_konfiguration, schluessel_speicher
+):
+    app_config.update_config(
+        api_nachbearbeitung_voreinstellung="openai",
+        api_nachbearbeitung_endpunkt="https://api.openai.com/v1/chat/completions",
+        api_nachbearbeitung_modell="gpt-4.1",  # vom Anwender angepasst
+    )
+    dialog = qt_widgets(sd.SettingsDialog())
+    assert dialog.api_nachbearbeitung_anbieter_wahl.anbieter_id() == "openai"
+    assert dialog.api_nachbearbeitung_modell_edit.text() == "gpt-4.1"
+
+
+def test_alte_einstellung_ohne_gespeicherte_wahl_wird_an_der_adresse_erkannt(
+    qt_widgets, isolierte_konfiguration, schluessel_speicher
+):
+    app_config.update_config(
+        api_transkription_endpunkt="https://openrouter.ai/api/v1/audio/transcriptions",
+        api_nachbearbeitung_endpunkt="https://mein.test/v1/chat/completions",
+    )
+    dialog = qt_widgets(sd.SettingsDialog())
+    assert dialog.api_transkription_anbieter_wahl.anbieter_id() == "openrouter"
+    assert dialog.api_nachbearbeitung_anbieter_wahl.anbieter_id() == "eigener"
+    assert dialog.chatbot_api_anbieter_wahl.anbieter_id() == ""

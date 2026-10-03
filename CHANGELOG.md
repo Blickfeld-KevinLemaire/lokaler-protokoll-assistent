@@ -47,6 +47,23 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
   Ollama-Modell, lädt ein Knopf sie herunter und zeigt den Grund, falls es
   scheitert; danach wird automatisch neu geprüft.
 
+- **API-Anbieter zum Auswählen statt Voreinstellung:** In den Einstellungen
+  (Transkription, Nachbearbeitung, Chatbot) wählt man den Anbieter aus einer
+  Liste – IONOS, STACKIT, Mistral, Scaleway, Microsoft Azure, OpenAI, Anthropic
+  (Claude), Google Gemini, Groq, OpenRouter oder „Eigener Endpunkt“ – und muss
+  nur noch den API-Schlüssel eintragen. Adresse und Modellvorschlag werden
+  eingesetzt; darunter stehen Standort, Hinweise und Links zum Schlüssel und
+  zur Dokumentation. Die Transkription kann dafür jetzt auch per Dateiupload
+  (multipart) laufen, nicht nur im OpenRouter-Format.
+
+### Changed
+
+- **OpenRouter ist nicht mehr voreingestellt.** Endpunkte und Modelle sind ab
+  Werk leer, bis ein Anbieter gewählt wird; ohne Auswahl meldet das Programm
+  „Kein Anbieter gewählt“, statt Aufnahmen oder Texte irgendwohin zu senden.
+  Bereits gespeicherte Einstellungen bleiben erhalten und werden in der Liste
+  richtig angezeigt.
+
 ### Fixed
 
 - Ein gescheiterter FFmpeg-Download (kein Netz, Proxy, beschädigtes Paket)

@@ -34,7 +34,7 @@ zugestimmt haben. Entsprechend gelten hier ein paar Punkte besonders:
   Anwendung loeschen. Bei der Deinstallation bleiben sie absichtlich stehen —
   wie die uebrigen Anwenderdaten. Die Funktion gibt es nur im lokalen Modus.
 * **Schluessel und Token stehen nie im Code und nie in einer Klartext-Datei.**
-  Sie kommen aus Umgebungsvariablen (`OPENROUTER_API_KEY`, `HF_TOKEN`), aus
+  Sie kommen aus Umgebungsvariablen (`HF_TOKEN`), aus
   einer verdeckten Eingabe (`getpass`), oder — nur wenn der Anwender das
   ausdruecklich anhakt — dauerhaft ueber die Windows-Anmeldeinformations-
   verwaltung (Paket `keyring`, einziger Zugriffspunkt:
@@ -53,6 +53,11 @@ zugestimmt haben. Entsprechend gelten hier ein paar Punkte besonders:
   `arbeitsdaten/chat_index/`, der nicht versioniert wird. Gespeicherte Chats
   (Fragen, Antworten, Quellen) liegen lokal in `chatverlaeufe/`; sie werden
   nicht versioniert, nicht ausgeliefert und nie uebertragen.
+* **Kein API-Anbieter ist voreingestellt.** Endpunkte und Modelle sind ab Werk
+  leer; erst wenn der Anwender in den Einstellungen einen Anbieter waehlt (oder
+  einen eigenen Endpunkt eintraegt), geht etwas dorthin. Ohne Auswahl bricht die
+  Verarbeitung mit einem Hinweis ab, statt irgendwohin zu senden. Die Liste der
+  Anbieter und ihre Adressen stehen in `protokoll_assistent/services/api_anbieter.py`.
 * **Im API-Modus wird die Aufnahme bzw. das Transkript uebertragen** an einen
   vom Anwender gewaehlten Endpunkt — fuer Transkription und Nachbearbeitung
   getrennt umschaltbar. Ist fuer einen Schritt der API-Modus aktiv, zeigt die

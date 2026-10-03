@@ -39,7 +39,7 @@ from PySide6.QtWidgets import (
 
 from protokoll_assistent.gui.dialogs import ChatSystemcheckDialog
 from protokoll_assistent.gui.worker import ChatCheckWorker, ChatWorker, OllamaPullWorker
-from protokoll_assistent.services import chat_service, chat_verlauf_service, ollama_service
+from protokoll_assistent.services import api_anbieter, chat_service, chat_verlauf_service, ollama_service
 from protokoll_assistent.utils import app_config
 
 HILFETEXT = (
@@ -289,7 +289,15 @@ class ChatPage(QWidget):
         self._fehlendes_modell = None
         text = ""
         if einstellungen.modus == "api":
-            if not einstellungen.api_schluessel:
+            if not (
+                api_anbieter.adresse_vollstaendig(einstellungen.api_endpunkt)
+                and api_anbieter.adresse_vollstaendig(einstellungen.api_embedding_endpunkt)
+            ):
+                text = (
+                    "Für den Chat im API-Modus ist noch kein Anbieter gewählt oder die Adresse unvollständig "
+                    "(Einstellungen → Chatbot)."
+                )
+            elif not einstellungen.api_schluessel:
                 text = "Für den Chat im API-Modus ist noch kein API-Schlüssel hinterlegt (Einstellungen → Chatbot)."
         else:
             try:

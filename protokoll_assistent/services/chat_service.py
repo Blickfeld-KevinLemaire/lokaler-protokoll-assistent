@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from protokoll_assistent.services import api_chat_service, ollama_service
+from protokoll_assistent.services import api_anbieter, api_chat_service, ollama_service
 from protokoll_assistent.services.speaker_merge_service import cosine_similarity
 from protokoll_assistent.utils.diagnostics import DiagnosticCheck
 from protokoll_assistent.utils.timeformat import format_timestamp
@@ -101,6 +101,14 @@ def funktionen_aus_einstellungen(einstellungen: ChatEinstellungen) -> tuple[Embe
     if einstellungen.modus == "api":
         if not einstellungen.api_schluessel:
             raise ChatFehler("Fuer den Chatbot im API-Modus fehlt der API-Schluessel (Einstellungen, Reiter Chatbot).")
+        if not (
+            api_anbieter.adresse_vollstaendig(einstellungen.api_endpunkt)
+            and api_anbieter.adresse_vollstaendig(einstellungen.api_embedding_endpunkt)
+        ):
+            raise ChatFehler(
+                "Fuer den Chatbot im API-Modus ist noch kein Anbieter gewaehlt oder die Adresse unvollstaendig "
+                "(Einstellungen, Reiter Chatbot)."
+            )
 
         def embed_api(texte: list[str]) -> list[list[float]]:
             return api_chat_service.embed(
@@ -428,6 +436,17 @@ def systemcheck(
             melden("api_schluessel", "API-Schluessel", False, "Es ist kein API-Schluessel hinterlegt (Einstellungen, Reiter Chatbot).")
             return ergebnisse
         melden("api_schluessel", "API-Schluessel", True, "Ein Schluessel ist hinterlegt.")
+        if not (
+            api_anbieter.adresse_vollstaendig(einstellungen.api_endpunkt)
+            and api_anbieter.adresse_vollstaendig(einstellungen.api_embedding_endpunkt)
+        ):
+            melden(
+                "api_anbieter",
+                "API-Anbieter",
+                False,
+                "Es ist kein Anbieter gewaehlt oder die Adresse ist unvollstaendig (Einstellungen, Reiter Chatbot).",
+            )
+            return ergebnisse
     else:
         executable = ollama_service.find_ollama_executable()
         melden(

@@ -41,6 +41,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from protokoll_assistent.gui.api_anbieterwahl import (
+    FAEHIGKEIT_CHAT,
+    FAEHIGKEIT_CHATBOT,
+    FAEHIGKEIT_TRANSKRIPTION,
+    ApiAnbieterWahl,
+    voreinstellung_ermitteln,
+)
 from protokoll_assistent.gui.ollama_modellwahl import OllamaModellWahl
 from protokoll_assistent.services import ollama_service, secret_store
 from protokoll_assistent.utils import app_config
@@ -160,6 +167,16 @@ class SettingsDialog(QDialog):
         seite = QWidget(self)
         layout = QFormLayout(seite)
 
+        self.api_transkription_anbieter_wahl = ApiAnbieterWahl(
+            FAEHIGKEIT_TRANSKRIPTION,
+            voreinstellung_ermitteln(
+                self._config["api_transkription_voreinstellung"], self._config["api_transkription_endpunkt"]
+            ),
+            seite,
+        )
+        self.api_transkription_anbieter_wahl.anbieter_gewaehlt.connect(self._transkription_anbieter_uebernehmen)
+        layout.addRow("Anbieter:", self.api_transkription_anbieter_wahl)
+
         self.api_transkription_endpunkt_edit = QLineEdit(
             self._config["api_transkription_endpunkt"], seite
         )
@@ -171,7 +188,7 @@ class SettingsDialog(QDialog):
         self.api_transkription_anbieter_edit = QLineEdit(
             self._config["api_transkription_anbieter"], seite
         )
-        layout.addRow("Anbieter (Sprechertrennung):", self.api_transkription_anbieter_edit)
+        layout.addRow("Sprechertrennung über (nur OpenRouter):", self.api_transkription_anbieter_edit)
 
         schluessel_zeile = QHBoxLayout()
         self.api_transkription_schluessel_edit = QLineEdit(seite)
@@ -203,6 +220,15 @@ class SettingsDialog(QDialog):
         layout.addRow(hinweis)
 
         return seite
+
+    def _transkription_anbieter_uebernehmen(self, anbieter) -> None:
+        """Trägt Adresse und Modell des gewählten Anbieters ein (bei „Eigener
+        Endpunkt“ bleiben die Felder, wie sie sind)."""
+        if anbieter is None:
+            return
+        self.api_transkription_endpunkt_edit.setText(anbieter.transkription_url())
+        self.api_transkription_modell_edit.setText(anbieter.transkription_modell)
+        self.api_transkription_anbieter_edit.setText(anbieter.diarisierung_anbieter)
 
     def _open_diagnostics(self) -> None:
         from protokoll_assistent.gui.dialogs import DiagnosticsDialog
@@ -285,6 +311,16 @@ class SettingsDialog(QDialog):
         seite = QWidget(self)
         layout = QFormLayout(seite)
 
+        self.api_nachbearbeitung_anbieter_wahl = ApiAnbieterWahl(
+            FAEHIGKEIT_CHAT,
+            voreinstellung_ermitteln(
+                self._config["api_nachbearbeitung_voreinstellung"], self._config["api_nachbearbeitung_endpunkt"]
+            ),
+            seite,
+        )
+        self.api_nachbearbeitung_anbieter_wahl.anbieter_gewaehlt.connect(self._nachbearbeitung_anbieter_uebernehmen)
+        layout.addRow("Anbieter:", self.api_nachbearbeitung_anbieter_wahl)
+
         self.api_nachbearbeitung_endpunkt_edit = QLineEdit(
             self._config["api_nachbearbeitung_endpunkt"], seite
         )
@@ -335,6 +371,12 @@ class SettingsDialog(QDialog):
         layout.addRow(self.api_nachbearbeitung_merken_checkbox)
 
         return seite
+
+    def _nachbearbeitung_anbieter_uebernehmen(self, anbieter) -> None:
+        if anbieter is None:
+            return
+        self.api_nachbearbeitung_endpunkt_edit.setText(anbieter.chat_url())
+        self.api_nachbearbeitung_modell_edit.setText(anbieter.chat_modell)
 
     # ------------------------------------------------------------------
     # Reiter "Chatbot" ("Frag mein Meeting")
@@ -405,6 +447,19 @@ class SettingsDialog(QDialog):
         seite = QWidget(self)
         layout = QFormLayout(seite)
 
+        self.chatbot_api_anbieter_wahl = ApiAnbieterWahl(
+            FAEHIGKEIT_CHATBOT,
+            voreinstellung_ermitteln(self._config["chatbot_api_voreinstellung"], self._config["chatbot_api_endpunkt"]),
+            seite,
+        )
+        self.chatbot_api_anbieter_wahl.anbieter_gewaehlt.connect(self._chatbot_anbieter_uebernehmen)
+        layout.addRow("Anbieter:", self.chatbot_api_anbieter_wahl)
+        auswahl_hinweis = QLabel(
+            "Angeboten werden nur Anbieter, die Chat und Einbettungen (für die Suche) können.", seite
+        )
+        auswahl_hinweis.setWordWrap(True)
+        layout.addRow(auswahl_hinweis)
+
         self.chatbot_api_endpunkt_edit = QLineEdit(self._config["chatbot_api_endpunkt"], seite)
         layout.addRow("Chat-Endpunkt (Basis-URL):", self.chatbot_api_endpunkt_edit)
         self.chatbot_api_modell_edit = QLineEdit(self._config["chatbot_api_modell"], seite)
@@ -455,6 +510,14 @@ class SettingsDialog(QDialog):
         layout.addRow(hinweis)
         return seite
 
+    def _chatbot_anbieter_uebernehmen(self, anbieter) -> None:
+        if anbieter is None:
+            return
+        self.chatbot_api_endpunkt_edit.setText(anbieter.chat_url())
+        self.chatbot_api_modell_edit.setText(anbieter.chat_modell)
+        self.chatbot_api_embedding_endpunkt_edit.setText(anbieter.embedding_url())
+        self.chatbot_api_embedding_modell_edit.setText(anbieter.embedding_modell)
+
     # ------------------------------------------------------------------
     # Speichern
     # ------------------------------------------------------------------
@@ -462,12 +525,14 @@ class SettingsDialog(QDialog):
         aenderungen: dict[str, Any] = {
             "transkription_modus": "api" if self.transkription_api_radio.isChecked() else "lokal",
             "whisper_modell": self.whisper_modell_combo.currentData(),
+            "api_transkription_voreinstellung": self.api_transkription_anbieter_wahl.anbieter_id(),
             "api_transkription_endpunkt": self.api_transkription_endpunkt_edit.text().strip(),
             "api_transkription_modell": self.api_transkription_modell_edit.text().strip(),
             "api_transkription_anbieter": self.api_transkription_anbieter_edit.text().strip(),
             "api_transkription_schluessel_merken": self.api_transkription_merken_checkbox.isChecked(),
             "nachbearbeitung_modus": "api" if self.nachbearbeitung_api_radio.isChecked() else "lokal",
             "ollama_modell": self.ollama_wahl.modell_oder_standard(),
+            "api_nachbearbeitung_voreinstellung": self.api_nachbearbeitung_anbieter_wahl.anbieter_id(),
             "api_nachbearbeitung_endpunkt": self.api_nachbearbeitung_endpunkt_edit.text().strip(),
             "api_nachbearbeitung_modell": self.api_nachbearbeitung_modell_edit.text().strip(),
             "api_nachbearbeitung_eigener_schluessel": (
@@ -477,6 +542,7 @@ class SettingsDialog(QDialog):
             "chatbot_modus": "api" if self.chatbot_api_radio.isChecked() else "lokal",
             "chatbot_ollama_modell": self.chatbot_chat_wahl.modell_oder_standard(),
             "chatbot_embedding_modell": self.chatbot_embedding_wahl.modell_oder_standard(),
+            "chatbot_api_voreinstellung": self.chatbot_api_anbieter_wahl.anbieter_id(),
             "chatbot_api_endpunkt": self.chatbot_api_endpunkt_edit.text().strip(),
             "chatbot_api_modell": self.chatbot_api_modell_edit.text().strip(),
             "chatbot_api_embedding_endpunkt": self.chatbot_api_embedding_endpunkt_edit.text().strip(),
