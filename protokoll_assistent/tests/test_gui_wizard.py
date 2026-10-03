@@ -711,7 +711,7 @@ def test_analyse_seite_zeigt_modelle_und_hinweise(analyse_seite):
     stufen = {analyse_seite.table.item(z, 1).text() for z in range(analyse_seite.table.rowCount())}
     assert {"Läuft gut", "Eher nicht geeignet"} <= stufen
     assert "Arbeitsspeicher: 16.0 GB" in analyse_seite.profil_label.text()
-    assert "Keine NVIDIA-Grafikkarte" in analyse_seite.hinweis_label.text()
+    assert "Keine Grafikkarte erkannt" in analyse_seite.hinweis_label.text()
     assert "qwen3:4b" in analyse_seite.hinweis_label.text()
 
 

@@ -32,12 +32,17 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
   Die Dateien liegen lokal im Ordner `chatverlaeufe/` (nicht versioniert, nicht im Installer).
 - **Rechner-Analyse als erster Schritt der lokalen Einrichtung:** Bevor etwas
   heruntergeladen wird, prüft das Programm Arbeitsspeicher, Prozessorkerne,
-  NVIDIA-Grafikkarte und freien Platz und bewertet jedes Modell
+  die vorhandene Grafikkarte (egal von welchem Hersteller: NVIDIA, AMD, Intel,
+  auch integrierte Grafik) und den freien Platz und bewertet jedes Modell
   (Transkription, Nachbearbeitung, Suche im Chat) mit „Läuft gut“, „Läuft
   langsam / knapp“ oder „Eher nicht geeignet“, samt Hinweisen und Empfehlung.
   Das empfohlene Sprachmodell wird für die Einrichtung vorausgewählt – eine
   bewusst getroffene Wahl in den Einstellungen bleibt unberührt. Es sind
-  Schätzungen; jedes Modell lässt sich weiterhin wählen.
+  Schätzungen; jedes Modell lässt sich weiterhin wählen. Beschleunigen kann
+  die Grafikkarte die Transkription nur bei NVIDIA (CUDA); eine Radeon-
+  Einzelkarte kann Ollama bei der Nachbearbeitung helfen, wenn ihr Modell
+  unterstützt wird, integrierte Grafik beschleunigt nichts – das erklärt die
+  Analyse bei der erkannten Karte.
 - **Systemtest: „Fehlendes nachladen“.** Fehlen FFmpeg, Ollama oder das
   Ollama-Modell, lädt ein Knopf sie herunter und zeigt den Grund, falls es
   scheitert; danach wird automatisch neu geprüft.

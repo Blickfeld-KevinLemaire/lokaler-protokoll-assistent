@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
+
+import pytest
 
 from protokoll_assistent.services import rechner_analyse_service as ra
 from protokoll_assistent.services.rechner_analyse_service import GUT, MAESSIG, NICHT, RechnerProfil
@@ -26,52 +29,161 @@ def test_profil_aus_austauschbaren_quellen(tmp_path):
     profil = ra.ermittle_profil(
         tmp_path,
         ram_fn=lambda: 15.9,
-        gpu_fn=lambda: ("RTX 3060", 12.0),
+        gpu_fn=lambda: [("Intel(R) UHD Graphics", 0.1), ("NVIDIA GeForce RTX 3060", 12.0)],
         kerne_fn=lambda: 6,
         platz_fn=lambda ordner: 123.0 if ordner == tmp_path else None,
     )
-    assert profil == RechnerProfil(15.9, 6, "RTX 3060", 12.0, 123.0)
-    assert profil.hat_gpu
+    # Von mehreren Karten zaehlt die leistungsfaehigste.
+    assert profil == RechnerProfil(15.9, 6, "NVIDIA GeForce RTX 3060", 12.0, 123.0)
+    assert profil.cuda_gpu
+
+
+def test_profil_ohne_grafikkarte(tmp_path):
+    profil = ra.ermittle_profil(tmp_path, ram_fn=lambda: 8, gpu_fn=list, kerne_fn=lambda: 4, platz_fn=lambda o: 50.0)
+    assert profil.gpu_name is None and not profil.hat_grafikkarte and not profil.cuda_gpu
+
+
+@pytest.mark.parametrize(
+    ("name", "hersteller", "integriert"),
+    [
+        ("NVIDIA GeForce RTX 4070", ra.HERSTELLER_NVIDIA, False),
+        ("Quadro T1000", ra.HERSTELLER_NVIDIA, False),
+        ("AMD Radeon RX 6600", ra.HERSTELLER_AMD, False),
+        ("AMD Radeon PRO W6600", ra.HERSTELLER_AMD, False),
+        ("AMD Radeon(TM) Graphics", ra.HERSTELLER_AMD, True),
+        ("AMD Radeon 780M Graphics", ra.HERSTELLER_AMD, True),
+        ("Intel(R) Arc(TM) A770 Graphics", ra.HERSTELLER_INTEL, False),
+        ("Intel(R) UHD Graphics 620", ra.HERSTELLER_INTEL, True),
+        ("Intel(R) Iris(R) Xe Graphics", ra.HERSTELLER_INTEL, True),
+        ("Irgendeine Karte", ra.HERSTELLER_SONSTIGE, True),
+    ],
+)
+def test_hersteller_und_bauart_nach_dem_namen(name, hersteller, integriert):
+    assert ra.gpu_hersteller(name) == hersteller
+    assert ra.gpu_ist_integriert(name) is integriert
+
+
+def test_hersteller_ohne_name():
+    assert ra.gpu_hersteller(None) is None
+    assert ra.gpu_hersteller("") is None
+    assert RechnerProfil().gpu_hersteller is None and not RechnerProfil().gpu_integriert
+
+
+def test_beste_grafikkarte_wird_gewaehlt():
+    nvidia = ("NVIDIA GeForce GTX 1650", 4.0)
+    radeon = ("AMD Radeon RX 7900 XT", 20.0)
+    onboard = ("Intel(R) UHD Graphics", 2.0)
+    assert ra.waehle_grafikkarte([onboard, radeon, nvidia]) == nvidia  # NVIDIA vor der groesseren Radeon
+    assert ra.waehle_grafikkarte([onboard, radeon]) == radeon
+    assert ra.waehle_grafikkarte([onboard, ("AMD Radeon(TM) Graphics", 1.0)]) == onboard
+    assert ra.waehle_grafikkarte([]) is None
 
 
 def test_nvidia_smi_ausgabe_wird_gelesen():
-    assert ra._gpu_aus_ausgabe("NVIDIA GeForce RTX 3060, 12288\n") == ("NVIDIA GeForce RTX 3060", 12.0)
-    assert ra._gpu_aus_ausgabe("Karte, mit Komma, 8192\nZweite, 4096") == ("Karte, mit Komma", 8.0)
-    assert ra._gpu_aus_ausgabe("") == (None, None)
-    assert ra._gpu_aus_ausgabe("kaputt, abc") == (None, None)
+    assert ra._karten_aus_smi_ausgabe("NVIDIA GeForce RTX 3060, 12288\n") == [("NVIDIA GeForce RTX 3060", 12.0)]
+    assert ra._karten_aus_smi_ausgabe("Karte, mit Komma, 8192\nZweite, 4096") == [
+        ("Karte, mit Komma", 8.0),
+        ("Zweite", 4.0),
+    ]
+    assert ra._karten_aus_smi_ausgabe("") == []
+    assert ra._karten_aus_smi_ausgabe("kaputt, abc") == []
+    assert ra._karten_aus_smi_ausgabe(", 1024") == [("NVIDIA", 1.0)]
 
 
-def test_gpu_ohne_nvidia_smi(monkeypatch):
+def test_windows_adapter_mit_speicher_aus_der_registry():
+    text = json.dumps(
+        {
+            "cim": [
+                {"Name": "AMD Radeon RX 6600", "AdapterRAM": 4293918720},  # 32 Bit: unbrauchbar
+                {"Name": "Intel(R) UHD Graphics", "AdapterRAM": 1073741824},
+                {"Name": "Microsoft Basic Display Adapter", "AdapterRAM": 0},
+                {"Name": "Parsec Virtual Display Adapter", "AdapterRAM": 0},
+                {"Name": None},
+                "kein Objekt",
+            ],
+            "reg": [
+                {"DriverDesc": "AMD Radeon RX 6600", "Mem": 8 * 1024**3},
+                {"DriverDesc": "Intel(R) UHD Graphics", "Mem": None},
+                "kein Objekt",
+            ],
+        }
+    )
+    assert ra._karten_aus_powershell_ausgabe(text) == [
+        ("AMD Radeon RX 6600", 8.0),
+        ("Intel(R) UHD Graphics", 1.0),  # ersatzweise AdapterRAM
+    ]
+
+
+def test_windows_adapter_einzelobjekte_und_bytefolgen():
+    # PowerShell liefert ein einzelnes Element als Objekt, manche Treiber den
+    # Speicher als Bytefolge (REG_BINARY, little endian).
+    sechs_gb = list((6 * 1024**3).to_bytes(8, "little"))
+    text = json.dumps({"cim": {"Name": "AMD Radeon RX 6600", "AdapterRAM": None}, "reg": {"DriverDesc": "AMD Radeon RX 6600", "Mem": sechs_gb}})
+    assert ra._karten_aus_powershell_ausgabe(text) == [("AMD Radeon RX 6600", 6.0)]
+
+
+def test_windows_adapter_mit_unbrauchbarer_ausgabe():
+    assert ra._karten_aus_powershell_ausgabe("kein json") == []
+    assert ra._karten_aus_powershell_ausgabe("[1, 2]") == []
+    assert ra._karten_aus_powershell_ausgabe("{}") == []
+    assert ra._karten_aus_powershell_ausgabe('{"cim": [{"Name": "Karte", "AdapterRAM": 0}]}') == [("Karte", None)]
+
+
+def test_keine_grafikkarten_ohne_programme(monkeypatch):
     monkeypatch.setattr(ra.shutil, "which", lambda name: None)
-    assert ra._gpu() == (None, None)
+    assert ra._grafikkarten_nvidia_smi() == []
+    assert ra._grafikkarten_windows() == []
+    assert ra._grafikkarten() == []
 
 
-def test_gpu_ueber_nvidia_smi(monkeypatch):
-    class _Ergebnis:
-        returncode = 0
-        stdout = "RTX 4090, 24564\n"
+class _Lauf:
+    def __init__(self, stdout="", returncode=0):
+        self.stdout = stdout
+        self.returncode = returncode
 
-    monkeypatch.setattr(ra.shutil, "which", lambda name: "nvidia-smi")
-    monkeypatch.setattr(ra.subprocess, "run", lambda *a, **k: _Ergebnis())
-    name, vram = ra._gpu()
+
+def test_grafikkarten_ueber_nvidia_smi(monkeypatch):
+    monkeypatch.setattr(ra.shutil, "which", lambda name: name)
+    monkeypatch.setattr(ra.subprocess, "run", lambda *a, **k: _Lauf("RTX 4090, 24564\n"))
+    name, vram = ra._grafikkarten_nvidia_smi()[0]
     assert name == "RTX 4090" and round(vram or 0) == 24
 
 
-def test_gpu_bei_fehlern_des_programms(monkeypatch):
-    monkeypatch.setattr(ra.shutil, "which", lambda name: "nvidia-smi")
+def test_grafikkarten_ueber_windows(monkeypatch):
+    monkeypatch.setattr(ra.shutil, "which", lambda name: name if name == "powershell" else None)
+    ausgabe = json.dumps({"cim": [{"Name": "AMD Radeon RX 6600", "AdapterRAM": 0}], "reg": []})
+    monkeypatch.setattr(ra.subprocess, "run", lambda *a, **k: _Lauf(ausgabe))
+    assert ra._grafikkarten() == [("AMD Radeon RX 6600", None)]
+
+
+def test_nvidia_wird_nicht_doppelt_gezaehlt(monkeypatch):
+    monkeypatch.setattr(ra, "_grafikkarten_nvidia_smi", lambda: [("NVIDIA GeForce RTX 3060", 12.0)])
+    monkeypatch.setattr(
+        ra,
+        "_grafikkarten_windows",
+        lambda: [("NVIDIA GeForce RTX 3060", 4.0), ("Intel(R) UHD Graphics", 1.0)],  # AdapterRAM ist ungenau
+    )
+    assert ra._grafikkarten() == [("NVIDIA GeForce RTX 3060", 12.0), ("Intel(R) UHD Graphics", 1.0)]
+
+
+def test_nvidia_ohne_smi_kommt_aus_windows(monkeypatch):
+    monkeypatch.setattr(ra, "_grafikkarten_nvidia_smi", list)
+    monkeypatch.setattr(ra, "_grafikkarten_windows", lambda: [("NVIDIA GeForce GTX 1050", 4.0)])
+    assert ra._grafikkarten() == [("NVIDIA GeForce GTX 1050", 4.0)]
+
+
+@pytest.mark.parametrize("funktion", ["_grafikkarten_nvidia_smi", "_grafikkarten_windows"])
+def test_grafikkarten_bei_fehlern_des_programms(monkeypatch, funktion):
+    monkeypatch.setattr(ra.shutil, "which", lambda name: name)
 
     def werfen(*a, **k):
         raise OSError("weg")
 
     monkeypatch.setattr(ra.subprocess, "run", werfen)
-    assert ra._gpu() == (None, None)
+    assert getattr(ra, funktion)() == []
 
-    class _Fehler:
-        returncode = 9
-        stdout = ""
-
-    monkeypatch.setattr(ra.subprocess, "run", lambda *a, **k: _Fehler())
-    assert ra._gpu() == (None, None)
+    monkeypatch.setattr(ra.subprocess, "run", lambda *a, **k: _Lauf("x", returncode=9))
+    assert getattr(ra, funktion)() == []
 
 
 def test_freier_platz(tmp_path, monkeypatch):
@@ -114,7 +226,7 @@ def test_profilbeschreibung():
     text = ra.beschreibe_profil(GAMING_PC)
     assert "32.0 GB" in text and "RTX 4070" in text and "Prozessorkerne: 12" in text
     ohne = ra.beschreibe_profil(RechnerProfil())
-    assert "unbekannt" in ohne and "keine NVIDIA-Karte" in ohne and "Freier Platz" not in ohne
+    assert "unbekannt" in ohne and "keine erkannt" in ohne and "Freier Platz" not in ohne
 
 
 # --------------------------------------------------------------------------
@@ -139,7 +251,7 @@ def test_normaler_laptop_ohne_grafikkarte():
     assert _stufe(analyse, "qwen3:14b") == NICHT
     # Das kleine Modell kommt zum Zug, weil der Standard nur maessig laeuft.
     assert analyse.empfehlung[ra.BEREICH_NACHBEARBEITUNG] == "qwen3:4b"
-    assert any("Keine NVIDIA-Grafikkarte" in h for h in analyse.hinweise)
+    assert any("Keine Grafikkarte erkannt" in h for h in analyse.hinweise)
 
 
 def test_schwacher_laptop_mit_vier_kernen():
@@ -178,7 +290,7 @@ def test_keine_transkription_moeglich():
 
 
 def test_knapper_grafikspeicher_ist_maessig():
-    profil = RechnerProfil(ram_gb=16, cpu_kerne=8, gpu_name="Alte Karte", vram_gb=3.5)
+    profil = RechnerProfil(ram_gb=16, cpu_kerne=8, gpu_name="NVIDIA GeForce GTX 1050", vram_gb=3.5)
     analyse = ra.analysiere(profil)
     assert _stufe(analyse, "large-v3-turbo") == MAESSIG  # 3,0 GB noetig, 4,5 GB fuer "gut"
     assert _stufe(analyse, "large-v3") != GUT  # 6 GB noetig -> weicht auf den Prozessor aus
@@ -249,3 +361,59 @@ def test_ram_wenn_die_windows_schnittstelle_versagt(monkeypatch):
     monkeypatch.setattr(ra.ctypes, "windll", windll, raising=False)
     _ohne_psutil(monkeypatch)
     assert ra._ram_gb() is None
+
+
+# --------------------------------------------------------------------------
+# Grafikkarten anderer Hersteller
+# --------------------------------------------------------------------------
+RADEON_PC = RechnerProfil(ram_gb=16, cpu_kerne=8, gpu_name="AMD Radeon RX 6700 XT", vram_gb=12, freier_platz_gb=300)
+ONBOARD_LAPTOP = RechnerProfil(ram_gb=16, cpu_kerne=8, gpu_name="Intel(R) Iris(R) Xe Graphics", vram_gb=0.1, freier_platz_gb=300)
+
+
+def test_radeon_hilft_der_transkription_nicht():
+    # faster-whisper rechnet nur ueber CUDA: Die Radeon aendert an der Transkription nichts.
+    mit = ra.analysiere(RADEON_PC)
+    ohne = ra.analysiere(RechnerProfil(ram_gb=16, cpu_kerne=8, freier_platz_gb=300))
+    for modell in ("large-v3", "large-v3-turbo", "small"):
+        assert _stufe(mit, modell) == _stufe(ohne, modell)
+
+
+def test_radeon_kann_die_nachbearbeitung_beschleunigen_aber_nie_sicher():
+    analyse = ra.analysiere(RADEON_PC)
+    # 14B passt (9,3 + 1,5 GB) in 12 GB, auf dem Prozessor waere es "nicht".
+    assert _stufe(analyse, "qwen3:14b") == MAESSIG
+    text = next(b.text for b in analyse.bewertungen if b.modell_id == "qwen3:14b")
+    assert "Radeon" in text and "unterstützt" in text
+    # Wo der Prozessor ohnehin gut genug ist, bleibt es bei "gut".
+    assert _stufe(analyse, "qwen3:4b") == GUT
+    # Was nicht in den Grafikspeicher passt, wird nicht schoengerechnet.
+    klein = ra.analysiere(RechnerProfil(ram_gb=16, cpu_kerne=8, gpu_name="AMD Radeon RX 6500 XT", vram_gb=4))
+    assert _stufe(klein, "qwen3:14b") == NICHT
+
+
+def test_integrierte_grafik_beschleunigt_nichts():
+    analyse = ra.analysiere(ONBOARD_LAPTOP)
+    ohne = ra.analysiere(RechnerProfil(ram_gb=16, cpu_kerne=8, freier_platz_gb=300))
+    assert [b.stufe for b in analyse.bewertungen] == [b.stufe for b in ohne.bewertungen]
+    hinweis = next(h for h in analyse.hinweise if "Iris" in h)
+    assert "integriert" in hinweis and "beschleunigt hier nichts" in hinweis
+
+
+def test_hinweise_je_grafikkarte():
+    radeon = "\n".join(ra.analysiere(RADEON_PC).hinweise)
+    assert "AMD Radeon RX 6700 XT" in radeon and "nur NVIDIA-Karten" in radeon and "Ollama" in radeon
+    arc = "\n".join(
+        ra.analysiere(RechnerProfil(ram_gb=16, cpu_kerne=8, gpu_name="Intel(R) Arc(TM) A750", vram_gb=8)).hinweise
+    )
+    assert "Arc" in arc and "nur mit NVIDIA" in arc
+    assert not any("Grafik" in h for h in ra.analysiere(GAMING_PC).hinweise)  # NVIDIA: nichts zu bemerken
+
+
+def test_profilbeschreibung_je_grafikkarte():
+    assert "beschleunigt Transkription und Nachbearbeitung" in ra.beschreibe_profil(GAMING_PC)
+    assert "je nach Kartenmodell möglich" in ra.beschreibe_profil(RADEON_PC)
+    assert "teilt sich den Arbeitsspeicher" in ra.beschreibe_profil(ONBOARD_LAPTOP)
+    arc = ra.beschreibe_profil(RechnerProfil(gpu_name="Intel(R) Arc(TM) A750", vram_gb=8))
+    assert "wird nicht genutzt" in arc
+    ohne_speicher = ra.beschreibe_profil(RechnerProfil(gpu_name="AMD Radeon(TM) Graphics"))
+    assert " mit " not in ohne_speicher

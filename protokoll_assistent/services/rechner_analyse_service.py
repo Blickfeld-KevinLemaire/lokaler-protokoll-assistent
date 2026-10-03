@@ -10,8 +10,10 @@ ermittelt und jedes Modell der Auswahllisten bewertet:
 * ``NICHT``    -- auf diesem Rechner nicht sinnvoll.
 
 Die Ermittlung braucht weder PyTorch noch ein Modell (sie laeuft auch im
-reinen API-Betrieb): Die Grafikkarte wird ueber ``nvidia-smi`` gefragt, der
-Arbeitsspeicher ueber ``psutil`` oder die Windows-Schnittstelle. Alle
+reinen API-Betrieb): Die Grafikkarte(n) werden ueber Windows (PowerShell/WMI)
+und bei NVIDIA zusaetzlich ueber ``nvidia-smi`` ermittelt -- gleich, von
+welchem Hersteller sie ist --, der Arbeitsspeicher ueber ``psutil`` oder die
+Windows-Schnittstelle. Alle
 Zugriffe auf den Rechner sind als Parameter austauschbar, damit die Tests
 weder Hardware noch Programme brauchen (CLAUDE.md, Regel 4).
 
@@ -25,7 +27,9 @@ Modelle und ist bewusst vorsichtig gewaehlt.
 from __future__ import annotations
 
 import ctypes
+import json
 import os
+import re
 import shutil
 import subprocess
 from collections.abc import Callable
@@ -71,6 +75,45 @@ GROESSE_PYANNOTE_GB = 0.5
 GROESSE_WERKZEUGE_GB = 1.9  # FFmpeg ca. 0,2 + Ollama ca. 1,7
 
 
+HERSTELLER_NVIDIA = "nvidia"
+HERSTELLER_AMD = "amd"
+HERSTELLER_INTEL = "intel"
+HERSTELLER_SONSTIGE = "sonstige"
+
+# Adapter, die keine echte Grafikkarte sind (Fernwartung, virtuelle Maschinen ...).
+_KEINE_GRAFIKKARTE = ("basic display", "basic render", "remote", "virtual", "parsec", "citrix", "displaylink")
+_AMD_EINZELKARTE = re.compile(r"\brx\b|radeon pro|radeon vii|instinct|firepro", re.IGNORECASE)
+
+
+def gpu_hersteller(name: str | None) -> str | None:
+    """Hersteller nach dem Namen der Grafikkarte, ``None`` ohne Namen."""
+    if not name:
+        return None
+    klein = name.lower()
+    if any(wort in klein for wort in ("nvidia", "geforce", "quadro", "rtx", "gtx", "tesla")):
+        return HERSTELLER_NVIDIA
+    if "amd" in klein or "radeon" in klein or "ati " in klein:
+        return HERSTELLER_AMD
+    if "intel" in klein:
+        return HERSTELLER_INTEL
+    return HERSTELLER_SONSTIGE
+
+
+def gpu_ist_integriert(name: str | None) -> bool:
+    """Teilt sich die Grafik den Arbeitsspeicher mit dem Prozessor? Das ist bei
+    allen Intel-Karten ausser 'Arc' und bei AMD-Prozessorgrafik (Vega, 'Radeon
+    Graphics', 780M ...) der Fall. Bei einem unbekannten Hersteller geht die
+    Analyse vorsichtig davon aus, dass die Karte nichts beschleunigt."""
+    hersteller = gpu_hersteller(name)
+    if hersteller == HERSTELLER_NVIDIA:
+        return False
+    if hersteller == HERSTELLER_INTEL:
+        return "arc" not in (name or "").lower()
+    if hersteller == HERSTELLER_AMD:
+        return _AMD_EINZELKARTE.search(name or "") is None
+    return True
+
+
 @dataclass(frozen=True)
 class RechnerProfil:
     ram_gb: float | None = None
@@ -80,8 +123,33 @@ class RechnerProfil:
     freier_platz_gb: float | None = None
 
     @property
-    def hat_gpu(self) -> bool:
-        return self.vram_gb is not None and self.vram_gb > 0
+    def hat_grafikkarte(self) -> bool:
+        return self.gpu_name is not None
+
+    @property
+    def gpu_hersteller(self) -> str | None:
+        return gpu_hersteller(self.gpu_name)
+
+    @property
+    def gpu_integriert(self) -> bool:
+        return self.hat_grafikkarte and gpu_ist_integriert(self.gpu_name)
+
+    @property
+    def cuda_gpu(self) -> bool:
+        """NVIDIA-Karte mit bekanntem Speicher: die einzige, auf der faster-whisper
+        und PyTorch beschleunigen (beide rechnen ueber CUDA)."""
+        return self.gpu_hersteller == HERSTELLER_NVIDIA and self.vram_gb is not None and self.vram_gb > 0
+
+    @property
+    def radeon_moeglich(self) -> bool:
+        """Radeon-Einzelkarte: Ollama kann sie nutzen, aber nur bestimmte Modelle
+        (ROCm). Ob genau diese dazugehoert, laesst sich hier nicht vorab sagen."""
+        return (
+            self.gpu_hersteller == HERSTELLER_AMD
+            and not self.gpu_integriert
+            and self.vram_gb is not None
+            and self.vram_gb > 0
+        )
 
 
 @dataclass(frozen=True)
@@ -140,17 +208,39 @@ def _ram_gb() -> float | None:
         return None
 
 
-def _gpu() -> tuple[str | None, float | None]:
-    """Name und Grafikspeicher (GB) der ersten NVIDIA-Karte, sonst ``(None, None)``.
+Grafikkarte = tuple[str, float | None]  # (Name, Grafikspeicher in GB, falls bekannt)
 
-    Gefragt wird ``nvidia-smi``, das der NVIDIA-Treiber mitbringt -- so geht
-    es ohne PyTorch. Nur NVIDIA zaehlt: CTranslate2 (faster-whisper) und
-    PyTorch beschleunigen unter Windows ausschliesslich ueber CUDA; eine AMD-
-    oder Intel-Grafik hilft hier nicht.
-    """
+_KEIN_FENSTER = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+# Fragt Windows nach allen Grafikadaptern. 'AdapterRAM' ist nur 32 Bit breit und
+# meldet bei Karten ab 4 GB nichts Brauchbares; der echte Wert steht in der
+# Registry ('HardwareInformation.qwMemorySize').
+_POWERSHELL_SKRIPT = (
+    "$cim = Get-CimInstance Win32_VideoController | Select-Object Name,AdapterRAM;"
+    "$reg = Get-ItemProperty 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Class\\"
+    "{4d36e968-e325-11ce-bfc1-08002be10318}\\0*' -ErrorAction SilentlyContinue | "
+    "Select-Object DriverDesc,@{n='Mem';e={$_.'HardwareInformation.qwMemorySize'}};"
+    "@{cim=@($cim);reg=@($reg)} | ConvertTo-Json -Depth 3 -Compress"
+)
+
+
+def _grafikkarten() -> list[Grafikkarte]:
+    """Alle Grafikkarten dieses Rechners -- gleich von welchem Hersteller.
+
+    NVIDIA-Karten werden bevorzugt ueber ``nvidia-smi`` gelesen (genauer
+    Speicher), alle anderen und der Rest ueber Windows."""
+    karten = _grafikkarten_nvidia_smi()
+    for name, vram in _grafikkarten_windows():
+        if karten and gpu_hersteller(name) == HERSTELLER_NVIDIA:
+            continue  # schon genau ueber nvidia-smi erfasst
+        karten.append((name, vram))
+    return karten
+
+
+def _grafikkarten_nvidia_smi() -> list[Grafikkarte]:
     programm = shutil.which("nvidia-smi")
     if programm is None:
-        return None, None
+        return []
     try:
         ergebnis = subprocess.run(
             [programm, "--query-gpu=name,memory.total", "--format=csv,noheader,nounits"],
@@ -158,24 +248,104 @@ def _gpu() -> tuple[str | None, float | None]:
             text=True,
             timeout=15,
             check=False,
+            creationflags=_KEIN_FENSTER,
         )
     except (OSError, subprocess.SubprocessError):
-        return None, None
+        return []
     if ergebnis.returncode != 0:
-        return None, None
-    return _gpu_aus_ausgabe(ergebnis.stdout)
+        return []
+    return _karten_aus_smi_ausgabe(ergebnis.stdout)
 
 
-def _gpu_aus_ausgabe(ausgabe: str) -> tuple[str | None, float | None]:
-    """Liest die erste Zeile von ``nvidia-smi`` ("Name, MiB")."""
-    zeilen = [z.strip() for z in ausgabe.splitlines() if z.strip()]
-    if not zeilen:
-        return None, None
-    name, _, speicher = zeilen[0].rpartition(",")
+def _karten_aus_smi_ausgabe(ausgabe: str) -> list[Grafikkarte]:
+    """Liest die Zeilen von ``nvidia-smi`` ("Name, MiB")."""
+    karten: list[Grafikkarte] = []
+    for zeile in ausgabe.splitlines():
+        name, _, speicher = zeile.strip().rpartition(",")
+        try:
+            karten.append((name.strip() or "NVIDIA", float(speicher.strip()) / 1024))
+        except ValueError:
+            continue
+    return karten
+
+
+def _grafikkarten_windows() -> list[Grafikkarte]:
+    powershell = shutil.which("powershell")
+    if powershell is None:
+        return []
     try:
-        return name.strip() or None, float(speicher.strip()) / 1024
+        ergebnis = subprocess.run(
+            [powershell, "-NoProfile", "-NonInteractive", "-Command", _POWERSHELL_SKRIPT],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+            creationflags=_KEIN_FENSTER,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return []
+    if ergebnis.returncode != 0:
+        return []
+    return _karten_aus_powershell_ausgabe(ergebnis.stdout)
+
+
+def _als_liste(wert) -> list:
+    """PowerShell macht aus einem einzelnen Element ein Objekt statt einer Liste."""
+    if wert is None:
+        return []
+    return wert if isinstance(wert, list) else [wert]
+
+
+def _speicher_gb(roh) -> float | None:
+    """Speichergroesse aus einem Registrywert: Zahl oder (je nach Treiber) Bytefolge."""
+    if isinstance(roh, list) and roh and all(isinstance(b, int) for b in roh):
+        roh = int.from_bytes(bytes(b & 0xFF for b in roh), "little")
+    if isinstance(roh, (int, float)) and roh > 0:
+        return float(roh) / (1024**3)
+    return None
+
+
+def _karten_aus_powershell_ausgabe(text: str) -> list[Grafikkarte]:
+    try:
+        daten = json.loads(text)
     except ValueError:
-        return None, None
+        return []
+    if not isinstance(daten, dict):
+        return []
+    registry = {
+        str(e.get("DriverDesc")): _speicher_gb(e.get("Mem"))
+        for e in _als_liste(daten.get("reg"))
+        if isinstance(e, dict)
+    }
+    karten: list[Grafikkarte] = []
+    for adapter in _als_liste(daten.get("cim")):
+        if not isinstance(adapter, dict) or not adapter.get("Name"):
+            continue
+        name = str(adapter["Name"]).strip()
+        if any(wort in name.lower() for wort in _KEINE_GRAFIKKARTE):
+            continue
+        vram = registry.get(name)
+        if vram is None:
+            vram = _speicher_gb(adapter.get("AdapterRAM"))
+        karten.append((name, vram))
+    return karten
+
+
+def waehle_grafikkarte(karten: list[Grafikkarte]) -> Grafikkarte | None:
+    """Die Karte, die am meisten bringt: NVIDIA vor anderen Einzelkarten vor
+    integrierter Grafik, innerhalb davon die mit dem meisten Speicher."""
+
+    def rang(karte: Grafikkarte) -> tuple[int, float]:
+        name, vram = karte
+        if gpu_hersteller(name) == HERSTELLER_NVIDIA:
+            stufe = 2
+        elif not gpu_ist_integriert(name):
+            stufe = 1
+        else:
+            stufe = 0
+        return stufe, vram or 0.0
+
+    return max(karten, key=rang) if karten else None
 
 
 def _freier_platz_gb(ordner: Path) -> float | None:
@@ -189,11 +359,12 @@ def ermittle_profil(
     ordner: Path,
     *,
     ram_fn: Callable[[], float | None] = _ram_gb,
-    gpu_fn: Callable[[], tuple[str | None, float | None]] = _gpu,
+    gpu_fn: Callable[[], list[Grafikkarte]] = _grafikkarten,
     kerne_fn: Callable[[], int | None] = os.cpu_count,
     platz_fn: Callable[[Path], float | None] = _freier_platz_gb,
 ) -> RechnerProfil:
-    gpu_name, vram_gb = gpu_fn()
+    beste = waehle_grafikkarte(gpu_fn())
+    gpu_name, vram_gb = beste if beste is not None else (None, None)
     return RechnerProfil(
         ram_gb=ram_fn(),
         cpu_kerne=kerne_fn(),
@@ -207,10 +378,19 @@ def beschreibe_profil(profil: RechnerProfil) -> str:
     teile = []
     teile.append(f"Arbeitsspeicher: {profil.ram_gb:.1f} GB" if profil.ram_gb else "Arbeitsspeicher: unbekannt")
     teile.append(f"Prozessorkerne: {profil.cpu_kerne}" if profil.cpu_kerne else "Prozessorkerne: unbekannt")
-    if profil.hat_gpu:
-        teile.append(f"Grafikkarte: {profil.gpu_name or 'NVIDIA'} mit {profil.vram_gb:.1f} GB")
+    if profil.hat_grafikkarte:
+        speicher = f" mit {profil.vram_gb:.1f} GB" if profil.vram_gb else ""
+        if profil.cuda_gpu:
+            zusatz = "beschleunigt Transkription und Nachbearbeitung"
+        elif profil.gpu_integriert:
+            zusatz = "in den Prozessor integriert, teilt sich den Arbeitsspeicher und beschleunigt hier nichts"
+        elif profil.radeon_moeglich:
+            zusatz = "für die Transkription nicht nutzbar (nur NVIDIA), für die Nachbearbeitung je nach Kartenmodell möglich"
+        else:
+            zusatz = "wird nicht genutzt (beschleunigt wird nur mit NVIDIA)"
+        teile.append(f"Grafikkarte: {profil.gpu_name}{speicher} – {zusatz}")
     else:
-        teile.append("Grafikkarte: keine NVIDIA-Karte erkannt (die CPU rechnet)")
+        teile.append("Grafikkarte: keine erkannt (der Prozessor rechnet)")
     if profil.freier_platz_gb is not None:
         teile.append(f"Freier Platz: {profil.freier_platz_gb:.0f} GB")
     return "\n".join(teile)
@@ -235,7 +415,7 @@ def _bewerte_whisper(profil: RechnerProfil, option: model_service.WhisperModelOp
     def ergebnis(stufe: str, text: str) -> Bewertung:
         return Bewertung(BEREICH_TRANSKRIPTION, option.id, name, stufe, text)
 
-    if profil.hat_gpu and profil.vram_gb is not None:
+    if profil.cuda_gpu and profil.vram_gb is not None:
         if profil.vram_gb >= option.min_vram_gb + model_service.SPEICHER_ZUSCHLAG_GB:
             return ergebnis(GUT, "Läuft schnell auf der Grafikkarte.")
         if profil.vram_gb >= option.min_vram_gb:
@@ -263,9 +443,28 @@ def _bewerte_sprachmodell(profil: RechnerProfil, option: ollama_service.OllamaMo
         return Bewertung(BEREICH_NACHBEARBEITUNG, option.id, name, stufe, text)
 
     bedarf = option.groesse_gb + KONTEXT_ZUSCHLAG_GB
-    if profil.hat_gpu and profil.vram_gb is not None and profil.vram_gb >= bedarf:
+    passt_in_den_grafikspeicher = profil.vram_gb is not None and profil.vram_gb >= bedarf
+    if profil.cuda_gpu and passt_in_den_grafikspeicher:
         return ergebnis(GUT, "Läuft flüssig auf der Grafikkarte.")
 
+    auf_dem_prozessor = _sprachmodell_auf_dem_prozessor(profil, option, ergebnis)
+    if profil.radeon_moeglich and passt_in_den_grafikspeicher and auf_dem_prozessor.stufe != GUT:
+        # Ollama nutzt Radeon-Karten nur, wenn das Kartenmodell unterstuetzt wird
+        # (ROCm) -- das laesst sich vorab nicht sagen, deshalb hoechstens "maessig".
+        return ergebnis(
+            MAESSIG,
+            "Die Radeon-Karte kann Ollama beschleunigen, sofern sie unterstützt wird – "
+            "sonst läuft es auf dem Prozessor.",
+        )
+    return auf_dem_prozessor
+
+
+def _sprachmodell_auf_dem_prozessor(
+    profil: RechnerProfil,
+    option: ollama_service.OllamaModellOption,
+    ergebnis: Callable[[str, str], Bewertung],
+) -> Bewertung:
+    bedarf = option.groesse_gb + KONTEXT_ZUSCHLAG_GB
     if profil.ram_gb is not None and profil.ram_gb < bedarf + SPEICHER_RESERVE_GB:
         return ergebnis(NICHT, f"Zu groß für den Arbeitsspeicher ({profil.ram_gb:.1f} GB).")
 
@@ -330,11 +529,8 @@ def _hinweise(
     sprache: list[Bewertung],
 ) -> list[str]:
     hinweise: list[str] = []
-    if not profil.hat_gpu:
-        hinweise.append(
-            "Keine NVIDIA-Grafikkarte erkannt: Alles läuft auf dem Prozessor. Das funktioniert, "
-            "ist aber langsamer – besonders bei der Nachbearbeitung."
-        )
+    if not profil.cuda_gpu:
+        hinweise.append(_grafikhinweis(profil))
     if profil.ram_gb is not None and profil.ram_gb < 8:
         hinweise.append(
             f"Mit {profil.ram_gb:.1f} GB Arbeitsspeicher ist der Rechner knapp ausgestattet. "
@@ -361,3 +557,24 @@ def _hinweise(
                 f"{benoetigt:.0f} GB herunter – bitte vorher Platz schaffen."
             )
     return hinweise
+
+
+def _grafikhinweis(profil: RechnerProfil) -> str:
+    langsamer = "Das funktioniert, ist aber langsamer – besonders bei der Nachbearbeitung."
+    if not profil.hat_grafikkarte:
+        return f"Keine Grafikkarte erkannt: Alles läuft auf dem Prozessor. {langsamer}"
+    if profil.gpu_integriert:
+        return (
+            f"Die Grafik ({profil.gpu_name}) ist in den Prozessor integriert und teilt sich den "
+            f"Arbeitsspeicher. Sie beschleunigt hier nichts: Alles läuft auf dem Prozessor. {langsamer}"
+        )
+    if profil.radeon_moeglich:
+        return (
+            f"Erkannt: {profil.gpu_name}. Die Transkription nutzt nur NVIDIA-Karten (CUDA) und läuft "
+            "deshalb auf dem Prozessor. Ollama kann viele Radeon-Karten für die Nachbearbeitung nutzen – "
+            "ob genau diese unterstützt wird, zeigt sich erst beim Ausprobieren."
+        )
+    return (
+        f"Erkannt: {profil.gpu_name}. Beschleunigt wird nur mit NVIDIA-Karten (CUDA); "
+        f"hier läuft alles auf dem Prozessor. {langsamer}"
+    )
