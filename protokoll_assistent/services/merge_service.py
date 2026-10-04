@@ -40,6 +40,13 @@ def to_global_segments(local_segments: list[dict[str, Any]], offset: float) -> l
         converted = dict(segment)
         converted["start"] = segment["start"] + offset
         converted["end"] = segment["end"] + offset
+        # Die Wortzeiten sind ebenfalls chunk-lokal; die wortgenaue
+        # Sprecherzuordnung vergleicht sie mit der globalen Diarisierung.
+        if segment.get("words"):
+            converted["words"] = [
+                {**wort, "start": wort["start"] + offset, "end": wort["end"] + offset}
+                for wort in segment["words"]
+            ]
         global_segments.append(converted)
     return global_segments
 

@@ -26,6 +26,7 @@ from typing import Any, Literal
 from protokoll_assistent.services import (
     chunking_service,
     diarization_service,
+    dokument_export_service,
     export_service,
     ffmpeg_service,
     manifest_service,
@@ -34,6 +35,7 @@ from protokoll_assistent.services import (
     ollama_service,
     protocol_service,
     speaker_merge_service,
+    sprecherprofil_service,
     transcription_service,
 )
 from protokoll_assistent.utils.logging_setup import get_logger
@@ -245,6 +247,22 @@ def _build_protocol_chunk_texts(
     return chunk_texts
 
 
+def _automatisches_word(callbacks: PipelineCallbacks, transkript_json: Path, protokoll_json: Path | None = None) -> None:
+    """Legt die zusammengefasste Word-Datei neben die uebrigen Ausgaben.
+
+    Das geschieht bei jeder Verarbeitung von selbst (mit Protokoll: Protokoll
+    und Transkript in einem Dokument). Scheitert es, wird das nur
+    protokolliert -- das Transkript bzw. Protokoll ist ja fertig und darf
+    daran nicht verloren gehen."""
+    try:
+        ziel = dokument_export_service.automatisches_word(transkript_json, protokoll_json)
+    except dokument_export_service.ExportFehler as fehler:
+        callbacks.on_log(f"Die Word-Datei wurde nicht erstellt: {fehler}")
+        return
+    if ziel is not None:
+        callbacks.on_log(f"Word-Datei erstellt: {ziel.name}")
+
+
 def _run_transcription_stage(
     settings: PipelineSettings,
     callbacks: PipelineCallbacks,
@@ -388,6 +406,9 @@ def _run_transcription_stage(
         callbacks.on_overall_progress((plan.index + 1) / len(chunk_plans) * 0.5)
 
     callbacks.on_stage("diarisierung", STAGE_LABELS["diarisierung"])
+    # Stimmabdruecke eines frueheren Laufs im selben Arbeitsordner duerfen nicht
+    # stehen bleiben, wenn dieser Lauf keine liefert (API-Modus, ohne Sprechertrennung).
+    sprecherprofil_service.speichere_lauf_embeddings(work_dir, {})
     if not settings.enable_diarization:
         callbacks.on_log(
             "Sprechertrennung deaktiviert -- Transkript wird ohne Sprecherzuordnung erstellt."
@@ -397,9 +418,17 @@ def _run_transcription_stage(
         pipeline = model_service.load_pyannote_pipeline(device)
         full_audio_array = transcription_service.load_audio_array(normalized_path)
         waveform_dict = diarization_service.build_waveform_dict(full_audio_array)
+        sprecher_embeddings: dict[str, list[float]] = {}
         diarization_turns = diarization_service.diarize_waveform(
-            pipeline, waveform_dict, settings.min_speakers, settings.max_speakers
+            pipeline,
+            waveform_dict,
+            settings.min_speakers,
+            settings.max_speakers,
+            embeddings_out=sprecher_embeddings,
         )
+        # Fuer die dauerhaften Sprecherprofile; im Arbeitsordner, nicht in
+        # der Ausgabe. Ein Lauf ohne Embeddings loescht den alten Stand.
+        sprecherprofil_service.speichere_lauf_embeddings(work_dir, sprecher_embeddings)
     else:
         diarization_turns = diarize_fn(normalized_path, settings.min_speakers, settings.max_speakers)
     manifest["diarisierung_status"] = manifest_service.STATUS_ABGESCHLOSSEN
@@ -408,7 +437,7 @@ def _run_transcription_stage(
 
     callbacks.on_stage("zusammenfuehrung", STAGE_LABELS["zusammenfuehrung"])
     merged_segments = merge_service.merge_chunk_transcripts(chunk_plans, chunk_segment_lists)
-    merged_segments = speaker_merge_service.assign_speakers_by_overlap(merged_segments, diarization_turns)
+    merged_segments = speaker_merge_service.assign_speakers_by_words(merged_segments, diarization_turns)
     callbacks.on_preview(build_preview_text(merged_segments, settings.enable_diarization))
 
     callbacks.on_stage("export_transkript", STAGE_LABELS["export_transkript"])
@@ -431,9 +460,12 @@ def _run_transcription_stage(
         merged_segments,
         speaker_names,
         settings.enable_diarization,
+        diarization_turns,
+        normalized_path,
     )
     manifest["protokoll_status"] = manifest_service.STATUS_AUSSTEHEND
     manifest_service.save_manifest(work_dir, manifest)
+    _automatisches_word(callbacks, export_paths.json)
 
     return TranscriptionResult(
         work_dir=work_dir,
@@ -610,6 +642,8 @@ def run_protocol(
         timings,
     )
     report_paths = export_service.write_processing_report(work_dir, report)
+    if protocol_paths is not None:
+        _automatisches_word(callbacks, settings.transcript_json_path, protocol_paths[0])
 
     callbacks.on_stage("abgeschlossen", STAGE_LABELS["abgeschlossen"])
     callbacks.on_overall_progress(1.0)
@@ -705,6 +739,8 @@ def run_pipeline(
         timings,
     )
     report_paths = export_service.write_processing_report(work_dir, report)
+    if protocol_paths is not None:
+        _automatisches_word(callbacks, export_paths.json, protocol_paths[0])
 
     callbacks.on_stage("abgeschlossen", STAGE_LABELS["abgeschlossen"])
     callbacks.on_overall_progress(1.0)

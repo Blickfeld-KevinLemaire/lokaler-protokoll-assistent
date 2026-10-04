@@ -88,6 +88,12 @@ omit = [
     "*/__init__.py",
     "*/conftest.py",
     "*/protokoll_assistent.spec",
+    # PySide6 laedt interne Module ohne Quelldatei (shiboken). Sie tauchen mit
+    # relativen Namen auf, coverage sucht sie im Projektordner und meldet bei
+    # jedem Lauf "Couldn't parse". Mit dem Projekt haben sie nichts zu tun.
+    "*/shibokensupport/*",
+    "*/signature_bootstrap.py",
+    "*/pyscript",
 ]
 relative_files = true
 

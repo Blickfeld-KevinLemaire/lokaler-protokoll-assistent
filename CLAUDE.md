@@ -23,6 +23,22 @@ arbeitet, braucht weder PyTorch noch ein Modell auf der Platte — die schwere
 Laufzeitumgebung wird nur eingerichtet, wenn der Transkriptionsmodus beim Start
 auf „lokal" steht.
 
+### Servermodus (Container, Linux)
+
+Zusätzlich gibt es einen Betrieb **ohne Oberfläche**: `protokoll_assistent/server/`
+beobachtet einen Eingangsordner, verarbeitet neue Aufnahmen mit derselben Kette
+(`pipeline_service`) und legt die Ergebnisse in einem Ausgangsordner ab. Er läuft
+im Container (`Dockerfile`, `docker-compose.yml`) auf Linux; Anleitung in
+`protokoll_assistent/server/README.md`.
+
+Das ändert die Zielplattform der **Anwendung** nicht: Oberfläche, Installer und
+Einrichtung bleiben Windows-only (Regeln 1, 7, 8). Der Servermodus nutzt nur
+`services/` und `utils/`, die ohnehin kein Qt kennen – diese Trennung ist die
+Voraussetzung dafür und soll bleiben. Das Paket `server/` darf deshalb **nie**
+`gui/` oder PySide6 importieren. Seine Pakete stehen in
+`requirements-server.txt` (Regel 8: nicht mit den anderen Listen vermischen).
+Die Tests des Servers laufen überall; das Image baut `.github/workflows/container.yml`.
+
 ### Vorgeschichte (wichtig beim Lesen alter Commits)
 
 Bis September 2026 waren das **drei** getrennte Anwendungen: eine
@@ -235,6 +251,12 @@ aktiv; diese Prüfungen müssen grün sein:
 * Geheimnisse und Schwachstellen
 * Laufzeit-Pakete der lokalen Anwendung
 * Analyse (Python) — CodeQL
+* CodeQL — das *Ergebnis* der Analyse: rot, wenn der Pull Request neue
+  Meldungen einführt (bei #27 genügten zwei vom Typ `error`). „Analyse
+  (Python)" kann dabei grün sein; die Analyse ist ja gelaufen. Reine Fehlalarme in GitHub
+  unter *Security → Code scanning* mit Begründung schließen.
+
+Außerdem ist ein Pull Request mit **einer Freigabe** (Review) nötig.
 
 Dazu kommt `strict`: Der Branch muss auf dem Stand von `main` sein, bevor er
 zusammengeführt werden darf. Das ist kein Schikane-Schalter — genau dieser Fall
@@ -245,7 +267,13 @@ trotzdem kaputt.
 
 Beide Administratoren können die Regeln umgehen (`enforce_admins` ist aus),
 damit sich niemand aussperrt. Das ist als Notausgang gedacht, nicht als
-Normalweg.
+Normalweg — und auch dann erst zusammenführen, wenn alle Prüfungen grün sind.
+Der Notausgang ersetzt die fehlende Freigabe, nicht die CI.
+
+Die Linux-Läufer sind auf `ubuntu-24.04` festgelegt, nicht `ubuntu-latest`:
+GitHub stellt `ubuntu-latest` ab dem 19.10.2026 auf Ubuntu 26 um, und ein
+solcher Wechsel soll die CI nicht unangekündigt verändern. Umstellen bewusst
+und in einem eigenen Pull Request.
 
 ### CodeQL: den Schalter „Code quality" in den Einstellungen NICHT umlegen
 

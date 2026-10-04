@@ -155,3 +155,146 @@ def test_show_error_nutzt_messagebox(qt_app, monkeypatch):
     assert aufrufe == [("Titel", "Meldung")]
 
 
+
+
+# --------------------------------------------------------------------------
+# SprecherprofileDialog
+# --------------------------------------------------------------------------
+def test_profildialog_listet_benennt_um_und_loescht(qt_app, tmp_path, monkeypatch):
+    from PySide6.QtWidgets import QInputDialog, QMessageBox
+
+    from protokoll_assistent.services import sprecherprofil_service as sp
+
+    sp.profil_speichern("Anna", [1.0, 0.0], tmp_path)
+    dialog = dialogs.SprecherprofileDialog(ordner=tmp_path)
+    assert dialog.liste.count() == 1 and "Anna" in dialog.liste.item(0).text()
+
+    monkeypatch.setattr(QInputDialog, "getText", staticmethod(lambda *a, **k: ("Anna Muster", True)))
+    dialog._umbenennen()
+    assert [p["name"] for p in sp.lade_profile(tmp_path)] == ["Anna Muster"]
+
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a: QMessageBox.No))
+    dialog._loeschen()
+    assert len(sp.lade_profile(tmp_path)) == 1
+
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a: QMessageBox.Yes))
+    dialog._loeschen()
+    assert sp.lade_profile(tmp_path) == []
+    assert not dialog.loeschen_button.isEnabled()
+    dialog._umbenennen()  # ohne Auswahl: darf nicht werfen
+    dialog._loeschen()
+
+
+def test_profildialog_meldet_umbenennfehler(qt_app, tmp_path, monkeypatch):
+    from PySide6.QtWidgets import QInputDialog
+
+    from protokoll_assistent.services import sprecherprofil_service as sp
+
+    sp.profil_speichern("Anna", [1.0, 0.0], tmp_path)
+    sp.profil_speichern("Ben", [0.0, 1.0], tmp_path)
+    dialog = dialogs.SprecherprofileDialog(ordner=tmp_path)
+    fehler = []
+    monkeypatch.setattr(dialogs, "show_error", lambda parent, titel, text: fehler.append(titel))
+    monkeypatch.setattr(QInputDialog, "getText", staticmethod(lambda *a, **k: ("Ben", True)))
+    dialog.liste.setCurrentRow(0)
+    dialog._umbenennen()
+    assert fehler == ["Umbenennen nicht möglich"]
+
+
+# --------------------------------------------------------------------------
+# AudioquelleDialog / EndverarbeitungDialog
+# --------------------------------------------------------------------------
+def test_audioquelle_dialog_standard_ist_mikrofon_und_datei_wechselt_beschriftung(qt_app):
+    dialog = dialogs.AudioquelleDialog(["Mikro A", "Mikro B"], aktuelles_geraet=1)
+    assert dialog.quelle == "mikrofon"
+    assert dialog.geraet_index == 1
+    assert dialog.weiter_button.text() == "Aufnahme starten"
+
+    dialog.datei_karte.click()
+    assert dialog.quelle == "datei"
+    assert dialog.weiter_button.text() == "Datei wählen …"
+    assert not dialog.geraete_liste.isVisibleTo(dialog)
+
+    dialog.mikrofon_karte.click()
+    dialog.geraete_liste.setCurrentRow(0)
+    assert dialog.quelle == "mikrofon" and dialog.geraet_index == 0
+
+
+def test_audioquelle_dialog_ohne_mikrofon_bietet_nur_datei(qt_app):
+    dialog = dialogs.AudioquelleDialog([], mikrofon_verfuegbar=False)
+    assert dialog.quelle == "datei"
+    assert not dialog.mikrofon_karte.isEnabled()
+
+
+def test_endverarbeitung_ergebnisse(qt_app):
+    dialog = dialogs.EndverarbeitungDialog(True, None, ["A", "B"], "B")
+    assert dialog.sprecher_erkennen and dialog.sprecherzahl is None
+    assert not dialog.protokoll_erstellen and dialog.vorlage is None
+    assert not dialog.vorlage_combo.isEnabled()
+
+    dialog.bekannt_radio.setChecked(True)
+    dialog.anzahl_spin.setValue(3)
+    dialog.protokoll_checkbox.setChecked(True)
+    assert dialog.sprecherzahl == 3
+    assert dialog.vorlage == "B"  # vorbelegt mit der aktuellen Vorlage
+    assert dialog.vorlage_combo.isEnabled()
+
+    dialog.sprecher_checkbox.setChecked(False)
+    assert dialog.sprecherzahl is None
+    assert not dialog.anzahl_spin.isEnabled()
+
+
+def test_endverarbeitung_vorbelegung_mit_bekannter_sprecherzahl(qt_app):
+    dialog = dialogs.EndverarbeitungDialog(True, 4, ["A"], None)
+    assert dialog.bekannt_radio.isChecked() and dialog.sprecherzahl == 4
+
+
+# --------------------------------------------------------------------------
+# branding (Logo und Programmsymbol)
+# --------------------------------------------------------------------------
+def test_programmsymbol_und_logos_sind_vorhanden(qt_app):
+    from protokoll_assistent.gui import branding
+
+    assert not branding.app_icon().isNull()
+    normal = branding.logo_pixmap(200)
+    hell = branding.logo_pixmap(200, hell=True)
+    assert normal is not None and not normal.isNull()
+    assert hell is not None and not hell.isNull()
+    assert normal.devicePixelRatio() == 2.0
+
+
+def test_fehlende_dateien_ergeben_kein_symbol_und_kein_logo(qt_app, tmp_path, monkeypatch):
+    from protokoll_assistent.gui import branding
+
+    monkeypatch.setattr(branding, "ressourcen_ordner", lambda: tmp_path)
+    assert branding.app_icon().isNull()
+    assert branding.logo_pixmap(200) is None
+    (tmp_path / branding.LOGO_DATEI).write_bytes(b"kein bild")
+    assert branding.logo_pixmap(200) is None  # beschaedigte Datei
+
+
+def test_ressourcen_ordner_im_quellcode_und_in_der_gebauten_anwendung(monkeypatch, tmp_path):
+    import sys
+
+    from protokoll_assistent.gui import branding
+
+    assert (branding.ressourcen_ordner() / branding.ICON_DATEI).is_file()
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path), raising=False)
+    assert branding.ressourcen_ordner() == tmp_path / "resources"
+
+
+# --------------------------------------------------------------------------
+# ChatSystemcheckDialog
+# --------------------------------------------------------------------------
+def test_chat_systemcheck_dialog_fasst_zusammen(qt_app):
+    from protokoll_assistent.utils.diagnostics import DiagnosticCheck
+
+    gut = [DiagnosticCheck("a", "Ollama", True, "läuft", True), DiagnosticCheck("b", "Programm", False, "fehlt", False)]
+    dialog = dialogs.ChatSystemcheckDialog(gut)
+    assert "einsatzbereit" in dialog.zusammenfassung.text() and "noch nicht" not in dialog.zusammenfassung.text()
+    assert dialog.tabelle.rowCount() == 2 and dialog.tabelle.item(0, 0).text() == "Ollama"
+    assert "läuft" in dialog.tabelle.item(0, 1).text()
+
+    schlecht = dialogs.ChatSystemcheckDialog([DiagnosticCheck("a", "Modell", False, "fehlt", True)])
+    assert "noch nicht einsatzbereit" in schlecht.zusammenfassung.text()

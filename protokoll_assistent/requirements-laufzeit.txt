@@ -40,3 +40,13 @@ faster-whisper>=1.2.1
 pyannote.audio>=4.0.7
 huggingface_hub>=1.32.0
 python-docx>=1.1
+
+# Mikrofonaufnahme ('services/recording_service.py'). Die lokale Anwendung laeuft in
+# dieser Umgebung; ohne das Paket bleibt die Geraeteliste leer. Das Windows-Rad
+# bringt die PortAudio-Bibliothek mit.
+sounddevice>=0.4.6
+
+# Dauerhaftes Merken von API-Schluesseln ('services/secret_store.py', Windows-
+# Anmeldeinformationsverwaltung). Ohne das Paket meldete die Anwendung beim
+# Speichern der Einstellungen, dass es fehlt.
+keyring>=25.0

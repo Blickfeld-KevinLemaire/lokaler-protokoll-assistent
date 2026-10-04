@@ -6,6 +6,8 @@ entweder direkt (ohne Thread) aufgerufen oder durch Attrappen ersetzt.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 pytest.importorskip("PySide6", reason="PySide6 ist nicht installiert.")
@@ -78,17 +80,30 @@ def test_install_worker_token_abfrage(install_worker):
     assert angefragt == [True]
 
 
-def test_install_worker_laeuft_durch(install_worker, monkeypatch):
+def test_install_worker_laeuft_durch(install_worker, monkeypatch, tmp_path):
     from protokoll_assistent.services import ffmpeg_service, model_download_service, ollama_service
+    from protokoll_assistent.utils import app_config
+
+    # Die Konfiguration liegt im Temp-Ordner, nie in der echten Datei.
+    konfig = tmp_path / "konfiguration.json"
+    monkeypatch.setattr(app_config, "get_config_file", lambda: konfig)
+    app_config.update_config(ollama_modell="qwen3:14b")
 
     monkeypatch.setattr(ffmpeg_service, "ensure_ffmpeg_available", lambda progress_cb: None)
+    monkeypatch.setattr(ffmpeg_service, "find_ffmpeg", lambda: Path("ffmpeg.exe"))
+    monkeypatch.setattr(ffmpeg_service, "find_ffprobe", lambda: Path("ffprobe.exe"))
     monkeypatch.setattr(
-        ollama_service, "ensure_ollama_or_offer_installer", lambda ordner, progress_cb: None
+        ollama_service, "ensure_ollama_or_offer_installer", lambda ordner, progress_cb: True
     )
     monkeypatch.setattr(
         model_download_service, "download_pyannote", lambda log, get_token: True
     )
-    monkeypatch.setattr(model_download_service, "download_ollama_model", lambda log: True)
+    geladene_ollama_modelle = []
+    monkeypatch.setattr(
+        model_download_service,
+        "download_ollama_model",
+        lambda log, model=None: geladene_ollama_modelle.append(model) or True,
+    )
 
     ergebnisse, meldungen = [], []
     install_worker.finished_ok.connect(ergebnisse.append)
@@ -96,8 +111,10 @@ def test_install_worker_laeuft_durch(install_worker, monkeypatch):
 
     install_worker.run()
 
-    assert ergebnisse == [{"pyannote": True, "ollama_modell": True}]
+    assert ergebnisse == [{"ffmpeg": True, "ollama": True, "pyannote": True, "ollama_modell": True}]
     assert any("FFmpeg" in m for m in meldungen)
+    # Heruntergeladen wird das in den Einstellungen gewaehlte Modell.
+    assert geladene_ollama_modelle == ["qwen3:14b"]
 
 
 def test_install_worker_meldet_fehler_ohne_traceback(install_worker, monkeypatch):
@@ -512,6 +529,7 @@ def test_ordnerseite_bestaetigen_mit_dateiauswahl(
 @pytest.fixture
 def assistent(qt_widgets, isolierte_konfiguration, monkeypatch):
     # Keine Seite darf beim Blaettern echte Arbeit anstossen.
+    monkeypatch.setattr(wizard.RechnerAnalysePage, "start", lambda self: None)
     monkeypatch.setattr(wizard.InstallPage, "start", lambda self: None)
     monkeypatch.setattr(wizard.DiagnosticsPage, "start", lambda self: None)
     monkeypatch.setattr(wizard.ModelChoicePage, "apply_recommendation", lambda self, e: None)
@@ -533,7 +551,7 @@ def test_assistent_zeigt_datenschutzhinweis(assistent):
     assert treffer[0].text() == wizard.PRIVACY_NOTICE
 
 
-@pytest.mark.parametrize("ziel", [1, 2, 3, 4])
+@pytest.mark.parametrize("ziel", [1, 2, 3, 4, 5])
 def test_assistent_blaettert_weiter(assistent, ziel):
     assistent._go_to(ziel)
     assert assistent.stack.currentIndex() == ziel
@@ -547,12 +565,15 @@ def test_assistent_kette_bis_zum_ende(assistent, aufnahmeordner):
 
     assistent.welcome_page.continue_requested.emit()
     assert assistent.stack.currentIndex() == 1
-    assistent.install_page.continue_requested.emit()
+    assert assistent.stack.currentWidget() is assistent.analyse_page
+    assistent.analyse_page.continue_requested.emit()
     assert assistent.stack.currentIndex() == 2
-    assistent.diagnostics_page.continue_requested.emit()
+    assistent.install_page.continue_requested.emit()
     assert assistent.stack.currentIndex() == 3
-    assistent.model_page.continue_requested.emit()
+    assistent.diagnostics_page.continue_requested.emit()
     assert assistent.stack.currentIndex() == 4
+    assistent.model_page.continue_requested.emit()
+    assert assistent.stack.currentIndex() == 5
 
     assistent.folder_page._set_folder(aufnahmeordner)
     assistent.folder_page._confirm()
@@ -562,6 +583,7 @@ def test_assistent_kette_bis_zum_ende(assistent, aufnahmeordner):
 
 def test_assistent_startet_seiten_beim_blaettern(qt_widgets, isolierte_konfiguration, monkeypatch):
     gestartet: list[str] = []
+    monkeypatch.setattr(wizard.RechnerAnalysePage, "start", lambda self: gestartet.append("analyse"))
     monkeypatch.setattr(wizard.InstallPage, "start", lambda self: gestartet.append("install"))
     monkeypatch.setattr(wizard.DiagnosticsPage, "start", lambda self: gestartet.append("diagnose"))
     monkeypatch.setattr(
@@ -572,8 +594,9 @@ def test_assistent_startet_seiten_beim_blaettern(qt_widgets, isolierte_konfigura
     assistent._go_to(1)
     assistent._go_to(2)
     assistent._go_to(3)
+    assistent._go_to(4)
 
-    assert gestartet == ["install", "diagnose", "modell"]
+    assert gestartet == ["analyse", "install", "diagnose", "modell"]
 
 
 # --------------------------------------------------------------------------
@@ -582,22 +605,25 @@ def test_assistent_startet_seiten_beim_blaettern(qt_widgets, isolierte_konfigura
 @pytest.fixture
 def einrichtung_dialog(qt_widgets, isolierte_konfiguration, monkeypatch):
     # Keine Seite darf beim Blaettern echte Arbeit anstossen.
+    monkeypatch.setattr(wizard.RechnerAnalysePage, "start", lambda self: None)
     monkeypatch.setattr(wizard.InstallPage, "start", lambda self: None)
     monkeypatch.setattr(wizard.DiagnosticsPage, "start", lambda self: None)
     monkeypatch.setattr(wizard.ModelChoicePage, "apply_recommendation", lambda self, e: None)
     return qt_widgets(wizard.LokalEinrichtungDialog())
 
 
-def test_einrichtung_dialog_startet_auf_einrichtungsseite(einrichtung_dialog):
+def test_einrichtung_dialog_startet_mit_der_rechner_analyse(einrichtung_dialog):
     # Anders als 'SetupWizard': keine Willkommens- oder Ordnerseite -- die
     # Anwendung steht ja bereits, wenn dieser Dialog aus den Einstellungen
-    # heraus geoeffnet wird.
+    # heraus geoeffnet wird. Als Erstes wird der Rechner analysiert, noch
+    # bevor etwas heruntergeladen wird.
     assert einrichtung_dialog.stack.currentIndex() == 0
-    assert einrichtung_dialog.stack.currentWidget() is einrichtung_dialog.install_page
+    assert einrichtung_dialog.stack.currentWidget() is einrichtung_dialog.analyse_page
 
 
 def test_einrichtung_dialog_startet_seiten_beim_blaettern(qt_widgets, isolierte_konfiguration, monkeypatch):
     gestartet: list[str] = []
+    monkeypatch.setattr(wizard.RechnerAnalysePage, "start", lambda self: gestartet.append("analyse"))
     monkeypatch.setattr(wizard.InstallPage, "start", lambda self: gestartet.append("install"))
     monkeypatch.setattr(wizard.DiagnosticsPage, "start", lambda self: gestartet.append("diagnose"))
     monkeypatch.setattr(
@@ -605,21 +631,265 @@ def test_einrichtung_dialog_startet_seiten_beim_blaettern(qt_widgets, isolierte_
     )
 
     dialog = qt_widgets(wizard.LokalEinrichtungDialog())
-    assert gestartet == ["install"]
+    assert gestartet == ["analyse"]
     dialog._go_to(1)
     dialog._go_to(2)
+    dialog._go_to(3)
 
-    assert gestartet == ["install", "diagnose", "modell"]
+    assert gestartet == ["analyse", "install", "diagnose", "modell"]
 
 
 def test_einrichtung_dialog_kette_bis_zum_ende(einrichtung_dialog):
     beendet = []
     einrichtung_dialog.accepted.connect(lambda: beendet.append(True))
 
-    einrichtung_dialog.install_page.continue_requested.emit()
+    einrichtung_dialog.analyse_page.continue_requested.emit()
     assert einrichtung_dialog.stack.currentIndex() == 1
-    einrichtung_dialog.diagnostics_page.continue_requested.emit()
+    einrichtung_dialog.install_page.continue_requested.emit()
     assert einrichtung_dialog.stack.currentIndex() == 2
+    einrichtung_dialog.diagnostics_page.continue_requested.emit()
+    assert einrichtung_dialog.stack.currentIndex() == 3
     einrichtung_dialog.model_page.continue_requested.emit()
 
     assert beendet == [True]
+
+
+# --------------------------------------------------------------------------
+# Rechner-Analyse
+# --------------------------------------------------------------------------
+def _analyse(profil=None):
+    from protokoll_assistent.services import rechner_analyse_service as ra
+
+    return ra.analysiere(profil or ra.RechnerProfil(ram_gb=16, cpu_kerne=8, freier_platz_gb=300))
+
+
+def _analyse_mit_anderer_empfehlung(modell="qwen3.5:9b-q4_K_M"):
+    # Die Analyse empfiehlt derzeit nur den Standard (oder nichts). Dass der
+    # Assistent eine abweichende Empfehlung richtig uebernimmt, wird hier
+    # deshalb mit einer vorgegebenen Empfehlung geprueft.
+    from protokoll_assistent.services import rechner_analyse_service as ra
+
+    analyse = _analyse()
+    analyse.empfehlung[ra.BEREICH_NACHBEARBEITUNG] = modell
+    return analyse
+
+
+@pytest.fixture
+def analyse_seite(qt_widgets, isolierte_konfiguration, monkeypatch):
+    # Der echte Thread darf nie starten.
+    monkeypatch.setattr(wizard.RechnerAnalyseWorker, "start", lambda self: None)
+    return qt_widgets(wizard.RechnerAnalysePage())
+
+
+def test_analyse_worker_liefert_die_analyse(qt_app, tmp_path, monkeypatch):
+    from protokoll_assistent.services import rechner_analyse_service as ra
+
+    monkeypatch.setattr(ra, "ermittle_profil", lambda ordner: ra.RechnerProfil(ram_gb=8, cpu_kerne=4))
+    arbeiter = wizard.RechnerAnalyseWorker(tmp_path)
+    erhalten = []
+    arbeiter.fertig.connect(erhalten.append)
+
+    arbeiter.run()
+
+    assert len(erhalten) == 1 and erhalten[0].profil.ram_gb == 8
+
+
+def test_analyse_seite_startet_gesperrt(analyse_seite):
+    analyse_seite.start()
+    assert analyse_seite._worker is not None
+    assert not analyse_seite.continue_button.isEnabled()
+    assert "analysiert" in analyse_seite.profil_label.text()
+
+
+def test_analyse_seite_ignoriert_zweiten_lauf(analyse_seite, monkeypatch):
+    analyse_seite.start()
+    erster = analyse_seite._worker
+    monkeypatch.setattr(type(erster), "isRunning", lambda self: True)
+
+    analyse_seite.start()
+
+    assert analyse_seite._worker is erster
+
+
+def test_analyse_seite_zeigt_modelle_und_hinweise(analyse_seite):
+    analyse = _analyse()
+    analyse_seite._zeige_analyse(analyse)
+
+    assert analyse_seite.continue_button.isEnabled()
+    assert analyse_seite.table.rowCount() == len(analyse.bewertungen)
+    namen = [analyse_seite.table.item(z, 0).text() for z in range(analyse_seite.table.rowCount())]
+    assert any("empfohlen" in n and "Turbo" in n for n in namen)
+    stufen = {analyse_seite.table.item(z, 1).text() for z in range(analyse_seite.table.rowCount())}
+    assert {"Läuft gut", "Eher nicht geeignet"} <= stufen
+    assert "Arbeitsspeicher: 16.0 GB" in analyse_seite.profil_label.text()
+    assert "Keine Grafikkarte erkannt" in analyse_seite.hinweis_label.text()
+    assert "qwen3.5:4b-q4_K_M" in analyse_seite.hinweis_label.text()
+
+
+def test_analyse_seite_bestaetigen_stellt_empfohlenes_modell_ein(analyse_seite):
+    analyse_seite._zeige_analyse(_analyse_mit_anderer_empfehlung())
+    ausgeloest = []
+    analyse_seite.continue_requested.connect(lambda: ausgeloest.append(True))
+
+    analyse_seite._bestaetigen()
+
+    konfig = app_config.load_config()
+    assert konfig["ollama_modell"] == "qwen3.5:9b-q4_K_M"
+    assert konfig["chatbot_ollama_modell"] == "qwen3.5:9b-q4_K_M"
+    assert ausgeloest == [True]
+
+
+def test_analyse_seite_ueberschreibt_keine_bewusste_wahl(analyse_seite):
+    app_config.update_config(ollama_modell="gemma3:12b")
+    analyse_seite._zeige_analyse(_analyse_mit_anderer_empfehlung())
+
+    analyse_seite.uebernehme_empfehlung()
+
+    konfig = app_config.load_config()
+    assert konfig["ollama_modell"] == "gemma3:12b"  # eigene Wahl bleibt
+    assert konfig["chatbot_ollama_modell"] == "qwen3.5:9b-q4_K_M"  # noch nie angefasst
+
+
+def test_analyse_seite_aendert_nichts_wenn_der_standard_empfohlen_wird(analyse_seite):
+    from protokoll_assistent.services import rechner_analyse_service as ra
+
+    analyse_seite._zeige_analyse(
+        _analyse(ra.RechnerProfil(ram_gb=32, cpu_kerne=12, gpu_name="RTX", vram_gb=12))
+    )
+    vorher = app_config.load_config()
+    analyse_seite.uebernehme_empfehlung()
+    assert app_config.load_config() == vorher
+
+
+def test_analyse_seite_ohne_analyse_oder_ohne_empfehlung(analyse_seite):
+    from protokoll_assistent.services import rechner_analyse_service as ra
+
+    analyse_seite.uebernehme_empfehlung()  # noch keine Analyse: darf nichts tun
+    analyse_seite._zeige_analyse(_analyse(ra.RechnerProfil(ram_gb=2, cpu_kerne=1)))
+    vorher = app_config.load_config()
+    analyse_seite.uebernehme_empfehlung()  # nichts empfehlbar: Einstellung bleibt
+    assert app_config.load_config() == vorher
+
+
+# --------------------------------------------------------------------------
+# Werkzeuge nachladen
+# --------------------------------------------------------------------------
+def _werkzeuge(monkeypatch, ffmpeg_da, ollama_da):
+    from protokoll_assistent.services import ffmpeg_service, ollama_service
+
+    monkeypatch.setattr(ffmpeg_service, "ensure_ffmpeg_available", lambda progress_cb: None)
+    monkeypatch.setattr(ffmpeg_service, "find_ffmpeg", lambda: Path("ffmpeg.exe") if ffmpeg_da else None)
+    monkeypatch.setattr(ffmpeg_service, "find_ffprobe", lambda: Path("ffprobe.exe") if ffmpeg_da else None)
+    monkeypatch.setattr(
+        ollama_service, "ensure_ollama_or_offer_installer", lambda ordner, progress_cb: ollama_da
+    )
+
+
+def test_werkzeuge_nachladen_meldet_gelungenes(monkeypatch):
+    _werkzeuge(monkeypatch, True, True)
+    meldungen = []
+    assert wizard.werkzeuge_nachladen(meldungen.append) == {"ffmpeg": True, "ollama": True}
+    assert not any("fehlt weiterhin" in m for m in meldungen)
+
+
+def test_werkzeuge_nachladen_meldet_fehlschlaege(monkeypatch):
+    _werkzeuge(monkeypatch, False, False)
+    meldungen = []
+    assert wizard.werkzeuge_nachladen(meldungen.append) == {"ffmpeg": False, "ollama": False}
+    text = "\n".join(meldungen)
+    assert "FFmpeg fehlt weiterhin" in text and "Ollama ist noch nicht einsatzbereit" in text
+
+
+def test_nachlade_worker_laedt_auch_das_modell(qt_app, monkeypatch, isolierte_konfiguration):
+    from protokoll_assistent.services import model_download_service
+
+    _werkzeuge(monkeypatch, True, True)
+    app_config.update_config(ollama_modell="qwen3:4b")
+    geladen = []
+    monkeypatch.setattr(
+        model_download_service, "download_ollama_model", lambda log, modell: geladen.append(modell) or True
+    )
+    arbeiter = wizard.NachladenWorker()
+    ergebnisse = []
+    arbeiter.finished_ok.connect(ergebnisse.append)
+
+    arbeiter.run()
+
+    assert geladen == ["qwen3:4b"]
+    assert ergebnisse == [{"ffmpeg": True, "ollama": True, "ollama_modell": True}]
+
+
+def test_nachlade_worker_ueberspringt_das_modell_ohne_ollama(qt_app, monkeypatch, isolierte_konfiguration):
+    from protokoll_assistent.services import model_download_service
+
+    _werkzeuge(monkeypatch, True, False)
+    monkeypatch.setattr(
+        model_download_service, "download_ollama_model", lambda *a, **k: pytest.fail("darf nicht laden")
+    )
+    arbeiter = wizard.NachladenWorker()
+    ergebnisse = []
+    arbeiter.finished_ok.connect(ergebnisse.append)
+
+    arbeiter.run()
+
+    assert ergebnisse == [{"ffmpeg": True, "ollama": False}]
+
+
+def test_nachlade_worker_meldet_unerwartete_fehler(qt_app, monkeypatch):
+    from protokoll_assistent.services import ffmpeg_service
+
+    def werfen(progress_cb):
+        raise RuntimeError("kaputt")
+
+    monkeypatch.setattr(ffmpeg_service, "ensure_ffmpeg_available", werfen)
+    arbeiter = wizard.NachladenWorker()
+    meldungen, ergebnisse = [], []
+    arbeiter.log_line.connect(meldungen.append)
+    arbeiter.finished_ok.connect(ergebnisse.append)
+
+    arbeiter.run()
+
+    assert meldungen[-1] == "FEHLER: kaputt" and ergebnisse == [{}]
+
+
+def test_diagnose_seite_bietet_nachladen_nur_bei_nachladbarem(diagnose_seite):
+    class _Mit(_Pruefung):
+        def __init__(self, key, **kwargs):
+            super().__init__(**kwargs)
+            self.key = key
+
+    diagnose_seite._show_results([_Mit("ffmpeg", ok=False, critical=True, label="FFmpeg")])
+    assert diagnose_seite.nachladen_button.isVisibleTo(diagnose_seite)
+    assert "Fehlendes nachladen" in diagnose_seite.summary_label.text()
+
+    diagnose_seite._show_results([_Mit("cuda", ok=False, critical=False, label="GPU")])
+    assert not diagnose_seite.nachladen_button.isVisibleTo(diagnose_seite)
+
+    diagnose_seite._show_results([_Pruefung(ok=True, label="ohne Schluessel")])  # Attrappen ohne 'key'
+    assert not diagnose_seite.nachladen_button.isVisibleTo(diagnose_seite)
+
+
+def test_diagnose_seite_nachladen_ablauf(diagnose_seite, monkeypatch):
+    monkeypatch.setattr(wizard.NachladenWorker, "start", lambda self: None)
+
+    diagnose_seite._nachladen()
+    assert diagnose_seite._nachlade_worker is not None
+    assert diagnose_seite.nachlade_log.isVisibleTo(diagnose_seite)
+    assert not diagnose_seite.nachladen_button.isEnabled()
+    assert "nachgeladen" in diagnose_seite.summary_label.text()
+
+    # Ein zweiter Klick waehrend des Laufs startet nichts Neues.
+    erster = diagnose_seite._nachlade_worker
+    monkeypatch.setattr(type(erster), "isRunning", lambda self: True)
+    diagnose_seite._nachladen()
+    assert diagnose_seite._nachlade_worker is erster
+
+    # Fertig mit Luecke: Grund im Protokoll, danach wird neu geprueft.
+    diagnose_seite._nachladen_fertig({"ffmpeg": False, "ollama": True})
+    text = diagnose_seite.nachlade_log.toPlainText()
+    assert "Nicht gelungen: FFmpeg" in text
+    assert diagnose_seite.nachladen_button.isEnabled()
+    assert "läuft" in diagnose_seite.summary_label.text()  # 'start' hat neu geprueft
+
+    diagnose_seite._nachladen_fertig({"ffmpeg": True})
+    assert "Fertig." in diagnose_seite.nachlade_log.toPlainText()

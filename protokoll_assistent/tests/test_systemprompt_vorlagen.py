@@ -16,7 +16,16 @@ def isolierter_vorlagenordner(tmp_path, monkeypatch):
 
 
 def test_eingebaute_vorlagen_enthalten_die_drei_bekannten():
-    assert set(sv.EINGEBAUTE_VORLAGEN) == {"Zusammenfassung", "Agenda", "Prioritaetenliste"}
+    assert set(sv.EINGEBAUTE_VORLAGEN) == {
+        "Zusammenfassung",
+        "Agenda",
+        "Prioritaetenliste",
+        "Formelles Protokoll",
+        "Projektbesprechung",
+        "Stand-up",
+        "Technische Besprechung",
+        "Interview",
+    }
 
 
 def test_eigene_vorlagen_ohne_dateien_ist_leer(isolierter_vorlagenordner):
@@ -87,3 +96,25 @@ def test_vorlage_speichern_akzeptiert_umlaute_und_leerzeichen(isolierter_vorlage
     """Umlaute sind in Dateinamen zulaessig und sollen nicht abgelehnt werden."""
     sv.vorlage_speichern("Große Besprechung", "Inhalt")
     assert (isolierter_vorlagenordner / "Große Besprechung.txt").read_text(encoding="utf-8") == "Inhalt"
+
+
+def test_abschnittsvorlagen_haben_erfindungsverbot_und_nennen_nur_bekannte_felder():
+    import re
+
+    from protokoll_assistent.utils.json_validation import PROTOCOL_REQUIRED_FIELDS
+
+    assert len(sv.ABSCHNITTSVORLAGEN) == 5
+    for name, text in sv.ABSCHNITTSVORLAGEN.items():
+        assert "Erfindungsverbot" in text, name
+        felder = set(re.findall(r"'([a-z_]+)'", text))
+        # Was in einfachen Anfuehrungszeichen steht und wie ein Feldname aussieht,
+        # muss ein Feld der Protokollstruktur sein (Tippfehler wuerden sonst
+        # unbemerkt ein Feld erfinden, das der Validator nicht kennt).
+        assert felder <= set(PROTOCOL_REQUIRED_FIELDS) | {"verantwortlich", "frist", "aufgabe", "thema", "kernaussagen"}, name
+        assert felder & set(PROTOCOL_REQUIRED_FIELDS), name
+
+
+def test_eingebaute_vorlagen_lassen_sich_nicht_ueberschreiben(tmp_path, monkeypatch):
+    monkeypatch.setattr(sv, "get_systemprompt_vorlagen_dir", lambda: tmp_path)
+    with pytest.raises(ValueError):
+        sv.vorlage_speichern("Stand-up", "x")

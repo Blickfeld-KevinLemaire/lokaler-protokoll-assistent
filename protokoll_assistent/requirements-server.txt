@@ -1,0 +1,11 @@
+# Pakete fuer den Servermodus (Container, ohne Oberflaeche).
+#
+# Bewusst ohne PySide6, sounddevice und keyring: Der Server hat keinen
+# Bildschirm, kein Mikrofon und keine Windows-Anmeldeinformationsverwaltung.
+# Die uebrigen Versionen entsprechen 'requirements-laufzeit.txt'.
+torch~=2.11.0
+torchaudio~=2.11.0
+faster-whisper>=1.2.1
+pyannote.audio>=4.0.7
+huggingface_hub>=1.32.0
+python-docx>=1.1

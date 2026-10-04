@@ -2,12 +2,16 @@
 selbsterklaerend nutzbar, ohne manuelle Vorbereitung:
 
 1. Willkommen -- kurze Erklaerung, Datenschutzhinweis.
-2. Einrichtung -- FFmpeg/Ollama werden bei Bedarf automatisch heruntergeladen,
-   danach Whisper-/pyannote-/Ollama-Modell.
-3. Systemtest -- zeigt, ob alles vorhanden und einsatzbereit ist.
-4. Eingabeordner -- der Nutzer waehlt den Ordner mit seinen Aufnahmen.
+2. Rechner-Analyse -- BEVOR etwas geladen wird: wie gut laufen welche Modelle
+   auf diesem Computer? Der Anwender bekommt die Einschaetzung zu sehen.
+3. Einrichtung -- FFmpeg/Ollama werden bei Bedarf automatisch heruntergeladen,
+   danach Whisper-/pyannote-/Ollama-Modell (passend zur Analyse).
+4. Systemtest -- zeigt, ob alles vorhanden und einsatzbereit ist; Fehlendes
+   (FFmpeg, Ollama, Ollama-Modell) laesst sich dort nachladen.
+5. Modell -- Whisper-Modell waehlen und laden.
+6. Eingabeordner -- der Nutzer waehlt den Ordner mit seinen Aufnahmen.
 
-Nach Schritt 4 wird ``setup_finished`` mit dem gewaehlten Ordner (und
+Nach Schritt 6 wird ``setup_finished`` mit dem gewaehlten Ordner (und
 optional einer vorausgewaehlten Datei) ausgeloest; ``app.py`` oeffnet
 danach das eigentliche Hauptfenster.
 """
@@ -17,7 +21,7 @@ from __future__ import annotations
 import threading
 from pathlib import Path
 
-from PySide6.QtCore import QThread, Signal
+from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
@@ -40,9 +44,9 @@ from PySide6.QtWidgets import (
 
 from protokoll_assistent.gui.dialogs import DiagnosticsRunner, render_check_item
 from protokoll_assistent.gui.strings import PRIVACY_NOTICE
-from protokoll_assistent.services import model_service
+from protokoll_assistent.services import model_service, rechner_analyse_service
 
-STEP_NAMES = ["Willkommen", "Einrichtung", "Systemtest", "Modell", "Eingabeordner"]
+STEP_NAMES = ["Willkommen", "Rechner-Analyse", "Einrichtung", "Systemtest", "Modell", "Eingabeordner"]
 
 SUPPORTED_EXTENSIONS = {
     ".mp3", ".mp4", ".m4a", ".wav", ".aac", ".flac", ".ogg", ".opus", ".mov", ".mkv", ".webm",
@@ -73,11 +77,13 @@ class WelcomePage(QWidget):
 
         steps = QLabel(
             "So funktioniert die Einrichtung:\n\n"
-            "1. Benötigte Programme und Modelle werden automatisch heruntergeladen\n"
+            "1. Zuerst wird dieser Rechner analysiert: Sie sehen, welche Modelle gut\n"
+            "    laufen und welche eher nicht.\n"
+            "2. Benötigte Programme und Modelle werden automatisch heruntergeladen\n"
             "    (faster-whisper, pyannote, ggf. FFmpeg/Ollama) -- passend zu diesem Rechner.\n"
-            "2. Ein Systemtest prüft, ob alles vorhanden und einsatzbereit ist.\n"
-            "3. Sie wählen einen Ordner mit Ihren Aufnahmen aus.\n"
-            "4. Danach können Sie sofort mit der Transkription beginnen.",
+            "3. Ein Systemtest prüft, ob alles vorhanden und einsatzbereit ist.\n"
+            "4. Sie wählen einen Ordner mit Ihren Aufnahmen aus.\n"
+            "5. Danach können Sie sofort mit der Transkription beginnen.",
             self,
         )
         steps.setWordWrap(True)
@@ -91,6 +97,180 @@ class WelcomePage(QWidget):
         start_button.clicked.connect(self.continue_requested.emit)
         button_row.addWidget(start_button)
         layout.addLayout(button_row)
+
+
+class RechnerAnalyseWorker(QThread):
+    """Ermittelt die Hardware und bewertet die Modelle. Laedt nichts herunter."""
+
+    fertig = Signal(object)  # rechner_analyse_service.Analyse
+
+    def __init__(self, ordner: Path, parent=None):
+        super().__init__(parent)
+        self._ordner = ordner
+
+    def run(self) -> None:
+        profil = rechner_analyse_service.ermittle_profil(self._ordner)
+        self.fertig.emit(rechner_analyse_service.analysiere(profil))
+
+
+_STUFEN_ANZEIGE = {
+    rechner_analyse_service.GUT: ("Läuft gut", Qt.darkGreen),
+    rechner_analyse_service.MAESSIG: ("Läuft langsam / knapp", Qt.darkYellow),
+    rechner_analyse_service.NICHT: ("Eher nicht geeignet", Qt.red),
+}
+
+
+class RechnerAnalysePage(QWidget):
+    """Erster inhaltlicher Schritt: Der Rechner wird analysiert, bevor
+    irgendetwas heruntergeladen wird. Die Seite zeigt je Modell, wie gut es
+    hier laufen wird, und merkt sich die Empfehlung (``analyse``)."""
+
+    continue_requested = Signal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("WizardPage")
+        self.analyse: rechner_analyse_service.Analyse | None = None
+        self._worker: RechnerAnalyseWorker | None = None
+
+        layout = QVBoxLayout(self)
+        title = QLabel("Rechner-Analyse", self)
+        title.setObjectName("PageTitle")
+        layout.addWidget(title)
+
+        subtitle = QLabel(
+            "Bevor etwas heruntergeladen wird, wird geprüft, welche Modelle auf diesem "
+            "Computer gut laufen. Die Einschätzung ist eine Schätzung – Sie können später "
+            "trotzdem jedes Modell wählen.",
+            self,
+        )
+        subtitle.setObjectName("PageSubtitle")
+        subtitle.setWordWrap(True)
+        layout.addWidget(subtitle)
+
+        self.profil_label = QLabel("", self)
+        self.profil_label.setWordWrap(True)
+        layout.addWidget(self.profil_label)
+
+        self.table = QTableWidget(0, 3, self)
+        self.table.setHorizontalHeaderLabels(["Modell", "Einschätzung", "Hinweis"])
+        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
+        self.table.verticalHeader().setVisible(False)
+        self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+        layout.addWidget(self.table, stretch=1)
+
+        self.hinweis_label = QLabel("", self)
+        self.hinweis_label.setWordWrap(True)
+        layout.addWidget(self.hinweis_label)
+
+        button_row = QHBoxLayout()
+        self.retry_button = QPushButton("Erneut analysieren", self)
+        self.retry_button.clicked.connect(self.start)
+        button_row.addWidget(self.retry_button)
+        button_row.addStretch(1)
+        self.continue_button = QPushButton("Weiter", self)
+        self.continue_button.setObjectName("PrimaryButton")
+        self.continue_button.setEnabled(False)
+        self.continue_button.clicked.connect(self._bestaetigen)
+        button_row.addWidget(self.continue_button)
+        layout.addLayout(button_row)
+
+    def start(self) -> None:
+        from protokoll_assistent.utils.paths import get_default_output_dir
+
+        if self._worker is not None and self._worker.isRunning():
+            return
+        self.retry_button.setEnabled(False)
+        self.continue_button.setEnabled(False)
+        self.profil_label.setText("Der Rechner wird analysiert ...")
+        self._worker = RechnerAnalyseWorker(get_default_output_dir(), self)
+        self._worker.fertig.connect(self._zeige_analyse)
+        self._worker.start()
+
+    def _zeige_analyse(self, analyse) -> None:
+        self.analyse = analyse
+        self.retry_button.setEnabled(True)
+        self.continue_button.setEnabled(True)
+        self.profil_label.setText("Dieser Rechner:\n" + rechner_analyse_service.beschreibe_profil(analyse.profil))
+
+        self.table.setRowCount(len(analyse.bewertungen))
+        for zeile, bewertung in enumerate(analyse.bewertungen):
+            empfohlen = analyse.empfehlung.get(bewertung.bereich) == bewertung.modell_id
+            name = f"{bewertung.bereich}: {bewertung.name}" + ("  ★ empfohlen" if empfohlen else "")
+            self.table.setItem(zeile, 0, QTableWidgetItem(name))
+            text, farbe = _STUFEN_ANZEIGE[bewertung.stufe]
+            stufe_item = QTableWidgetItem(text)
+            stufe_item.setForeground(farbe)
+            self.table.setItem(zeile, 1, stufe_item)
+            self.table.setItem(zeile, 2, QTableWidgetItem(bewertung.text))
+        self.table.resizeColumnToContents(0)
+        self.table.resizeColumnToContents(1)
+
+        zeilen = [f"• {hinweis}" for hinweis in analyse.hinweise]
+        gewaehlt = analyse.empfehlung.get(rechner_analyse_service.BEREICH_NACHBEARBEITUNG)
+        if gewaehlt:
+            zeilen.append(f"Für die Nachbearbeitung wird {gewaehlt} vorbereitet.")
+        self.hinweis_label.setText("\n".join(zeilen))
+
+    def _bestaetigen(self) -> None:
+        self.uebernehme_empfehlung()
+        self.continue_requested.emit()
+
+    def uebernehme_empfehlung(self) -> None:
+        """Stellt das empfohlene Sprachmodell ein -- aber nur, wo der Anwender
+        noch nichts Eigenes gewaehlt hat (Einstellung steht noch auf dem
+        Standardwert). Eine bewusste Wahl wird nie ueberschrieben."""
+        if self.analyse is None:
+            return
+        from protokoll_assistent.services import ollama_service
+        from protokoll_assistent.utils.app_config import load_config, update_config
+
+        empfohlen = self.analyse.empfehlung.get(rechner_analyse_service.BEREICH_NACHBEARBEITUNG)
+        if not empfohlen:
+            return
+        konfig = load_config()
+        aenderungen = {
+            schluessel: empfohlen
+            for schluessel in ("ollama_modell", "chatbot_ollama_modell")
+            if konfig.get(schluessel) == ollama_service.DEFAULT_MODEL
+        }
+        if aenderungen and empfohlen != ollama_service.DEFAULT_MODEL:
+            update_config(**aenderungen)
+
+
+def werkzeuge_nachladen(log) -> dict[str, bool]:
+    """Stellt FFmpeg und Ollama bereit (Download, falls sie fehlen).
+
+    Gemeinsam genutzt von der Einrichtung und vom Nachladen im Systemtest.
+    Das Ergebnis sagt je Werkzeug, ob es danach wirklich da ist -- frueher
+    stand bei einem fehlgeschlagenen Download nur eine Zeile im Protokoll,
+    und die Einrichtung meldete trotzdem "abgeschlossen"."""
+    from protokoll_assistent.services import ffmpeg_service, ollama_service
+    from protokoll_assistent.utils.paths import get_app_dir
+
+    log("Prüfe FFmpeg ...")
+    ffmpeg_service.ensure_ffmpeg_available(progress_cb=log)
+    ffmpeg_da = ffmpeg_service.find_ffmpeg() is not None and ffmpeg_service.find_ffprobe() is not None
+    if not ffmpeg_da:
+        log("FFmpeg fehlt weiterhin (Grund siehe oben).")
+
+    log("\nPrüfe Ollama ...")
+    installer_dir = get_app_dir() / "runtime" / "installer"
+    ollama_da = bool(ollama_service.ensure_ollama_or_offer_installer(installer_dir, progress_cb=log))
+    if not ollama_da:
+        log(
+            "Ollama ist noch nicht einsatzbereit. Wurde der Installer gestartet, bitte die "
+            "Installation abschließen und danach im Systemtest „Erneut prüfen“ wählen."
+        )
+    return {"ffmpeg": ffmpeg_da, "ollama": ollama_da}
+
+
+_KOMPONENTEN_NAMEN = {
+    "ffmpeg": "FFmpeg",
+    "ollama": "Ollama",
+    "pyannote": "Sprecher-Erkennung (pyannote)",
+    "ollama_modell": "Ollama-Modell",
+}
 
 
 class InstallWorker(QThread):
@@ -116,25 +296,23 @@ class InstallWorker(QThread):
 
     def run(self) -> None:
         try:
-            from protokoll_assistent.services import ffmpeg_service, model_download_service, ollama_service
-            from protokoll_assistent.utils.paths import get_app_dir
+            from protokoll_assistent.services import model_download_service, ollama_service
+            from protokoll_assistent.utils import app_config
 
-            self.log_line.emit("Prüfe FFmpeg ...")
-            ffmpeg_service.ensure_ffmpeg_available(progress_cb=self.log_line.emit)
-
-            self.log_line.emit("\nPrüfe Ollama ...")
-            installer_dir = get_app_dir() / "runtime" / "installer"
-            ollama_service.ensure_ollama_or_offer_installer(installer_dir, progress_cb=self.log_line.emit)
+            werkzeuge = werkzeuge_nachladen(self.log_line.emit)
 
             self.log_line.emit(
                 "\nLade Sprecher-Erkennungs- und Ollama-Modell herunter (kann einige "
                 "Minuten dauern) ..."
             )
             results = {
+                **werkzeuge,
                 "pyannote": model_download_service.download_pyannote(
                     self.log_line.emit, get_token=self._get_token
                 ),
-                "ollama_modell": model_download_service.download_ollama_model(self.log_line.emit),
+                "ollama_modell": model_download_service.download_ollama_model(
+                    self.log_line.emit, app_config.load_config()["ollama_modell"] or ollama_service.DEFAULT_MODEL
+                ),
             }
             self.log_line.emit(
                 "\nHinweis: Das Transkriptionsmodell wird im naechsten Schritt "
@@ -221,12 +399,14 @@ class InstallPage(QWidget):
         self.progress_bar.setRange(0, 1)
         self.progress_bar.setValue(1)
         self.log_edit.appendPlainText("\nEinrichtung abgeschlossen.")
-        missing = [key for key, ok in results.items() if not ok]
+        missing = [_KOMPONENTEN_NAMEN.get(key, key) for key, ok in results.items() if not ok]
         if missing:
             self.log_edit.appendPlainText(
                 "Hinweis: Einige Komponenten konnten nicht automatisch eingerichtet "
-                "werden: " + ", ".join(missing) + ". Sie können trotzdem fortfahren "
-                "und dies später über die Systemdiagnose prüfen."
+                "werden: " + ", ".join(missing) + ". Die Gründe stehen weiter oben. "
+                "Sie können trotzdem fortfahren und dies später über die Systemdiagnose "
+                "prüfen – dort lassen sich FFmpeg, Ollama und das Ollama-Modell auch "
+                "nachladen."
             )
         self.continue_button.setEnabled(True)
 
@@ -235,6 +415,36 @@ class InstallPage(QWidget):
         self.log_edit.appendPlainText(f"\nFEHLER: {message}")
         self.retry_button.setVisible(True)
         self.continue_button.setEnabled(True)
+
+
+# Pruefungen des Systemtests, die sich ueber "Fehlendes nachladen" beheben lassen.
+NACHLADBARE_PRUEFUNGEN = {"ffmpeg", "ffprobe", "ollama_installed", "ollama_model"}
+
+
+class NachladenWorker(QThread):
+    """Laedt im Systemtest fehlende Werkzeuge nach: FFmpeg, Ollama und das
+    gewaehlte Ollama-Modell. Meldet je Schritt, ob er gelungen ist -- und bei
+    einem Fehlschlag den Grund."""
+
+    log_line = Signal(str)
+    finished_ok = Signal(dict)
+
+    def run(self) -> None:
+        try:
+            from protokoll_assistent.services import model_download_service, ollama_service
+            from protokoll_assistent.utils import app_config
+
+            ergebnis = werkzeuge_nachladen(self.log_line.emit)
+            if ergebnis["ollama"]:
+                modell = app_config.load_config()["ollama_modell"] or ollama_service.DEFAULT_MODEL
+                self.log_line.emit("")
+                ergebnis["ollama_modell"] = model_download_service.download_ollama_model(
+                    self.log_line.emit, modell
+                )
+            self.finished_ok.emit(ergebnis)
+        except Exception as error:  # keine Tracebacks im Log -- nur die Kurzfassung
+            self.log_line.emit(f"FEHLER: {error}")
+            self.finished_ok.emit({})
 
 
 class DiagnosticsPage(QWidget):
@@ -265,10 +475,21 @@ class DiagnosticsPage(QWidget):
         self.summary_label.setWordWrap(True)
         layout.addWidget(self.summary_label)
 
+        self.nachlade_log = QPlainTextEdit(self)
+        self.nachlade_log.setReadOnly(True)
+        self.nachlade_log.setMaximumHeight(120)
+        self.nachlade_log.setVisible(False)
+        layout.addWidget(self.nachlade_log)
+
         button_row = QHBoxLayout()
         self.retry_button = QPushButton("Erneut prüfen", self)
         self.retry_button.clicked.connect(self.start)
         button_row.addWidget(self.retry_button)
+        self.nachladen_button = QPushButton("Fehlendes nachladen", self)
+        self.nachladen_button.setToolTip("Lädt FFmpeg, Ollama und das Ollama-Modell herunter, soweit sie fehlen.")
+        self.nachladen_button.setVisible(False)
+        self.nachladen_button.clicked.connect(self._nachladen)
+        button_row.addWidget(self.nachladen_button)
         button_row.addStretch(1)
         self.continue_button = QPushButton("Weiter", self)
         self.continue_button.setObjectName("PrimaryButton")
@@ -276,6 +497,33 @@ class DiagnosticsPage(QWidget):
         self.continue_button.clicked.connect(self.continue_requested.emit)
         button_row.addWidget(self.continue_button)
         layout.addLayout(button_row)
+
+        self._nachlade_worker: NachladenWorker | None = None
+
+    def _nachladen(self) -> None:
+        if self._nachlade_worker is not None and self._nachlade_worker.isRunning():
+            return
+        self.nachladen_button.setEnabled(False)
+        self.retry_button.setEnabled(False)
+        self.continue_button.setEnabled(False)
+        self.nachlade_log.clear()
+        self.nachlade_log.setVisible(True)
+        self.summary_label.setText("Fehlendes wird nachgeladen – das kann einige Minuten dauern ...")
+        self._nachlade_worker = NachladenWorker(self)
+        self._nachlade_worker.log_line.connect(self.nachlade_log.appendPlainText)
+        self._nachlade_worker.finished_ok.connect(self._nachladen_fertig)
+        self._nachlade_worker.start()
+
+    def _nachladen_fertig(self, ergebnis: dict) -> None:
+        self.nachladen_button.setEnabled(True)
+        luecken = [_KOMPONENTEN_NAMEN.get(k, k) for k, ok in ergebnis.items() if not ok]
+        if luecken:
+            self.nachlade_log.appendPlainText(
+                "\nNicht gelungen: " + ", ".join(luecken) + ". Die Gründe stehen oben."
+            )
+        else:
+            self.nachlade_log.appendPlainText("\nFertig.")
+        self.start()  # Ergebnis gleich nachpruefen
 
     def start(self) -> None:
         from protokoll_assistent.utils.paths import get_default_output_dir
@@ -300,11 +548,16 @@ class DiagnosticsPage(QWidget):
             self.table.setItem(row, 1, render_check_item(check))
 
         critical_failed = [check for check in results if check.critical and not check.ok]
+        nachladbar = any(
+            check.key in NACHLADBARE_PRUEFUNGEN and not check.ok for check in results if hasattr(check, "key")
+        )
+        self.nachladen_button.setVisible(nachladbar)
         if critical_failed:
             self.summary_label.setText(
                 "Es fehlen noch wichtige Komponenten: "
                 + ", ".join(check.label for check in critical_failed)
-                + ". Bitte zur Einrichtung zurückgehen oder erneut prüfen."
+                + ". Bitte zur Einrichtung zurückgehen, erneut prüfen"
+                + (" oder „Fehlendes nachladen“ wählen." if nachladbar else ".")
             )
         else:
             self.summary_label.setText("Alle wichtigen Prüfungen sind erfolgreich.")
@@ -576,7 +829,7 @@ class InputFolderPage(QWidget):
 
 
 class SetupWizard(QWidget):
-    """Container fuer alle fuenf Einrichtungsseiten."""
+    """Container fuer alle sechs Einrichtungsseiten."""
 
     setup_finished = Signal(str, str)  # (eingabeordner, vorausgewaehlte_datei_oder_leer)
 
@@ -613,12 +866,14 @@ class SetupWizard(QWidget):
         outer.addWidget(self.stack, stretch=1)
 
         self.welcome_page = WelcomePage(self)
+        self.analyse_page = RechnerAnalysePage(self)
         self.install_page = InstallPage(self)
         self.diagnostics_page = DiagnosticsPage(self)
         self.model_page = ModelChoicePage(self)
         self.folder_page = InputFolderPage(self)
         for page in (
             self.welcome_page,
+            self.analyse_page,
             self.install_page,
             self.diagnostics_page,
             self.model_page,
@@ -627,9 +882,10 @@ class SetupWizard(QWidget):
             self.stack.addWidget(page)
 
         self.welcome_page.continue_requested.connect(lambda: self._go_to(1))
-        self.install_page.continue_requested.connect(lambda: self._go_to(2))
-        self.diagnostics_page.continue_requested.connect(lambda: self._go_to(3))
-        self.model_page.continue_requested.connect(lambda: self._go_to(4))
+        self.analyse_page.continue_requested.connect(lambda: self._go_to(2))
+        self.install_page.continue_requested.connect(lambda: self._go_to(3))
+        self.diagnostics_page.continue_requested.connect(lambda: self._go_to(4))
+        self.model_page.continue_requested.connect(lambda: self._go_to(5))
         self.folder_page.folder_confirmed.connect(self.setup_finished.emit)
 
         self._go_to(0)
@@ -641,10 +897,12 @@ class SetupWizard(QWidget):
             label.style().unpolish(label)
             label.style().polish(label)
         if index == 1:
-            self.install_page.start()
+            self.analyse_page.start()
         elif index == 2:
-            self.diagnostics_page.start()
+            self.install_page.start()
         elif index == 3:
+            self.diagnostics_page.start()
+        elif index == 4:
             self.model_page.apply_recommendation(self.diagnostics_page.last_results)
 
 
@@ -657,8 +915,9 @@ class LokalEinrichtungDialog(QDialog):
     umschaltet (siehe 'gui/settings_dialog.py'). Die Hauptanwendung steht zu
     diesem Zeitpunkt bereits -- Willkommens- und Eingabeordner-Seite (die
     Ordnerauswahl liegt bereits im Hauptfenster) werden deshalb bewusst
-    ausgelassen; die drei verbleibenden Seiten werden unveraendert von
-    'SetupWizard' wiederverwendet."""
+    ausgelassen; die vier verbleibenden Seiten (Analyse, Einrichtung,
+    Systemtest, Modell) werden unveraendert von 'SetupWizard'
+    wiederverwendet."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -670,14 +929,16 @@ class LokalEinrichtungDialog(QDialog):
         self.stack = QStackedWidget(self)
         layout.addWidget(self.stack, stretch=1)
 
+        self.analyse_page = RechnerAnalysePage(self)
         self.install_page = InstallPage(self)
         self.diagnostics_page = DiagnosticsPage(self)
         self.model_page = ModelChoicePage(self)
-        for page in (self.install_page, self.diagnostics_page, self.model_page):
+        for page in (self.analyse_page, self.install_page, self.diagnostics_page, self.model_page):
             self.stack.addWidget(page)
 
-        self.install_page.continue_requested.connect(lambda: self._go_to(1))
-        self.diagnostics_page.continue_requested.connect(lambda: self._go_to(2))
+        self.analyse_page.continue_requested.connect(lambda: self._go_to(1))
+        self.install_page.continue_requested.connect(lambda: self._go_to(2))
+        self.diagnostics_page.continue_requested.connect(lambda: self._go_to(3))
         self.model_page.continue_requested.connect(self.accept)
 
         self._go_to(0)
@@ -685,8 +946,10 @@ class LokalEinrichtungDialog(QDialog):
     def _go_to(self, index: int) -> None:
         self.stack.setCurrentIndex(index)
         if index == 0:
-            self.install_page.start()
+            self.analyse_page.start()
         elif index == 1:
-            self.diagnostics_page.start()
+            self.install_page.start()
         elif index == 2:
+            self.diagnostics_page.start()
+        elif index == 3:
             self.model_page.apply_recommendation(self.diagnostics_page.last_results)

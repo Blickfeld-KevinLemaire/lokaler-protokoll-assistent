@@ -363,6 +363,8 @@ def _wait_for_acknowledgement(splash) -> None:
         try:
             input("\nEnter druecken, um zu beenden ...")
         except (EOFError, OSError):
+            # Keine Konsole zum Lesen (z. B. ohne Fenster gestartet): dann
+            # gibt es niemanden, auf den gewartet werden koennte.
             pass
     else:
         # Statt einer festen Wartezeit bekommt der Nutzer einen echten

@@ -7,6 +7,7 @@ Anwendung (bzw. der gebauten EXE) ermittelt.
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -83,8 +84,17 @@ def get_venv_python(venv_dir: Path | None = None) -> Path:
     return venv_python_path(venv_dir or get_active_venv_dir())
 
 
+def _daten_ordner(name: str) -> Path:
+    """Ordner fuer veraenderliche Daten. Ist ``PROTOKOLL_DATEN_DIR`` gesetzt (im
+    Container: ein eingebundenes Volume), liegen sie dort, sonst neben der
+    Anwendung. Die mitgelieferten Dateien (Vorlagen, Systemprompt) bleiben
+    immer im Anwendungsordner."""
+    basis = os.environ.get("PROTOKOLL_DATEN_DIR", "").strip()
+    return (Path(basis) if basis else get_app_dir()) / name
+
+
 def get_logs_dir() -> Path:
-    directory = get_app_dir() / "logs"
+    directory = _daten_ordner("logs")
     directory.mkdir(parents=True, exist_ok=True)
     return directory
 
@@ -113,9 +123,27 @@ def ensure_system_prompt_file_exists() -> None:
 
 def get_work_dir() -> Path:
     """Wurzelordner fuer Arbeitsdaten (Chunks, Zwischenstaende, Manifeste)."""
-    directory = get_app_dir() / "arbeitsdaten"
+    directory = _daten_ordner("arbeitsdaten")
     directory.mkdir(parents=True, exist_ok=True)
     return directory
+
+
+def get_sprecherprofile_dir() -> Path:
+    """Ablage der gespeicherten Sprecherprofile (Stimmabdruecke).
+
+    Stimmabdruecke sind biometrische Daten: Der Ordner wird nicht versioniert,
+    nicht in den Installer aufgenommen und bei der Deinstallation absichtlich
+    nicht angefasst. Er wird nur beim ersten Speichern eines Profils angelegt."""
+    return get_app_dir() / "sprecherprofile"
+
+
+def get_chatverlaeufe_dir() -> Path:
+    """Ablage der gespeicherten Chatverlaeufe ("Frag mein Meeting").
+
+    Enthaelt Inhalte aus Besprechungen: nicht versioniert, nicht im Installer,
+    bei der Deinstallation absichtlich nicht angefasst. Wird erst beim ersten
+    Speichern angelegt."""
+    return get_app_dir() / "chatverlaeufe"
 
 
 def get_default_output_dir() -> Path:

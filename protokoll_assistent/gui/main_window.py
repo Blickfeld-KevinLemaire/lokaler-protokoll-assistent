@@ -28,18 +28,20 @@ import json
 import time
 from pathlib import Path
 from types import ModuleType
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from PySide6.QtCore import Qt, QTimer, QUrl
 from PySide6.QtGui import QCloseEvent, QDesktopServices, QDragEnterEvent, QDropEvent
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QApplication,
     QButtonGroup,
     QCheckBox,
     QComboBox,
     QFileDialog,
     QFormLayout,
     QFrame,
+    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QHeaderView,
@@ -55,6 +57,7 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSpinBox,
     QSplitter,
+    QStackedWidget,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -62,7 +65,16 @@ from PySide6.QtWidgets import (
 )
 
 # Verarbeitungskette und Hilfsmodule der Anwendung.
-from protokoll_assistent.gui.dialogs import show_error
+from protokoll_assistent.gui import branding
+from protokoll_assistent.gui.chat_page import ChatPage
+from protokoll_assistent.gui.dialogs import (
+    AudioquelleDialog,
+    EndverarbeitungDialog,
+    SprecherprofileDialog,
+    show_error,
+)
+from protokoll_assistent.gui.dokument_qt import SCHREIBER as QT_SCHREIBER
+from protokoll_assistent.gui.export_dialog import ExportDialog
 from protokoll_assistent.gui.settings_dialog import DATENSCHUTZ_HINWEIS_API, SettingsDialog
 from protokoll_assistent.gui.strings import PRIVACY_NOTICE
 from protokoll_assistent.gui.worker import (
@@ -72,17 +84,22 @@ from protokoll_assistent.gui.worker import (
     TranscriptionWorker,
 )
 from protokoll_assistent.services import (
+    api_anbieter,
     api_protocol_service,
     api_transcription_service,
+    dokument_export_service,
     export_service,
     manifest_service,
     model_service,
     ollama_service,
     pipeline_service,
     secret_store,
+    sprecher_export_service,
+    sprecherprofil_service,
 )
 from protokoll_assistent.utils import app_config
 from protokoll_assistent.utils.paths import (
+    get_chatverlaeufe_dir,
     get_default_output_dir,
     get_recordings_dir,
     get_system_prompt_file,
@@ -143,6 +160,10 @@ class MainWindow(QMainWindow):
     def __init__(self, initial_folder: Path | None = None, initial_file: str | None = None) -> None:
         super().__init__()
         self.setWindowTitle("Protokoll-Assistent")
+        # Programmsymbol fuer dieses Fenster und alle Dialoge der Anwendung.
+        symbol = branding.app_icon()
+        self.setWindowIcon(symbol)
+        QApplication.setWindowIcon(symbol)
         self.resize(1420, 900)
         self.setAcceptDrops(True)
 
@@ -169,6 +190,10 @@ class MainWindow(QMainWindow):
         self._start_time: float | None = None
         self._chunk_progress = (0, 0)
         self._last_transcription_result: pipeline_service.TranscriptionResult | None = None
+        self._speaker_embeddings: dict[str, list[float]] = {}
+        # Gesetzt, wenn im Dialog 'Verarbeitung waehlen' das Protokoll direkt im
+        # Anschluss verlangt wurde.
+        self._protokoll_nach_transkription = False
         self._last_protocol_result: pipeline_service.ProtocolResult | None = None
         self._selected_transcript_path: Path | None = None
         self._hash_worker: DateiHashWorker | None = None
@@ -199,71 +224,201 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     # UI-Aufbau
     # ------------------------------------------------------------------
+    # Seiten der Navigation: (Titel, Untertitel). Die Reihenfolge entspricht den
+    # Seiten im 'QStackedWidget' aus '_build_ui'.
+    SEITEN: ClassVar[tuple[tuple[str, str], ...]] = (
+        ("Transkription", "Aufnahme oder Datei auswählen und in Text umwandeln."),
+        ("Nachbearbeitung", "Aus einem vorhandenen Transkript ein Protokoll erstellen."),
+        ("Ergebnis und Sprecher", "Vorschau ansehen, Sprecher benennen, Stimmen anhören."),
+        ("Frag mein Meeting", "Fragen an die ausgewählten Transkripte und Zusammenfassungen stellen."),
+    )
+
     def _build_ui(self) -> None:
+        """Seitenleiste mit Navigation links, rechts die gewaehlte Seite und
+        darunter immer sichtbar der Fortschritt. Die Gruppen selbst
+        ('_build_*_group') sind unveraendert; sie werden hier nur auf Seiten
+        verteilt."""
         central = QWidget(self)
         self.setCentralWidget(central)
-        root_layout = QVBoxLayout(central)
+        root_layout = QHBoxLayout(central)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+        root_layout.setSpacing(0)
 
-        header_row = QHBoxLayout()
+        root_layout.addWidget(self._build_sidebar())
+
+        content = QWidget(self)
+        content.setObjectName("ContentArea")
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(28, 22, 28, 18)
+        content_layout.setSpacing(12)
+        root_layout.addWidget(content, stretch=1)
+
+        self.page_title_label = QLabel("", self)
+        self.page_title_label.setObjectName("PageTitle")
+        self.page_subtitle_label = QLabel("", self)
+        self.page_subtitle_label.setObjectName("PageSubtitle")
+        content_layout.addWidget(self.page_title_label)
+        content_layout.addWidget(self.page_subtitle_label)
+
         privacy_label = QLabel(PRIVACY_NOTICE, self)
         privacy_label.setObjectName("PrivacyBanner")
         privacy_label.setWordWrap(True)
-        header_row.addWidget(privacy_label, stretch=1)
-        settings_button = QPushButton("Einstellungen …", self)
-        settings_button.clicked.connect(self._open_settings)
-        header_row.addWidget(settings_button, alignment=Qt.AlignTop)
-        root_layout.addLayout(header_row)
+        content_layout.addWidget(privacy_label)
 
-        splitter = QSplitter(self)
-        root_layout.addWidget(splitter, stretch=1)
+        self.page_stack = QStackedWidget(self)
+        content_layout.addWidget(self.page_stack, stretch=1)
 
-        left_panel = QWidget(self)
-        left_layout = QVBoxLayout(left_panel)
-
-        left_layout.addWidget(self._build_recording_group())
-        left_layout.addWidget(self._build_file_group())
-        left_layout.addWidget(self._build_settings_group())
-        left_layout.addWidget(self._build_resume_group())
-        left_layout.addWidget(self._build_control_group())
-
-        separator = QFrame(self)
-        separator.setFrameShape(QFrame.HLine)
-        left_layout.addWidget(separator)
-        nachbearbeitung_label = QLabel(
-            "Nachbearbeitung (separater Schritt - jederzeit für ein vorhandenes Transkript)", self
+        # Zwei Spalten, damit nichts gescrollt werden muss: links die Quelle
+        # (Aufnahme oder Datei), rechts die Einstellungen und der Start.
+        self.page_stack.addWidget(
+            self._two_column_page(
+                [self._build_recording_group(), self._build_file_group()],
+                [self._build_settings_group(), self._build_resume_group(), self._build_control_group()],
+            )
         )
-        nachbearbeitung_label.setStyleSheet("font-weight: 700;")
-        left_layout.addWidget(nachbearbeitung_label)
+        self.page_stack.addWidget(
+            self._scroll_page(
+                [
+                    self._build_transcript_selection_group(),
+                    self._build_protocol_control_group(),
+                ]
+            )
+        )
+        ergebnis_seite = QSplitter(Qt.Vertical, self)
+        ergebnis_seite.addWidget(self._build_preview_group())
+        ergebnis_seite.addWidget(self._build_speaker_group())
+        ergebnis_seite.setSizes([300, 300])
+        self.page_stack.addWidget(ergebnis_seite)
 
-        left_layout.addWidget(self._build_transcript_selection_group())
-        left_layout.addWidget(self._build_protocol_control_group())
-        left_layout.addStretch(1)
+        # Chatbot "Frag mein Meeting": Fragen an Transkripte und Zusammenfassungen.
+        self.chat_page = ChatPage(
+            lambda: self._output_dir,
+            lambda: get_work_dir() / "chat_index",
+            self._chat_api_schluessel,
+            get_chatverlaeufe_dir,
+        )
+        self.page_stack.addWidget(self.chat_page)
 
-        left_scroll = QScrollArea(self)
-        left_scroll.setWidget(left_panel)
-        left_scroll.setWidgetResizable(True)
-        left_scroll.setFrameShape(QFrame.NoFrame)
-        left_scroll.setMinimumWidth(480)
-        splitter.addWidget(left_scroll)
+        # Der Fortschritt steht unter jeder Seite, damit nach "Starten" sofort
+        # zu sehen ist, dass etwas passiert - egal, welche Seite offen ist.
+        content_layout.addWidget(self._build_progress_group())
 
-        # 'Fortschritt' steht bewusst im rechten Bereich, nicht in der
-        # scrollbaren linken Spalte: dort waere sie nach "Transkription
-        # starten" erst nach mehrfachem Scrollen zu sehen - genau das hat in
-        # der Praxis den Eindruck erweckt, es passiere gar nichts.
-        right_panel = QWidget(self)
-        splitter.addWidget(right_panel)
-        right_layout = QVBoxLayout(right_panel)
-        right_layout.addWidget(self._build_progress_group())
-        right_layout.addWidget(self._build_preview_group(), stretch=1)
-        right_layout.addWidget(self._build_speaker_group(), stretch=1)
+        self._show_page(0)
 
-        splitter.setSizes([650, 770])
+    def _build_sidebar(self) -> QFrame:
+        leiste = QFrame(self)
+        leiste.setObjectName("Sidebar")
+        leiste.setFixedWidth(250)
+        layout = QVBoxLayout(leiste)
+        layout.setContentsMargins(14, 20, 14, 16)
+        layout.setSpacing(6)
+
+        # Das grosse Logo (Fassung fuer dunklen Grund) oben in der Seitenleiste;
+        # fehlt die Datei, steht der Name als Text da.
+        self.brand_label = QLabel(self)
+        logo = branding.logo_pixmap(210, hell=True, geraetepixelverhaeltnis=self.devicePixelRatioF())
+        if logo is not None:
+            self.brand_label.setPixmap(logo)
+            self.brand_label.setAccessibleName("VERMERK")
+        else:
+            self.brand_label.setText("Protokoll-Assistent")
+            self.brand_label.setObjectName("BrandTitle")
+        layout.addWidget(self.brand_label)
+        untermarke = QLabel("Protokoll-Assistent", self)
+        untermarke.setObjectName("BrandSubtitle")
+        layout.addWidget(untermarke)
+        layout.addSpacing(14)
+
+        self.new_transcription_button = QPushButton("+  Neue Transkription", self)
+        self.new_transcription_button.setObjectName("PrimaryButton")
+        self.new_transcription_button.setToolTip("Audioquelle wählen: Mikrofon oder Mediendatei.")
+        self.new_transcription_button.clicked.connect(self._new_transcription)
+        layout.addWidget(self.new_transcription_button)
+        layout.addSpacing(10)
+
+        self._nav_gruppe = QButtonGroup(self)
+        self._nav_gruppe.setExclusive(True)
+        self.nav_buttons: list[QPushButton] = []
+        symbole = ("🎙", "📝", "👥", "💬")
+        for index, ((titel, _), symbol) in enumerate(zip(self.SEITEN, symbole, strict=True)):
+            knopf = QPushButton(f"{symbol}   {titel}", self)
+            knopf.setObjectName("NavButton")
+            knopf.setCheckable(True)
+            knopf.clicked.connect(functools.partial(self._show_page, index))
+            self._nav_gruppe.addButton(knopf, index)
+            self.nav_buttons.append(knopf)
+            layout.addWidget(knopf)
+
+        layout.addStretch(1)
+
+        self.open_output_button = QPushButton("📂   Ausgabeordner öffnen", self)
+        self.open_output_button.setObjectName("NavButton")
+        self.open_output_button.clicked.connect(self._open_output_folder)
+        layout.addWidget(self.open_output_button)
+
+        self.settings_button = QPushButton("⚙   Einstellungen", self)
+        self.settings_button.setObjectName("NavButton")
+        self.settings_button.clicked.connect(self._open_settings)
+        layout.addWidget(self.settings_button)
+        return leiste
+
+    @staticmethod
+    def _two_column_page(links: list[QGroupBox], rechts: list[QGroupBox]) -> QScrollArea:
+        """Seite mit zwei gleich breiten Spalten. Die Bildlaufleiste erscheint nur,
+        wenn das Fenster dafuer zu klein ist."""
+        inhalt = QWidget()
+        inhalt.setObjectName("PageContent")
+        zeile = QHBoxLayout(inhalt)
+        zeile.setContentsMargins(0, 0, 8, 0)
+        zeile.setSpacing(16)
+        for gruppen, dehnen in ((links, links[-1]), (rechts, None)):
+            spalte = QVBoxLayout()
+            spalte.setSpacing(12)
+            for gruppe in gruppen:
+                spalte.addWidget(gruppe, stretch=1 if gruppe is dehnen else 0)
+            if dehnen is None:
+                spalte.addStretch(1)
+            zeile.addLayout(spalte, stretch=1)
+        scroll = QScrollArea()
+        scroll.setWidget(inhalt)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        return scroll
+
+    @staticmethod
+    def _scroll_page(gruppen: list[QGroupBox]) -> QScrollArea:
+        inhalt = QWidget()
+        inhalt.setObjectName("PageContent")
+        layout = QVBoxLayout(inhalt)
+        layout.setContentsMargins(0, 0, 8, 0)
+        for gruppe in gruppen:
+            layout.addWidget(gruppe)
+        layout.addStretch(1)
+        scroll = QScrollArea()
+        scroll.setWidget(inhalt)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        return scroll
+
+    def _show_page(self, index: int, _checked: bool = False) -> None:
+        self.page_stack.setCurrentIndex(index)
+        titel, untertitel = self.SEITEN[index]
+        self.page_title_label.setText(titel)
+        self.page_subtitle_label.setText(untertitel)
+        self.nav_buttons[index].setChecked(True)
+        if self.SEITEN[index][0] == "Frag mein Meeting":
+            self.chat_page.aktualisieren()
+
+    def _open_output_folder(self) -> None:
+        self._output_dir.mkdir(parents=True, exist_ok=True)
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(self._output_dir)))
 
     def _open_settings(self) -> None:
         dialog = SettingsDialog(self)
         if dialog.exec():
             self._session_api_keys.update(dialog.eingegebene_schluessel)
             self._apply_modus_from_config()
+            self.chat_page.einstellungen_aktualisiert()
 
     def _apply_modus_from_config(self) -> None:
         config = app_config.load_config()
@@ -282,36 +437,34 @@ class MainWindow(QMainWindow):
     # im selben Auswahlmechanismus wie eine per Hand gewaehlte Datei.
     # ------------------------------------------------------------------
     def _build_recording_group(self) -> QGroupBox:
-        group = QGroupBox("1. Aufnahmegerät", self)
+        group = QGroupBox("Aufnahme", self)
         layout = QVBoxLayout(group)
+        layout.setSpacing(8)
 
         device_row = QHBoxLayout()
-        device_row.addWidget(QLabel("Aufnahmegerät:", self))
         self.recording_device_combo = QComboBox(self)
         self.recording_device_combo.currentIndexChanged.connect(self._on_recording_device_changed)
         device_row.addWidget(self.recording_device_combo, stretch=1)
+        # Beschriftet statt nur mit einem Symbol: Ein Zeichen in einem
+        # schmalen Knopf wurde mit dem Innenabstand des Themes zu einem Punkt
+        # abgeschnitten.
+        self.recording_refresh_button = QPushButton("Neu einlesen", self)
+        self.recording_refresh_button.setToolTip("Aufnahmegeräte neu einlesen (z. B. nach dem Anstecken eines Headsets).")
+        self.recording_refresh_button.clicked.connect(self._refresh_recording_devices)
+        device_row.addWidget(self.recording_refresh_button)
         layout.addLayout(device_row)
 
+        # Der Hinweis (warum kein Geraet gefunden wurde o. ae.) ist meist leer und
+        # nimmt dann keinen Platz ein.
         self.recording_hint_label = QLabel("", self)
         self.recording_hint_label.setWordWrap(True)
         self.recording_hint_label.setObjectName("RecordingHint")
+        self.recording_hint_label.setVisible(False)
         layout.addWidget(self.recording_hint_label)
 
-        status_row = QHBoxLayout()
-        self.recording_status_label = QLabel("", self)
-        status_row.addWidget(self.recording_status_label)
-        self.recording_duration_label = QLabel("", self)
-        status_row.addWidget(self.recording_duration_label)
-        status_row.addStretch(1)
-        layout.addLayout(status_row)
-
-        self.recording_level_bar = QProgressBar(self)
-        self.recording_level_bar.setRange(0, 100)
-        self.recording_level_bar.setTextVisible(False)
-        layout.addWidget(self.recording_level_bar)
-
+        # Knoepfe, Status und Dauer in einer Zeile, darunter der schmale Pegel.
         button_row = QHBoxLayout()
-        self.recording_start_button = QPushButton("Voice Recording starten", self)
+        self.recording_start_button = QPushButton("Aufnahme starten", self)
         self.recording_start_button.clicked.connect(self._start_recording)
         button_row.addWidget(self.recording_start_button)
         self.recording_pause_button = QPushButton("Pause", self)
@@ -319,14 +472,47 @@ class MainWindow(QMainWindow):
         self.recording_pause_button.hide()
         button_row.addWidget(self.recording_pause_button)
         self.recording_stop_button = QPushButton("Aufnahme beenden", self)
+        self.recording_stop_button.setObjectName("DangerButton")
         self.recording_stop_button.clicked.connect(self._stop_recording)
         self.recording_stop_button.hide()
         button_row.addWidget(self.recording_stop_button)
+        self.recording_status_label = QLabel("", self)
+        button_row.addWidget(self.recording_status_label)
+        self.recording_duration_label = QLabel("", self)
+        button_row.addWidget(self.recording_duration_label)
         button_row.addStretch(1)
         layout.addLayout(button_row)
 
+        self.recording_level_bar = QProgressBar(self)
+        self.recording_level_bar.setRange(0, 100)
+        self.recording_level_bar.setTextVisible(False)
+        self.recording_level_bar.setFixedHeight(10)
+        layout.addWidget(self.recording_level_bar)
+
         self._populate_recording_devices()
         return group
+
+    def _set_recording_hint(self, text: str) -> None:
+        self.recording_hint_label.setText(text)
+        self.recording_hint_label.setVisible(bool(text))
+
+    def _show_no_recording_device(self) -> None:
+        """Statt eines leeren Auswahlfelds (dessen Pfeil nichts oeffnet und
+        keine Erklaerung bietet) steht ein deaktivierter Platzhalter in der
+        Liste; der Grund steht darunter im Hinweis."""
+        combo = self.recording_device_combo
+        combo.blockSignals(True)
+        combo.clear()
+        combo.addItem("Kein Aufnahmegerät verfügbar")
+        eintrag = combo.model().item(0)
+        if eintrag is not None:
+            eintrag.setEnabled(False)
+        combo.blockSignals(False)
+
+    def _refresh_recording_devices(self) -> None:
+        if self._recording is not None:
+            return
+        self._populate_recording_devices()
 
     def _populate_recording_devices(self) -> None:
         try:
@@ -334,7 +520,8 @@ class MainWindow(QMainWindow):
             self._recording_devices = aufnahme_modul.liste_aufnahmegeraete()
         except ImportError as error:
             self._recording_devices = []
-            self.recording_hint_label.setText(
+            self._show_no_recording_device()
+            self._set_recording_hint(
                 "Die Mikrofonaufnahme steht in dieser Laufzeitumgebung nicht zur "
                 f"Verfügung ({error}). Alles andere funktioniert unverändert; eine "
                 "bereits vorhandene Aufnahme kann wie jede andere Datei ausgewählt werden."
@@ -343,12 +530,18 @@ class MainWindow(QMainWindow):
             return
         except Exception as error:  # PortAudio-Fehler in ungewoehnlicher Umgebung
             self._recording_devices = []
-            self.recording_hint_label.setText(f"Aufnahmegeräte konnten nicht ermittelt werden: {error}")
+            self._show_no_recording_device()
+            self._set_recording_hint(f"Aufnahmegeräte konnten nicht ermittelt werden: {error}")
             self.recording_start_button.setEnabled(False)
             return
 
         if not self._recording_devices:
-            self.recording_hint_label.setText("Keine Audioeingabegeräte gefunden.")
+            self._show_no_recording_device()
+            self._set_recording_hint(
+                "Keine Audioeingabegeräte gefunden. Gerät anstecken und auf „Neu einlesen“ klicken; "
+                "in den Windows-Datenschutzeinstellungen muss der Mikrofonzugriff für "
+                "Desktop-Apps erlaubt sein."
+            )
             self.recording_start_button.setEnabled(False)
             return
 
@@ -369,14 +562,14 @@ class MainWindow(QMainWindow):
                 self.recording_device_combo.setCurrentIndex(index)
         self.recording_device_combo.blockSignals(False)
 
-        self.recording_hint_label.setText(hint or "")
+        self._set_recording_hint(hint or "")
         self.recording_start_button.setEnabled(True)
 
     def _on_recording_device_changed(self, _index: int) -> None:
         anzeigename = self.recording_device_combo.currentText()
         if anzeigename:
             app_config.update_config(aufnahmegeraet=anzeigename)
-            self.recording_hint_label.setText("")
+            self._set_recording_hint("")
 
     def _start_recording(self) -> None:
         anzeigename = self.recording_device_combo.currentText()
@@ -448,8 +641,9 @@ class MainWindow(QMainWindow):
     # Gruppe 2: Eingabeordner und Datei
     # ------------------------------------------------------------------
     def _build_file_group(self) -> QGroupBox:
-        group = QGroupBox("2. Eingabeordner und Datei", self)
+        group = QGroupBox("Datei", self)
         layout = QVBoxLayout(group)
+        layout.setSpacing(8)
 
         folder_row = QHBoxLayout()
         folder_text = str(self._input_folder) if self._input_folder else "Kein Eingabeordner ausgewählt"
@@ -461,10 +655,12 @@ class MainWindow(QMainWindow):
         folder_row.addWidget(self.folder_label, stretch=1)
         layout.addLayout(folder_row)
 
+        # Die Liste nimmt den uebrigen Platz der Spalte ein, statt eine feste
+        # Hoehe zu haben.
         self.file_list = QListWidget(self)
-        self.file_list.setMaximumHeight(140)
+        self.file_list.setMinimumHeight(90)
         self.file_list.itemSelectionChanged.connect(self._on_file_list_selection_changed)
-        layout.addWidget(self.file_list)
+        layout.addWidget(self.file_list, stretch=1)
         if self._input_folder is not None:
             self._populate_file_list(self._input_folder)
 
@@ -472,12 +668,10 @@ class MainWindow(QMainWindow):
         choose_file_button = QPushButton("Andere Datei wählen …", self)
         choose_file_button.clicked.connect(self._choose_file)
         other_file_row.addWidget(choose_file_button)
-        other_file_row.addStretch(1)
-        layout.addLayout(other_file_row)
-
         self.file_label = QLabel("Keine Datei ausgewählt", self)
         self.file_label.setWordWrap(True)
-        layout.addWidget(self.file_label)
+        other_file_row.addWidget(self.file_label, stretch=1)
+        layout.addLayout(other_file_row)
 
         output_row = QHBoxLayout()
         self.output_label = QLabel(str(self._output_dir), self)
@@ -496,7 +690,7 @@ class MainWindow(QMainWindow):
     # gehoeren in 'SettingsDialog', nicht hierher.
     # ------------------------------------------------------------------
     def _build_settings_group(self) -> QGroupBox:
-        group = QGroupBox("3. Einstellungen", self)
+        group = QGroupBox("Einstellungen für diesen Lauf", self)
         layout = QFormLayout(group)
         layout.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
         layout.setHorizontalSpacing(12)
@@ -507,24 +701,20 @@ class MainWindow(QMainWindow):
         self.language_combo.addItem("Automatisch erkennen", None)
         layout.addRow("Sprache:", self.language_combo)
 
-        self.diarization_checkbox = QCheckBox("Sprechertrennung aktivieren (Sprecher erkennen)", self)
+        self.diarization_checkbox = QCheckBox("Sprechertrennung (Sprecher erkennen)", self)
         self.diarization_checkbox.setChecked(True)
         self.diarization_checkbox.toggled.connect(self._toggle_diarization)
+        self.diarization_checkbox.setToolTip(
+            "Abwählen, wenn nur der Inhalt zählt und die Aussagen anonym bleiben sollen "
+            "(keine Sprecherzuordnung im Ergebnis)."
+        )
         layout.addRow(self.diarization_checkbox)
 
-        diarization_hint = QLabel(
-            "Deaktivieren, wenn nur der Inhalt zaehlt und die Aussagen anonym bleiben "
-            "sollen (keine Sprecherzuordnung im Ergebnis).",
-            self,
-        )
-        diarization_hint.setWordWrap(True)
-        layout.addRow(diarization_hint)
-
-        self.limit_speakers_checkbox = QCheckBox("Sprecherzahl manuell begrenzen", self)
-        self.limit_speakers_checkbox.toggled.connect(self._toggle_speaker_limits)
-        layout.addRow(self.limit_speakers_checkbox)
-
+        # Begrenzung der Sprecherzahl in einer Zeile: Haken, Min., Max.
         speaker_row = QHBoxLayout()
+        self.limit_speakers_checkbox = QCheckBox("Sprecherzahl begrenzen", self)
+        self.limit_speakers_checkbox.toggled.connect(self._toggle_speaker_limits)
+        speaker_row.addWidget(self.limit_speakers_checkbox)
         self.min_speakers_spin = QSpinBox(self)
         self.min_speakers_spin.setRange(1, 30)
         self.min_speakers_spin.setValue(2)
@@ -537,6 +727,7 @@ class MainWindow(QMainWindow):
         speaker_row.addWidget(self.min_speakers_spin)
         speaker_row.addWidget(QLabel("Max.:", self))
         speaker_row.addWidget(self.max_speakers_spin)
+        speaker_row.addStretch(1)
         layout.addRow(speaker_row)
 
         # Vorher stand 'allow_download=False' fest im
@@ -547,16 +738,11 @@ class MainWindow(QMainWindow):
         # Einsatz im lokalen Modus automatisch heruntergeladen").
         self.offline_checkbox = QCheckBox("Offline-Modus (empfohlen)", self)
         self.offline_checkbox.setChecked(True)
-        layout.addRow(self.offline_checkbox)
-
-        offline_hint = QLabel(
-            "Verhindert jeden Netzwerkzugriff der Modelle. Für den ersten Lauf mit "
-            "einem noch nicht eingerichteten Whisper-Modell einmal abwählen, damit es "
-            "heruntergeladen werden darf.",
-            self,
+        self.offline_checkbox.setToolTip(
+            "Verhindert jeden Netzwerkzugriff der Modelle. Für den ersten Lauf mit einem noch nicht "
+            "eingerichteten Whisper-Modell einmal abwählen, damit es heruntergeladen werden darf."
         )
-        offline_hint.setWordWrap(True)
-        layout.addRow(offline_hint)
+        layout.addRow(self.offline_checkbox)
 
         return group
 
@@ -578,7 +764,7 @@ class MainWindow(QMainWindow):
     # Gruppe 4: Fortsetzen bei Langzeitaufnahmen
     # ------------------------------------------------------------------
     def _build_resume_group(self) -> QGroupBox:
-        group = QGroupBox("4. Fortsetzen bei Langzeitaufnahmen", self)
+        group = QGroupBox("Fortsetzen bei Langzeitaufnahmen", self)
         layout = QVBoxLayout(group)
 
         self.resume_status_label = QLabel(
@@ -607,7 +793,7 @@ class MainWindow(QMainWindow):
     # nicht jedes Mal die Einstellungen geoeffnet werden muessen.
     # ------------------------------------------------------------------
     def _build_control_group(self) -> QGroupBox:
-        group = QGroupBox("5. Transkription", self)
+        group = QGroupBox("Transkription starten", self)
         layout = QVBoxLayout(group)
 
         modus_row = QHBoxLayout()
@@ -637,15 +823,78 @@ class MainWindow(QMainWindow):
 
         button_row = QHBoxLayout()
         self.start_button = QPushButton("Transkription starten", self)
-        self.start_button.clicked.connect(self._start_transcription)
+        self.start_button.setObjectName("PrimaryButton")
+        self.start_button.clicked.connect(self._start_transcription_with_dialog)
         button_row.addWidget(self.start_button)
         self.cancel_button = QPushButton("Abbrechen", self)
+        self.cancel_button.setObjectName("DangerButton")
         self.cancel_button.setEnabled(False)
         self.cancel_button.clicked.connect(self._cancel_transcription)
         button_row.addWidget(self.cancel_button)
         layout.addLayout(button_row)
 
         return group
+
+    def _new_transcription(self) -> None:
+        """Dialog 'Audioquelle waehlen'; fuehrt danach die vorhandene
+        Aufnahme- bzw. Dateiauswahl aus."""
+        if self._recording is not None:
+            return
+        self._show_page(0)
+        geraete = [geraet.anzeigename for geraet in self._recording_devices]
+        dialog = AudioquelleDialog(
+            geraete,
+            self.recording_device_combo.currentIndex(),
+            self.recording_start_button.isEnabled(),
+            self,
+        )
+        if not dialog.exec():
+            return
+        if dialog.quelle == "mikrofon":
+            self.recording_device_combo.setCurrentIndex(dialog.geraet_index)
+            self._start_recording()
+        else:
+            self._choose_file()
+
+    def _start_transcription_with_dialog(self) -> None:
+        """Fragt vor dem Start die Verarbeitung ab (Sprecher, Protokoll) und
+        startet dann wie bisher. Ohne Quelldatei geht es direkt an
+        ``_start_transcription``, das den Fehler meldet."""
+        if self._source_path is None:
+            self._start_transcription()
+            return
+        sprecherzahl = (
+            self.min_speakers_spin.value()
+            if self.limit_speakers_checkbox.isChecked()
+            and self.min_speakers_spin.value() == self.max_speakers_spin.value()
+            else None
+        )
+        vorlagen = list(alle_vorlagen())
+        dialog = EndverarbeitungDialog(
+            self.diarization_checkbox.isChecked(),
+            sprecherzahl,
+            vorlagen,
+            self.vorlage_combo.currentData(),
+            self,
+        )
+        if not dialog.exec():
+            return
+        self.diarization_checkbox.setChecked(dialog.sprecher_erkennen)
+        if dialog.sprecherzahl is not None:
+            self.limit_speakers_checkbox.setChecked(True)
+            self.min_speakers_spin.setValue(dialog.sprecherzahl)
+            self.max_speakers_spin.setValue(dialog.sprecherzahl)
+        else:
+            self.limit_speakers_checkbox.setChecked(False)
+        self._protokoll_nach_transkription = dialog.protokoll_erstellen
+        if dialog.vorlage is not None:
+            self.vorlage_combo.setCurrentIndex(self.vorlage_combo.findData(dialog.vorlage))
+        vorher = self._transcription_worker
+        self._start_transcription()
+        if self._transcription_worker is vorher:
+            # Kein neuer Arbeiter: Der Start ist gescheitert, die Fehlermeldung
+            # wurde schon gezeigt.
+            self._protokoll_nach_transkription = False
 
     def _transkription_modus_geaendert(self) -> None:
         modus = "api" if self.transkription_api_radio.isChecked() else "lokal"
@@ -659,35 +908,42 @@ class MainWindow(QMainWindow):
     # Gemeinsame Fortschrittsgruppe
     # ------------------------------------------------------------------
     def _build_progress_group(self) -> QGroupBox:
+        """Kompakter Fortschritt, dauerhaft unter der aktuellen Seite."""
         group = QGroupBox("Fortschritt", self)
-        layout = QFormLayout(group)
+        layout = QGridLayout(group)
+        layout.setHorizontalSpacing(18)
+        layout.setVerticalSpacing(6)
 
         self.status_label = QLabel("Bereit.", self)
         self.status_label.setWordWrap(True)
-        layout.addRow("Status:", self.status_label)
-
         self.transcription_status_label = QLabel("wartet", self)
-        layout.addRow("Transkriptionsstatus:", self.transcription_status_label)
-
         self.protocol_status_label = QLabel("wartet", self)
-        layout.addRow("Status Nachbearbeitung:", self.protocol_status_label)
-
         self.chunk_progress_bar = QProgressBar(self)
-        layout.addRow("Aktueller Chunk:", self.chunk_progress_bar)
-
         self.overall_progress_bar = QProgressBar(self)
         self.overall_progress_bar.setRange(0, 100)
-        layout.addRow("Gesamtfortschritt:", self.overall_progress_bar)
-
         self.elapsed_label = QLabel("00:00", self)
-        layout.addRow("Laufzeit:", self.elapsed_label)
-
         self.remaining_label = QLabel("--", self)
-        layout.addRow("Geschätzte Restdauer:", self.remaining_label)
-
         self.hardware_label = QLabel("--", self)
-        layout.addRow("Hardware:", self.hardware_label)
 
+        def beschriftet(text: str, widget: QWidget) -> QWidget:
+            zelle = QWidget(self)
+            zeile = QVBoxLayout(zelle)
+            zeile.setContentsMargins(0, 0, 0, 0)
+            zeile.setSpacing(2)
+            ueberschrift = QLabel(text, self)
+            ueberschrift.setObjectName("FieldCaption")
+            zeile.addWidget(ueberschrift)
+            zeile.addWidget(widget)
+            return zelle
+
+        layout.addWidget(beschriftet("Status", self.status_label), 0, 0, 1, 4)
+        layout.addWidget(beschriftet("Transkription", self.transcription_status_label), 1, 0)
+        layout.addWidget(beschriftet("Nachbearbeitung", self.protocol_status_label), 1, 1)
+        layout.addWidget(beschriftet("Aktueller Chunk", self.chunk_progress_bar), 1, 2)
+        layout.addWidget(beschriftet("Gesamtfortschritt", self.overall_progress_bar), 1, 3)
+        layout.addWidget(beschriftet("Laufzeit", self.elapsed_label), 2, 0)
+        layout.addWidget(beschriftet("Geschätzte Restdauer", self.remaining_label), 2, 1)
+        layout.addWidget(beschriftet("Hardware", self.hardware_label), 2, 2, 1, 2)
         return group
 
     def _build_preview_group(self) -> QGroupBox:
@@ -696,15 +952,23 @@ class MainWindow(QMainWindow):
         self.preview_edit = QPlainTextEdit(self)
         self.preview_edit.setReadOnly(True)
         layout.addWidget(self.preview_edit)
+
+        self.export_button = QPushButton("Exportieren …", self)
+        self.export_button.setToolTip(
+            "Transkript (und Protokoll) als Word, PDF, Markdown, Text, HTML, OpenDocument, Untertitel "
+            "oder JSON in einen Ordner Ihrer Wahl speichern."
+        )
+        self.export_button.clicked.connect(self._export_oeffnen)
+        layout.addWidget(self.export_button)
         return group
 
     def _build_speaker_group(self) -> QGroupBox:
         group = QGroupBox("Sprecherzuordnung", self)
         layout = QVBoxLayout(group)
 
-        self.speaker_table = QTableWidget(0, 4, self)
+        self.speaker_table = QTableWidget(0, 6, self)
         self.speaker_table.setHorizontalHeaderLabels(
-            ["Technische Sprecher-ID", "Segmente", "Sprechdauer", "Name"]
+            ["Technische Sprecher-ID", "Segmente", "Sprechdauer", "Name", "Stimme", "Profil"]
         )
         self.speaker_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
         self.speaker_table.setEditTriggers(QAbstractItemView.DoubleClicked | QAbstractItemView.SelectedClicked)
@@ -714,6 +978,11 @@ class MainWindow(QMainWindow):
         self.apply_names_button.setEnabled(False)
         self.apply_names_button.clicked.connect(self._apply_speaker_names)
         layout.addWidget(self.apply_names_button)
+
+        self.profiles_button = QPushButton("Sprecherprofile verwalten …", self)
+        self.profiles_button.setToolTip("Gespeicherte Stimmen ansehen, umbenennen oder löschen.")
+        self.profiles_button.clicked.connect(self._manage_speaker_profiles)
+        layout.addWidget(self.profiles_button)
 
         return group
 
@@ -887,7 +1156,7 @@ class MainWindow(QMainWindow):
     # Gruppe 6: Transkript auswaehlen (Eingang fuer die Nachbearbeitung)
     # ------------------------------------------------------------------
     def _build_transcript_selection_group(self) -> QGroupBox:
-        group = QGroupBox("6. Transkript auswählen", self)
+        group = QGroupBox("Transkript auswählen", self)
         layout = QVBoxLayout(group)
 
         row = QHBoxLayout()
@@ -921,7 +1190,7 @@ class MainWindow(QMainWindow):
     # (Vorlage per Dropdown oder freier Text, wie vom Auftrag verlangt).
     # ------------------------------------------------------------------
     def _build_protocol_control_group(self) -> QGroupBox:
-        group = QGroupBox("7. Nachbearbeitung", self)
+        group = QGroupBox("Protokoll erstellen", self)
         layout = QVBoxLayout(group)
 
         modus_row = QHBoxLayout()
@@ -968,12 +1237,18 @@ class MainWindow(QMainWindow):
 
         button_row = QHBoxLayout()
         self.protocol_start_button = QPushButton("Nachbearbeitung starten", self)
+        self.protocol_start_button.setObjectName("PrimaryButton")
         self.protocol_start_button.clicked.connect(self._start_protocol)
         button_row.addWidget(self.protocol_start_button)
         self.protocol_cancel_button = QPushButton("Abbrechen", self)
+        self.protocol_cancel_button.setObjectName("DangerButton")
         self.protocol_cancel_button.setEnabled(False)
         self.protocol_cancel_button.clicked.connect(self._cancel_protocol)
         button_row.addWidget(self.protocol_cancel_button)
+        self.protocol_export_button = QPushButton("Exportieren …", self)
+        self.protocol_export_button.setToolTip("Protokoll und Transkript in ein gewünschtes Format exportieren.")
+        self.protocol_export_button.clicked.connect(self._export_oeffnen)
+        button_row.addWidget(self.protocol_export_button)
         layout.addLayout(button_row)
 
         return group
@@ -1055,6 +1330,19 @@ class MainWindow(QMainWindow):
         transcribe_chunk_fn = None
         diarize_fn = None
         if self.transkription_api_radio.isChecked():
+            if not (
+                api_anbieter.adresse_vollstaendig(config["api_transkription_endpunkt"])
+                and config["api_transkription_modell"]
+            ):
+                show_error(
+                    self,
+                    "Kein Anbieter gewählt",
+                    "Für die Transkription über eine API ist noch kein Anbieter gewählt oder die Adresse "
+                    "unvollständig.\n\nBitte in den Einstellungen im Reiter „Transkription“ einen Anbieter "
+                    "wählen (bei Microsoft Azure außerdem den Namen der eigenen Ressource in der Adresse "
+                    "eintragen).",
+                )
+                return
             api_key = self._verwendbarer_api_schluessel("transkription")
             if not api_key:
                 show_error(
@@ -1127,6 +1415,18 @@ class MainWindow(QMainWindow):
         mit einem kryptischen Fehler scheitern."""
         return importlib.util.find_spec("faster_whisper") is not None
 
+    def _chat_api_schluessel(self) -> str:
+        """API-Schluessel des Chatbots: der eigene, sonst derselbe wie bei der
+        Nachbearbeitung (dort wiederum eigener oder der der Transkription)."""
+        konfig = app_config.load_config()
+        if konfig["chatbot_api_eigener_schluessel"]:
+            name = "chatbot"
+        elif konfig["api_nachbearbeitung_eigener_schluessel"]:
+            name = "nachbearbeitung"
+        else:
+            name = "transkription"
+        return self._verwendbarer_api_schluessel(name) or ""
+
     def _verwendbarer_api_schluessel(self, schluessel_name: str) -> str | None:
         """Gemerkter Schluessel, sonst der nur fuer diese Sitzung eingegebene.
 
@@ -1188,6 +1488,19 @@ class MainWindow(QMainWindow):
         config = app_config.load_config()
         protocol_generate_fn: ProtocolGenerateFn | None = None
         if self.nachbearbeitung_api_radio.isChecked():
+            if not (
+                api_anbieter.adresse_vollstaendig(config["api_nachbearbeitung_endpunkt"])
+                and config["api_nachbearbeitung_modell"]
+            ):
+                show_error(
+                    self,
+                    "Kein Anbieter gewählt",
+                    "Für die Nachbearbeitung über eine API ist noch kein Anbieter gewählt oder die Adresse "
+                    "unvollständig.\n\nBitte in den Einstellungen im Reiter „Nachbearbeitung“ einen Anbieter "
+                    "wählen (bei Microsoft Azure außerdem den Namen der eigenen Ressource in der Adresse "
+                    "eintragen).",
+                )
+                return
             eigener_schluessel = config["api_nachbearbeitung_eigener_schluessel"]
             schluessel_name = "nachbearbeitung" if eigener_schluessel else "transkription"
             api_key = self._verwendbarer_api_schluessel(schluessel_name)
@@ -1225,6 +1538,18 @@ class MainWindow(QMainWindow):
                     raise ollama_service.OllamaError(str(fehler)) from fehler
 
             protocol_generate_fn = _api_nachbearbeitung
+
+        if not self.nachbearbeitung_api_radio.isChecked():
+            lokales_modell = config["ollama_modell"] or ollama_service.DEFAULT_MODEL
+            if ollama_service.modell_fehlt(lokales_modell):
+                show_error(
+                    self,
+                    "Ollama-Modell fehlt",
+                    f"Das Modell '{lokales_modell}' ist bei Ollama nicht installiert.\n\n"
+                    "Bitte in den Einstellungen unter „Nachbearbeitung“ auf „Jetzt herunterladen“ klicken "
+                    "oder ein anderes, bereits installiertes Modell wählen.",
+                )
+                return
 
         settings = pipeline_service.ProtocolSettings(
             transcript_json_path=self._selected_transcript_path,
@@ -1315,6 +1640,14 @@ class MainWindow(QMainWindow):
         self._populate_speaker_table(result)
         self._set_transcript_path(result.export_paths.json)
         self.status_label.setText("Transkription abgeschlossen.")
+        self._show_page(2)
+        if self._protokoll_nach_transkription and self._transcription_worker is not None:
+            # Erst starten, wenn der Transkriptions-Thread beendet ist: Dessen
+            # 'finished' schaltet die Bedienelemente wieder frei und stoppt den
+            # Zeitgeber - das wuerde sonst die eben gestartete Nachbearbeitung
+            # betreffen. Slots laufen in der Reihenfolge des Verbindens.
+            self._transcription_worker.finished.connect(self._start_protocol_after_transcription)
+            return
         QMessageBox.information(
             self,
             "Transkription abgeschlossen",
@@ -1323,11 +1656,46 @@ class MainWindow(QMainWindow):
             "oder jederzeit fuer ein anderes Transkript gestartet werden.",
         )
 
+    def _word_neu_erzeugen(self, transkript_json: Path) -> None:
+        """Die automatische Word-Datei mit den neuen Sprechernamen neu schreiben (still: scheitert das, bleibt der Rest gueltig)."""
+        protokoll = None
+        if self._last_protocol_result is not None and self._last_protocol_result.protocol_paths is not None:
+            protokoll = self._last_protocol_result.protocol_paths[0]
+        try:
+            dokument_export_service.automatisches_word(transkript_json, protokoll)
+        except dokument_export_service.ExportFehler as fehler:
+            self._on_log_message(f"Die Word-Datei wurde nicht aktualisiert: {fehler}")
+
+    def _export_oeffnen(self, _checked: bool = False) -> None:
+        """Dialog "Exportieren": gewaehltes Transkript, dazu das Protokoll des
+        letzten Laufs, falls es eines gibt (im Dialog austauschbar)."""
+        transkript = self._selected_transcript_path
+        if transkript is None or not transkript.is_file():
+            show_error(
+                self,
+                "Kein Transkript",
+                "Es ist noch kein Transkript vorhanden. Bitte zuerst eine Aufnahme transkribieren oder "
+                "unter „Nachbearbeitung“ ein Transkript auswählen.",
+            )
+            return
+        protokoll = None
+        if self._last_protocol_result is not None and self._last_protocol_result.protocol_paths is not None:
+            kandidat = self._last_protocol_result.protocol_paths[0]
+            protokoll = kandidat if kandidat.is_file() else None
+        ExportDialog(transkript, protokoll, self._output_dir, QT_SCHREIBER, self).exec()
+
+    def _start_protocol_after_transcription(self) -> None:
+        if self._protokoll_nach_transkription:
+            self._protokoll_nach_transkription = False
+            self._start_protocol()
+
     def _on_transcription_failed(self, message: str) -> None:
+        self._protokoll_nach_transkription = False
         self.status_label.setText("Fehler bei der Transkription.")
         show_error(self, "Transkription fehlgeschlagen", message)
 
     def _on_transcription_cancelled(self) -> None:
+        self._protokoll_nach_transkription = False
         self.status_label.setText("Transkription abgebrochen.")
 
     def _on_protocol_finished_ok(self, result: pipeline_service.ProtocolResult) -> None:
@@ -1366,6 +1734,14 @@ class MainWindow(QMainWindow):
     def _populate_speaker_table(self, result: pipeline_service.TranscriptionResult) -> None:
         data = json.loads(result.export_paths.json.read_text(encoding="utf-8"))
         entries = data.get("sprecher_zuordnung", [])
+        # Stimmabdruecke dieses Laufs gibt es nur im lokalen Modus.
+        arbeitsordner = getattr(result, "work_dir", None)
+        self._speaker_embeddings = (
+            sprecherprofil_service.lade_lauf_embeddings(arbeitsordner) if arbeitsordner else {}
+        )
+        vorschlaege = sprecherprofil_service.finde_vorschlaege(
+            self._speaker_embeddings, sprecherprofil_service.lade_profile()
+        )
         self.speaker_table.setRowCount(len(entries))
         for row, entry in enumerate(entries):
             id_item = QTableWidgetItem(entry["sprecher_id"])
@@ -1381,8 +1757,128 @@ class MainWindow(QMainWindow):
             self.speaker_table.setItem(row, 2, duration_item)
 
             self.speaker_table.setItem(row, 3, QTableWidgetItem(entry["anzeigename"]))
+            self.speaker_table.setCellWidget(row, 4, self._build_voice_buttons(entry["sprecher_id"]))
+            self.speaker_table.setCellWidget(
+                row, 5, self._build_profile_cell(entry["sprecher_id"], vorschlaege.get(entry["sprecher_id"]))
+            )
 
         self.apply_names_button.setEnabled(len(entries) > 0)
+
+    def _build_voice_buttons(self, sprecher_id: str) -> QWidget:
+        """Schaltflaechen 'Anhoeren' und 'Exportieren' fuer eine Tabellenzeile."""
+        zelle = QWidget(self.speaker_table)
+        layout = QHBoxLayout(zelle)
+        layout.setContentsMargins(2, 0, 2, 0)
+        hoeren = QPushButton("▶ Anhören", zelle)
+        hoeren.setToolTip("Spielt eine kurze Hörprobe dieses Sprechers ab.")
+        hoeren.clicked.connect(functools.partial(self._listen_to_speaker, sprecher_id))
+        exportieren = QPushButton("Exportieren …", zelle)
+        exportieren.setToolTip("Speichert Audio und Text dieses Sprechers als Dateien.")
+        exportieren.clicked.connect(functools.partial(self._export_speaker, sprecher_id))
+        layout.addWidget(hoeren)
+        layout.addWidget(exportieren)
+        return zelle
+
+    def _build_profile_cell(self, sprecher_id: str, vorschlag: dict[str, Any] | None) -> QWidget:
+        """Zelle 'Profil': Namensvorschlag aus einem gespeicherten Profil oder
+        'Als Profil speichern'. Uebernommen wird nichts ohne Klick."""
+        zelle = QWidget(self.speaker_table)
+        layout = QHBoxLayout(zelle)
+        layout.setContentsMargins(2, 0, 2, 0)
+        if vorschlag is not None:
+            fragezeichen = "" if vorschlag["sicher"] else "?"
+            aehnlichkeit = f"{vorschlag['aehnlichkeit']:.2f}".replace(".", ",")
+            layout.addWidget(QLabel(f"{vorschlag['name']}{fragezeichen} ({aehnlichkeit})", zelle))
+            uebernehmen = QPushButton("Vorschlag übernehmen", zelle)
+            uebernehmen.clicked.connect(
+                functools.partial(self._accept_profile_suggestion, sprecher_id, vorschlag["name"])
+            )
+            layout.addWidget(uebernehmen)
+        if sprecher_id in self._speaker_embeddings:
+            speichern = QPushButton("Als Profil speichern", zelle)
+            speichern.setToolTip("Merkt sich die Stimme dieses Sprechers für spätere Aufnahmen.")
+            speichern.clicked.connect(functools.partial(self._save_speaker_profile, sprecher_id))
+            layout.addWidget(speichern)
+        elif vorschlag is None:
+            layout.addWidget(QLabel("–", zelle))
+        return zelle
+
+    def _row_of_speaker(self, sprecher_id: str) -> int | None:
+        for row in range(self.speaker_table.rowCount()):
+            zelle = self.speaker_table.item(row, 0)
+            if zelle is not None and zelle.text() == sprecher_id:
+                return row
+        return None
+
+    def _accept_profile_suggestion(self, sprecher_id: str, name: str, _checked: bool = False) -> None:
+        row = self._row_of_speaker(sprecher_id)
+        if row is not None:
+            self.speaker_table.setItem(row, 3, QTableWidgetItem(name))
+
+    def _save_speaker_profile(self, sprecher_id: str, _checked: bool = False) -> None:
+        row = self._row_of_speaker(sprecher_id)
+        embedding = self._speaker_embeddings.get(sprecher_id)
+        if row is None or not embedding:
+            return
+        zelle = self.speaker_table.item(row, 3)
+        name = zelle.text().strip() if zelle is not None else ""
+        if not name or name.startswith("Sprecher "):
+            name, ok = QInputDialog.getText(self, "Profil speichern", "Name der Person:")
+            if not ok:
+                return
+        antwort = QMessageBox.question(
+            self,
+            "Stimmabdruck speichern?",
+            f"Der Stimmabdruck von „{name.strip()}“ wird ausschließlich lokal auf diesem Rechner "
+            "gespeichert und für die Wiedererkennung in späteren Aufnahmen benutzt. Ein Stimmabdruck ist "
+            "ein biometrisches Datum - bitte nur mit Einverständnis der Person speichern. "
+            "Unter „Sprecherprofile verwalten“ lässt er sich jederzeit löschen.\n\nSpeichern?",
+        )
+        if antwort != QMessageBox.Yes:
+            return
+        try:
+            sprecherprofil_service.profil_speichern(name, embedding)
+        except (sprecherprofil_service.ProfilFehler, OSError) as error:
+            show_error(self, "Profil nicht gespeichert", str(error))
+            return
+        self.speaker_table.setItem(row, 3, QTableWidgetItem(name.strip()))
+        QMessageBox.information(self, "Profil gespeichert", f"„{name.strip()}“ wird künftig wiedererkannt.")
+
+    def _manage_speaker_profiles(self) -> None:
+        SprecherprofileDialog(self).exec()
+
+    def _listen_to_speaker(self, sprecher_id: str, _checked: bool = False) -> None:
+        if self._last_transcription_result is None:
+            return
+        result = self._last_transcription_result
+        ziel = result.work_dir / f"hoerprobe_{sprecher_id}.wav"
+        try:
+            sprecher_export_service.hoerprobe_erstellen(result.export_paths.json, sprecher_id, ziel)
+        except (sprecher_export_service.SprecherExportFehler, RuntimeError, OSError) as error:
+            show_error(self, "Hörprobe nicht möglich", str(error))
+            return
+        # Mit dem Standardprogramm des Systems abspielen: keine zusaetzlichen
+        # Qt-Module noetig, und die Wiedergabe laeuft unabhaengig vom Fenster.
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(ziel)))
+
+    def _export_speaker(self, sprecher_id: str, _checked: bool = False) -> None:
+        if self._last_transcription_result is None:
+            return
+        result = self._last_transcription_result
+        start = str(result.export_paths.json.parent)
+        ordner = QFileDialog.getExistingDirectory(self, "Zielordner für den Sprecher-Export wählen", start)
+        if not ordner:
+            return
+        try:
+            wav, txt = sprecher_export_service.sprecher_exportieren(
+                result.export_paths.json, sprecher_id, Path(ordner)
+            )
+        except (sprecher_export_service.SprecherExportFehler, RuntimeError, OSError) as error:
+            show_error(self, "Export nicht möglich", str(error))
+            return
+        QMessageBox.information(
+            self, "Sprecher exportiert", f"Audio und Text wurden gespeichert:\n{wav}\n{txt}"
+        )
 
     @staticmethod
     def _editable_flag():
@@ -1408,6 +1904,7 @@ class MainWindow(QMainWindow):
             show_error(self, "Export fehlgeschlagen", f"Die Ausgabedateien konnten nicht neu erzeugt werden:\n{error}")
             return
         self.preview_edit.setPlainText(new_paths.txt.read_text(encoding="utf-8")[:20000])
+        self._word_neu_erzeugen(new_paths.json)
         QMessageBox.information(
             self, "Ausgaben aktualisiert", f"TXT/JSON/SRT/VTT wurden mit den neuen Namen neu erzeugt:\n{new_paths.txt.parent}"
         )

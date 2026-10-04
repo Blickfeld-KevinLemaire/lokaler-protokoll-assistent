@@ -35,6 +35,10 @@ PACKAGES_TO_COLLECT = (
     "huggingface_hub",
     "ctranslate2",
     "faster_whisper",
+    # Mikrofonaufnahme: 'sounddevice' laedt die PortAudio-Bibliothek aus
+    # '_sounddevice_data'. Fehlt sie in der EXE, ist die Geraeteliste leer.
+    "sounddevice",
+    "_sounddevice_data",
 )
 
 collected_datas = []
@@ -55,8 +59,14 @@ for package_name in PACKAGES_TO_COLLECT:
 
 collected_hiddenimports += collect_submodules("PySide6")
 collected_hiddenimports += [
+    "protokoll_assistent.services.api_anbieter",
+    "protokoll_assistent.services.dokument_export_service",
+    "protokoll_assistent.services.api_chat_service",
     "protokoll_assistent.services.api_protocol_service",
     "protokoll_assistent.services.api_transcription_service",
+    "protokoll_assistent.services.chat_service",
+    "protokoll_assistent.services.chat_verlauf_service",
+    "protokoll_assistent.services.rechner_analyse_service",
     "protokoll_assistent.services.chunking_service",
     "protokoll_assistent.services.diarization_service",
     "protokoll_assistent.services.environment_service",
@@ -72,6 +82,8 @@ collected_hiddenimports += [
     "protokoll_assistent.services.recording_service",
     "protokoll_assistent.services.secret_store",
     "protokoll_assistent.services.speaker_merge_service",
+    "protokoll_assistent.services.sprecher_export_service",
+    "protokoll_assistent.services.sprecherprofil_service",
     "protokoll_assistent.services.transcription_service",
     "protokoll_assistent.utils.app_config",
     "protokoll_assistent.utils.diagnostics",
@@ -83,8 +95,14 @@ collected_hiddenimports += [
     "protokoll_assistent.utils.setup_status",
     "protokoll_assistent.utils.systemprompt_vorlagen",
     "protokoll_assistent.utils.timeformat",
+    "protokoll_assistent.gui.branding",
+    "protokoll_assistent.gui.api_anbieterwahl",
+    "protokoll_assistent.gui.dokument_qt",
+    "protokoll_assistent.gui.export_dialog",
+    "protokoll_assistent.gui.chat_page",
     "protokoll_assistent.gui.dialogs",
     "protokoll_assistent.gui.main_window",
+    "protokoll_assistent.gui.ollama_modellwahl",
     "protokoll_assistent.gui.settings_dialog",
     "protokoll_assistent.gui.strings",
     "protokoll_assistent.gui.theme",
@@ -101,6 +119,8 @@ a = Analysis(
     datas=collected_datas
     + [
         ("protokoll_assistent/einstellungen", "einstellungen"),
+        # Logo und Programmsymbol (siehe 'gui/branding.py').
+        ("protokoll_assistent/resources", "resources"),
         # Lizenzhinweise muessen mit ausgeliefert werden. Die LGPL-3.0 von Qt
         # verlangt, dass der Lizenztext beiliegt - die Qt-Wheels selbst
         # enthalten nur einen Verweis auf die kommerzielle Lizenz, nicht den
@@ -126,6 +146,7 @@ exe = EXE(
     [],
     exclude_binaries=True,
     name="Protokoll-Assistent",
+    icon="protokoll_assistent/resources/vermerk_icon.ico",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

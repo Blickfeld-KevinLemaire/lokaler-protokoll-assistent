@@ -17,7 +17,7 @@
 #          delegiert an setup_lokal.ps1 und setzt daher eine bereits
 #          vorhandene '.venv-whisperx' voraus (siehe dortige Hinweise).
 # Phase 3: Lokale Modelle herunterladen (WhisperX, Alignment, pyannote,
-#          Ollama-Modell qwen3:8b) -- modelle_herunterladen
+#          Ollama-Modell qwen3.5:4b-q4_K_M) -- modelle_herunterladen
 # Phase 4: Offline-Funktionspruefung (alles laeuft ohne Internetzugriff)
 # Phase 5: Abschluss -- Einrichtungsstatus.json wird als vollstaendig markiert
 #

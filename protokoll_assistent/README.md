@@ -139,7 +139,7 @@ Rechnung scheitert — mitten in der Transkription. Die Anwendung rechnet
 deshalb einmal kurz zur Probe und wechselt sonst sauber auf die CPU.
 
 Für die lokale Protokollerstellung zusätzlich empfohlen: [Ollama](https://ollama.com)
-mit dem Modell `qwen3:8b` — wird ebenfalls automatisch heruntergeladen bzw.
+mit dem Modell `qwen3.5:4b-q4_K_M` — wird ebenfalls automatisch heruntergeladen bzw.
 der Installer angeboten, falls Ollama fehlt.
 
 **Referenzrechner mit bereits vorhandener `.venv-whisperx`:** Wurde auf
@@ -411,7 +411,7 @@ zusammengeführten Ergebnissen.
 ## Lokale Protokollerstellung (Ollama)
 
 Nach dem Zusammenführen aller Chunks wertet ein **lokales Ollama-Modell**
-(`qwen3:8b`, `http://127.0.0.1:11434`, Temperatur 0, JSON-Ausgabe) das
+(`qwen3.5:4b-q4_K_M`, `http://127.0.0.1:11434`, Temperatur 0, JSON-Ausgabe) das
 Transkript **dreistufig** aus:
 
 1. **Chunk-Analyse** — jeder Abschnitt einzeln, nur Aussagen aus diesem Abschnitt.
@@ -490,7 +490,7 @@ powershell -ExecutionPolicy Bypass -File .\Anwendung-starten.ps1
 - **Phase 3** (`modelle_herunterladen.py`): faster-whisper (Standard:
   `large-v3-turbo`, mit `--modell <id>` anpassbar -- siehe
   [Verfügbare Whisper-Modelle](#verfügbare-whisper-modelle)), Alignment,
-  pyannote, `ollama pull qwen3:8b`.
+  pyannote, `ollama pull qwen3.5:4b-q4_K_M`.
 - **Phase 4**: Offline-Funktionsprüfung (alles läuft ohne Internetzugriff).
 - **Phase 5**: `Einrichtungsstatus.json` wird als vollständig markiert.
   `Anwendung-starten.ps1` verweigert den Start, solange eine Phase fehlt.

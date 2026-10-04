@@ -47,7 +47,7 @@ env:
 jobs:
   qualitaet:
     name: Format, Linting und Typen
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
 
@@ -111,7 +111,7 @@ jobs:
 
   sicherheit:
     name: Geheimnisse und Schwachstellen
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
         with:
@@ -151,7 +151,7 @@ jobs:
 
   laufzeit_pakete:
     name: Laufzeit-Pakete der lokalen Anwendung
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
 
