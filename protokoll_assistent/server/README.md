@@ -51,7 +51,7 @@ Alles über Umgebungsvariablen (in der `.env`, siehe `.env.beispiel`):
 | `PROTOKOLL_GERAET` | `cpu` (GPU-Datei: `cuda`) | Rechnet der Prozessor oder die Grafikkarte? |
 | `PROTOKOLL_SPRACHE` | `de` | Sprache der Aufnahmen, `auto` = automatisch erkennen |
 | `PROTOKOLL_WHISPER_MODELL` | `large-v3-turbo` | Transkriptionsmodell |
-| `PROTOKOLL_OLLAMA_MODELL` | `qwen3:8b` | Sprachmodell für das Protokoll |
+| `PROTOKOLL_OLLAMA_MODELL` | `qwen3.5:4b-q4_K_M` | Sprachmodell für das Protokoll |
 | `PROTOKOLL_SPRECHERTRENNUNG` | `1` | Sprecher trennen (braucht `HF_TOKEN`) |
 | `PROTOKOLL_PROTOKOLL_ERSTELLEN` | `1` | Zusammenfassung erstellen; `0` = nur Transkript |
 | `PROTOKOLL_MIN_SPRECHER`, `PROTOKOLL_MAX_SPRECHER` | – | Anzahl der Sprecher eingrenzen |

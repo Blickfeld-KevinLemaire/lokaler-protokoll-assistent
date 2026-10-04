@@ -28,7 +28,7 @@ def basis_url_aus_umgebung(umgebung: Mapping[str, str]) -> str:
 
 
 OLLAMA_BASE_URL = basis_url_aus_umgebung(os.environ)
-DEFAULT_MODEL = "qwen3:8b"
+DEFAULT_MODEL = "qwen3.5:4b-q4_K_M"
 DEFAULT_TIMEOUT_SECONDS = 900
 
 # Offizieller Windows-Installer. Wird nur heruntergeladen/gestartet, wenn
@@ -56,53 +56,42 @@ class OllamaModellOption:
 
 # Kuratierte Auswahl fuer die Protokollauswertung. Wie bei den Whisper-Modellen
 # ist das keine Einschraenkung: In den Einstellungen laesst sich jeder Name aus
-# der Ollama-Bibliothek (https://ollama.com/library) eintragen. Groessen sind
-# gerundete Downloadgroessen der Standardfassung (Q4).
+# der Ollama-Bibliothek (https://ollama.com/library) eintragen. Die Namen legen
+# die Q4-Fassung ausdruecklich fest (statt des Ollama-Standards, der sich
+# aendern kann); die Groessen sind deren gerundete Downloadgroessen.
 OLLAMA_MODELLE: list[OllamaModellOption] = [
     OllamaModellOption(
         id=DEFAULT_MODEL,
-        label="Qwen3 8B (empfohlener Standard)",
-        groesse_gb=5.2,
-        hinweis="Guter Kompromiss aus Qualitaet und Tempo, solide auf Deutsch. Ab etwa 8 GB Grafikspeicher oder 16 GB RAM.",
-    ),
-    OllamaModellOption(
-        id="qwen3:4b",
-        label="Qwen3 4B (schwaechere Rechner)",
-        groesse_gb=2.5,
-        hinweis="Braucht deutlich weniger Speicher und ist schneller, fasst aber ungenauer zusammen.",
-    ),
-    OllamaModellOption(
-        id="qwen3:14b",
-        label="Qwen3 14B (genauer, braucht mehr Speicher)",
-        groesse_gb=9.3,
-        hinweis="Bessere Qualitaet bei langen oder schwierigen Besprechungen. Ab etwa 12 GB Grafikspeicher oder 32 GB RAM.",
-    ),
-    OllamaModellOption(
-        id="gemma3:12b",
-        label="Gemma 3 12B (Google)",
-        groesse_gb=8.1,
-        hinweis="Gute Textqualitaet und Mehrsprachigkeit. Ab etwa 10 GB Grafikspeicher oder 32 GB RAM.",
-    ),
-    OllamaModellOption(
-        id="gemma3:4b",
-        label="Gemma 3 4B (Google, klein)",
+        label="Qwen3.5 4B (empfohlener Standard)",
         groesse_gb=3.3,
-        hinweis="Kleines, schnelles Modell fuer einfache Besprechungen.",
-    ),
-    OllamaModellOption(
-        id="llama3.1:8b",
-        label="Llama 3.1 8B (Meta)",
-        groesse_gb=4.9,
         hinweis=(
-            "Verbreitetes Modell mit eigener Lizenz (Meta Llama 3.1 Community License) - "
-            "vor kommerzieller Nutzung pruefen, siehe NOTICES.md."
+            "Nachfolger von Qwen3 8B: trotz halber Groesse leistungsfaehiger, solide auf Deutsch. "
+            "Ab etwa 6 GB Grafikspeicher oder 16 GB RAM."
         ),
     ),
     OllamaModellOption(
-        id="mistral-nemo",
-        label="Mistral Nemo 12B",
-        groesse_gb=7.1,
-        hinweis="Mehrsprachig, gut im Deutschen. Ab etwa 10 GB Grafikspeicher oder 32 GB RAM.",
+        id="qwen3.5:9b-q4_K_M",
+        label="Qwen3.5 9B (genauer, braucht mehr Speicher)",
+        groesse_gb=6.6,
+        hinweis=(
+            "Bessere Qualitaet bei langen oder schwierigen Besprechungen; liegt in Tests vor dem "
+            "frueheren Qwen3 14B. Ab etwa 10 GB Grafikspeicher oder 32 GB RAM."
+        ),
+    ),
+    OllamaModellOption(
+        id="qwen3.8:27b-q4_K_M",
+        label="Qwen3.8 27B (sehr genau, nur mit grosser Grafikkarte)",
+        groesse_gb=18.0,
+        hinweis=(
+            "Hoechste Qualitaet in dieser Auswahl. Braucht etwa 24 GB Grafikspeicher; "
+            "auf dem Prozessor allein zu langsam."
+        ),
+    ),
+    OllamaModellOption(
+        id="gemma4:12b-it-q4_K_M",
+        label="Gemma 4 12B (Google)",
+        groesse_gb=8.0,
+        hinweis="Sehr gute Mehrsprachigkeit und Textqualitaet. Ab etwa 10 GB Grafikspeicher oder 32 GB RAM.",
     ),
 ]
 
@@ -339,11 +328,17 @@ def chat_stream(
     """Chat ueber ``/api/chat`` mit Textstrom. ``on_token`` bekommt jedes Stueck
     der Antwort sofort; zurueck kommt der vollstaendige Text. ``num_ctx`` ist
     bewusst groesser als Ollamas Standard (2048): Die Auszuege aus den
-    Transkripten wuerden sonst stillschweigend abgeschnitten."""
+    Transkripten wuerden sonst stillschweigend abgeschnitten.
+
+    ``think: False`` schaltet die Denkphase ab. Qwen3.5 denkt sonst vor jeder
+    Antwort und versteht das '/no_think' im Systemprompt nicht mehr (das
+    galt nur fuer Qwen3). Modelle ohne Denkphase stoert die Angabe nicht:
+    Ollama lehnt nur ``think: True`` bei ihnen ab."""
     payload = {
         "model": model,
         "messages": messages,
         "stream": True,
+        "think": False,
         "options": {"num_ctx": num_ctx, "temperature": temperature},
     }
     teile: list[str] = []
@@ -382,13 +377,15 @@ def generate_json(
     timeout: float = DEFAULT_TIMEOUT_SECONDS,
 ) -> dict[str, Any]:
     """Ruft ``/api/generate`` mit ``format: json`` und Temperatur 0 auf und
-    liefert das geparste JSON-Objekt aus der Modellantwort zurueck."""
+    liefert das geparste JSON-Objekt aus der Modellantwort zurueck. Die
+    Denkphase ist abgeschaltet, Begruendung bei ``chat_stream``."""
     body = {
         "model": model,
         "system": system,
         "prompt": prompt,
         "stream": False,
         "format": "json",
+        "think": False,
         "options": {"temperature": temperature},
     }
     data = json.dumps(body, ensure_ascii=False).encode("utf-8")

@@ -505,7 +505,7 @@ def analysiere(profil: RechnerProfil) -> Analyse:
     empfehlung: dict[str, str | None] = {
         # Qualitaet vor Tempo: Turbo, solange es nicht ausfaellt, sonst das genuegsame 'small'.
         BEREICH_TRANSKRIPTION: _waehle(whisper, [model_service.WHISPER_MODEL_NAME, "small"]),
-        BEREICH_NACHBEARBEITUNG: _waehle(sprache, [ollama_service.DEFAULT_MODEL, "qwen3:4b"]),
+        BEREICH_NACHBEARBEITUNG: _waehle(sprache, [ollama_service.DEFAULT_MODEL]),
         BEREICH_SUCHE: _waehle(suche, ["bge-m3", "nomic-embed-text"]),
     }
     # 'GUT' vor 'MAESSIG' gilt je ID; fuer Transkription soll Turbo (auch maessig)

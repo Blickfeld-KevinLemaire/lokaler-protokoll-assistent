@@ -1762,7 +1762,7 @@ def test_nachbearbeitung_startet_wenn_das_ollama_modell_installiert_ist(fenster,
     transkript.write_text("{}", encoding="utf-8")
     fenster._set_transcript_path(transkript)
     fenster.systemprompt_editor.setPlainText("Fasse zusammen.")
-    monkeypatch.setattr(ollama_service, "list_models", lambda base_url=None, timeout=5: ["qwen3:8b"])
+    monkeypatch.setattr(ollama_service, "list_models", lambda base_url=None, timeout=5: ["qwen3.5:4b-q4_K_M"])
 
     fenster._start_protocol()
 

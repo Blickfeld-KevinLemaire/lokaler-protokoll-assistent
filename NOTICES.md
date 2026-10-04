@@ -168,7 +168,7 @@ und stimmt dabei den jeweiligen Bedingungen zu.
 |---|---|
 | `pyannote/speaker-diarization-community-1` | Zugang ueber Hugging Face, Zustimmung zu den dortigen Nutzungsbedingungen erforderlich (Token). |
 | Whisper-Modelle (faster-whisper/CTranslate2) | MIT (Modell von OpenAI unter MIT) |
-| Llama 3.1 und andere Ollama-Modelle | Je Modell unterschiedlich. Llama 3.1 steht unter der *Meta Llama 3.1 Community License* mit eigenen Auflagen. Vor einer kommerziellen Nutzung bitte je Modell pruefen. |
+| Ollama-Modelle | Je Modell unterschiedlich. Qwen3.5, Qwen3.8 und Gemma 4 aus der Auswahl stehen unter Apache 2.0. Von Hand eingetragene Modelle (z. B. Llama oder Gemma 3) haben eigene Lizenzen mit eigenen Auflagen. Vor einer kommerziellen Nutzung bitte je Modell pruefen. |
 
 ---
 

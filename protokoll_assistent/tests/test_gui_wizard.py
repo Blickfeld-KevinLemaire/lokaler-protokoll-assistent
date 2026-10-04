@@ -663,6 +663,17 @@ def _analyse(profil=None):
     return ra.analysiere(profil or ra.RechnerProfil(ram_gb=16, cpu_kerne=8, freier_platz_gb=300))
 
 
+def _analyse_mit_anderer_empfehlung(modell="qwen3.5:9b-q4_K_M"):
+    # Die Analyse empfiehlt derzeit nur den Standard (oder nichts). Dass der
+    # Assistent eine abweichende Empfehlung richtig uebernimmt, wird hier
+    # deshalb mit einer vorgegebenen Empfehlung geprueft.
+    from protokoll_assistent.services import rechner_analyse_service as ra
+
+    analyse = _analyse()
+    analyse.empfehlung[ra.BEREICH_NACHBEARBEITUNG] = modell
+    return analyse
+
+
 @pytest.fixture
 def analyse_seite(qt_widgets, isolierte_konfiguration, monkeypatch):
     # Der echte Thread darf nie starten.
@@ -712,31 +723,31 @@ def test_analyse_seite_zeigt_modelle_und_hinweise(analyse_seite):
     assert {"Läuft gut", "Eher nicht geeignet"} <= stufen
     assert "Arbeitsspeicher: 16.0 GB" in analyse_seite.profil_label.text()
     assert "Keine Grafikkarte erkannt" in analyse_seite.hinweis_label.text()
-    assert "qwen3:4b" in analyse_seite.hinweis_label.text()
+    assert "qwen3.5:4b-q4_K_M" in analyse_seite.hinweis_label.text()
 
 
 def test_analyse_seite_bestaetigen_stellt_empfohlenes_modell_ein(analyse_seite):
-    analyse_seite._zeige_analyse(_analyse())  # 16 GB / 8 Kerne -> qwen3:4b
+    analyse_seite._zeige_analyse(_analyse_mit_anderer_empfehlung())
     ausgeloest = []
     analyse_seite.continue_requested.connect(lambda: ausgeloest.append(True))
 
     analyse_seite._bestaetigen()
 
     konfig = app_config.load_config()
-    assert konfig["ollama_modell"] == "qwen3:4b"
-    assert konfig["chatbot_ollama_modell"] == "qwen3:4b"
+    assert konfig["ollama_modell"] == "qwen3.5:9b-q4_K_M"
+    assert konfig["chatbot_ollama_modell"] == "qwen3.5:9b-q4_K_M"
     assert ausgeloest == [True]
 
 
 def test_analyse_seite_ueberschreibt_keine_bewusste_wahl(analyse_seite):
     app_config.update_config(ollama_modell="gemma3:12b")
-    analyse_seite._zeige_analyse(_analyse())
+    analyse_seite._zeige_analyse(_analyse_mit_anderer_empfehlung())
 
     analyse_seite.uebernehme_empfehlung()
 
     konfig = app_config.load_config()
     assert konfig["ollama_modell"] == "gemma3:12b"  # eigene Wahl bleibt
-    assert konfig["chatbot_ollama_modell"] == "qwen3:4b"  # noch nie angefasst
+    assert konfig["chatbot_ollama_modell"] == "qwen3.5:9b-q4_K_M"  # noch nie angefasst
 
 
 def test_analyse_seite_aendert_nichts_wenn_der_standard_empfohlen_wird(analyse_seite):

@@ -24,7 +24,7 @@ services:
         condition: service_healthy
     environment:
       OLLAMA_HOST: http://ollama:11434
-    entrypoint: ["ollama", "pull", "${PROTOKOLL_OLLAMA_MODELL:-qwen3:8b}"]
+    entrypoint: ["ollama", "pull", "${PROTOKOLL_OLLAMA_MODELL:-qwen3.5:4b-q4_K_M}"]
 
   protokoll:
     build:
@@ -41,7 +41,7 @@ services:
       PROTOKOLL_GERAET: ${PROTOKOLL_GERAET:-cpu}
       PROTOKOLL_SPRACHE: ${PROTOKOLL_SPRACHE:-de}
       PROTOKOLL_WHISPER_MODELL: ${PROTOKOLL_WHISPER_MODELL:-large-v3-turbo}
-      PROTOKOLL_OLLAMA_MODELL: ${PROTOKOLL_OLLAMA_MODELL:-qwen3:8b}
+      PROTOKOLL_OLLAMA_MODELL: ${PROTOKOLL_OLLAMA_MODELL:-qwen3.5:4b-q4_K_M}
       PROTOKOLL_SPRECHERTRENNUNG: ${PROTOKOLL_SPRECHERTRENNUNG:-1}
       PROTOKOLL_PROTOKOLL_ERSTELLEN: ${PROTOKOLL_PROTOKOLL_ERSTELLEN:-1}
       PROTOKOLL_STABIL_SEKUNDEN: ${PROTOKOLL_STABIL_SEKUNDEN:-30}

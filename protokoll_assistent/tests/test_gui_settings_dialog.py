@@ -340,10 +340,10 @@ def test_ollama_standard_ist_vorausgewaehlt(dialog):
 
 
 def test_ollama_andere_auswahl_wird_gespeichert(dialog):
-    dialog.ollama_wahl.combo.setCurrentIndex(dialog.ollama_wahl.combo.findData("qwen3:4b"))
-    assert dialog.ollama_modell() == "qwen3:4b"
+    dialog.ollama_wahl.combo.setCurrentIndex(dialog.ollama_wahl.combo.findData("qwen3.5:9b-q4_K_M"))
+    assert dialog.ollama_modell() == "qwen3.5:9b-q4_K_M"
     dialog._speichern_und_schliessen()
-    assert app_config.load_config()["ollama_modell"] == "qwen3:4b"
+    assert app_config.load_config()["ollama_modell"] == "qwen3.5:9b-q4_K_M"
 
 
 def test_ollama_eigener_name_wird_vorbelegt_und_gespeichert(qt_widgets, isolierte_konfiguration, schluessel_speicher):
@@ -374,12 +374,12 @@ def test_ollama_status_nicht_erreichbar_installiert_und_fehlend(dialog, monkeypa
     assert "nicht erreichbar" in dialog.ollama_wahl.status_label.text()
     assert dialog.ollama_wahl.download_button.isEnabled()  # ein Versuch bleibt moeglich
 
-    monkeypatch.setattr(ollama_service, "list_models", lambda base_url=None, timeout=5: ["qwen3:8b", "gemma3:4b"])
+    monkeypatch.setattr(ollama_service, "list_models", lambda base_url=None, timeout=5: ["qwen3.5:4b-q4_K_M", "gemma3:4b"])
     dialog.ollama_wahl.aktualisieren()
     assert "installiert" in dialog.ollama_wahl.status_label.text() and "✓" in dialog.ollama_wahl.status_label.text()
     assert not dialog.ollama_wahl.download_button.isEnabled()
 
-    dialog.ollama_wahl.combo.setCurrentIndex(dialog.ollama_wahl.combo.findData("qwen3:14b"))
+    dialog.ollama_wahl.combo.setCurrentIndex(dialog.ollama_wahl.combo.findData("qwen3.8:27b-q4_K_M"))
     assert "noch nicht installiert" in dialog.ollama_wahl.status_label.text()
     assert "gemma3:4b" in dialog.ollama_wahl.status_label.text()  # bereits Vorhandenes wird genannt
     assert dialog.ollama_wahl.download_button.isEnabled()
@@ -414,11 +414,11 @@ class _PullArbeiterAttrappe:
 def test_ollama_herunterladen_zeigt_fortschritt_und_aktualisiert_den_status(dialog, monkeypatch):
     _PullArbeiterAttrappe.instanzen.clear()
     monkeypatch.setattr(omw, "OllamaPullWorker", _PullArbeiterAttrappe)
-    dialog.ollama_wahl.combo.setCurrentIndex(dialog.ollama_wahl.combo.findData("qwen3:4b"))
+    dialog.ollama_wahl.combo.setCurrentIndex(dialog.ollama_wahl.combo.findData("qwen3.5:9b-q4_K_M"))
 
     dialog.ollama_wahl.herunterladen()
     arbeiter = _PullArbeiterAttrappe.instanzen[-1]
-    assert arbeiter.gestartet and arbeiter.modell == "qwen3:4b"
+    assert arbeiter.gestartet and arbeiter.modell == "qwen3.5:9b-q4_K_M"
     assert not dialog.ollama_wahl.download_button.isEnabled()
     assert not dialog.ollama_wahl.combo.isEnabled()  # waehrend des Downloads gesperrt
     dialog.ollama_wahl.herunterladen()  # zweiter Klick: darf keinen zweiten Arbeiter starten
@@ -430,8 +430,8 @@ def test_ollama_herunterladen_zeigt_fortschritt_und_aktualisiert_den_status(dial
     arbeiter.fortschritt.emit("verifying sha256 digest", 0, 0)
     assert dialog.ollama_wahl.status_label.text() == "verifying sha256 digest"
 
-    monkeypatch.setattr(ollama_service, "list_models", lambda base_url=None, timeout=5: ["qwen3:4b"])
-    arbeiter.fertig.emit("qwen3:4b")
+    monkeypatch.setattr(ollama_service, "list_models", lambda base_url=None, timeout=5: ["qwen3.5:9b-q4_K_M"])
+    arbeiter.fertig.emit("qwen3.5:9b-q4_K_M")
     assert dialog.ollama_wahl.combo.isEnabled()
     assert "✓" in dialog.ollama_wahl.status_label.text()
 
@@ -465,7 +465,7 @@ def test_chatbot_reiter_ist_vorhanden_und_vorbelegt(dialog):
 def test_chatbot_umschalten_auf_api_zeigt_die_api_seite_und_speichert(dialog, schluessel_speicher):
     dialog.chatbot_api_radio.setChecked(True)
     assert dialog.chatbot_seiten.currentIndex() == 1
-    dialog.chatbot_chat_wahl.combo.setCurrentIndex(dialog.chatbot_chat_wahl.combo.findData("qwen3:4b"))
+    dialog.chatbot_chat_wahl.combo.setCurrentIndex(dialog.chatbot_chat_wahl.combo.findData("qwen3.5:9b-q4_K_M"))
     dialog.chatbot_embedding_wahl.combo.setCurrentIndex(dialog.chatbot_embedding_wahl.combo.findData("nomic-embed-text"))
     dialog.chatbot_api_endpunkt_edit.setText(" https://api.test/chat ")
     dialog.chatbot_api_modell_edit.setText("modell-x")
@@ -479,7 +479,7 @@ def test_chatbot_umschalten_auf_api_zeigt_die_api_seite_und_speichert(dialog, sc
 
     gespeichert = app_config.load_config()
     assert gespeichert["chatbot_modus"] == "api"
-    assert gespeichert["chatbot_ollama_modell"] == "qwen3:4b"
+    assert gespeichert["chatbot_ollama_modell"] == "qwen3.5:9b-q4_K_M"
     assert gespeichert["chatbot_embedding_modell"] == "nomic-embed-text"
     assert gespeichert["chatbot_api_endpunkt"] == "https://api.test/chat"
     assert gespeichert["chatbot_api_modell"] == "modell-x"

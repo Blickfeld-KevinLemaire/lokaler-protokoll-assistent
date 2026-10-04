@@ -98,6 +98,7 @@ def test_generate_json_sends_temperature_zero_and_json_format(monkeypatch):
     assert captured["body"]["format"] == "json"
     assert captured["body"]["model"] == "qwen3:8b"
     assert captured["body"]["stream"] is False
+    assert captured["body"]["think"] is False  # Qwen3.5 versteht '/no_think' nicht mehr
 
 
 def test_ensure_ollama_or_offer_installer_returns_true_when_already_installed(monkeypatch, tmp_path):
@@ -202,8 +203,9 @@ def test_generate_json_liest_antwort_mit_klammer_in_zeichenkette(monkeypatch):
 def test_modellliste_beginnt_mit_dem_standard_und_hat_eindeutige_namen():
     ids = [option.id for option in ollama_service.OLLAMA_MODELLE]
     assert ids[0] == ollama_service.DEFAULT_MODEL
-    assert len(ids) == len(set(ids)) >= 5
-    assert ollama_service.get_modell_option("qwen3:4b").groesse_gb < 3
+    assert len(ids) == len(set(ids)) >= 4
+    assert all("q4" in modell_id for modell_id in ids)  # Quantisierung ausdruecklich festgelegt
+    assert ollama_service.get_modell_option("qwen3.5:9b-q4_K_M").groesse_gb < 7
     assert ollama_service.get_modell_option("gibt-es-nicht") is None
 
 
@@ -374,6 +376,7 @@ def test_chat_stream_sammelt_stuecke_und_meldet_sie_sofort():
     antwort = ollama_service.chat_stream([{"role": "user", "content": "x"}], "qwen3:8b", stuecke.append, opener=oeffnen)
     assert antwort == "Hallo" and stuecke == ["Hal", "lo"]
     assert gesehen["body"]["stream"] is True and gesehen["body"]["options"]["num_ctx"] >= 4096
+    assert gesehen["body"]["think"] is False
 
 
 def test_chat_stream_fehler():

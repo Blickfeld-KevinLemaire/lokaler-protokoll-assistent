@@ -84,6 +84,25 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
   „Kein Anbieter gewählt“, statt Aufnahmen oder Texte irgendwohin zu senden.
   Bereits gespeicherte Einstellungen bleiben erhalten und werden in der Liste
   richtig angezeigt.
+- **Neues Standardmodell für die Nachbearbeitung: Qwen3.5 4B**
+  (`qwen3.5:4b-q4_K_M`, etwa 3,3 GB) statt Qwen3 8B. Es ist trotz halber Größe
+  leistungsfähiger und braucht weniger Speicher; das gilt auch für den Chatbot
+  und den Servermodus.
+- **Modellauswahl erneuert und verkleinert.** Zur Wahl stehen jetzt vier
+  Modelle, alle unter Apache 2.0 und ausdrücklich in der Q4-Fassung:
+  Qwen3.5 4B (Standard), **Qwen3.5 9B** (genauer, liegt in Tests vor dem
+  bisherigen Qwen3 14B), **Gemma 4 12B** und für Rechner mit großer
+  Grafikkarte (etwa 24 GB) **Qwen3.8 27B**. Entfallen sind Qwen3 4B, 8B und
+  14B, Gemma 3, Llama 3.1 und Mistral Nemo; sie lassen sich weiterhin von Hand
+  eintragen. Wer schon ein Modell gespeichert hat, behält es. Rechner mit
+  weniger als etwa 7,8 GB Arbeitsspeicher bekommen bei der Einrichtung kein
+  lokales Sprachmodell mehr empfohlen, sondern den Hinweis auf die API.
+  Qwen3.5 und neuer brauchen ein aktuelles Ollama – bei einer älteren Fassung
+  scheitert der Download.
+- Die „Denkphase“ der Sprachmodelle wird jetzt über Ollama abgeschaltet
+  (`think: false`). Das bisherige `/no_think` im Systemprompt verstehen
+  Qwen3.5-Modelle nicht mehr; ohne die Änderung hätten sie vor jeder Antwort
+  lange „nachgedacht“.
 
 ### Fixed
 

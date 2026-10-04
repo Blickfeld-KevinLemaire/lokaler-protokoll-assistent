@@ -21,7 +21,7 @@ from protokoll_assistent.utils.paths import get_config_file
 # bleiben leer, bis der Anwender einen Anbieter gewaehlt hat (siehe
 # 'services/api_anbieter.py'). Frueher stand hier OpenRouter -- und Aufnahmen
 # bzw. Texte gingen ohne bewusste Entscheidung an diesen Vermittler.
-_STANDARD_OLLAMA_MODELL = "qwen3:8b"
+_STANDARD_OLLAMA_MODELL = "qwen3.5:4b-q4_K_M"
 _STANDARD_CHATBOT_EMBEDDING = "bge-m3"
 
 DEFAULTS: dict[str, Any] = {

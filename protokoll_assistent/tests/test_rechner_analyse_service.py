@@ -235,9 +235,9 @@ def test_profilbeschreibung():
 def test_gaming_pc_alles_gut():
     analyse = ra.analysiere(GAMING_PC)
     assert _stufe(analyse, "large-v3") == GUT
-    assert _stufe(analyse, "qwen3:14b") == GUT
+    assert _stufe(analyse, "qwen3.5:9b-q4_K_M") == GUT
     assert analyse.empfehlung[ra.BEREICH_TRANSKRIPTION] == "large-v3-turbo"
-    assert analyse.empfehlung[ra.BEREICH_NACHBEARBEITUNG] == "qwen3:8b"
+    assert analyse.empfehlung[ra.BEREICH_NACHBEARBEITUNG] == "qwen3.5:4b-q4_K_M"
     assert analyse.empfehlung[ra.BEREICH_SUCHE] == "bge-m3"
     assert analyse.hinweise == []
 
@@ -246,11 +246,11 @@ def test_normaler_laptop_ohne_grafikkarte():
     analyse = ra.analysiere(NORMALER_LAPTOP)
     assert _stufe(analyse, "large-v3-turbo") == GUT
     assert _stufe(analyse, "large-v3") == NICHT  # dauert doppelt so lang wie die Aufnahme
-    assert _stufe(analyse, "qwen3:8b") == MAESSIG
-    assert _stufe(analyse, "qwen3:4b") == GUT
-    assert _stufe(analyse, "qwen3:14b") == NICHT
-    # Das kleine Modell kommt zum Zug, weil der Standard nur maessig laeuft.
-    assert analyse.empfehlung[ra.BEREICH_NACHBEARBEITUNG] == "qwen3:4b"
+    assert _stufe(analyse, "qwen3.5:4b-q4_K_M") == GUT
+    assert _stufe(analyse, "qwen3.5:9b-q4_K_M") == NICHT
+    assert _stufe(analyse, "qwen3.8:27b-q4_K_M") == NICHT
+    # Der Standard ist klein genug, um auch auf dem Prozessor gut zu laufen.
+    assert analyse.empfehlung[ra.BEREICH_NACHBEARBEITUNG] == "qwen3.5:4b-q4_K_M"
     assert any("Keine Grafikkarte erkannt" in h for h in analyse.hinweise)
 
 
@@ -258,15 +258,31 @@ def test_schwacher_laptop_mit_vier_kernen():
     analyse = ra.analysiere(SCHWACHER_LAPTOP)
     assert _stufe(analyse, "large-v3-turbo") == GUT  # 3,8 * 0,6 = 2,3-fach
     assert _stufe(analyse, "large-v3") == NICHT
-    assert _stufe(analyse, "qwen3:4b") == MAESSIG  # wenige Kerne
-    assert _stufe(analyse, "qwen3:8b") == NICHT  # 8 GB RAM reichen nicht fuer 6,7 + 3 GB
-    assert analyse.empfehlung[ra.BEREICH_NACHBEARBEITUNG] == "qwen3:4b"
+    assert _stufe(analyse, "qwen3.5:4b-q4_K_M") == MAESSIG  # wenige Kerne
+    assert _stufe(analyse, "qwen3.5:9b-q4_K_M") == NICHT  # 8 GB RAM reichen nicht fuer 8,1 + 3 GB
+    assert analyse.empfehlung[ra.BEREICH_NACHBEARBEITUNG] == "qwen3.5:4b-q4_K_M"
+
+
+def test_mittelgrosses_modell_laeuft_auf_dem_prozessor_nur_maessig(monkeypatch):
+    # Die Auswahl hat derzeit nichts zwischen 3,5 und 6 GB; eingetragen werden kann es trotzdem.
+    mittel = ra.ollama_service.OllamaModellOption("mittel:8b", "Mittel 8B", 5.0, "")
+    monkeypatch.setattr(ra.ollama_service, "OLLAMA_MODELLE", [mittel])
+    analyse = ra.analysiere(NORMALER_LAPTOP)
+    assert _stufe(analyse, "mittel:8b") == MAESSIG
+
+
+def test_unter_7_8_gb_gibt_es_kein_lokales_sprachmodell():
+    # Der Standard braucht 3,3 + 1,5 + 3 GB; ein kleineres Modell hat die Auswahl nicht mehr.
+    analyse = ra.analysiere(RechnerProfil(ram_gb=7.5, cpu_kerne=8))
+    assert _stufe(analyse, "qwen3.5:4b-q4_K_M") == NICHT
+    assert analyse.empfehlung[ra.BEREICH_NACHBEARBEITUNG] is None
+    assert any("kein lokales Sprachmodell" in h for h in analyse.hinweise)
 
 
 def test_alter_pc_bekommt_nur_hinweise():
     analyse = ra.analysiere(ALTER_PC)
     assert analyse.empfehlung[ra.BEREICH_NACHBEARBEITUNG] is None
-    assert all(_stufe(analyse, o) == NICHT for o in ("qwen3:4b", "qwen3:8b", "gemma3:12b"))
+    assert all(_stufe(analyse, o) == NICHT for o in ("qwen3.5:4b-q4_K_M", "gemma4:12b-it-q4_K_M"))
     text = "\n".join(analyse.hinweise)
     assert "knapp ausgestattet" in text
     assert "kein lokales Sprachmodell" in text and "API" in text
@@ -298,7 +314,7 @@ def test_knapper_grafikspeicher_ist_maessig():
 
 def test_unbekannter_arbeitsspeicher_wird_nicht_als_zu_wenig_gewertet():
     analyse = ra.analysiere(RechnerProfil(ram_gb=None, cpu_kerne=8))
-    assert _stufe(analyse, "qwen3:4b") == GUT
+    assert _stufe(analyse, "qwen3.5:4b-q4_K_M") == GUT
 
 
 def test_wenig_platz_wird_gemeldet():
@@ -380,15 +396,15 @@ def test_radeon_hilft_der_transkription_nicht():
 
 def test_radeon_kann_die_nachbearbeitung_beschleunigen_aber_nie_sicher():
     analyse = ra.analysiere(RADEON_PC)
-    # 14B passt (9,3 + 1,5 GB) in 12 GB, auf dem Prozessor waere es "nicht".
-    assert _stufe(analyse, "qwen3:14b") == MAESSIG
-    text = next(b.text for b in analyse.bewertungen if b.modell_id == "qwen3:14b")
+    # 9B passt (6,6 + 1,5 GB) in 12 GB, auf dem Prozessor waere es "nicht".
+    assert _stufe(analyse, "qwen3.5:9b-q4_K_M") == MAESSIG
+    text = next(b.text for b in analyse.bewertungen if b.modell_id == "qwen3.5:9b-q4_K_M")
     assert "Radeon" in text and "unterstützt" in text
     # Wo der Prozessor ohnehin gut genug ist, bleibt es bei "gut".
-    assert _stufe(analyse, "qwen3:4b") == GUT
+    assert _stufe(analyse, "qwen3.5:4b-q4_K_M") == GUT
     # Was nicht in den Grafikspeicher passt, wird nicht schoengerechnet.
     klein = ra.analysiere(RechnerProfil(ram_gb=16, cpu_kerne=8, gpu_name="AMD Radeon RX 6500 XT", vram_gb=4))
-    assert _stufe(klein, "qwen3:14b") == NICHT
+    assert _stufe(klein, "qwen3.5:9b-q4_K_M") == NICHT
 
 
 def test_integrierte_grafik_beschleunigt_nichts():

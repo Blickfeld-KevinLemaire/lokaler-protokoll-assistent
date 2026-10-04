@@ -208,10 +208,10 @@ def test_neuer_chat_leert_den_verlauf_nicht_waehrend_einer_antwort(seite, ordner
 
 def test_einstellungen_lokal_und_api_mit_datenschutzhinweis(seite):
     seite.einstellungen_aktualisiert()
-    assert "Lokal: qwen3:8b · Einbettung: bge-m3" in seite.modell_label.text()
+    assert "Lokal: qwen3.5:4b-q4_K_M · Einbettung: bge-m3" in seite.modell_label.text()
     assert not seite.datenschutz_label.isVisibleTo(seite)
     e = seite.einstellungen()
-    assert (e.modus, e.chat_modell, e.embedding_modell, e.api_schluessel) == ("lokal", "qwen3:8b", "bge-m3", "")
+    assert (e.modus, e.chat_modell, e.embedding_modell, e.api_schluessel) == ("lokal", "qwen3.5:4b-q4_K_M", "bge-m3", "")
 
     app_config.update_config(chatbot_modus="api", chatbot_api_modell="gpt-x", chatbot_api_embedding_modell="emb-x")
     seite.einstellungen_aktualisiert()
@@ -255,7 +255,7 @@ def test_ohne_ollama_steht_ein_hinweis_ohne_download_knopf(seite):
 def test_fehlendes_einbettungsmodell_steht_als_erster_hinweis_und_wird_nicht_ungefragt_geladen(seite, monkeypatch):
     _PullAttrappe.instanzen.clear()
     monkeypatch.setattr(cp, "OllamaPullWorker", _PullAttrappe)
-    _ollama_mit(monkeypatch, ["qwen3:8b"])  # Chatmodell da, Einbettungsmodell fehlt
+    _ollama_mit(monkeypatch, ["qwen3.5:4b-q4_K_M"])  # Chatmodell da, Einbettungsmodell fehlt
 
     seite.hinweis_pruefen()
 
@@ -269,7 +269,7 @@ def test_fehlendes_einbettungsmodell_steht_als_erster_hinweis_und_wird_nicht_ung
 def test_hinweis_verschwindet_nach_dem_download(seite, monkeypatch):
     _PullAttrappe.instanzen.clear()
     monkeypatch.setattr(cp, "OllamaPullWorker", _PullAttrappe)
-    installiert = ["qwen3:8b"]
+    installiert = ["qwen3.5:4b-q4_K_M"]
     _ollama_mit(monkeypatch, installiert)
     seite.hinweis_pruefen()
 
@@ -300,13 +300,13 @@ def test_nach_dem_ersten_modell_wird_das_naechste_fehlende_gezeigt(seite, monkey
     seite.hinweis_download_button.click()
     installiert.append("bge-m3")
     _PullAttrappe.instanzen[-1].fertig.emit("bge-m3")
-    assert "Chatmodell „qwen3:8b“" in seite.hinweis_label.text()
+    assert "Chatmodell „qwen3.5:4b-q4_K_M“" in seite.hinweis_label.text()
 
 
 def test_download_fehler_bleibt_sichtbar_und_erneuter_versuch_ist_moeglich(seite, monkeypatch):
     _PullAttrappe.instanzen.clear()
     monkeypatch.setattr(cp, "OllamaPullWorker", _PullAttrappe)
-    _ollama_mit(monkeypatch, ["qwen3:8b"])
+    _ollama_mit(monkeypatch, ["qwen3.5:4b-q4_K_M"])
     seite.hinweis_pruefen()
     seite.hinweis_download_button.click()
     _PullAttrappe.instanzen[-1].fehlgeschlagen.emit("bge-m3", "kein Speicherplatz")
@@ -317,7 +317,7 @@ def test_download_fehler_bleibt_sichtbar_und_erneuter_versuch_ist_moeglich(seite
 def test_senden_wird_bei_fehlendem_modell_nicht_gestartet(seite, ordner, monkeypatch):
     _transkript(ordner, "a")
     seite.aktualisieren()
-    _ollama_mit(monkeypatch, ["qwen3:8b"])
+    _ollama_mit(monkeypatch, ["qwen3.5:4b-q4_K_M"])
     seite.hinweis_pruefen()
     seite.eingabe.setText("Frage")
     seite.senden()
