@@ -45,6 +45,7 @@ def extract_json_object(text: str) -> dict[str, Any] | None:
         if isinstance(parsed, dict):
             return parsed
     except json.JSONDecodeError:
+        # Kein reines JSON -- weiter mit dem naechsten Versuch.
         pass
 
     fenced = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
@@ -54,6 +55,7 @@ def extract_json_object(text: str) -> dict[str, Any] | None:
             if isinstance(parsed, dict):
                 return parsed
         except json.JSONDecodeError:
+            # Der Codeblock enthaelt kein gueltiges JSON -- weiter mit der Klammersuche.
             pass
 
     suchstart = 0
@@ -68,6 +70,7 @@ def extract_json_object(text: str) -> dict[str, Any] | None:
                 if isinstance(parsed, dict):
                     return parsed
             except json.JSONDecodeError:
+                # Ungueltig -- die Schleife sucht hinter dieser Klammer weiter.
                 pass
         # Diese Klammerung war es nicht -- hinter der oeffnenden Klammer
         # weitersuchen, statt aufzugeben. Modelle stellen ihrer Antwort

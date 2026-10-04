@@ -25,7 +25,7 @@ class _FakeSplash:
 
 @pytest.fixture(autouse=True)
 def _no_real_splash(monkeypatch):
-    monkeypatch.setattr(bootstrap, "_try_create_splash", lambda: _FakeSplash())
+    monkeypatch.setattr(bootstrap, "_try_create_splash", _FakeSplash)
     monkeypatch.setattr(bootstrap, "_wait_for_acknowledgement", lambda splash: None)
     monkeypatch.delenv(bootstrap.MARKER_ENV_VAR, raising=False)
 

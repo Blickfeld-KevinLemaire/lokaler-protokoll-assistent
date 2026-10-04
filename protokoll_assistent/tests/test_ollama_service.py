@@ -102,7 +102,7 @@ def test_generate_json_sends_temperature_zero_and_json_format(monkeypatch):
 
 
 def test_ensure_ollama_or_offer_installer_returns_true_when_already_installed(monkeypatch, tmp_path):
-    monkeypatch.setattr(ollama_service, "find_ollama_executable", lambda: object())
+    monkeypatch.setattr(ollama_service, "find_ollama_executable", object)
     download_calls = []
     monkeypatch.setattr(
         ollama_service, "download_ollama_installer", lambda *a, **kw: download_calls.append((a, kw))
