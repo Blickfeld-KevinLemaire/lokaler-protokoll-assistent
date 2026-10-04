@@ -250,6 +250,7 @@ class ChatWorker(QThread):
                 self._einstellungen.chat_modell,
                 on_status=self.status.emit,
                 on_token=self.token.emit,
+                kontext=getattr(self._einstellungen, "kontext", chat_service.KONTEXT_AUSZUEGE),
             )
         except (chat_service.ChatFehler, ollama_service.OllamaError, api_chat_service.ApiChatError) as fehler:
             self.fehlgeschlagen.emit(str(fehler))

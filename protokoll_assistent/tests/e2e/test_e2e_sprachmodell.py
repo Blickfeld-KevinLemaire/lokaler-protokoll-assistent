@@ -109,3 +109,57 @@ def test_chatbot_beantwortet_frage_aus_dem_transkript_mit_quelle(sprachmodell, e
     assert besprechung.enthaelt_eines(antwort, *besprechung.FRIST_TESTPLAN, "freitag"), antwort
     assert besprechung.enthaelt_eines(antwort, "wagner", "thomas"), antwort
     assert quellen, "Die Antwort nennt keine Quelle."
+
+
+def test_chatbot_fasst_mit_ganzem_text_die_besprechung_zusammen(sprachmodell, transkript, tmp_path):
+    """Volltext-Modus: Der ganze Text passt in eine Anfrage; kein Einbettungsmodell."""
+    einstellungen = chat_service.ChatEinstellungen(
+        "lokal", sprachmodell, "gibt-es-nicht", kontext=chat_service.KONTEXT_VOLLTEXT
+    )
+    assert chat_service.fehlendes_modell(einstellungen) is None  # Einbettung wird nicht gebraucht
+    _embed, chat_fn = chat_service.funktionen_aus_einstellungen(einstellungen)
+    status: list[str] = []
+
+    antwort, quellen = chat_service.beantworte(
+        "Fasse die Besprechung zusammen: Was wurde beschlossen, und wer macht was bis wann?",
+        [chat_service.lade_dokument(transkript)],
+        [],
+        _embed,
+        chat_fn,
+        tmp_path / "vektoren",
+        einstellungen.modell_kennung,
+        on_status=status.append,
+        kontext=chat_service.KONTEXT_VOLLTEXT,
+    )
+
+    assert status == ["Antwort wird erzeugt …"]  # ein Aufruf, nicht in Stuecken
+    assert besprechung.enthaelt_eines(antwort, *besprechung.UMZUGSTERMIN), antwort
+    assert besprechung.enthaelt_eines(antwort, "testplan"), antwort
+    assert besprechung.enthaelt_eines(antwort, "schulung", "angebot"), antwort
+    assert quellen == [transkript.stem]
+
+
+def test_chatbot_liest_zu_langen_text_in_stuecken(sprachmodell, transkript):
+    """Erzwungenes Stueckeln: kleine Grenzen, damit die Besprechung in mehreren
+    Teilen gelesen wird. Die Frist steht nur in einem davon."""
+    einstellungen = chat_service.ChatEinstellungen("lokal", sprachmodell, "", kontext=chat_service.KONTEXT_VOLLTEXT)
+    _embed, chat_fn = chat_service.funktionen_aus_einstellungen(einstellungen)
+    status: list[str] = []
+
+    antwort, _quellen = chat_service.beantworte_volltext(
+        "Bis wann soll der Testplan fertig sein?",
+        [chat_service.lade_dokument(transkript)],
+        [],
+        chat_fn,
+        on_status=status.append,
+        # Der Text hat knapp 1.300 Zeichen: passt nicht in "eine Anfrage" (1.200),
+        # die knappen Notizen aber schon. Mit 1.000 wurden ausfuehrliche Notizen
+        # hinten gekuerzt -- und mit ihnen die Frist (04.10.2026).
+        max_zeichen=1200,
+        stueck_zeichen=450,
+        ueberlappung=100,
+    )
+
+    gelesen = [s for s in status if s.startswith("Abschnitt ")]
+    assert len(gelesen) >= 3, status
+    assert besprechung.enthaelt_eines(antwort, *besprechung.FRIST_TESTPLAN, "freitag"), antwort

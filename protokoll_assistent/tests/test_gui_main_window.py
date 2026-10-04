@@ -56,6 +56,9 @@ class _WorkerAttrappe:
     def start(self):
         self.gestartet = True
 
+    def isFinished(self):
+        return getattr(self, "beendet", False)
+
     def request_cancel(self):
         self.abbruch_angefordert = True
 
@@ -1575,6 +1578,25 @@ def test_protokoll_startet_erst_nach_ende_des_transkriptions_threads(fenster, tm
     fenster._transcription_worker.finished.emit()
     assert gestartet == [True]
     assert fenster._protokoll_nach_transkription is False
+
+
+def test_protokoll_startet_auch_wenn_der_thread_schon_beendet_ist(fenster, tmp_path, monkeypatch, qtbot):
+    """Der Normalfall: 'finished' des Threads kam schon, bevor 'finished_ok'
+    verarbeitet wurde -- eine Verbindung dazu greift dann nicht mehr. Das
+    Protokoll startete deshalb nie (gefunden vom Oberflaechentest in tests/e2e)."""
+    monkeypatch.setattr(QMessageBox, "information", staticmethod(lambda *a: None))
+    gestartet = []
+    monkeypatch.setattr(fenster, "_start_protocol", lambda: gestartet.append(True))
+    fenster._transcription_worker = _WorkerAttrappe(None)
+    fenster._transcription_worker.beendet = True
+    fenster._protokoll_nach_transkription = True
+
+    fenster._on_transcription_finished_ok(_transkript_ergebnis_bauen(tmp_path, []))
+    assert gestartet == []  # erst nach den bereits eingereihten Slots
+    qtbot.waitUntil(lambda: gestartet == [True], timeout=2000)
+
+    fenster._transcription_worker.finished.emit()  # kaeme es doch noch: kein zweiter Start
+    assert gestartet == [True]
 
 
 def test_fehler_und_abbruch_setzen_protokollwunsch_zurueck(fenster, gemeldete_fehler):

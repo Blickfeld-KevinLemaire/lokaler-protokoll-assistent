@@ -511,3 +511,43 @@ def test_speicherfehler_wird_gemeldet_ohne_abzustuerzen(seite, ordner, monkeypat
     _frage_stellen(seite, "Frage", "Antwort")
     assert "nicht gespeichert werden" in seite.status_label.text()
     assert "Antwort" in seite.verlauf_anzeige.toPlainText()
+
+
+# --------------------------------------------------------------------------
+# Grundlage: passende Ausschnitte oder ganzer Text
+# --------------------------------------------------------------------------
+def test_grundlage_ist_standardmaessig_ausschnitte_und_wird_gemerkt(seite, ordner):
+    from protokoll_assistent.services import chat_service
+
+    assert seite.grundlage_wahl.currentData() == chat_service.KONTEXT_AUSZUEGE
+    assert seite.einstellungen().kontext == chat_service.KONTEXT_AUSZUEGE
+
+    seite.grundlage_wahl.setCurrentIndex(seite.grundlage_wahl.findData(chat_service.KONTEXT_VOLLTEXT))
+    assert app_config.load_config()["chatbot_kontext"] == chat_service.KONTEXT_VOLLTEXT
+    assert seite.einstellungen().kontext == chat_service.KONTEXT_VOLLTEXT
+
+    _transkript(ordner, "a")
+    seite.aktualisieren()
+    seite.eingabe.setText("Fasse zusammen.")
+    seite.senden()
+    assert _ArbeiterAttrappe.instanzen[-1].einstellungen.kontext == chat_service.KONTEXT_VOLLTEXT
+
+
+def test_gemerkte_grundlage_gilt_beim_naechsten_oeffnen(qt_widgets, ordner, tmp_path, monkeypatch):
+    from protokoll_assistent.services import chat_service
+
+    app_config.update_config(chatbot_kontext=chat_service.KONTEXT_VOLLTEXT)
+    seite = qt_widgets(cp.ChatPage(lambda: ordner, lambda: tmp_path / "c", lambda: "", lambda: tmp_path / "v"))
+    assert seite.grundlage_wahl.currentData() == chat_service.KONTEXT_VOLLTEXT
+
+
+def test_mit_ganzem_text_fehlt_kein_einbettungsmodell(seite, monkeypatch):
+    from protokoll_assistent.services import chat_service
+
+    _ollama_mit(monkeypatch, [app_config.load_config()["chatbot_ollama_modell"]])  # nur das Chatmodell
+    seite.hinweis_pruefen()
+    assert "Einbettungsmodell" in seite.hinweis_label.text()
+
+    seite.grundlage_wahl.setCurrentIndex(seite.grundlage_wahl.findData(chat_service.KONTEXT_VOLLTEXT))
+    assert not seite.hinweis_rahmen.isVisibleTo(seite)  # Wechsel prueft den Hinweis sofort neu
+

@@ -51,6 +51,14 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
   unter „Gespeicherte Chats“. Ein Klick öffnet ihn samt Nachrichten und den
   damals gewählten Unterlagen; Umbenennen und Löschen sind möglich.
   Die Dateien liegen lokal im Ordner `chatverlaeufe/` (nicht versioniert, nicht im Installer).
+- **Frag mein Meeting – Grundlage wählbar:** Über dem Eingabefeld steht jetzt
+  „Grundlage“. „Passende Ausschnitte“ (Standard) sucht wie bisher die Stellen,
+  die zur Frage passen. „Ganzer Text“ gibt dem Modell alles – für
+  Zusammenfassungen und Fragen, die die ganze Besprechung betreffen. Passt der
+  Text nicht in eine Anfrage (lokal etwa 80.000 Zeichen, gut eine Stunde
+  Besprechung), wird er in überlappenden Abschnitten gelesen; aus den Notizen
+  je Abschnitt entsteht die Antwort. Dafür ist kein Einbettungsmodell nötig.
+  Die Wahl wird gemerkt.
 - **Rechner-Analyse als erster Schritt der lokalen Einrichtung:** Bevor etwas
   heruntergeladen wird, prüft das Programm Arbeitsspeicher, Prozessorkerne,
   die vorhandene Grafikkarte (egal von welchem Hersteller: NVIDIA, AMD, Intel,
@@ -132,6 +140,16 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 ### Fixed
 
+- **„Danach direkt das Protokoll erstellen“ wirkte nicht:** Nach der
+  Transkription blieb das Fenster bei „Transkription abgeschlossen.“ stehen,
+  das Protokoll startete nie. Die Anwendung wartete auf das Ende des
+  Arbeits-Threads, das zu diesem Zeitpunkt meist schon vorbei war. Gefunden vom
+  neuen Oberflächentest mit echten Modellen.
+- **Frag mein Meeting, „Ganzer Text“ bei langen Unterlagen:** Wird der Text in
+  Abschnitten gelesen, schloss ein Abschnitt mitunter „kein Termin genannt“,
+  obwohl der nächste ihn nannte, und die Antwort übernahm das. Die Notizen je
+  Abschnitt sind jetzt knapp und ziehen keine Schlüsse über Fehlendes; die
+  Antwort wertet alle Notizen zusammen aus.
 - **Kein Systemabsturz mehr bei der Sprechertrennung:** Auf einem Laptop mit
   NVIDIA-Karte und aktiver Speicherintegrität (VBS/HVCI) stürzte beim Start der
   Sprechertrennung der ganze Rechner ab (Bluescreen HYPERVISOR_ERROR) – ein

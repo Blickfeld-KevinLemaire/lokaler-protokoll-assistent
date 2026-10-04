@@ -1647,6 +1647,14 @@ class MainWindow(QMainWindow):
             # Zeitgeber - das wuerde sonst die eben gestartete Nachbearbeitung
             # betreffen. Slots laufen in der Reihenfolge des Verbindens.
             self._transcription_worker.finished.connect(self._start_protocol_after_transcription)
+            # Meist ist der Thread hier aber SCHON beendet: Beide Signale kommen
+            # als eingereihte Ereignisse aus dem Arbeits-Thread, und 'finished'
+            # wurde ausgeloest, bevor die Verbindung oben bestand -- sie greift
+            # dann nie, und das Protokoll startete nicht (gefunden vom
+            # Oberflaechentest in tests/e2e). Dann nach den bereits eingereihten
+            # Slots starten; ein doppelter Aufruf ist harmlos (siehe dort).
+            if self._transcription_worker.isFinished():
+                QTimer.singleShot(0, self._start_protocol_after_transcription)
             return
         QMessageBox.information(
             self,
