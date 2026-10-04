@@ -10,6 +10,112 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 ### Added
 
+- **Frag mein Meeting:** Neuer Chatbot in der Seitenleiste. Links werden
+  Transkripte und Zusammenfassungen angehakt, rechts stellt man Fragen; die
+  Antworten stützen sich nur auf die ausgewählten Unterlagen und nennen ihre
+  Quellen (Dokument und Uhrzeit). Dahinter arbeitet eine Suche in
+  Textabschnitten (Einbettungen, zwischengespeichert) und ein Chatmodell.
+- Neuer Reiter **Chatbot** in den Einstellungen: lokal (Ollama) oder API, mit
+  Auswahl des Chatmodells und des Einbettungsmodells (BGE-M3, Nomic Embed
+  Text, MixedBread, EmbeddingGemma oder eigener Name), Status und „Jetzt
+  herunterladen“. Im API-Modus gibt es Endpunkt und Modell für Chat und
+  Einbettungen sowie einen eigenen oder gemeinsamen Schlüssel; ein
+  Datenschutzhinweis erscheint, weil dort Texte übertragen werden.
+- **Frag mein Meeting – Hinweisleiste und Systemcheck:** Fehlt ein Modell, steht
+  das als erster Hinweis oben auf der Seite, mit „Jetzt herunterladen“. Das
+  Einbettungsmodell wird nur auf Wunsch geladen, nie von allein; der Hinweis
+  verschwindet, sobald es da ist. Der Knopf „Systemcheck“ prüft Ollama bzw.
+  den API-Zugang, die Modelle und macht je einen Probelauf für Suche und Antwort.
+- **Gespeicherte Chats:** Jeder Chat wird automatisch gespeichert und steht links
+  unter „Gespeicherte Chats“. Ein Klick öffnet ihn samt Nachrichten und den
+  damals gewählten Unterlagen; Umbenennen und Löschen sind möglich.
+  Die Dateien liegen lokal im Ordner `chatverlaeufe/` (nicht versioniert, nicht im Installer).
+- **Rechner-Analyse als erster Schritt der lokalen Einrichtung:** Bevor etwas
+  heruntergeladen wird, prüft das Programm Arbeitsspeicher, Prozessorkerne,
+  die vorhandene Grafikkarte (egal von welchem Hersteller: NVIDIA, AMD, Intel,
+  auch integrierte Grafik) und den freien Platz und bewertet jedes Modell
+  (Transkription, Nachbearbeitung, Suche im Chat) mit „Läuft gut“, „Läuft
+  langsam / knapp“ oder „Eher nicht geeignet“, samt Hinweisen und Empfehlung.
+  Das empfohlene Sprachmodell wird für die Einrichtung vorausgewählt – eine
+  bewusst getroffene Wahl in den Einstellungen bleibt unberührt. Es sind
+  Schätzungen; jedes Modell lässt sich weiterhin wählen. Beschleunigen kann
+  die Grafikkarte die Transkription nur bei NVIDIA (CUDA); eine Radeon-
+  Einzelkarte kann Ollama bei der Nachbearbeitung helfen, wenn ihr Modell
+  unterstützt wird, integrierte Grafik beschleunigt nichts – das erklärt die
+  Analyse bei der erkannten Karte.
+- **Systemtest: „Fehlendes nachladen“.** Fehlen FFmpeg, Ollama oder das
+  Ollama-Modell, lädt ein Knopf sie herunter und zeigt den Grund, falls es
+  scheitert; danach wird automatisch neu geprüft.
+
+- **API-Anbieter zum Auswählen statt Voreinstellung:** In den Einstellungen
+  (Transkription, Nachbearbeitung, Chatbot) wählt man den Anbieter aus einer
+  Liste – IONOS, STACKIT, Mistral, Scaleway, Microsoft Azure, OpenAI, Anthropic
+  (Claude), Google Gemini, Groq, OpenRouter oder „Eigener Endpunkt“ – und muss
+  nur noch den API-Schlüssel eintragen. Adresse und Modellvorschlag werden
+  eingesetzt; darunter stehen Standort, Hinweise und Links zum Schlüssel und
+  zur Dokumentation. Die Transkription über eine API bleibt bei OpenRouter bzw.
+  einem eigenen Endpunkt im selben Format (Audio im API-Aufruf, kein
+  Dateiupload); die übrigen Anbieter gibt es für Nachbearbeitung und Chatbot.
+
+- **Export in gängige Formate:** Der neue Knopf „Exportieren …“ (auf der
+  Ergebnisseite und unter „Nachbearbeitung“) speichert Transkript, Protokoll
+  oder beides in einem Dokument als Word, PDF, Markdown, Text, HTML oder
+  OpenDocument – das Transkript zusätzlich als Untertitel (SRT, VTT) und JSON –
+  in einen frei gewählten Ordner. Ziel und Formate werden für das nächste Mal
+  gemerkt; vorhandene Dateien werden nie überschrieben.
+- **Zusammengefasste Word-Datei von selbst:** Nach jeder Transkription entsteht
+  neben den übrigen Ausgaben eine Word-Datei mit dem Transkript, nach der
+  Nachbearbeitung eine mit Protokoll und Transkript in einem Dokument. Sie wird
+  nach dem Umbenennen von Sprechern neu geschrieben. Scheitert das, bleibt die
+  Verarbeitung gültig; der Grund steht im Protokoll.
+
+- **Servermodus für Linux (Container):** Aufnahmen, die in einem Eingangsordner
+  ankommen, werden automatisch in Chunks verarbeitet, transkribiert und
+  zusammengefasst; Transkript, Protokoll und die zusammengefasste Word-Datei
+  liegen danach in einem Ausgangsordner (`ergebnis.json` meldet den Ausgang,
+  optional auch per Webhook). Läuft ohne Oberfläche per `docker compose`
+  (Prozessor oder NVIDIA-Grafikkarte, Ollama als eigener Dienst); Einstellungen
+  über Umgebungsvariablen. Anleitung: `protokoll_assistent/server/README.md`.
+
+### Changed
+
+- **OpenRouter ist nicht mehr voreingestellt.** Endpunkte und Modelle sind ab
+  Werk leer, bis ein Anbieter gewählt wird; ohne Auswahl meldet das Programm
+  „Kein Anbieter gewählt“, statt Aufnahmen oder Texte irgendwohin zu senden.
+  Bereits gespeicherte Einstellungen bleiben erhalten und werden in der Liste
+  richtig angezeigt.
+- **Neues Standardmodell für die Nachbearbeitung: Qwen3.5 4B**
+  (`qwen3.5:4b-q4_K_M`, etwa 3,3 GB) statt Qwen3 8B. Es ist trotz halber Größe
+  leistungsfähiger und braucht weniger Speicher; das gilt auch für den Chatbot
+  und den Servermodus.
+- **Modellauswahl erneuert und verkleinert.** Zur Wahl stehen jetzt vier
+  Modelle, alle unter Apache 2.0 und ausdrücklich in der Q4-Fassung:
+  Qwen3.5 4B (Standard), **Qwen3.5 9B** (genauer, liegt in Tests vor dem
+  bisherigen Qwen3 14B), **Gemma 4 12B** und für Rechner mit großer
+  Grafikkarte (etwa 24 GB) **Qwen3.8 27B**. Entfallen sind Qwen3 4B, 8B und
+  14B, Gemma 3, Llama 3.1 und Mistral Nemo; sie lassen sich weiterhin von Hand
+  eintragen. Wer schon ein Modell gespeichert hat, behält es. Rechner mit
+  weniger als etwa 7,8 GB Arbeitsspeicher bekommen bei der Einrichtung kein
+  lokales Sprachmodell mehr empfohlen, sondern den Hinweis auf die API.
+  Qwen3.5 und neuer brauchen ein aktuelles Ollama – bei einer älteren Fassung
+  scheitert der Download.
+- Die „Denkphase“ der Sprachmodelle wird jetzt über Ollama abgeschaltet
+  (`think: false`). Das bisherige `/no_think` im Systemprompt verstehen
+  Qwen3.5-Modelle nicht mehr; ohne die Änderung hätten sie vor jeder Antwort
+  lange „nachgedacht“.
+
+### Fixed
+
+- Ein gescheiterter FFmpeg-Download (kein Netz, Proxy, beschädigtes Paket)
+  wurde in der Einrichtung nur still ins Protokoll geschrieben und die
+  Einrichtung meldete trotzdem „abgeschlossen“. Jetzt wird die Lücke
+  benannt (FFmpeg, Ollama, pyannote, Ollama-Modell).
+- Ollama wurde direkt nach der Installation nicht gefunden, weil der neue
+  PATH erst für neu gestartete Programme gilt. Die üblichen
+  Installationsorte unter Windows werden jetzt mit durchsucht.
+
+### Added
+
 - Ollama-Modell wählbar: In den Einstellungen (Nachbearbeitung, lokal) gibt es
   jetzt eine Auswahl mit Qwen3 (4B, 8B, 14B), Gemma 3, Llama 3.1 und Mistral
   Nemo samt Größenangabe und Hinweis, dazu „Eigenen Modellnamen eingeben …“

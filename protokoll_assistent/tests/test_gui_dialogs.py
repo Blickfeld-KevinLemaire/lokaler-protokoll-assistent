@@ -282,3 +282,19 @@ def test_ressourcen_ordner_im_quellcode_und_in_der_gebauten_anwendung(monkeypatc
     monkeypatch.setattr(sys, "frozen", True, raising=False)
     monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path), raising=False)
     assert branding.ressourcen_ordner() == tmp_path / "resources"
+
+
+# --------------------------------------------------------------------------
+# ChatSystemcheckDialog
+# --------------------------------------------------------------------------
+def test_chat_systemcheck_dialog_fasst_zusammen(qt_app):
+    from protokoll_assistent.utils.diagnostics import DiagnosticCheck
+
+    gut = [DiagnosticCheck("a", "Ollama", True, "läuft", True), DiagnosticCheck("b", "Programm", False, "fehlt", False)]
+    dialog = dialogs.ChatSystemcheckDialog(gut)
+    assert "einsatzbereit" in dialog.zusammenfassung.text() and "noch nicht" not in dialog.zusammenfassung.text()
+    assert dialog.tabelle.rowCount() == 2 and dialog.tabelle.item(0, 0).text() == "Ollama"
+    assert "läuft" in dialog.tabelle.item(0, 1).text()
+
+    schlecht = dialogs.ChatSystemcheckDialog([DiagnosticCheck("a", "Modell", False, "fehlt", True)])
+    assert "noch nicht einsatzbereit" in schlecht.zusammenfassung.text()

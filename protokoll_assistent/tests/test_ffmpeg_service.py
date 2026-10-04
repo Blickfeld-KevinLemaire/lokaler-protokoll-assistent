@@ -268,3 +268,17 @@ def test_extract_speaker_audio_ohne_ffmpeg(monkeypatch, tmp_path):
     monkeypatch.setattr(ffmpeg_service, "find_ffmpeg", lambda: None)
     with pytest.raises(RuntimeError, match="FFmpeg"):
         ffmpeg_service.extract_speaker_audio(tmp_path / "q.wav", tmp_path / "o.wav", [(0.0, 1.0)])
+
+
+def test_ensure_ffmpeg_available_meldet_kaputtes_paket_statt_abzustuerzen(monkeypatch):
+    # Ein abgebrochener Download liefert kein gueltiges ZIP (BadZipFile ist weder
+    # OSError noch RuntimeError) -- das darf die Einrichtung nicht abreissen.
+    monkeypatch.setattr(ffmpeg_service, "find_ffmpeg", lambda: None)
+
+    def kaputt(**kwargs):
+        raise zipfile.BadZipFile("File is not a zip file")
+
+    monkeypatch.setattr(ffmpeg_service, "download_portable_ffmpeg", kaputt)
+    meldungen = []
+    assert ffmpeg_service.ensure_ffmpeg_available(progress_cb=meldungen.append) is None
+    assert any("not a zip" in m for m in meldungen)

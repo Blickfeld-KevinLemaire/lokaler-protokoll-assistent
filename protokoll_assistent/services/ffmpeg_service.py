@@ -170,7 +170,9 @@ def ensure_ffmpeg_available(
     log("FFmpeg wurde nicht gefunden -- lade portable Version herunter ...")
     try:
         ffmpeg_path = download_portable_ffmpeg(download_fn=download_fn)
-    except (OSError, RuntimeError) as error:
+    except (OSError, RuntimeError, zipfile.BadZipFile) as error:
+        # Haeufige Ursachen: kein Netz, Firmen-Proxy, Virenscanner, abgebrochener
+        # Download. Der Grund steht im Protokoll der Einrichtung.
         log(f"FFmpeg-Download fehlgeschlagen: {error}")
         return None
 

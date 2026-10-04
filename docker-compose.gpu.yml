@@ -1,0 +1,28 @@
+# Zusatz fuer einen Rechner mit NVIDIA-Grafikkarte (NVIDIA Container Toolkit noetig):
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
+
+services:
+  ollama:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  protokoll:
+    build:
+      args:
+        BASIS_IMAGE: nvidia/cuda:12.6.3-cudnn-runtime-ubuntu22.04
+        TORCH_INDEX_URL: ""
+    environment:
+      PROTOKOLL_GERAET: cuda
+      NVIDIA_VISIBLE_DEVICES: all
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

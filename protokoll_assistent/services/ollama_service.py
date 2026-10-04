@@ -8,19 +8,27 @@ damit keine zusaetzliche Abhaengigkeit noetig ist.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import urllib.error
 import urllib.request
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from protokoll_assistent.utils.json_validation import extract_json_object
 
-OLLAMA_BASE_URL = "http://127.0.0.1:11434"
-DEFAULT_MODEL = "qwen3:8b"
+
+# Im Container laeuft Ollama als eigener Dienst: Adresse ueber 'OLLAMA_URL'
+# (z. B. http://ollama:11434). Ohne Angabe wie bisher der lokale Dienst.
+def basis_url_aus_umgebung(umgebung: Mapping[str, str]) -> str:
+    return umgebung.get("OLLAMA_URL", "").strip().rstrip("/") or "http://127.0.0.1:11434"
+
+
+OLLAMA_BASE_URL = basis_url_aus_umgebung(os.environ)
+DEFAULT_MODEL = "qwen3.5:4b-q4_K_M"
 DEFAULT_TIMEOUT_SECONDS = 900
 
 # Offizieller Windows-Installer. Wird nur heruntergeladen/gestartet, wenn
@@ -48,66 +56,105 @@ class OllamaModellOption:
 
 # Kuratierte Auswahl fuer die Protokollauswertung. Wie bei den Whisper-Modellen
 # ist das keine Einschraenkung: In den Einstellungen laesst sich jeder Name aus
-# der Ollama-Bibliothek (https://ollama.com/library) eintragen. Groessen sind
-# gerundete Downloadgroessen der Standardfassung (Q4).
+# der Ollama-Bibliothek (https://ollama.com/library) eintragen. Die Namen legen
+# die Q4-Fassung ausdruecklich fest (statt des Ollama-Standards, der sich
+# aendern kann); die Groessen sind deren gerundete Downloadgroessen.
 OLLAMA_MODELLE: list[OllamaModellOption] = [
     OllamaModellOption(
         id=DEFAULT_MODEL,
-        label="Qwen3 8B (empfohlener Standard)",
-        groesse_gb=5.2,
-        hinweis="Guter Kompromiss aus Qualitaet und Tempo, solide auf Deutsch. Ab etwa 8 GB Grafikspeicher oder 16 GB RAM.",
-    ),
-    OllamaModellOption(
-        id="qwen3:4b",
-        label="Qwen3 4B (schwaechere Rechner)",
-        groesse_gb=2.5,
-        hinweis="Braucht deutlich weniger Speicher und ist schneller, fasst aber ungenauer zusammen.",
-    ),
-    OllamaModellOption(
-        id="qwen3:14b",
-        label="Qwen3 14B (genauer, braucht mehr Speicher)",
-        groesse_gb=9.3,
-        hinweis="Bessere Qualitaet bei langen oder schwierigen Besprechungen. Ab etwa 12 GB Grafikspeicher oder 32 GB RAM.",
-    ),
-    OllamaModellOption(
-        id="gemma3:12b",
-        label="Gemma 3 12B (Google)",
-        groesse_gb=8.1,
-        hinweis="Gute Textqualitaet und Mehrsprachigkeit. Ab etwa 10 GB Grafikspeicher oder 32 GB RAM.",
-    ),
-    OllamaModellOption(
-        id="gemma3:4b",
-        label="Gemma 3 4B (Google, klein)",
+        label="Qwen3.5 4B (empfohlener Standard)",
         groesse_gb=3.3,
-        hinweis="Kleines, schnelles Modell fuer einfache Besprechungen.",
-    ),
-    OllamaModellOption(
-        id="llama3.1:8b",
-        label="Llama 3.1 8B (Meta)",
-        groesse_gb=4.9,
         hinweis=(
-            "Verbreitetes Modell mit eigener Lizenz (Meta Llama 3.1 Community License) - "
-            "vor kommerzieller Nutzung pruefen, siehe NOTICES.md."
+            "Nachfolger von Qwen3 8B: trotz halber Groesse leistungsfaehiger, solide auf Deutsch. "
+            "Ab etwa 6 GB Grafikspeicher oder 16 GB RAM."
         ),
     ),
     OllamaModellOption(
-        id="mistral-nemo",
-        label="Mistral Nemo 12B",
-        groesse_gb=7.1,
-        hinweis="Mehrsprachig, gut im Deutschen. Ab etwa 10 GB Grafikspeicher oder 32 GB RAM.",
+        id="qwen3.5:9b-q4_K_M",
+        label="Qwen3.5 9B (genauer, braucht mehr Speicher)",
+        groesse_gb=6.6,
+        hinweis=(
+            "Bessere Qualitaet bei langen oder schwierigen Besprechungen; liegt in Tests vor dem "
+            "frueheren Qwen3 14B. Ab etwa 10 GB Grafikspeicher oder 32 GB RAM."
+        ),
+    ),
+    OllamaModellOption(
+        id="qwen3.8:27b-q4_K_M",
+        label="Qwen3.8 27B (sehr genau, nur mit grosser Grafikkarte)",
+        groesse_gb=18.0,
+        hinweis=(
+            "Hoechste Qualitaet in dieser Auswahl. Braucht etwa 24 GB Grafikspeicher; "
+            "auf dem Prozessor allein zu langsam."
+        ),
+    ),
+    OllamaModellOption(
+        id="gemma4:12b-it-q4_K_M",
+        label="Gemma 4 12B (Google)",
+        groesse_gb=8.0,
+        hinweis="Sehr gute Mehrsprachigkeit und Textqualitaet. Ab etwa 10 GB Grafikspeicher oder 32 GB RAM.",
+    ),
+]
+
+
+# Einbettungsmodelle fuer die Suche in Transkripten ("Frag mein Meeting"). Sie
+# erzeugen keine Texte, sondern Zahlenvektoren; Aehnliches liegt nah beieinander.
+OLLAMA_EMBEDDING_MODELLE: list[OllamaModellOption] = [
+    OllamaModellOption(
+        id="bge-m3",
+        label="BGE-M3 (mehrsprachig, empfohlen fuer Deutsch)",
+        groesse_gb=1.2,
+        hinweis="Starke mehrsprachige Suche, gut fuer deutsche Besprechungen. Verarbeitet lange Abschnitte.",
+    ),
+    OllamaModellOption(
+        id="nomic-embed-text",
+        label="Nomic Embed Text (klein und schnell)",
+        groesse_gb=0.3,
+        hinweis="Sehr klein und schnell, vor allem fuer Englisch optimiert; auf Deutsch weniger treffsicher.",
+    ),
+    OllamaModellOption(
+        id="mxbai-embed-large",
+        label="MixedBread Embed Large",
+        groesse_gb=0.7,
+        hinweis="Gute Qualitaet bei maessigem Speicherbedarf, ueberwiegend englisch trainiert.",
+    ),
+    OllamaModellOption(
+        id="embeddinggemma",
+        label="EmbeddingGemma (Google, mehrsprachig)",
+        groesse_gb=0.6,
+        hinweis="Kleines mehrsprachiges Modell von Google.",
     ),
 ]
 
 
 def get_modell_option(model_id: str) -> OllamaModellOption | None:
-    return next((option for option in OLLAMA_MODELLE if option.id == model_id), None)
+    return next(
+        (option for option in [*OLLAMA_MODELLE, *OLLAMA_EMBEDDING_MODELLE] if option.id == model_id), None
+    )
 
 
 def find_ollama_executable():
+    """Sucht das Ollama-Programm: erst im PATH, dann an den ueblichen
+    Installationsorten unter Windows.
+
+    Der Installer traegt Ollama in den PATH ein, aber nur fuer *neu
+    gestartete* Programme. Direkt nach einer Installation aus der
+    laufenden Anwendung heraus fand ``shutil.which`` es deshalb nicht --
+    der Systemtest meldete "nicht gefunden", obwohl es installiert war."""
     from pathlib import Path
 
     found = shutil.which("ollama") or shutil.which("ollama.exe")
-    return Path(found) if found else None
+    if found:
+        return Path(found)
+    for variable, unterordner in (
+        ("LOCALAPPDATA", Path("Programs") / "Ollama"),
+        ("PROGRAMFILES", Path("Ollama")),
+    ):
+        basis = os.environ.get(variable)
+        if basis:
+            kandidat = Path(basis) / unterordner / "ollama.exe"
+            if kandidat.is_file():
+                return kandidat
+    return None
 
 
 def _get_json(url: str, timeout: float) -> dict[str, Any]:
@@ -223,6 +270,104 @@ def pull_model(
         raise OllamaError(f"Der Download wurde unterbrochen: {error}") from error
 
 
+def _post_json(url: str, payload: dict[str, Any], timeout: float, opener: OeffneFn | None) -> Any:
+    request = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json; charset=utf-8"},
+        method="POST",
+    )
+    return (opener or urllib.request.urlopen)(request, timeout=timeout)
+
+
+def _ollama_fehler(error: Exception) -> OllamaError:
+    if isinstance(error, urllib.error.HTTPError):
+        details = error.read().decode("utf-8", errors="replace")[:500]
+        return OllamaError(f"Ollama-Fehler HTTP {error.code}: {details}")
+    if isinstance(error, urllib.error.URLError):
+        return OllamaError(f"Ollama ist nicht erreichbar ({error.reason}). Bitte Ollama starten bzw. installieren.")
+    return OllamaError(f"Die Anfrage an Ollama wurde unterbrochen: {error}")
+
+
+def embed(
+    model: str,
+    texts: list[str],
+    base_url: str = OLLAMA_BASE_URL,
+    opener: OeffneFn | None = None,
+    timeout: float = 300,
+) -> list[list[float]]:
+    """Berechnet Einbettungsvektoren ueber ``/api/embed`` (ein Vektor je Text)."""
+    if not texts:
+        return []
+    try:
+        with _post_json(f"{base_url}/api/embed", {"model": model, "input": texts}, timeout, opener) as response:
+            daten = json.loads(response.read().decode("utf-8"))
+    except (urllib.error.URLError, OSError, TimeoutError) as error:
+        raise _ollama_fehler(error) from error
+    except ValueError as error:
+        raise OllamaError("Die Antwort von Ollama (Einbettungen) war kein gueltiges JSON.") from error
+    vektoren = daten.get("embeddings") if isinstance(daten, dict) else None
+    if not isinstance(vektoren, list) or len(vektoren) != len(texts):
+        raise OllamaError(
+            f"Ollama hat fuer das Modell '{model}' keine passenden Einbettungen geliefert. "
+            "Ist es ein Einbettungsmodell und installiert?"
+        )
+    return [[float(x) for x in vektor] for vektor in vektoren]
+
+
+def chat_stream(
+    messages: list[dict[str, str]],
+    model: str,
+    on_token: Callable[[str], None] | None = None,
+    base_url: str = OLLAMA_BASE_URL,
+    opener: OeffneFn | None = None,
+    num_ctx: int = 8192,
+    temperature: float = 0.2,
+    timeout: float = DEFAULT_TIMEOUT_SECONDS,
+) -> str:
+    """Chat ueber ``/api/chat`` mit Textstrom. ``on_token`` bekommt jedes Stueck
+    der Antwort sofort; zurueck kommt der vollstaendige Text. ``num_ctx`` ist
+    bewusst groesser als Ollamas Standard (2048): Die Auszuege aus den
+    Transkripten wuerden sonst stillschweigend abgeschnitten.
+
+    ``think: False`` schaltet die Denkphase ab. Qwen3.5 denkt sonst vor jeder
+    Antwort und versteht das '/no_think' im Systemprompt nicht mehr (das
+    galt nur fuer Qwen3). Modelle ohne Denkphase stoert die Angabe nicht:
+    Ollama lehnt nur ``think: True`` bei ihnen ab."""
+    payload = {
+        "model": model,
+        "messages": messages,
+        "stream": True,
+        "think": False,
+        "options": {"num_ctx": num_ctx, "temperature": temperature},
+    }
+    teile: list[str] = []
+    try:
+        with _post_json(f"{base_url}/api/chat", payload, timeout, opener) as response:
+            for zeile in response:
+                text = zeile.decode("utf-8", errors="replace").strip() if isinstance(zeile, bytes) else str(zeile).strip()
+                if not text:
+                    continue
+                try:
+                    meldung = json.loads(text)
+                except ValueError:
+                    continue
+                if not isinstance(meldung, dict):
+                    continue
+                if meldung.get("error"):
+                    raise OllamaError(f"Ollama meldet einen Fehler: {meldung['error']}")
+                stueck = (meldung.get("message") or {}).get("content") or ""
+                if stueck:
+                    teile.append(stueck)
+                    if on_token:
+                        on_token(stueck)
+                if meldung.get("done"):
+                    break
+    except (urllib.error.URLError, OSError, TimeoutError) as error:
+        raise _ollama_fehler(error) from error
+    return "".join(teile)
+
+
 def generate_json(
     prompt: str,
     system: str,
@@ -232,13 +377,15 @@ def generate_json(
     timeout: float = DEFAULT_TIMEOUT_SECONDS,
 ) -> dict[str, Any]:
     """Ruft ``/api/generate`` mit ``format: json`` und Temperatur 0 auf und
-    liefert das geparste JSON-Objekt aus der Modellantwort zurueck."""
+    liefert das geparste JSON-Objekt aus der Modellantwort zurueck. Die
+    Denkphase ist abgeschaltet, Begruendung bei ``chat_stream``."""
     body = {
         "model": model,
         "system": system,
         "prompt": prompt,
         "stream": False,
         "format": "json",
+        "think": False,
         "options": {"temperature": temperature},
     }
     data = json.dumps(body, ensure_ascii=False).encode("utf-8")

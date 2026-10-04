@@ -17,15 +17,12 @@ from typing import Any
 
 from protokoll_assistent.utils.paths import get_config_file
 
-# Dieselben Standardwerte wie in der bisherigen Schnittstellen-Anwendung
-# (protokoll_assistent_gui.py) - siehe DEFAULT_TRANSKRIPTION_*/OPENROUTER_*
-# dort. Hier als reine Vorbelegung der Einstellungen, keine Geheimnisse.
-_STANDARD_TRANSKRIPTION_ENDPUNKT = "https://openrouter.ai/api/v1/audio/transcriptions"
-_STANDARD_TRANSKRIPTION_MODELL = "microsoft/mai-transcribe-2"
-_STANDARD_TRANSKRIPTION_ANBIETER = "azure"
-_STANDARD_NACHBEARBEITUNG_ENDPUNKT = "https://openrouter.ai/api/v1/chat/completions"
-_STANDARD_NACHBEARBEITUNG_MODELL = "openai/gpt-4o-mini"
-_STANDARD_OLLAMA_MODELL = "qwen3:8b"
+# Fuer die API-Wege gibt es bewusst KEINE Voreinstellung: Endpunkte und Modelle
+# bleiben leer, bis der Anwender einen Anbieter gewaehlt hat (siehe
+# 'services/api_anbieter.py'). Frueher stand hier OpenRouter -- und Aufnahmen
+# bzw. Texte gingen ohne bewusste Entscheidung an diesen Vermittler.
+_STANDARD_OLLAMA_MODELL = "qwen3.5:4b-q4_K_M"
+_STANDARD_CHATBOT_EMBEDDING = "bge-m3"
 
 DEFAULTS: dict[str, Any] = {
     "eingabeordner": None,
@@ -36,18 +33,35 @@ DEFAULTS: dict[str, Any] = {
     "transkription_modus": "lokal",
     "whisper_modell": None,
     "geraetepraeferenz": "auto",
-    "api_transkription_endpunkt": _STANDARD_TRANSKRIPTION_ENDPUNKT,
-    "api_transkription_modell": _STANDARD_TRANSKRIPTION_MODELL,
-    "api_transkription_anbieter": _STANDARD_TRANSKRIPTION_ANBIETER,
+    # Gewaehlter API-Anbieter je Bereich: "" (keiner gewaehlt) | "eigener" | Kennung aus api_anbieter.ANBIETER
+    "api_transkription_voreinstellung": "",
+    "api_transkription_endpunkt": "",
+    "api_transkription_modell": "",
+    "api_transkription_anbieter": "",
     "api_transkription_schluessel_merken": False,
     # "lokal" | "api"
     "nachbearbeitung_modus": "lokal",
     "ollama_modell": _STANDARD_OLLAMA_MODELL,
-    "api_nachbearbeitung_endpunkt": _STANDARD_NACHBEARBEITUNG_ENDPUNKT,
-    "api_nachbearbeitung_modell": _STANDARD_NACHBEARBEITUNG_MODELL,
+    "api_nachbearbeitung_voreinstellung": "",
+    "api_nachbearbeitung_endpunkt": "",
+    "api_nachbearbeitung_modell": "",
     "api_nachbearbeitung_eigener_schluessel": False,
     "api_nachbearbeitung_schluessel_merken": False,
     "aktive_systemprompt_vorlage": None,
+    # Letzte Wahl im Exportdialog
+    "export_zielordner": None,
+    "export_formate": ["docx", "pdf"],
+    # Chatbot "Frag mein Meeting": "lokal" (Ollama) | "api"
+    "chatbot_modus": "lokal",
+    "chatbot_ollama_modell": _STANDARD_OLLAMA_MODELL,
+    "chatbot_embedding_modell": _STANDARD_CHATBOT_EMBEDDING,
+    "chatbot_api_voreinstellung": "",
+    "chatbot_api_endpunkt": "",
+    "chatbot_api_modell": "",
+    "chatbot_api_embedding_endpunkt": "",
+    "chatbot_api_embedding_modell": "",
+    "chatbot_api_eigener_schluessel": False,
+    "chatbot_api_schluessel_merken": False,
 }
 
 

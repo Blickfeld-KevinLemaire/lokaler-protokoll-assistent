@@ -59,8 +59,14 @@ for package_name in PACKAGES_TO_COLLECT:
 
 collected_hiddenimports += collect_submodules("PySide6")
 collected_hiddenimports += [
+    "protokoll_assistent.services.api_anbieter",
+    "protokoll_assistent.services.dokument_export_service",
+    "protokoll_assistent.services.api_chat_service",
     "protokoll_assistent.services.api_protocol_service",
     "protokoll_assistent.services.api_transcription_service",
+    "protokoll_assistent.services.chat_service",
+    "protokoll_assistent.services.chat_verlauf_service",
+    "protokoll_assistent.services.rechner_analyse_service",
     "protokoll_assistent.services.chunking_service",
     "protokoll_assistent.services.diarization_service",
     "protokoll_assistent.services.environment_service",
@@ -90,8 +96,13 @@ collected_hiddenimports += [
     "protokoll_assistent.utils.systemprompt_vorlagen",
     "protokoll_assistent.utils.timeformat",
     "protokoll_assistent.gui.branding",
+    "protokoll_assistent.gui.api_anbieterwahl",
+    "protokoll_assistent.gui.dokument_qt",
+    "protokoll_assistent.gui.export_dialog",
+    "protokoll_assistent.gui.chat_page",
     "protokoll_assistent.gui.dialogs",
     "protokoll_assistent.gui.main_window",
+    "protokoll_assistent.gui.ollama_modellwahl",
     "protokoll_assistent.gui.settings_dialog",
     "protokoll_assistent.gui.strings",
     "protokoll_assistent.gui.theme",

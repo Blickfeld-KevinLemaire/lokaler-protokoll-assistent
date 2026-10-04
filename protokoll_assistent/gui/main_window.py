@@ -66,12 +66,15 @@ from PySide6.QtWidgets import (
 
 # Verarbeitungskette und Hilfsmodule der Anwendung.
 from protokoll_assistent.gui import branding
+from protokoll_assistent.gui.chat_page import ChatPage
 from protokoll_assistent.gui.dialogs import (
     AudioquelleDialog,
     EndverarbeitungDialog,
     SprecherprofileDialog,
     show_error,
 )
+from protokoll_assistent.gui.dokument_qt import SCHREIBER as QT_SCHREIBER
+from protokoll_assistent.gui.export_dialog import ExportDialog
 from protokoll_assistent.gui.settings_dialog import DATENSCHUTZ_HINWEIS_API, SettingsDialog
 from protokoll_assistent.gui.strings import PRIVACY_NOTICE
 from protokoll_assistent.gui.worker import (
@@ -81,8 +84,10 @@ from protokoll_assistent.gui.worker import (
     TranscriptionWorker,
 )
 from protokoll_assistent.services import (
+    api_anbieter,
     api_protocol_service,
     api_transcription_service,
+    dokument_export_service,
     export_service,
     manifest_service,
     model_service,
@@ -94,6 +99,7 @@ from protokoll_assistent.services import (
 )
 from protokoll_assistent.utils import app_config
 from protokoll_assistent.utils.paths import (
+    get_chatverlaeufe_dir,
     get_default_output_dir,
     get_recordings_dir,
     get_system_prompt_file,
@@ -224,6 +230,7 @@ class MainWindow(QMainWindow):
         ("Transkription", "Aufnahme oder Datei auswählen und in Text umwandeln."),
         ("Nachbearbeitung", "Aus einem vorhandenen Transkript ein Protokoll erstellen."),
         ("Ergebnis und Sprecher", "Vorschau ansehen, Sprecher benennen, Stimmen anhören."),
+        ("Frag mein Meeting", "Fragen an die ausgewählten Transkripte und Zusammenfassungen stellen."),
     )
 
     def _build_ui(self) -> None:
@@ -283,6 +290,15 @@ class MainWindow(QMainWindow):
         ergebnis_seite.setSizes([300, 300])
         self.page_stack.addWidget(ergebnis_seite)
 
+        # Chatbot "Frag mein Meeting": Fragen an Transkripte und Zusammenfassungen.
+        self.chat_page = ChatPage(
+            lambda: self._output_dir,
+            lambda: get_work_dir() / "chat_index",
+            self._chat_api_schluessel,
+            get_chatverlaeufe_dir,
+        )
+        self.page_stack.addWidget(self.chat_page)
+
         # Der Fortschritt steht unter jeder Seite, damit nach "Starten" sofort
         # zu sehen ist, dass etwas passiert - egal, welche Seite offen ist.
         content_layout.addWidget(self._build_progress_group())
@@ -323,7 +339,7 @@ class MainWindow(QMainWindow):
         self._nav_gruppe = QButtonGroup(self)
         self._nav_gruppe.setExclusive(True)
         self.nav_buttons: list[QPushButton] = []
-        symbole = ("🎙", "📝", "👥")
+        symbole = ("🎙", "📝", "👥", "💬")
         for index, ((titel, _), symbol) in enumerate(zip(self.SEITEN, symbole, strict=True)):
             knopf = QPushButton(f"{symbol}   {titel}", self)
             knopf.setObjectName("NavButton")
@@ -390,6 +406,8 @@ class MainWindow(QMainWindow):
         self.page_title_label.setText(titel)
         self.page_subtitle_label.setText(untertitel)
         self.nav_buttons[index].setChecked(True)
+        if self.SEITEN[index][0] == "Frag mein Meeting":
+            self.chat_page.aktualisieren()
 
     def _open_output_folder(self) -> None:
         self._output_dir.mkdir(parents=True, exist_ok=True)
@@ -400,6 +418,7 @@ class MainWindow(QMainWindow):
         if dialog.exec():
             self._session_api_keys.update(dialog.eingegebene_schluessel)
             self._apply_modus_from_config()
+            self.chat_page.einstellungen_aktualisiert()
 
     def _apply_modus_from_config(self) -> None:
         config = app_config.load_config()
@@ -933,6 +952,14 @@ class MainWindow(QMainWindow):
         self.preview_edit = QPlainTextEdit(self)
         self.preview_edit.setReadOnly(True)
         layout.addWidget(self.preview_edit)
+
+        self.export_button = QPushButton("Exportieren …", self)
+        self.export_button.setToolTip(
+            "Transkript (und Protokoll) als Word, PDF, Markdown, Text, HTML, OpenDocument, Untertitel "
+            "oder JSON in einen Ordner Ihrer Wahl speichern."
+        )
+        self.export_button.clicked.connect(self._export_oeffnen)
+        layout.addWidget(self.export_button)
         return group
 
     def _build_speaker_group(self) -> QGroupBox:
@@ -1218,6 +1245,10 @@ class MainWindow(QMainWindow):
         self.protocol_cancel_button.setEnabled(False)
         self.protocol_cancel_button.clicked.connect(self._cancel_protocol)
         button_row.addWidget(self.protocol_cancel_button)
+        self.protocol_export_button = QPushButton("Exportieren …", self)
+        self.protocol_export_button.setToolTip("Protokoll und Transkript in ein gewünschtes Format exportieren.")
+        self.protocol_export_button.clicked.connect(self._export_oeffnen)
+        button_row.addWidget(self.protocol_export_button)
         layout.addLayout(button_row)
 
         return group
@@ -1299,6 +1330,19 @@ class MainWindow(QMainWindow):
         transcribe_chunk_fn = None
         diarize_fn = None
         if self.transkription_api_radio.isChecked():
+            if not (
+                api_anbieter.adresse_vollstaendig(config["api_transkription_endpunkt"])
+                and config["api_transkription_modell"]
+            ):
+                show_error(
+                    self,
+                    "Kein Anbieter gewählt",
+                    "Für die Transkription über eine API ist noch kein Anbieter gewählt oder die Adresse "
+                    "unvollständig.\n\nBitte in den Einstellungen im Reiter „Transkription“ einen Anbieter "
+                    "wählen (bei Microsoft Azure außerdem den Namen der eigenen Ressource in der Adresse "
+                    "eintragen).",
+                )
+                return
             api_key = self._verwendbarer_api_schluessel("transkription")
             if not api_key:
                 show_error(
@@ -1371,6 +1415,18 @@ class MainWindow(QMainWindow):
         mit einem kryptischen Fehler scheitern."""
         return importlib.util.find_spec("faster_whisper") is not None
 
+    def _chat_api_schluessel(self) -> str:
+        """API-Schluessel des Chatbots: der eigene, sonst derselbe wie bei der
+        Nachbearbeitung (dort wiederum eigener oder der der Transkription)."""
+        konfig = app_config.load_config()
+        if konfig["chatbot_api_eigener_schluessel"]:
+            name = "chatbot"
+        elif konfig["api_nachbearbeitung_eigener_schluessel"]:
+            name = "nachbearbeitung"
+        else:
+            name = "transkription"
+        return self._verwendbarer_api_schluessel(name) or ""
+
     def _verwendbarer_api_schluessel(self, schluessel_name: str) -> str | None:
         """Gemerkter Schluessel, sonst der nur fuer diese Sitzung eingegebene.
 
@@ -1432,6 +1488,19 @@ class MainWindow(QMainWindow):
         config = app_config.load_config()
         protocol_generate_fn: ProtocolGenerateFn | None = None
         if self.nachbearbeitung_api_radio.isChecked():
+            if not (
+                api_anbieter.adresse_vollstaendig(config["api_nachbearbeitung_endpunkt"])
+                and config["api_nachbearbeitung_modell"]
+            ):
+                show_error(
+                    self,
+                    "Kein Anbieter gewählt",
+                    "Für die Nachbearbeitung über eine API ist noch kein Anbieter gewählt oder die Adresse "
+                    "unvollständig.\n\nBitte in den Einstellungen im Reiter „Nachbearbeitung“ einen Anbieter "
+                    "wählen (bei Microsoft Azure außerdem den Namen der eigenen Ressource in der Adresse "
+                    "eintragen).",
+                )
+                return
             eigener_schluessel = config["api_nachbearbeitung_eigener_schluessel"]
             schluessel_name = "nachbearbeitung" if eigener_schluessel else "transkription"
             api_key = self._verwendbarer_api_schluessel(schluessel_name)
@@ -1586,6 +1655,34 @@ class MainWindow(QMainWindow):
             "Die Nachbearbeitung ist ein separater Schritt -- sie kann jetzt fuer dieses "
             "oder jederzeit fuer ein anderes Transkript gestartet werden.",
         )
+
+    def _word_neu_erzeugen(self, transkript_json: Path) -> None:
+        """Die automatische Word-Datei mit den neuen Sprechernamen neu schreiben (still: scheitert das, bleibt der Rest gueltig)."""
+        protokoll = None
+        if self._last_protocol_result is not None and self._last_protocol_result.protocol_paths is not None:
+            protokoll = self._last_protocol_result.protocol_paths[0]
+        try:
+            dokument_export_service.automatisches_word(transkript_json, protokoll)
+        except dokument_export_service.ExportFehler as fehler:
+            self._on_log_message(f"Die Word-Datei wurde nicht aktualisiert: {fehler}")
+
+    def _export_oeffnen(self, _checked: bool = False) -> None:
+        """Dialog "Exportieren": gewaehltes Transkript, dazu das Protokoll des
+        letzten Laufs, falls es eines gibt (im Dialog austauschbar)."""
+        transkript = self._selected_transcript_path
+        if transkript is None or not transkript.is_file():
+            show_error(
+                self,
+                "Kein Transkript",
+                "Es ist noch kein Transkript vorhanden. Bitte zuerst eine Aufnahme transkribieren oder "
+                "unter „Nachbearbeitung“ ein Transkript auswählen.",
+            )
+            return
+        protokoll = None
+        if self._last_protocol_result is not None and self._last_protocol_result.protocol_paths is not None:
+            kandidat = self._last_protocol_result.protocol_paths[0]
+            protokoll = kandidat if kandidat.is_file() else None
+        ExportDialog(transkript, protokoll, self._output_dir, QT_SCHREIBER, self).exec()
 
     def _start_protocol_after_transcription(self) -> None:
         if self._protokoll_nach_transkription:
@@ -1807,6 +1904,7 @@ class MainWindow(QMainWindow):
             show_error(self, "Export fehlgeschlagen", f"Die Ausgabedateien konnten nicht neu erzeugt werden:\n{error}")
             return
         self.preview_edit.setPlainText(new_paths.txt.read_text(encoding="utf-8")[:20000])
+        self._word_neu_erzeugen(new_paths.json)
         QMessageBox.information(
             self, "Ausgaben aktualisiert", f"TXT/JSON/SRT/VTT wurden mit den neuen Namen neu erzeugt:\n{new_paths.txt.parent}"
         )

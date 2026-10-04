@@ -8,8 +8,10 @@ Sie muessen nichts weiter installieren - auch kein Python. Alles Noetige
 liegt im Programmordner.
 
 1. Schnittstelle nutzen (Cloud)
-   Laeuft sofort. Sie brauchen dafuer einen eigenen API-Schluessel
-   (Standard: OpenRouter) und FFmpeg auf dem Rechner.
+   Laeuft sofort. Sie waehlen in den Einstellungen Ihren Anbieter
+   (z. B. IONOS, Mistral, OpenAI, Azure) aus einer Liste und tragen Ihren
+   eigenen API-Schluessel ein. Voreingestellt ist kein Anbieter.
+   FFmpeg wird bei Bedarf automatisch geladen.
 
 2. Lokal (vollstaendig offline)
    Transkription und Sprechertrennung laufen komplett auf diesem Computer,

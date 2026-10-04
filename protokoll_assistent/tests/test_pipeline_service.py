@@ -729,3 +729,43 @@ def test_run_protocol_liest_ohne_mitgegebenen_systemprompt_weiter_die_datei(monk
     )
 
     assert set(benutzte_systemprompts) == {"Du bist ein Protokollassistent."}
+
+
+# --------------------------------------------------------------------------
+# Automatische Word-Datei
+# --------------------------------------------------------------------------
+def test_automatische_word_datei_wird_protokolliert(tmp_path, monkeypatch):
+    meldungen: list[str] = []
+    callbacks = pipeline_service.PipelineCallbacks(on_log=meldungen.append)
+    dienst = pipeline_service.dokument_export_service
+    aufrufe = []
+
+    def erzeugen(transkript, protokoll=None):
+        aufrufe.append((transkript, protokoll))
+        return tmp_path / "x.docx"
+
+    monkeypatch.setattr(dienst, "automatisches_word", erzeugen)
+    pipeline_service._automatisches_word(callbacks, tmp_path / "t.json", tmp_path / "p.json")
+    assert aufrufe == [(tmp_path / "t.json", tmp_path / "p.json")]
+    assert meldungen == ["Word-Datei erstellt: x.docx"]
+
+
+def test_automatische_word_datei_ohne_python_docx_bleibt_still(tmp_path, monkeypatch):
+    meldungen: list[str] = []
+    callbacks = pipeline_service.PipelineCallbacks(on_log=meldungen.append)
+    monkeypatch.setattr(pipeline_service.dokument_export_service, "automatisches_word", lambda t, p=None: None)
+    pipeline_service._automatisches_word(callbacks, tmp_path / "t.json")
+    assert meldungen == []
+
+
+def test_fehler_bei_der_word_datei_bricht_die_verarbeitung_nicht_ab(tmp_path, monkeypatch):
+    meldungen: list[str] = []
+    callbacks = pipeline_service.PipelineCallbacks(on_log=meldungen.append)
+    dienst = pipeline_service.dokument_export_service
+
+    def werfen(t, p=None):
+        raise dienst.ExportFehler("Zugriff verweigert")
+
+    monkeypatch.setattr(dienst, "automatisches_word", werfen)
+    pipeline_service._automatisches_word(callbacks, tmp_path / "t.json")
+    assert meldungen == ["Die Word-Datei wurde nicht erstellt: Zugriff verweigert"]

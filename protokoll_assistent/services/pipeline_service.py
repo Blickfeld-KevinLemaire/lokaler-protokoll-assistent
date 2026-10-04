@@ -26,6 +26,7 @@ from typing import Any, Literal
 from protokoll_assistent.services import (
     chunking_service,
     diarization_service,
+    dokument_export_service,
     export_service,
     ffmpeg_service,
     manifest_service,
@@ -246,6 +247,22 @@ def _build_protocol_chunk_texts(
     return chunk_texts
 
 
+def _automatisches_word(callbacks: PipelineCallbacks, transkript_json: Path, protokoll_json: Path | None = None) -> None:
+    """Legt die zusammengefasste Word-Datei neben die uebrigen Ausgaben.
+
+    Das geschieht bei jeder Verarbeitung von selbst (mit Protokoll: Protokoll
+    und Transkript in einem Dokument). Scheitert es, wird das nur
+    protokolliert -- das Transkript bzw. Protokoll ist ja fertig und darf
+    daran nicht verloren gehen."""
+    try:
+        ziel = dokument_export_service.automatisches_word(transkript_json, protokoll_json)
+    except dokument_export_service.ExportFehler as fehler:
+        callbacks.on_log(f"Die Word-Datei wurde nicht erstellt: {fehler}")
+        return
+    if ziel is not None:
+        callbacks.on_log(f"Word-Datei erstellt: {ziel.name}")
+
+
 def _run_transcription_stage(
     settings: PipelineSettings,
     callbacks: PipelineCallbacks,
@@ -448,6 +465,7 @@ def _run_transcription_stage(
     )
     manifest["protokoll_status"] = manifest_service.STATUS_AUSSTEHEND
     manifest_service.save_manifest(work_dir, manifest)
+    _automatisches_word(callbacks, export_paths.json)
 
     return TranscriptionResult(
         work_dir=work_dir,
@@ -624,6 +642,8 @@ def run_protocol(
         timings,
     )
     report_paths = export_service.write_processing_report(work_dir, report)
+    if protocol_paths is not None:
+        _automatisches_word(callbacks, settings.transcript_json_path, protocol_paths[0])
 
     callbacks.on_stage("abgeschlossen", STAGE_LABELS["abgeschlossen"])
     callbacks.on_overall_progress(1.0)
@@ -719,6 +739,8 @@ def run_pipeline(
         timings,
     )
     report_paths = export_service.write_processing_report(work_dir, report)
+    if protocol_paths is not None:
+        _automatisches_word(callbacks, export_paths.json, protocol_paths[0])
 
     callbacks.on_stage("abgeschlossen", STAGE_LABELS["abgeschlossen"])
     callbacks.on_overall_progress(1.0)

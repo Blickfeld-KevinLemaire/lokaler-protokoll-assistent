@@ -29,6 +29,7 @@ from protokoll_assistent.services import (  # noqa: E402
     manifest_service,
     model_service,
     ollama_service,
+    pipeline_service,
     recording_service,
     secret_store,
 )
@@ -100,6 +101,17 @@ def isolierte_konfiguration(tmp_path, monkeypatch):
     """Konfiguration, Arbeits- und Ausgabeordner liegen im Temp-Verzeichnis."""
     konfig_datei = tmp_path / "konfiguration.json"
     monkeypatch.setattr(app_config, "get_config_file", lambda: konfig_datei)
+    # Die API-Wege sind ab Werk leer (kein Anbieter vorgewaehlt). Die meisten Tests
+    # wollen aber den Weg DAHINTER pruefen und bekommen deshalb einen Anbieter.
+    app_config.save_config(
+        {
+            **app_config.DEFAULTS,
+            "api_transkription_endpunkt": "https://api.test/v1/audio/transcriptions",
+            "api_transkription_modell": "modell-t",
+            "api_nachbearbeitung_endpunkt": "https://api.test/v1/chat/completions",
+            "api_nachbearbeitung_modell": "modell-n",
+        }
+    )
 
     ausgabe = tmp_path / "ausgabe"
     arbeit = tmp_path / "arbeitsdaten"
@@ -112,6 +124,7 @@ def isolierte_konfiguration(tmp_path, monkeypatch):
     monkeypatch.setattr(mw, "get_default_output_dir", lambda: ausgabe, raising=False)
     monkeypatch.setattr(mw, "get_recordings_dir", lambda: aufnahmen, raising=False)
     monkeypatch.setattr(mw, "get_work_dir", lambda: arbeit, raising=False)
+    monkeypatch.setattr(mw, "get_chatverlaeufe_dir", lambda: tmp_path / "chatverlaeufe", raising=False)
     monkeypatch.setattr(mw, "get_system_prompt_file", lambda: prompt, raising=False)
 
     monkeypatch.setattr(model_service, "get_gpu_description", lambda: "Testhardware")
@@ -414,6 +427,38 @@ def test_start_api_mit_gemerktem_schluessel_erzeugt_arbeiter_mit_api_funktion(
     assert arbeiter.kwargs["diarize_fn"] is api_transcription_service.diarize_via_api_speakers
 
 
+def test_start_api_ohne_anbieter_meldet_das_und_startet_nichts(fenster, audio_datei, schluessel_speicher, monkeypatch):
+    """Ab Werk ist kein Anbieter gewaehlt: Es darf nichts uebertragen werden,
+    stattdessen kommt ein klarer Hinweis (auch mit vorhandenem Schluessel)."""
+    gemeldete_fehler = []
+    monkeypatch.setattr(mw, "show_error", lambda parent, titel, text: gemeldete_fehler.append(titel))
+    schluessel_speicher["transkription"] = "geheim"
+    app_config.update_config(api_transkription_endpunkt="", api_transkription_modell="")
+    fenster._source_path = audio_datei
+    fenster.transkription_api_radio.setChecked(True)
+
+    fenster._start_transcription()
+
+    assert gemeldete_fehler == ["Kein Anbieter gewählt"]
+    assert _WorkerAttrappe.instanzen == []
+
+
+def test_start_api_mit_offenem_azure_platzhalter_meldet_das(fenster, audio_datei, schluessel_speicher, monkeypatch):
+    gemeldete_fehler = []
+    monkeypatch.setattr(mw, "show_error", lambda parent, titel, text: gemeldete_fehler.append(titel))
+    schluessel_speicher["transkription"] = "geheim"
+    app_config.update_config(
+        api_transkription_endpunkt="https://RESSOURCENNAME.openai.azure.com/openai/v1/audio/transcriptions"
+    )
+    fenster._source_path = audio_datei
+    fenster.transkription_api_radio.setChecked(True)
+
+    fenster._start_transcription()
+
+    assert gemeldete_fehler == ["Kein Anbieter gewählt"]
+    assert _WorkerAttrappe.instanzen == []
+
+
 def test_start_api_mit_sitzungsschluessel_erzeugt_arbeiter(fenster, audio_datei):
     fenster._source_path = audio_datei
     fenster.transkription_api_radio.setChecked(True)
@@ -505,6 +550,21 @@ def test_nachbearbeitung_api_ohne_schluessel_meldet_fehler(fenster, gemeldete_fe
     fenster._start_protocol()
 
     assert gemeldete_fehler == ["Kein API-Schlüssel"]
+
+
+def test_nachbearbeitung_api_ohne_anbieter_meldet_das(fenster, gemeldete_fehler, tmp_path, schluessel_speicher):
+    schluessel_speicher["transkription"] = "geheim"
+    app_config.update_config(api_nachbearbeitung_endpunkt="", api_nachbearbeitung_modell="")
+    transkript = tmp_path / "ergebnis.json"
+    transkript.write_text("{}", encoding="utf-8")
+    fenster._set_transcript_path(transkript)
+    fenster.systemprompt_editor.setPlainText("Fasse zusammen.")
+    fenster.nachbearbeitung_api_radio.setChecked(True)
+
+    fenster._start_protocol()
+
+    assert gemeldete_fehler == ["Kein Anbieter gewählt"]
+    assert _WorkerAttrappe.instanzen == []
 
 
 def _benutzter_api_schluessel(generate_fn, monkeypatch) -> str:
@@ -1586,9 +1646,15 @@ def test_audioquelle_dialog_bekommt_nur_echte_geraete(fenster, monkeypatch):
 # --------------------------------------------------------------------------
 # Seitenleiste und Seiten
 # --------------------------------------------------------------------------
-def test_seitenleiste_hat_drei_seiten_und_startet_auf_der_transkription(fenster):
-    assert [k.text().split()[-1] for k in fenster.nav_buttons] == ["Transkription", "Nachbearbeitung", "Sprecher"]
-    assert fenster.page_stack.count() == 3
+def test_seitenleiste_hat_vier_seiten_und_startet_auf_der_transkription(fenster):
+    assert [k.text().split()[-1] for k in fenster.nav_buttons] == [
+        "Transkription",
+        "Nachbearbeitung",
+        "Sprecher",
+        "Meeting",
+    ]
+    assert fenster.nav_buttons[3].text().endswith("Frag mein Meeting")
+    assert fenster.page_stack.count() == 4
     assert fenster.page_stack.currentIndex() == 0
     assert fenster.page_title_label.text() == "Transkription"
     assert fenster.nav_buttons[0].isChecked()
@@ -1696,7 +1762,7 @@ def test_nachbearbeitung_startet_wenn_das_ollama_modell_installiert_ist(fenster,
     transkript.write_text("{}", encoding="utf-8")
     fenster._set_transcript_path(transkript)
     fenster.systemprompt_editor.setPlainText("Fasse zusammen.")
-    monkeypatch.setattr(ollama_service, "list_models", lambda base_url=None, timeout=5: ["qwen3:8b"])
+    monkeypatch.setattr(ollama_service, "list_models", lambda base_url=None, timeout=5: ["qwen3.5:4b-q4_K_M"])
 
     fenster._start_protocol()
 
@@ -1742,3 +1808,130 @@ def test_transkriptionsseite_passt_im_standardfenster_ohne_bildlauf(fenster, qt_
     # Der Bildlauf ist nur ein Notnagel fuer kleine Fenster; im Standardfenster
     # muss alles ohne ihn sichtbar sein.
     assert seite.verticalScrollBar().maximum() == 0
+
+
+
+# --------------------------------------------------------------------------
+# Chatbot "Frag mein Meeting"
+# --------------------------------------------------------------------------
+def test_chatseite_liegt_auf_der_vierten_seite_und_liest_beim_oeffnen_den_ausgabeordner_neu(fenster, monkeypatch):
+    assert fenster.page_stack.widget(3) is fenster.chat_page
+    aufrufe = []
+    monkeypatch.setattr(fenster.chat_page, "aktualisieren", lambda: aufrufe.append(True))
+    fenster.nav_buttons[3].click()
+    assert fenster.page_stack.currentIndex() == 3
+    assert fenster.page_title_label.text() == "Frag mein Meeting"
+    assert aufrufe == [True]
+    fenster.nav_buttons[0].click()
+    assert aufrufe == [True]  # nur die Chatseite liest neu
+
+
+def test_chat_schluessel_eigener_dann_nachbearbeitung_dann_transkription(fenster, schluessel_speicher):
+    schluessel_speicher.update({"transkription": "t", "nachbearbeitung": "n", "chatbot": "c"})
+    assert fenster._chat_api_schluessel() == "t"
+    app_config.update_config(api_nachbearbeitung_eigener_schluessel=True)
+    assert fenster._chat_api_schluessel() == "n"
+    app_config.update_config(chatbot_api_eigener_schluessel=True)
+    assert fenster._chat_api_schluessel() == "c"
+    schluessel_speicher.clear()
+    assert fenster._chat_api_schluessel() == ""
+
+
+def test_einstellungen_schliessen_aktualisiert_die_chat_anzeige(fenster, monkeypatch):
+    class _Dialog:
+        eingegebene_schluessel: ClassVar[dict] = {}
+
+        def __init__(self, parent=None):
+            pass
+
+        def exec(self):
+            app_config.update_config(chatbot_modus="api", chatbot_api_modell="gpt-x")
+            return 1
+
+    monkeypatch.setattr(mw, "SettingsDialog", _Dialog)
+    fenster._open_settings()
+    assert "API: gpt-x" in fenster.chat_page.modell_label.text()
+
+
+# --------------------------------------------------------------------------
+# Export
+# --------------------------------------------------------------------------
+class _ExportDialogAttrappe:
+    instanzen: ClassVar[list] = []
+
+    def __init__(self, transkript, protokoll, ordner, schreiber, parent=None):
+        self.argumente = (transkript, protokoll, ordner, schreiber)
+        self.ausgefuehrt = False
+        type(self).instanzen.append(self)
+
+    def exec(self):
+        self.ausgefuehrt = True
+        return 0
+
+
+def test_export_ohne_transkript_meldet_das(fenster, gemeldete_fehler, monkeypatch):
+    monkeypatch.setattr(mw, "ExportDialog", _ExportDialogAttrappe)
+    _ExportDialogAttrappe.instanzen.clear()
+    fenster._export_oeffnen()
+    assert gemeldete_fehler == ["Kein Transkript"] and _ExportDialogAttrappe.instanzen == []
+
+
+def test_export_oeffnet_den_dialog_mit_transkript_und_protokoll(fenster, tmp_path, monkeypatch):
+    monkeypatch.setattr(mw, "ExportDialog", _ExportDialogAttrappe)
+    _ExportDialogAttrappe.instanzen.clear()
+    transkript = tmp_path / "t.json"
+    transkript.write_text("{}", encoding="utf-8")
+    fenster._set_transcript_path(transkript)
+
+    fenster._export_oeffnen()
+    dialog = _ExportDialogAttrappe.instanzen[-1]
+    assert dialog.ausgefuehrt and dialog.argumente[0] == transkript and dialog.argumente[1] is None
+    assert set(dialog.argumente[3]) == {"pdf", "odt"}  # Qt-Schreiber
+
+    protokoll = tmp_path / "p.json"
+    protokoll.write_text("{}", encoding="utf-8")
+    fenster._last_protocol_result = pipeline_service.ProtocolResult(
+        work_dir=tmp_path, protocol_paths=(protokoll, tmp_path / "p.md"), report_paths=(tmp_path / "r.json", tmp_path / "r.md")
+    )
+    fenster._export_oeffnen()
+    assert _ExportDialogAttrappe.instanzen[-1].argumente[1] == protokoll
+
+    protokoll.unlink()  # Datei verschwunden: kein Protokoll anbieten
+    fenster._export_oeffnen()
+    assert _ExportDialogAttrappe.instanzen[-1].argumente[1] is None
+
+
+def test_beide_exportknoepfe_oeffnen_den_dialog(fenster, tmp_path, monkeypatch):
+    monkeypatch.setattr(mw, "ExportDialog", _ExportDialogAttrappe)
+    _ExportDialogAttrappe.instanzen.clear()
+    transkript = tmp_path / "t.json"
+    transkript.write_text("{}", encoding="utf-8")
+    fenster._set_transcript_path(transkript)
+    fenster.export_button.click()
+    fenster.protocol_export_button.click()
+    assert len(_ExportDialogAttrappe.instanzen) == 2
+
+
+def test_word_wird_nach_umbenennen_der_sprecher_neu_erzeugt(fenster, tmp_path, monkeypatch):
+    aufrufe = []
+    monkeypatch.setattr(
+        mw.dokument_export_service, "automatisches_word", lambda t, p=None: aufrufe.append((t, p)) or None
+    )
+    transkript = tmp_path / "t.json"
+    fenster._word_neu_erzeugen(transkript)
+    assert aufrufe == [(transkript, None)]
+
+    protokoll = tmp_path / "p.json"
+    fenster._last_protocol_result = pipeline_service.ProtocolResult(
+        work_dir=tmp_path, protocol_paths=(protokoll, tmp_path / "p.md"), report_paths=(tmp_path / "r.json", tmp_path / "r.md")
+    )
+    fenster._word_neu_erzeugen(transkript)
+    assert aufrufe[-1] == (transkript, protokoll)
+
+
+def test_word_fehler_stoert_nicht(fenster, tmp_path, monkeypatch):
+    def werfen(t, p=None):
+        raise mw.dokument_export_service.ExportFehler("gesperrt")
+
+    monkeypatch.setattr(mw.dokument_export_service, "automatisches_word", werfen)
+    fenster._word_neu_erzeugen(tmp_path / "t.json")  # darf nicht werfen

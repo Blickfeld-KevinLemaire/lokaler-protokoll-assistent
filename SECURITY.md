@@ -24,7 +24,7 @@ Daten, oft von Menschen, die der Aufnahme nur im Rahmen der Besprechung
 zugestimmt haben. Entsprechend gelten hier ein paar Punkte besonders:
 
 * **Aufnahmen und Transkripte gehoeren niemals ins Repository.** Die Ordner
-  `ausgabe/`, `aufnahmen/`, `arbeitsdaten/` und `sprecherprofile/` sind
+  `ausgabe/`, `aufnahmen/`, `arbeitsdaten/`, `sprecherprofile/` und `chatverlaeufe/` sind
   ausgeschlossen, ebenso Medien- und Protokolldateien ueberall im Baum.
 * **Sprecherprofile sind biometrische Daten.** Ein gespeicherter
   Stimmabdruck (`sprecherprofile/profile.json`) erlaubt, eine Person in
@@ -34,7 +34,7 @@ zugestimmt haben. Entsprechend gelten hier ein paar Punkte besonders:
   Anwendung loeschen. Bei der Deinstallation bleiben sie absichtlich stehen —
   wie die uebrigen Anwenderdaten. Die Funktion gibt es nur im lokalen Modus.
 * **Schluessel und Token stehen nie im Code und nie in einer Klartext-Datei.**
-  Sie kommen aus Umgebungsvariablen (`OPENROUTER_API_KEY`, `HF_TOKEN`), aus
+  Sie kommen aus Umgebungsvariablen (`HF_TOKEN`), aus
   einer verdeckten Eingabe (`getpass`), oder — nur wenn der Anwender das
   ausdruecklich anhakt — dauerhaft ueber die Windows-Anmeldeinformations-
   verwaltung (Paket `keyring`, einziger Zugriffspunkt:
@@ -45,6 +45,25 @@ zugestimmt haben. Entsprechend gelten hier ein paar Punkte besonders:
 * **Im lokalen Modus werden keine Audio- oder Videodaten uebertragen.**
   Bleibt das so, ist das eine Zusage an die Anwender — Aenderungen daran
   gehoeren ausdruecklich in die Release-Hinweise.
+* **Der Chatbot „Frag mein Meeting“ ueberträgt im API-Modus Texte.** Fragen, die
+  passenden Textstellen und - fuer die Suche - die Texte der ausgewaehlten
+  Transkripte und Zusammenfassungen gehen an den eingetragenen Endpunkt. Im
+  lokalen Modus (Ollama auf 127.0.0.1) verlaesst nichts den Rechner. Die
+  berechneten Suchvektoren liegen als Zwischenspeicher im Ordner
+  `arbeitsdaten/chat_index/`, der nicht versioniert wird. Gespeicherte Chats
+  (Fragen, Antworten, Quellen) liegen lokal in `chatverlaeufe/`; sie werden
+  nicht versioniert, nicht ausgeliefert und nie uebertragen.
+* **Der Servermodus (Container) speichert Aufnahmen und Ergebnisse im Klartext**
+  in den eingebundenen Ordnern (`daten/`, nicht versioniert). Zugriffsschutz,
+  Plattenverschluesselung und ein Loeschkonzept sind Sache des Betreibers. Der
+  Dienst oeffnet keinen Port. Der optionale Webhook uebertraegt nur Dateiname,
+  Status und Ordnerpfade, nie Inhalte; sein Token und `HF_TOKEN` kommen aus der
+  Umgebung (nie ins Image, nie ins Repository, nie ins Log).
+* **Kein API-Anbieter ist voreingestellt.** Endpunkte und Modelle sind ab Werk
+  leer; erst wenn der Anwender in den Einstellungen einen Anbieter waehlt (oder
+  einen eigenen Endpunkt eintraegt), geht etwas dorthin. Ohne Auswahl bricht die
+  Verarbeitung mit einem Hinweis ab, statt irgendwohin zu senden. Die Liste der
+  Anbieter und ihre Adressen stehen in `protokoll_assistent/services/api_anbieter.py`.
 * **Im API-Modus wird die Aufnahme bzw. das Transkript uebertragen** an einen
   vom Anwender gewaehlten Endpunkt — fuer Transkription und Nachbearbeitung
   getrennt umschaltbar. Ist fuer einen Schritt der API-Modus aktiv, zeigt die
