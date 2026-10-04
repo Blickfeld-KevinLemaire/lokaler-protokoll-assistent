@@ -103,9 +103,27 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
   (`think: false`). Das bisherige `/no_think` im Systemprompt verstehen
   Qwen3.5-Modelle nicht mehr; ohne die Änderung hätten sie vor jeder Antwort
   lange „nachgedacht“.
+- **Aufgaben nur, wenn es welche gibt:** Der mitgelieferte Systemprompt sagt
+  jetzt ausdrücklich, dass Forderungen, Meinungen und Vorschläge keine
+  Aufgaben sind und die Liste bei Vorträgen, Diskussionen oder Interviews leer
+  bleibt. Vorher dachte sich das Modell bei einer Podiumsdiskussion zehn
+  „Aufgaben“ aus. Termine, offene Fragen und Fakten verlangt er als Text.
 
 ### Fixed
 
+- **Lokale Protokolle aus vollständigem Text:** Die Nachbearbeitung über
+  Ollama lief mit dessen Standard-Kontext von 4096 Tokens. Ein
+  10-Minuten-Abschnitt samt Anweisung passt da oft nicht hinein; Ollama hat
+  dann still den Anfang des Transkripts verworfen, und bei längeren
+  Protokollen brach die Antwort mitten im JSON ab („Pflichtfeld fehlt“ bzw.
+  „es fehlt jedes inhaltliche Feld“). Jetzt wählt die Anwendung die Größe je
+  Aufruf: 16.384 Tokens für die Abschnitte, 32.768 für das Gesamtprotokoll.
+  So bleibt das Modell auch auf kleinen Grafikkarten (6 GB) für die meisten
+  Schritte ganz im Grafikspeicher. Gefunden durch die neuen Ende-zu-Ende-Tests.
+- **Protokoll ohne Rohdaten:** Lieferte das Modell offene Fragen, Fakten oder
+  Termine als Objekte statt als Text, standen sie mit geschweiften Klammern
+  im Protokoll (Markdown, Word, PDF). Jetzt erscheinen sie als Satz mit den
+  übrigen Angaben in Klammern.
 - Ein gescheiterter FFmpeg-Download (kein Netz, Proxy, beschädigtes Paket)
   wurde in der Einrichtung nur still ins Protokoll geschrieben und die
   Einrichtung meldete trotzdem „abgeschlossen“. Jetzt wird die Lücke
