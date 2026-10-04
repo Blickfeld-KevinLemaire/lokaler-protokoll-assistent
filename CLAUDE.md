@@ -87,6 +87,15 @@ wiederholt den Versuch deshalb ein paar Mal
 die eine Datei atomar ersetzt, braucht dieselbe Wiederholung — der Fehler tritt
 zufällig auf und riss vorher ganze Verarbeitungsläufe ab.
 
+**pyannote auf der GPU nur im eigenen Prozess.** Im selben Prozess wie Whisper
+(CTranslate2) löste pyannote auf der GPU dreimal einen Bluescreen
+`HYPERVISOR_ERROR` aus (Laptop mit RTX PRO 500, Speicherintegrität/VBS an) –
+der ganze Rechner ging aus. Allein in einem frischen Prozess lief dieselbe
+Sprechertrennung stabil. Deshalb startet die Pipeline sie über
+`services/diarisierung_prozess.py` als eigenen Prozess; nur auf der CPU läuft
+sie im Prozess. Diesen Weg nicht „vereinfachen", ohne ihn auf solcher Hardware
+geprüft zu haben – ein Fehlversuch schaltet den Rechner ab.
+
 ### 2. Die Abdeckungsgrenze nicht senken und die Messung nicht verengen
 
 `fail_under = 85` in `pyproject.toml` bleibt, wie es ist. Wenn die Abdeckung
@@ -102,8 +111,16 @@ gemeldete Zahl war zu hoch. Neue Ausnahmen gehören in `omit`, mit Begründung.
 
 API-Schlüssel und Hugging-Face-Token kommen aus Umgebungsvariablen, aus einer
 verdeckten Eingabe (`getpass`) oder aus der
-Windows-Anmeldeinformationsverwaltung — nie aus einer Datei im Repository, nie
+Windows-Anmeldeinformationsverwaltung — nie aus einer versionierten Datei, nie
 als Standardwert im Code, nie in einer Logausgabe.
+
+Einzige Datei-Ausnahme: `HF_TOKEN` darf zusätzlich in der `.env` im
+Projektordner stehen (von Git ignoriert, Vorlage `.env.beispiel`; dieselbe
+Datei nutzt `docker-compose` im Servermodus). Gelesen wird sie nur in
+`utils/hf_env.py` und dort nur diese eine Zeile; die Umgebungsvariable hat
+Vorrang. Die Tests blenden die echte `.env` aus (`tests/conftest.py`). Ein
+Token in einer `.py`-Datei oder in einer anderen versionierten Datei bleibt
+verboten — gitleaks schlägt in der CI an.
 
 `services/secret_store.py` ist der **einzige** Ort, der `keyring` importiert.
 Wer einen Schlüssel braucht, ruft die drei Funktionen dort auf. In
@@ -128,6 +145,27 @@ bleibt dieselbe.
 
 Kein Test darf etwas herunterladen, einen Netzwerkaufruf machen oder eine GPU
 brauchen. Die ganze Suite läuft in Sekunden; das soll so bleiben.
+
+**Die einzige Ausnahme sind die Ende-zu-Ende-Tests in `tests/e2e/`.** Sie
+rechnen mit echten Modellen (Ollama, faster-whisper) auf der eigenen
+Grafikkarte und laufen nur auf Wunsch:
+
+```powershell
+$env:PROTOKOLL_E2E = "1"; uv run pytest protokoll_assistent/tests/e2e -m e2e
+```
+
+Ohne `PROTOKOLL_E2E=1` werden sie übersprungen — in der CI immer. Sie prüfen
+eine gespielte Besprechung mit bekannten Fakten (`tests/e2e/besprechung.py`,
+gesprochen von den deutschen Windows-Stimmen) und optional einen
+**dreiminütigen Ausschnitt** einer echten Aufnahme (`PROTOKOLL_E2E_AUFNAHME`).
+Ein Lauf dauert so wenige Minuten. Wer die Modellauswahl, die Prompts oder die
+Ollama-Aufrufe ändert, lässt sie vorher einmal laufen.
+
+Die **ganze** Aufnahme (`PROTOKOLL_E2E_LANG=1`, bei einer Stunde Material
+deutlich länger und unter Volllast) bitte **nicht** routinemäßig: nur, wenn
+sich genau die Verarbeitung langer Aufnahmen ändert — Abschnitte
+(`chunking_service`), die mehrstufige Protokollauswertung (`protocol_service`)
+oder die Kontextgröße für Ollama. Einzelheiten in `tests/e2e/conftest.py`.
 
 ### 5. Fenstertests
 

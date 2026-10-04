@@ -15,9 +15,18 @@ automatisch und unbemerkt online gegangen.
 
 from __future__ import annotations
 
+import gc
+import os
 from dataclasses import dataclass
 
 from protokoll_assistent.utils.hf_env import disable_offline_mode, enable_offline_mode, get_hf_token_for_download
+
+# Erzwingt das Geraet der Sprechertrennung ("cpu" oder "cuda"), siehe
+# 'geraet_fuer_sprechertrennung'.
+SPRECHERTRENNUNG_GERAET_VARIABLE = "PROTOKOLL_SPRECHERTRENNUNG_GERAET"
+# So viel freien Grafikspeicher braucht Whisper large-v3-turbo (gemessen 2,3 GB)
+# samt Reserve. Ist weniger frei, muss Ollama seine Modelle erst entladen.
+WHISPER_GRAFIKSPEICHER_BYTES = 3 * 1024**3
 
 WHISPER_MODEL_NAME = "large-v3-turbo"
 PYANNOTE_MODEL_NAME = "pyannote/speaker-diarization-community-1"
@@ -319,6 +328,47 @@ def get_gpu_description() -> str:
         )
     except ImportError:
         return "PyTorch nicht installiert"
+
+
+def geraet_fuer_sprechertrennung(geraet: str) -> str:
+    """Auf welchem Geraet pyannote rechnet: wie Whisper, ausser
+    ``PROTOKOLL_SPRECHERTRENNUNG_GERAET`` erzwingt "cpu" oder "cuda".
+
+    Auf der GPU laeuft die Sprechertrennung immer in einem eigenen Prozess
+    (``diarisierung_prozess``): Im Prozess neben Whisper loeste sie auf einem
+    Laptop mit RTX PRO 500 und aktiver Speicherintegritaet (VBS/HVCI) dreimal
+    einen Bluescreen HYPERVISOR_ERROR aus; allein in einem frischen Prozess
+    lief sie stabil -- und rund zwanzigmal schneller als auf der CPU."""
+    erzwungen = os.environ.get(SPRECHERTRENNUNG_GERAET_VARIABLE, "").strip().lower()
+    if erzwungen in ("cpu", "cuda"):
+        return erzwungen
+    return geraet
+
+
+def freier_grafikspeicher() -> int | None:
+    """Freier Grafikspeicher in Bytes, oder None ohne nutzbare CUDA-GPU."""
+    try:
+        import torch  # type: ignore
+
+        if not torch.cuda.is_available():
+            return None
+        frei, _gesamt = torch.cuda.mem_get_info()
+        return int(frei)
+    except Exception:
+        return None
+
+
+def gpu_speicher_freigeben() -> None:
+    """Gibt nicht mehr referenzierten GPU-Speicher frei (vor dem naechsten
+    Modell), damit nie zwei grosse Modelle zugleich auf der Karte liegen."""
+    gc.collect()
+    try:
+        import torch  # type: ignore
+
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except Exception:  # noqa: S110 - ohne torch/GPU gibt es nichts freizugeben
+        pass
 
 
 def load_pyannote_pipeline(device: str = "cuda"):

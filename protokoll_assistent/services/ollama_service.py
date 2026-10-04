@@ -30,6 +30,29 @@ def basis_url_aus_umgebung(umgebung: Mapping[str, str]) -> str:
 OLLAMA_BASE_URL = basis_url_aus_umgebung(os.environ)
 DEFAULT_MODEL = "qwen3.5:4b-q4_K_M"
 DEFAULT_TIMEOUT_SECONDS = 900
+# Kontextgroesse fuer die Protokollauswertung. Ollamas Standard (4096 Tokens)
+# reicht fuer einen 10-Minuten-Abschnitt samt Systemprompt nicht: Ollama
+# verwirft dann still den Anfang des Transkripts (im server.log als
+# 'truncated = 1'), und das Protokoll entsteht aus unvollstaendigem Text.
+#
+# Die Groesse richtet sich nach dem Aufruf: Eingabe (gut 3 Zeichen je Token)
+# plus Platz fuer die Antwort, aufgerundet auf eine Stufe. Ein fester grosser
+# Wert waere bequemer, kostet aber auf kleinen Grafikkarten viel: Mit 32K passte
+# das 4B-Modell auf 6 GB nicht mehr ganz in den Grafikspeicher und schrieb nur
+# halb so schnell (21 statt 42 Tokens/s). So laufen die vielen
+# Abschnittsanalysen mit 16K, nur das Gesamtprotokoll braucht 32K: Seine
+# Eingabe darf bis zu protocol_service.MAX_KONTEXT_ZEICHEN lang sein (gemessen
+# ~12.000 Tokens), und die Antwort hatte bei einer Stunde Material ~10.200.
+PROTOKOLL_KONTEXTSTUFEN = (16384, 32768)
+PROTOKOLL_NUM_CTX = PROTOKOLL_KONTEXTSTUFEN[-1]
+PROTOKOLL_ANTWORT_TOKENS = 10_240
+ZEICHEN_JE_TOKEN = 3
+
+
+def kontext_fuer_protokoll(system: str, prompt: str) -> int:
+    """Kleinste Kontextstufe, in die Eingabe und Antwort passen."""
+    bedarf = (len(system) + len(prompt)) / ZEICHEN_JE_TOKEN + PROTOKOLL_ANTWORT_TOKENS
+    return next((stufe for stufe in PROTOKOLL_KONTEXTSTUFEN if stufe >= bedarf), PROTOKOLL_NUM_CTX)
 
 # Offizieller Windows-Installer. Wird nur heruntergeladen/gestartet, wenn
 # 'ollama' auf dem Zielrechner nirgends gefunden wurde -- macht die
@@ -178,6 +201,29 @@ def list_models(base_url: str = OLLAMA_BASE_URL, timeout: float = 5) -> list[str
         raise OllamaError(f"Ollama ist unter {base_url} nicht erreichbar: {error}") from error
     models = data.get("models", [])
     return [entry.get("name", "") for entry in models if isinstance(entry, dict)]
+
+
+def modelle_entladen(base_url: str = OLLAMA_BASE_URL, opener: OeffneFn | None = None, timeout: float = 30) -> list[str]:
+    """Nimmt alle gerade geladenen Modelle aus dem Speicher (``keep_alive: 0``)
+    und liefert ihre Namen. Ollama haelt ein Modell sonst noch Minuten nach dem
+    letzten Aufruf im Grafikspeicher -- auf einer 6-GB-Karte fehlt dieser Platz
+    dann Whisper. Ist Ollama nicht erreichbar, gibt es nichts zu entladen."""
+    try:
+        geladen = [
+            str(eintrag.get("name") or eintrag.get("model") or "")
+            for eintrag in _get_json(f"{base_url}/api/ps", timeout=5).get("models", [])
+            if isinstance(eintrag, dict)
+        ]
+    except (urllib.error.URLError, OSError, ValueError, TimeoutError):
+        return []
+    entladen = []
+    for name in (n for n in geladen if n):
+        try:
+            with _post_json(f"{base_url}/api/generate", {"model": name, "keep_alive": 0}, timeout, opener):
+                entladen.append(name)
+        except (urllib.error.URLError, OSError, TimeoutError):
+            continue
+    return entladen
 
 
 def is_model_available(model: str = DEFAULT_MODEL, base_url: str = OLLAMA_BASE_URL) -> bool:
@@ -375,10 +421,13 @@ def generate_json(
     base_url: str = OLLAMA_BASE_URL,
     temperature: float = 0.0,
     timeout: float = DEFAULT_TIMEOUT_SECONDS,
+    num_ctx: int | None = None,
 ) -> dict[str, Any]:
     """Ruft ``/api/generate`` mit ``format: json`` und Temperatur 0 auf und
     liefert das geparste JSON-Objekt aus der Modellantwort zurueck. Die
-    Denkphase ist abgeschaltet, Begruendung bei ``chat_stream``."""
+    Denkphase ist abgeschaltet, Begruendung bei ``chat_stream``. Ohne
+    ``num_ctx`` waehlt ``kontext_fuer_protokoll`` die Kontextgroesse."""
+    num_ctx = num_ctx or kontext_fuer_protokoll(system, prompt)
     body = {
         "model": model,
         "system": system,
@@ -386,7 +435,7 @@ def generate_json(
         "stream": False,
         "format": "json",
         "think": False,
-        "options": {"temperature": temperature},
+        "options": {"temperature": temperature, "num_ctx": num_ctx},
     }
     data = json.dumps(body, ensure_ascii=False).encode("utf-8")
     request = urllib.request.Request(

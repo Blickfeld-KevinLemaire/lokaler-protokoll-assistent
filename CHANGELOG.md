@@ -10,6 +10,10 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 ### Added
 
+- **Hugging-Face-Token aus `.env`:** Wer den Token nicht bei jedem Start als
+  Umgebungsvariable setzen will, traegt ihn als `HF_TOKEN=...` in die `.env`
+  im Programmordner ein (Vorlage `.env.beispiel`; die Datei ist von Git
+  ignoriert). Eine gesetzte Umgebungsvariable hat Vorrang.
 - **Frag mein Meeting:** Neuer Chatbot in der Seitenleiste. Links werden
   Transkripte und Zusammenfassungen angehakt, rechts stellt man Fragen; die
   Antworten stützen sich nur auf die ausgewählten Unterlagen und nennen ihre
@@ -103,9 +107,39 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
   (`think: false`). Das bisherige `/no_think` im Systemprompt verstehen
   Qwen3.5-Modelle nicht mehr; ohne die Änderung hätten sie vor jeder Antwort
   lange „nachgedacht“.
+- **Aufgaben nur, wenn es welche gibt:** Der mitgelieferte Systemprompt sagt
+  jetzt ausdrücklich, dass Forderungen, Meinungen und Vorschläge keine
+  Aufgaben sind und die Liste bei Vorträgen, Diskussionen oder Interviews leer
+  bleibt. Vorher dachte sich das Modell bei einer Podiumsdiskussion zehn
+  „Aufgaben“ aus. Termine, offene Fragen und Fakten verlangt er als Text.
 
 ### Fixed
 
+- **Kein Systemabsturz mehr bei der Sprechertrennung:** Auf einem Laptop mit
+  NVIDIA-Karte und aktiver Speicherintegrität (VBS/HVCI) stürzte beim Start der
+  Sprechertrennung der ganze Rechner ab (Bluescreen HYPERVISOR_ERROR) – ein
+  Treiber-/Hypervisor-Problem, ausgelöst durch pyannote auf der GPU im selben
+  Prozess wie Whisper. Die Sprechertrennung läuft auf der GPU jetzt in einem
+  eigenen Prozess, erst nachdem Whisper fertig und entladen ist; scheitert der
+  Prozess, rechnet sie auf der CPU. `PROTOKOLL_SPRECHERTRENNUNG_GERAET=cpu`
+  erzwingt die CPU.
+- **Grafikspeicher wird geteilt statt überbucht:** Reicht der freie
+  Grafikspeicher vor der Transkription nicht für Whisper, entlädt Ollama zuerst
+  seine Modelle und lädt das Sprachmodell für das Protokoll danach wieder. Ist
+  genug frei, bleibt alles geladen.
+- **Lokale Protokolle aus vollständigem Text:** Die Nachbearbeitung über
+  Ollama lief mit dessen Standard-Kontext von 4096 Tokens. Ein
+  10-Minuten-Abschnitt samt Anweisung passt da oft nicht hinein; Ollama hat
+  dann still den Anfang des Transkripts verworfen, und bei längeren
+  Protokollen brach die Antwort mitten im JSON ab („Pflichtfeld fehlt“ bzw.
+  „es fehlt jedes inhaltliche Feld“). Jetzt wählt die Anwendung die Größe je
+  Aufruf: 16.384 Tokens für die Abschnitte, 32.768 für das Gesamtprotokoll.
+  So bleibt das Modell auch auf kleinen Grafikkarten (6 GB) für die meisten
+  Schritte ganz im Grafikspeicher. Gefunden durch die neuen Ende-zu-Ende-Tests.
+- **Protokoll ohne Rohdaten:** Lieferte das Modell offene Fragen, Fakten oder
+  Termine als Objekte statt als Text, standen sie mit geschweiften Klammern
+  im Protokoll (Markdown, Word, PDF). Jetzt erscheinen sie als Satz mit den
+  übrigen Angaben in Klammern.
 - Ein gescheiterter FFmpeg-Download (kein Netz, Proxy, beschädigtes Paket)
   wurde in der Einrichtung nur still ins Protokoll geschrieben und die
   Einrichtung meldete trotzdem „abgeschlossen“. Jetzt wird die Lücke

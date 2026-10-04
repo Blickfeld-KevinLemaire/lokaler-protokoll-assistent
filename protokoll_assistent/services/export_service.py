@@ -413,6 +413,24 @@ def reexport_with_new_names(json_path: Path, name_overrides: dict[str, str]) -> 
     return paths
 
 
+def listeneintrag_als_text(eintrag: Any) -> str:
+    """Ein Eintrag aus 'termine', 'offene_fragen', 'wichtige_fakten' usw. als Text.
+
+    Vorgesehen sind dort Zeichenketten, Modelle liefern aber gern Objekte wie
+    {"frage": ..., "status": ..., "quelle": ...}. Ohne diese Umwandlung landete
+    im Protokoll die rohe Python-Darstellung mit geschweiften Klammern. Der
+    erste Textwert wird zum Satz, die uebrigen Angaben stehen in Klammern."""
+    if isinstance(eintrag, dict):
+        werte = [(str(k), str(v).strip()) for k, v in eintrag.items() if v not in (None, "", [], {})]
+        if not werte:
+            return ""
+        kern, rest = werte[0][1], werte[1:]
+        return kern + (" (" + ", ".join(f"{k}: {v}" for k, v in rest) + ")" if rest else "")
+    if isinstance(eintrag, list):
+        return "; ".join(t for t in (listeneintrag_als_text(e) for e in eintrag) if t)
+    return str(eintrag)
+
+
 def render_protocol_markdown(protocol: dict[str, Any]) -> str:
     lines = [f"# {protocol.get('titel') or 'Protokoll'}", "", protocol.get("kurzzusammenfassung", ""), ""]
 
@@ -444,15 +462,14 @@ def render_protocol_markdown(protocol: dict[str, Any]) -> str:
         f"(Verantwortlich: {a.get('verantwortlich', '') or 'unklar'}, Frist: {a.get('frist', '') or 'unklar'}, "
         f"Quelle: {a.get('quelle', '')})",
     )
-    section("Termine", protocol.get("termine", []), lambda item: f"- {item}")
-    section("Offene Fragen", protocol.get("offene_fragen", []), lambda item: f"- {item}")
-    section("Wichtige Fakten", protocol.get("wichtige_fakten", []), lambda item: f"- {item}")
-    section(
-        "Unsichere Transkriptstellen",
-        protocol.get("unsichere_transkriptstellen", []),
-        lambda item: f"- {item}",
-    )
-    section("Quellenhinweise", protocol.get("quellenhinweise", []), lambda item: f"- {item}")
+    def eintrag(item: Any) -> str:
+        return f"- {listeneintrag_als_text(item)}"
+
+    section("Termine", protocol.get("termine", []), eintrag)
+    section("Offene Fragen", protocol.get("offene_fragen", []), eintrag)
+    section("Wichtige Fakten", protocol.get("wichtige_fakten", []), eintrag)
+    section("Unsichere Transkriptstellen", protocol.get("unsichere_transkriptstellen", []), eintrag)
+    section("Quellenhinweise", protocol.get("quellenhinweise", []), eintrag)
     return "\n".join(lines) + "\n"
 
 

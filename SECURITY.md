@@ -33,8 +33,10 @@ zugestimmt haben. Entsprechend gelten hier ein paar Punkte besonders:
   nie in den API-Modus und nie in den Installer, und lassen sich in der
   Anwendung loeschen. Bei der Deinstallation bleiben sie absichtlich stehen —
   wie die uebrigen Anwenderdaten. Die Funktion gibt es nur im lokalen Modus.
-* **Schluessel und Token stehen nie im Code und nie in einer Klartext-Datei.**
-  Sie kommen aus Umgebungsvariablen (`HF_TOKEN`), aus
+* **Schluessel und Token stehen nie im Code und nie in einer versionierten
+  Datei.** Einzige Ausnahme: `HF_TOKEN` darf in der von Git ignorierten `.env`
+  im Projektordner stehen (Vorlage `.env.beispiel`); wer sie anlegt, schuetzt
+  sie wie jede Datei mit Zugangsdaten. Sonst kommen sie aus Umgebungsvariablen (`HF_TOKEN`), aus
   einer verdeckten Eingabe (`getpass`), oder — nur wenn der Anwender das
   ausdruecklich anhakt — dauerhaft ueber die Windows-Anmeldeinformations-
   verwaltung (Paket `keyring`, einziger Zugriffspunkt:

@@ -99,6 +99,28 @@ def test_generate_json_sends_temperature_zero_and_json_format(monkeypatch):
     assert captured["body"]["model"] == "qwen3:8b"
     assert captured["body"]["stream"] is False
     assert captured["body"]["think"] is False  # Qwen3.5 versteht '/no_think' nicht mehr
+    # Ohne num_ctx gilt Ollamas Standard (4096) und lange Abschnitte werden still gekuerzt.
+    assert captured["body"]["options"]["num_ctx"] == ollama_service.PROTOKOLL_KONTEXTSTUFEN[0]
+
+    ollama_service.generate_json("x" * 40_000, "System")  # Gesamtprotokoll einer langen Besprechung
+    assert captured["body"]["options"]["num_ctx"] == ollama_service.PROTOKOLL_NUM_CTX
+    ollama_service.generate_json("Frage", "System", num_ctx=4096)  # ausdruecklich gesetzt gilt
+    assert captured["body"]["options"]["num_ctx"] == 4096
+
+
+def test_kontext_reicht_fuer_die_groesste_protokollstufe():
+    """Stufe 3 bekommt bis zu MAX_KONTEXT_ZEICHEN Eingabe (gemessen gut 3 Zeichen
+    je Token) und muss danach noch das ganze Protokoll schreiben koennen. Passt
+    beides nicht in den Kontext, bricht die Antwort mitten im JSON ab -- genau so
+    ist es mit 16384 Tokens bei einer Stunde Material passiert."""
+    from protokoll_assistent.services import protocol_service
+
+    systemprompt = "s" * 2_000
+    eingabe = "e" * protocol_service.MAX_KONTEXT_ZEICHEN
+    bedarf = (len(systemprompt) + len(eingabe)) / 3 + ollama_service.PROTOKOLL_ANTWORT_TOKENS
+    assert bedarf <= ollama_service.kontext_fuer_protokoll(systemprompt, eingabe) == ollama_service.PROTOKOLL_NUM_CTX
+    # Ein 10-Minuten-Abschnitt (gut 12.000 Zeichen) kommt mit der kleinen Stufe aus.
+    assert ollama_service.kontext_fuer_protokoll(systemprompt, "a" * 12_000) == ollama_service.PROTOKOLL_KONTEXTSTUFEN[0]
 
 
 def test_ensure_ollama_or_offer_installer_returns_true_when_already_installed(monkeypatch, tmp_path):
