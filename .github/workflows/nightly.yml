@@ -30,7 +30,7 @@ env:
 jobs:
   aenderungen_pruefen:
     name: Gab es neue Commits?
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       neue_commits: ${{ steps.pruefung.outputs.neue_commits }}
     steps:
@@ -56,7 +56,7 @@ jobs:
 
   schwachstellen:
     name: Taegliche Schwachstellenpruefung
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
 
