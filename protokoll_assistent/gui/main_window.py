@@ -93,6 +93,7 @@ from protokoll_assistent.services import (
     model_service,
     ollama_service,
     pipeline_service,
+    protokoll_bearbeitung_service,
     secret_store,
     sprecher_export_service,
     sprecherprofil_service,
@@ -195,6 +196,17 @@ class MainWindow(QMainWindow):
         # Anschluss verlangt wurde.
         self._protokoll_nach_transkription = False
         self._last_protocol_result: pipeline_service.ProtocolResult | None = None
+        # Das Protokoll in der Vorschau auf der Seite "Nachbearbeitung": welche
+        # Datei, ob der Text seit dem Laden/Speichern geaendert wurde und zu
+        # welchem Transkript es in dieser Sitzung erzeugt wurde (nur dann
+        # laesst sich die automatische Word-Datei nach einer Korrektur sicher
+        # neu schreiben).
+        self._protokoll_pfad: Path | None = None
+        self._protokoll_geaendert = False
+        self._protokoll_ist_korrigiert = False
+        self._protokoll_wird_gesetzt = False
+        self._protokoll_transkript: Path | None = None
+        self._laufendes_protokoll_transkript: Path | None = None
         self._selected_transcript_path: Path | None = None
         self._hash_worker: DateiHashWorker | None = None
         self._hash_zwischenspeicher: dict[tuple[str, int, int], str] = {}
@@ -226,12 +238,15 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     # Seiten der Navigation: (Titel, Untertitel). Die Reihenfolge entspricht den
     # Seiten im 'QStackedWidget' aus '_build_ui'.
+    # Die Reihenfolge ist der Arbeitsablauf: erst das Ergebnis der Transkription
+    # ansehen und die Sprecher benennen, dann daraus das Protokoll erstellen.
     SEITEN: ClassVar[tuple[tuple[str, str], ...]] = (
         ("Transkription", "Aufnahme oder Datei auswählen und in Text umwandeln."),
-        ("Nachbearbeitung", "Aus einem vorhandenen Transkript ein Protokoll erstellen."),
         ("Ergebnis und Sprecher", "Vorschau ansehen, Sprecher benennen, Stimmen anhören."),
+        ("Nachbearbeitung", "Aus einem Transkript ein Protokoll erstellen, ansehen und korrigieren."),
         ("Frag mein Meeting", "Fragen an die ausgewählten Transkripte und Zusammenfassungen stellen."),
     )
+    SEITE_TRANSKRIPTION, SEITE_ERGEBNIS, SEITE_NACHBEARBEITUNG, SEITE_CHAT = range(4)
 
     def _build_ui(self) -> None:
         """Seitenleiste mit Navigation links, rechts die gewaehlte Seite und
@@ -276,19 +291,21 @@ class MainWindow(QMainWindow):
                 [self._build_settings_group(), self._build_resume_group(), self._build_control_group()],
             )
         )
-        self.page_stack.addWidget(
-            self._scroll_page(
-                [
-                    self._build_transcript_selection_group(),
-                    self._build_protocol_control_group(),
-                ]
-            )
-        )
         ergebnis_seite = QSplitter(Qt.Vertical, self)
         ergebnis_seite.addWidget(self._build_preview_group())
         ergebnis_seite.addWidget(self._build_speaker_group())
         ergebnis_seite.setSizes([300, 300])
         self.page_stack.addWidget(ergebnis_seite)
+        # Links Transkript und Einstellungen, rechts das Ergebnis zum Ansehen
+        # und Korrigieren.
+        protokoll_vorschau = self._build_protocol_preview_group()
+        self.page_stack.addWidget(
+            self._two_column_page(
+                [self._build_transcript_selection_group(), self._build_protocol_control_group()],
+                [protokoll_vorschau],
+                rechts_dehnen=protokoll_vorschau,
+            )
+        )
 
         # Chatbot "Frag mein Meeting": Fragen an Transkripte und Zusammenfassungen.
         self.chat_page = ChatPage(
@@ -303,7 +320,7 @@ class MainWindow(QMainWindow):
         # zu sehen ist, dass etwas passiert - egal, welche Seite offen ist.
         content_layout.addWidget(self._build_progress_group())
 
-        self._show_page(0)
+        self._show_page(self.SEITE_TRANSKRIPTION)
 
     def _build_sidebar(self) -> QFrame:
         leiste = QFrame(self)
@@ -339,7 +356,7 @@ class MainWindow(QMainWindow):
         self._nav_gruppe = QButtonGroup(self)
         self._nav_gruppe.setExclusive(True)
         self.nav_buttons: list[QPushButton] = []
-        symbole = ("🎙", "📝", "👥", "💬")
+        symbole = ("🎙", "👥", "📝", "💬")
         for index, ((titel, _), symbol) in enumerate(zip(self.SEITEN, symbole, strict=True)):
             knopf = QPushButton(f"{symbol}   {titel}", self)
             knopf.setObjectName("NavButton")
@@ -363,15 +380,18 @@ class MainWindow(QMainWindow):
         return leiste
 
     @staticmethod
-    def _two_column_page(links: list[QGroupBox], rechts: list[QGroupBox]) -> QScrollArea:
+    def _two_column_page(
+        links: list[QGroupBox], rechts: list[QGroupBox], rechts_dehnen: QGroupBox | None = None
+    ) -> QScrollArea:
         """Seite mit zwei gleich breiten Spalten. Die Bildlaufleiste erscheint nur,
-        wenn das Fenster dafuer zu klein ist."""
+        wenn das Fenster dafuer zu klein ist. In der linken Spalte waechst die
+        letzte Gruppe mit, rechts nur ``rechts_dehnen`` (sonst bleibt unten Platz)."""
         inhalt = QWidget()
         inhalt.setObjectName("PageContent")
         zeile = QHBoxLayout(inhalt)
         zeile.setContentsMargins(0, 0, 8, 0)
         zeile.setSpacing(16)
-        for gruppen, dehnen in ((links, links[-1]), (rechts, None)):
+        for gruppen, dehnen in ((links, links[-1]), (rechts, rechts_dehnen)):
             spalte = QVBoxLayout()
             spalte.setSpacing(12)
             for gruppe in gruppen:
@@ -840,7 +860,7 @@ class MainWindow(QMainWindow):
         Aufnahme- bzw. Dateiauswahl aus."""
         if self._recording is not None:
             return
-        self._show_page(0)
+        self._show_page(self.SEITE_TRANSKRIPTION)
         geraete = [geraet.anzeigename for geraet in self._recording_devices]
         dialog = AudioquelleDialog(
             geraete,
@@ -1062,7 +1082,11 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event: QCloseEvent) -> None:
         """Beendet eine laufende Aufnahme sauber, statt sie beim Schliessen
         des Fensters abzuwuergen - sonst fehlt der WAV-Datei der finale
-        Header und sie waere unbrauchbar."""
+        Header und sie waere unbrauchbar. Ungespeicherte Korrekturen am Protokoll
+        werden vorher zum Speichern angeboten."""
+        if not self._protokoll_aenderungen_klaeren():
+            event.ignore()
+            return
         if self._recording is not None:
             with contextlib.suppress(Exception):
                 self._recording.stop()
@@ -1245,13 +1269,200 @@ class MainWindow(QMainWindow):
         self.protocol_cancel_button.setEnabled(False)
         self.protocol_cancel_button.clicked.connect(self._cancel_protocol)
         button_row.addWidget(self.protocol_cancel_button)
-        self.protocol_export_button = QPushButton("Exportieren …", self)
-        self.protocol_export_button.setToolTip("Protokoll und Transkript in ein gewünschtes Format exportieren.")
-        self.protocol_export_button.clicked.connect(self._export_oeffnen)
-        button_row.addWidget(self.protocol_export_button)
+        button_row.addStretch(1)
         layout.addLayout(button_row)
 
         return group
+
+    def _build_protocol_preview_group(self) -> QGroupBox:
+        """Das fertige Protokoll zum Ansehen und Korrigieren. Exportiert wird
+        genau der Text, der hier steht (siehe ``protokoll_bearbeitung_service``)."""
+        group = QGroupBox("Protokoll – Vorschau und Korrektur", self)
+        layout = QVBoxLayout(group)
+
+        self.protokoll_datei_label = QLabel("", self)
+        self.protokoll_datei_label.setWordWrap(True)
+        layout.addWidget(self.protokoll_datei_label)
+
+        self.protokoll_vorschau_edit = QPlainTextEdit(self)
+        self.protokoll_vorschau_edit.setPlaceholderText(
+            "Hier erscheint das fertige Protokoll, sobald die Nachbearbeitung durch ist. "
+            "Man kann es direkt korrigieren."
+        )
+        self.protokoll_vorschau_edit.textChanged.connect(self._protokoll_text_geaendert)
+        layout.addWidget(self.protokoll_vorschau_edit, stretch=1)
+
+        hinweis = QLabel(
+            "Exportiert wird genau dieser Text. Eine Zeile mit „## “ ist eine Überschrift, "
+            "mit „- “ ein Listenpunkt.",
+            self,
+        )
+        hinweis.setObjectName("FieldCaption")
+        hinweis.setWordWrap(True)
+        layout.addWidget(hinweis)
+
+        zeile = QHBoxLayout()
+        self.protokoll_oeffnen_button = QPushButton("Protokoll öffnen …", self)
+        self.protokoll_oeffnen_button.setToolTip("Ein früher erstelltes Protokoll aus dem Ausgabeordner ansehen und korrigieren.")
+        self.protokoll_oeffnen_button.clicked.connect(self._protokoll_oeffnen)
+        zeile.addWidget(self.protokoll_oeffnen_button)
+        self.protokoll_zuruecksetzen_button = QPushButton("Auf Auswertung zurücksetzen", self)
+        self.protokoll_zuruecksetzen_button.setToolTip("Alle Korrekturen verwerfen und den Text der Auswertung wiederherstellen.")
+        self.protokoll_zuruecksetzen_button.clicked.connect(self._protokoll_zuruecksetzen)
+        zeile.addWidget(self.protokoll_zuruecksetzen_button)
+        zeile.addStretch(1)
+        layout.addLayout(zeile)
+
+        zeile = QHBoxLayout()
+        self.protokoll_speichern_button = QPushButton("Änderungen speichern", self)
+        self.protokoll_speichern_button.clicked.connect(self._protokoll_speichern)
+        zeile.addWidget(self.protokoll_speichern_button)
+        zeile.addStretch(1)
+        self.protocol_export_button = QPushButton("Exportieren …", self)
+        self.protocol_export_button.setObjectName("PrimaryButton")
+        self.protocol_export_button.setToolTip("Protokoll und Transkript in ein gewünschtes Format exportieren.")
+        self.protocol_export_button.clicked.connect(self._export_oeffnen)
+        zeile.addWidget(self.protocol_export_button)
+        layout.addLayout(zeile)
+
+        self._protokoll_anzeigen(None)
+        return group
+
+    # ------------------------------------------------------------------
+    # Protokollvorschau: anzeigen, korrigieren, speichern
+    # ------------------------------------------------------------------
+    def _protokoll_anzeigen(self, pfad: Path | None, *, still: bool = False) -> None:
+        """Zeigt das Protokoll aus ``pfad`` in der Vorschau; ``None`` leert sie.
+        Mit ``still`` erscheint bei einer unlesbaren Datei keine Fehlermeldung
+        (nach einem Lauf, dessen Ergebnis ohnehin gerade gemeldet wird)."""
+        text, korrigiert = "", False
+        if pfad is not None:
+            try:
+                protokoll = protokoll_bearbeitung_service.lade(pfad)
+            except dokument_export_service.ExportFehler as fehler:
+                if not still:
+                    show_error(self, "Protokoll nicht lesbar", str(fehler))
+                pfad = None
+            else:
+                text = protokoll_bearbeitung_service.vorschautext(protokoll)
+                korrigiert = protokoll_bearbeitung_service.ist_korrigiert(protokoll)
+        self._protokoll_wird_gesetzt = True
+        try:
+            self.protokoll_vorschau_edit.setPlainText(text)
+        finally:
+            self._protokoll_wird_gesetzt = False
+        self._protokoll_pfad = pfad
+        self._protokoll_geaendert = False
+        self._protokoll_ist_korrigiert = korrigiert
+        self._protokoll_oberflaeche_aktualisieren()
+
+    def _protokoll_oberflaeche_aktualisieren(self) -> None:
+        pfad = self._protokoll_pfad
+        if pfad is None:
+            self.protokoll_datei_label.setText(
+                "Noch kein Protokoll. Oben „Nachbearbeitung starten“ oder ein vorhandenes Protokoll öffnen."
+            )
+        else:
+            zusatz = []
+            if self._protokoll_ist_korrigiert:
+                zusatz.append("korrigiert")
+            if self._protokoll_geaendert:
+                zusatz.append("nicht gespeichert")
+            self.protokoll_datei_label.setText(f"Protokoll: {pfad.name}" + (f" ({', '.join(zusatz)})" if zusatz else ""))
+        self.protokoll_vorschau_edit.setReadOnly(pfad is None)
+        self.protokoll_speichern_button.setEnabled(pfad is not None and self._protokoll_geaendert)
+        self.protokoll_zuruecksetzen_button.setEnabled(
+            pfad is not None and (self._protokoll_ist_korrigiert or self._protokoll_geaendert)
+        )
+
+    def _protokoll_text_geaendert(self) -> None:
+        if self._protokoll_wird_gesetzt or self._protokoll_pfad is None:
+            return
+        self._protokoll_geaendert = True
+        self._protokoll_oberflaeche_aktualisieren()
+
+    def _protokoll_speichern(self, _checked: bool = False) -> bool:
+        """Speichert die Korrektur. ``True``, wenn danach nichts Ungespeichertes
+        mehr in der Vorschau steht (auch, wenn es nichts zu speichern gab)."""
+        pfad = self._protokoll_pfad
+        if pfad is None or not self._protokoll_geaendert:
+            return True
+        try:
+            protokoll_bearbeitung_service.speichern(pfad, self.protokoll_vorschau_edit.toPlainText())
+            self._protokoll_ist_korrigiert = protokoll_bearbeitung_service.ist_korrigiert(
+                protokoll_bearbeitung_service.lade(pfad)
+            )
+        except (dokument_export_service.ExportFehler, OSError) as fehler:
+            show_error(self, "Protokoll nicht gespeichert", str(fehler))
+            return False
+        self._protokoll_geaendert = False
+        self._protokoll_oberflaeche_aktualisieren()
+        self.status_label.setText("Protokoll gespeichert.")
+        if self._protokoll_transkript is not None:
+            self._word_neu_erzeugen(self._protokoll_transkript, pfad)
+        return True
+
+    def _protokoll_zuruecksetzen(self, _checked: bool = False) -> None:
+        pfad = self._protokoll_pfad
+        if pfad is None:
+            return
+        antwort = QMessageBox.question(
+            self,
+            "Korrekturen verwerfen?",
+            "Alle Änderungen am Protokoll gehen verloren, es gilt wieder der Text der Auswertung.\n\nZurücksetzen?",
+        )
+        if antwort != QMessageBox.Yes:
+            return
+        try:
+            protokoll_bearbeitung_service.zuruecksetzen(pfad)
+        except (dokument_export_service.ExportFehler, OSError) as fehler:
+            show_error(self, "Zurücksetzen nicht möglich", str(fehler))
+            return
+        self._protokoll_anzeigen(pfad)
+        self.status_label.setText("Protokoll auf die Auswertung zurückgesetzt.")
+        if self._protokoll_transkript is not None:
+            self._word_neu_erzeugen(self._protokoll_transkript, pfad)
+
+    def _protokoll_aenderungen_klaeren(self) -> bool:
+        """Vor dem Ersetzen oder Schliessen: ungespeicherte Korrekturen speichern
+        oder verwerfen lassen. ``False``, wenn der Anwender abbricht."""
+        if not self._protokoll_geaendert:
+            return True
+        antwort = QMessageBox.question(
+            self,
+            "Änderungen am Protokoll",
+            "Das Protokoll wurde geändert und noch nicht gespeichert. Jetzt speichern?",
+            QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel,
+            QMessageBox.Save,
+        )
+        if antwort == QMessageBox.Cancel:
+            return False
+        if antwort == QMessageBox.Save:
+            return self._protokoll_speichern()
+        self._protokoll_geaendert = False
+        return True
+
+    def _protokoll_oeffnen(self, _checked: bool = False) -> None:
+        if not self._protokoll_aenderungen_klaeren():
+            return
+        datei, _ = QFileDialog.getOpenFileName(
+            self,
+            "Protokoll öffnen",
+            str(self._output_dir),
+            "Protokoll (*_protokoll_*.json);;Alle JSON-Dateien (*.json)",
+        )
+        if not datei:
+            return
+        self._protokoll_transkript = None  # zu welchem Transkript es gehoert, ist hier nicht bekannt
+        self._protokoll_anzeigen(Path(datei))
+
+    def _aktuelles_protokoll(self) -> Path | None:
+        """Das Protokoll, das in der Vorschau steht -- sonst das des letzten Laufs."""
+        if self._protokoll_pfad is not None:
+            return self._protokoll_pfad
+        if self._last_protocol_result is not None and self._last_protocol_result.protocol_paths is not None:
+            return self._last_protocol_result.protocol_paths[0]
+        return None
 
     def _nachbearbeitung_modus_geaendert(self) -> None:
         modus = "api" if self.nachbearbeitung_api_radio.isChecked() else "lokal"
@@ -1551,6 +1762,10 @@ class MainWindow(QMainWindow):
                 )
                 return
 
+        if not self._protokoll_aenderungen_klaeren():
+            return
+        self._laufendes_protokoll_transkript = self._selected_transcript_path
+
         settings = pipeline_service.ProtocolSettings(
             transcript_json_path=self._selected_transcript_path,
             output_dir=self._output_dir,
@@ -1640,7 +1855,7 @@ class MainWindow(QMainWindow):
         self._populate_speaker_table(result)
         self._set_transcript_path(result.export_paths.json)
         self.status_label.setText("Transkription abgeschlossen.")
-        self._show_page(2)
+        self._show_page(self.SEITE_ERGEBNIS)
         if self._protokoll_nach_transkription and self._transcription_worker is not None:
             # Erst starten, wenn der Transkriptions-Thread beendet ist: Dessen
             # 'finished' schaltet die Bedienelemente wieder frei und stoppt den
@@ -1664,10 +1879,11 @@ class MainWindow(QMainWindow):
             "oder jederzeit fuer ein anderes Transkript gestartet werden.",
         )
 
-    def _word_neu_erzeugen(self, transkript_json: Path) -> None:
-        """Die automatische Word-Datei mit den neuen Sprechernamen neu schreiben (still: scheitert das, bleibt der Rest gueltig)."""
-        protokoll = None
-        if self._last_protocol_result is not None and self._last_protocol_result.protocol_paths is not None:
+    def _word_neu_erzeugen(self, transkript_json: Path, protokoll: Path | None = None) -> None:
+        """Die automatische Word-Datei mit den neuen Sprechernamen bzw. der Protokollkorrektur neu schreiben (still: scheitert das, bleibt der Rest gueltig).
+
+        Ohne ausdrueckliches ``protokoll`` gilt das des letzten Laufs."""
+        if protokoll is None and self._last_protocol_result is not None and self._last_protocol_result.protocol_paths is not None:
             protokoll = self._last_protocol_result.protocol_paths[0]
         try:
             dokument_export_service.automatisches_word(transkript_json, protokoll)
@@ -1686,10 +1902,12 @@ class MainWindow(QMainWindow):
                 "unter „Nachbearbeitung“ ein Transkript auswählen.",
             )
             return
-        protokoll = None
-        if self._last_protocol_result is not None and self._last_protocol_result.protocol_paths is not None:
-            kandidat = self._last_protocol_result.protocol_paths[0]
-            protokoll = kandidat if kandidat.is_file() else None
+        # Exportiert wird, was in der Vorschau steht: ungespeicherte Korrekturen
+        # werden deshalb vorher gesichert.
+        if not self._protokoll_speichern():
+            return
+        kandidat = self._aktuelles_protokoll()
+        protokoll = kandidat if kandidat is not None and kandidat.is_file() else None
         ExportDialog(transkript, protokoll, self._output_dir, QT_SCHREIBER, self).exec()
 
     def _start_protocol_after_transcription(self) -> None:
@@ -1723,10 +1941,18 @@ class MainWindow(QMainWindow):
         protocol_paths = result.protocol_paths
         if protocol_paths is None:
             return
+        # Die Vorschau zeigt das neue Protokoll. Wurde der Text des vorigen
+        # inzwischen geaendert, wird er erst gesichert; gelingt das nicht, bleibt
+        # er stehen (das neue Protokoll liegt trotzdem im Ausgabeordner).
+        if self._protokoll_speichern():
+            self._protokoll_transkript = self._laufendes_protokoll_transkript
+            self._protokoll_anzeigen(protocol_paths[0], still=True)
+        self._show_page(self.SEITE_NACHBEARBEITUNG)
         QMessageBox.information(
             self,
             "Nachbearbeitung abgeschlossen",
-            f"Protokolldateien wurden erstellt in:\n{protocol_paths[0].parent}",
+            f"Protokolldateien wurden erstellt in:\n{protocol_paths[0].parent}\n\n"
+            "Rechts sehen Sie das Protokoll. Dort lässt es sich vor dem Export noch korrigieren.",
         )
 
     def _on_protocol_failed(self, message: str) -> None:

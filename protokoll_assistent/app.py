@@ -26,6 +26,12 @@ Rechenumgebung ein, und die Ersteinrichtung setzt dort fort. Schaltet der
 Anwender spaeter in den Einstellungen auf "Lokal" um, greift dieselbe
 Einrichtung beim naechsten Start.
 
+Die Ersteinrichtung erscheint auch einmal bei einer Konfiguration aus der Zeit
+des frueheren Einrichtungsassistenten (``app_config.EINRICHTUNG_VERSION``):
+Deren "abgeschlossen" galt einer anderen Einrichtung. Wer sie ueberspringen und
+stattdessen einen API-Schluessel hinterlegen will, kann das gleich auf der
+ersten Seite tun; danach oeffnen sich die Einstellungen.
+
 ``bootstrap.ensure_runtime_and_relaunch`` MUSS vor jedem Import von
 PySide6/Torch stehen (siehe dessen Docstring) -- daher die ungewoehnliche
 Importreihenfolge in dieser Datei.
@@ -93,8 +99,7 @@ def main() -> int:
     window = MainWindow()
     window.show()
 
-    konfig = app_config.load_config()
-    if konfig["einrichtung_fortsetzen"] or not konfig["einrichtung_abgeschlossen"]:
+    if app_config.ersteinrichtung_offen(app_config.load_config()):
         # Verzoegert (statt direkt vor 'app.exec()'), damit das Hauptfenster
         # tatsaechlich zuerst sichtbar gezeichnet wird, bevor der Dialog
         # darueber erscheint.

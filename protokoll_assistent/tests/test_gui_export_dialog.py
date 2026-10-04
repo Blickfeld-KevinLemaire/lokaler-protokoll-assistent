@@ -9,7 +9,7 @@ import pytest
 
 pytest.importorskip("PySide6", reason="PySide6 ist nicht installiert.")
 
-from PySide6.QtWidgets import QFileDialog  # noqa: E402
+from PySide6.QtWidgets import QFileDialog, QMessageBox  # noqa: E402
 
 from protokoll_assistent.gui import dokument_qt  # noqa: E402
 from protokoll_assistent.gui import export_dialog as ed  # noqa: E402
@@ -20,6 +20,17 @@ from protokoll_assistent.utils import app_config  # noqa: E402
 @pytest.fixture(autouse=True)
 def isolierte_konfiguration(tmp_path, monkeypatch):
     monkeypatch.setattr(app_config, "get_config_file", lambda: tmp_path / "konfiguration.json")
+
+
+@pytest.fixture(autouse=True)
+def meldungen(monkeypatch):
+    """Haelt die Hinweisfenster fest, statt sie (modal) zu oeffnen: (Art, Titel, Text)."""
+    gezeigt: list[tuple[str, str, str]] = []
+    for art in ("information", "warning"):
+        monkeypatch.setattr(
+            QMessageBox, art, staticmethod(lambda parent, titel, text, _art=art: gezeigt.append((_art, titel, text)))
+        )
+    return gezeigt
 
 
 def _transkript(ordner: Path) -> Path:
@@ -85,7 +96,7 @@ def test_formate_je_inhalt_freigeschaltet(qt_widgets, tmp_path):
     assert "srt" not in dialog.gewaehlte_formate()
 
 
-def test_export_schreibt_dateien_und_merkt_sich_die_wahl(qt_widgets, tmp_path):
+def test_export_schreibt_dateien_und_merkt_sich_die_wahl(qt_widgets, tmp_path, meldungen):
     dialog = _dialog(qt_widgets, tmp_path)
     ziel = tmp_path / "kunde"
     dialog.ziel_edit.setText(str(ziel))
@@ -98,6 +109,11 @@ def test_export_schreibt_dateien_und_merkt_sich_die_wahl(qt_widgets, tmp_path):
     assert all(p.is_file() for p in dialog.geschrieben)
     assert "Gespeichert in" in dialog.status_label.text() and "sitzung_gesamt.md" in dialog.status_label.text()
     assert dialog.ordner_oeffnen_button.isEnabled()
+    # Ein Hinweisfenster bestaetigt den Erfolg und nennt Ordner und Dateien.
+    assert len(meldungen) == 1
+    art, titel, text = meldungen[0]
+    assert (art, titel) == ("information", "Export abgeschlossen")
+    assert "erfolgreich" in text and str(ziel) in text and "sitzung_gesamt.md" in text and "sitzung_gesamt.txt" in text
     konfig = app_config.load_config()
     assert konfig["export_zielordner"] == str(ziel) and konfig["export_formate"] == ["md", "txt"]
 
@@ -106,7 +122,7 @@ def test_export_schreibt_dateien_und_merkt_sich_die_wahl(qt_widgets, tmp_path):
     assert neu.ziel_edit.text() == str(ziel) and neu.gewaehlte_formate() == ["md", "txt"]
 
 
-def test_export_ohne_ziel_oder_format_meldet_das(qt_widgets, tmp_path):
+def test_export_ohne_ziel_oder_format_meldet_das(qt_widgets, tmp_path, meldungen):
     dialog = _dialog(qt_widgets, tmp_path)
     dialog.ziel_edit.setText("  ")
     dialog.exportieren()
@@ -116,9 +132,10 @@ def test_export_ohne_ziel_oder_format_meldet_das(qt_widgets, tmp_path):
         box.setChecked(False)
     dialog.exportieren()
     assert "mindestens ein Format" in dialog.status_label.text() and not dialog.ordner_oeffnen_button.isEnabled()
+    assert meldungen == []  # Hinweise zur Eingabe bleiben im Dialog, kein Fenster
 
 
-def test_export_teilweise_und_fehler(qt_widgets, tmp_path):
+def test_export_teilweise_und_fehler(qt_widgets, tmp_path, meldungen):
     dialog = _dialog(qt_widgets, tmp_path)  # kein Qt-Schreiber uebergeben -> PDF/ODT scheitern
     dialog.ziel_edit.setText(str(tmp_path / "z"))
     for kennung, box in dialog.format_checkboxen.items():
@@ -127,6 +144,9 @@ def test_export_teilweise_und_fehler(qt_widgets, tmp_path):
     assert [p.suffix for p in dialog.geschrieben] == [".md"]
     text = dialog.status_label.text()
     assert "Nicht geschrieben" in text and "PDF" in text and dialog.ordner_oeffnen_button.isEnabled()
+    # Teilweise gelungen: eine Warnung statt der Erfolgsmeldung, mit dem, was fehlt.
+    assert [(art, titel) for art, titel, _ in meldungen] == [("warning", "Export nur teilweise gelungen")]
+    assert "Nicht geschrieben" in meldungen[0][2] and "PDF" in meldungen[0][2]
 
     nur_pdf = _dialog(qt_widgets, tmp_path)
     nur_pdf.ziel_edit.setText(str(tmp_path / "z2"))
@@ -135,6 +155,8 @@ def test_export_teilweise_und_fehler(qt_widgets, tmp_path):
     nur_pdf.exportieren()
     assert nur_pdf.geschrieben == [] and "fehlgeschlagen" in nur_pdf.status_label.text()
     assert not nur_pdf.ordner_oeffnen_button.isEnabled()
+    assert [(art, titel) for art, titel, _ in meldungen[1:]] == [("warning", "Export fehlgeschlagen")]
+    assert "fehlgeschlagen" in meldungen[1][2]
 
 
 def test_protokoll_nachtraeglich_waehlen(qt_widgets, tmp_path, monkeypatch):

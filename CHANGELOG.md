@@ -106,8 +106,28 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
   (Prozessor oder NVIDIA-Grafikkarte, Ollama als eigener Dienst); Einstellungen
   über Umgebungsvariablen. Anleitung: `protokoll_assistent/server/README.md`.
 
+- **Protokoll-Vorschau mit Korrektur:** Auf der Seite „Nachbearbeitung“ steht
+  rechts das fertige Protokoll und lässt sich direkt korrigieren – so sieht
+  man vor dem Export, was exportiert wird, und kann nacharbeiten. „Änderungen
+  speichern“ sichert die Korrektur; Word, PDF und alle anderen Formate (auch
+  die Word-Datei, die nach jeder Verarbeitung von selbst entsteht) und „Frag
+  mein Meeting“ nutzen dann den korrigierten Text. Die Auswertung des Modells
+  bleibt daneben erhalten, „Auf Auswertung zurücksetzen“ verwirft die
+  Korrekturen. Beim Exportieren, beim Start einer neuen Nachbearbeitung und
+  beim Schließen des Fensters werden ungespeicherte Änderungen gesichert oder
+  zum Speichern angeboten. „Protokoll öffnen …“ lädt ein früheres Protokoll aus
+  dem Ausgabeordner.
+- **Einrichtung überspringen:** Die erste Seite der Ersteinrichtung bietet
+  „Überspringen – ich nutze einen API-Schlüssel“. Es wird nichts geladen,
+  Mitschrift, Protokoll und „Frag mein Meeting“ laufen dann über einen
+  Online-Dienst, und die Einstellungen öffnen sich gleich, damit Anbieter und
+  Schlüssel eingetragen werden können.
+
 ### Changed
 
+- **Seitenleiste in Arbeitsreihenfolge:** „Ergebnis und Sprecher“ steht jetzt
+  vor „Nachbearbeitung“ – erst das Ergebnis der Transkription ansehen und die
+  Sprecher benennen, dann das Protokoll erstellen.
 - **OpenRouter ist nicht mehr voreingestellt.** Endpunkte und Modelle sind ab
   Werk leer, bis ein Anbieter gewählt wird; ohne Auswahl meldet das Programm
   „Kein Anbieter gewählt“, statt Aufnahmen oder Texte irgendwohin zu senden.
@@ -140,6 +160,19 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 ### Fixed
 
+- **Ersteinrichtung erschien auf bereits genutzten Rechnern nicht:** Der frühere
+  Einrichtungsassistent (bis 0.4.0-rc7) hatte „abgeschlossen“ in der
+  `konfiguration.json` neben der EXE vermerkt – und die bleibt bei einem Update
+  bestehen. Das Programm hielt deshalb jeden solchen Rechner für „schon
+  eingerichtet“: Das Hauptfenster öffnete sich ohne Abfrage und ohne Systemcheck,
+  und die schwere Rechenumgebung wurde ohne Rückfrage geladen. Die
+  Ersteinrichtung merkt sich jetzt ihre Fassung (`einrichtung_version`) und
+  erscheint einmal auch bei einer solchen Konfiguration; geladen wird erst nach
+  Zustimmung.
+- **Export ohne Bestätigung:** Nach dem Exportieren stand das Ergebnis nur
+  klein im Dialog. Jetzt bestätigt ein Hinweisfenster den Erfolg mit Ordner und
+  Dateien; bei nur teilweisem oder ganz gescheitertem Export erscheint eine
+  Warnung.
 - **„Danach direkt das Protokoll erstellen“ wirkte nicht:** Nach der
   Transkription blieb das Fenster bei „Transkription abgeschlossen.“ stehen,
   das Protokoll startete nie. Die Anwendung wartete auf das Ende des

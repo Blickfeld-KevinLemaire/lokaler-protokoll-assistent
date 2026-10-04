@@ -84,3 +84,37 @@ def test_es_wird_nie_ein_schluessel_gespeichert(konfig_datei):
     assert "schluessel_merken" in inhalt
     for verdaechtig in ("api_key", "password", "token", "secret"):
         assert verdaechtig not in inhalt.lower()
+
+
+# --------------------------------------------------------------------------
+# Wann erscheint die Ersteinrichtung?
+# --------------------------------------------------------------------------
+@pytest.mark.parametrize(
+    ("konfig", "erwartet"),
+    [
+        ({}, True),  # allererster Start: nichts gespeichert
+        ({"einrichtung_abgeschlossen": False}, True),
+        ({"einrichtung_abgeschlossen": True, "einrichtung_version": app_config.EINRICHTUNG_VERSION}, False),
+        # Konfiguration aus der Zeit des frueheren Assistenten: "abgeschlossen" ohne Versionsmarke
+        ({"einrichtung_abgeschlossen": True}, True),
+        ({"einrichtung_abgeschlossen": True, "einrichtung_version": 0}, True),
+        ({"einrichtung_abgeschlossen": True, "einrichtung_version": "1"}, True),  # von Hand verbogen
+        ({"einrichtung_abgeschlossen": True, "einrichtung_version": app_config.EINRICHTUNG_VERSION + 1}, False),
+        # nach dem Neustart fuer die Rechenumgebung wird fortgesetzt
+        (
+            {
+                "einrichtung_abgeschlossen": True,
+                "einrichtung_version": app_config.EINRICHTUNG_VERSION,
+                "einrichtung_fortsetzen": "transkription",
+            },
+            True,
+        ),
+    ],
+)
+def test_ersteinrichtung_offen(konfig, erwartet):
+    assert app_config.ersteinrichtung_offen(konfig) is erwartet
+
+
+def test_frische_konfiguration_hat_keine_einrichtungsversion(konfig_datei):
+    konfig = app_config.load_config()
+    assert konfig["einrichtung_version"] == 0 and app_config.ersteinrichtung_offen(konfig)

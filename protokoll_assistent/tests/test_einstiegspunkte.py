@@ -95,7 +95,7 @@ def test_app_main_zeigt_direkt_das_hauptfenster(app_modul, monkeypatch, tmp_path
     from protokoll_assistent.services import ffmpeg_service
     from protokoll_assistent.utils import app_config, paths
 
-    app_config.update_config(einrichtung_abgeschlossen=True)
+    app_config.update_config(einrichtung_abgeschlossen=True, einrichtung_version=app_config.EINRICHTUNG_VERSION)
     monkeypatch.setattr(paths, "ensure_system_prompt_file_exists", lambda: None)
     monkeypatch.setattr(app_modul, "ensure_system_prompt_file_exists", lambda: None)
     monkeypatch.setattr(ffmpeg_service, "ensure_ffmpeg_on_path", lambda: None)
@@ -137,7 +137,7 @@ def test_app_main_gibt_exitcode_durch(app_modul, monkeypatch):
     from protokoll_assistent.services import ffmpeg_service
     from protokoll_assistent.utils import app_config
 
-    app_config.update_config(einrichtung_abgeschlossen=True)
+    app_config.update_config(einrichtung_abgeschlossen=True, einrichtung_version=app_config.EINRICHTUNG_VERSION)
     monkeypatch.setattr(app_modul, "ensure_system_prompt_file_exists", lambda: None)
     monkeypatch.setattr(ffmpeg_service, "ensure_ffmpeg_on_path", lambda: None)
 
@@ -174,6 +174,9 @@ def test_app_main_gibt_exitcode_durch(app_modul, monkeypatch):
         ({}, 0, "", False),  # frische Installation; geschlossen
         ({"einrichtung_abgeschlossen": True, "einrichtung_fortsetzen": "transkription"}, 1, "transkription", False),
         ({}, 2, "", True),  # NEUSTART fuer die Rechenumgebung: diese Instanz beendet sich
+        # Konfiguration aus der Zeit des frueheren Assistenten (ohne Versionsmarke): "abgeschlossen"
+        # galt einer anderen Einrichtung -- die jetzige erscheint einmal.
+        ({"einrichtung_abgeschlossen": True}, 0, "", False),
     ],
 )
 def test_app_main_bietet_die_ersteinrichtung_an(app_modul, monkeypatch, konfig, ergebnis, start_bei, beendet):
@@ -252,7 +255,7 @@ def test_app_main_fragt_bei_abgeschlossener_einrichtung_nicht_erneut(app_modul, 
     from protokoll_assistent.services import ffmpeg_service
     from protokoll_assistent.utils import app_config
 
-    app_config.update_config(einrichtung_abgeschlossen=True)
+    app_config.update_config(einrichtung_abgeschlossen=True, einrichtung_version=app_config.EINRICHTUNG_VERSION)
     monkeypatch.setattr(app_modul, "ensure_system_prompt_file_exists", lambda: None)
     monkeypatch.setattr(ffmpeg_service, "ensure_ffmpeg_on_path", lambda: None)
 

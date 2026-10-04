@@ -389,7 +389,11 @@ class ErsteinrichtungDialog(QDialog):
         if self._einrichtung is not None and self._einrichtung.isRunning():
             self._einrichtung.abbrechen()
         if self.nicht_mehr_fragen.isChecked():
-            aenderungen: dict[str, Any] = {"einrichtung_abgeschlossen": True, "einrichtung_fortsetzen": ""}
+            aenderungen: dict[str, Any] = {
+                "einrichtung_abgeschlossen": True,
+                "einrichtung_version": app_config.EINRICHTUNG_VERSION,
+                "einrichtung_fortsetzen": "",
+            }
             if not self._zugestimmt and not self._fortsetzung and not laufzeit_vorhanden():
                 # Ohne Zustimmung nie ungefragt die Rechenumgebung laden.
                 aenderungen["lokale_einrichtung_zurueckgestellt"] = True
@@ -418,12 +422,21 @@ class ErsteinrichtungDialog(QDialog):
                 "<p>Das kann ganz auf diesem Computer laufen – dann verlässt nichts den Rechner – oder über "
                 "einen Online-Dienst. Auf den nächsten Seiten sehen Sie, was auf Ihrem Computer gut geht und "
                 "was es kostet.</p>"
-                "<p><b>Es wird nichts heruntergeladen, bevor Sie zustimmen.</b></p>",
+                "<p><b>Es wird nichts heruntergeladen, bevor Sie zustimmen.</b></p>"
+                "<p>Wer ohnehin nur einen Online-Dienst nutzen möchte, überspringt die Einrichtung und "
+                "trägt gleich danach in den Einstellungen seinen API-Schlüssel ein.</p>",
                 seite,
             )
         )
         layout.addStretch(1)
         knoepfe = QHBoxLayout()
+        self.ueberspringen_button = QPushButton("Überspringen – ich nutze einen API-Schlüssel", seite)
+        self.ueberspringen_button.setToolTip(
+            "Nichts wird geladen. Mitschrift, Protokoll und Frag mein Meeting laufen dann über einen "
+            "Online-Dienst: Aufnahme bzw. Text gehen an den Anbieter, den Sie in den Einstellungen wählen."
+        )
+        self.ueberspringen_button.clicked.connect(self._ueberspringen)
+        knoepfe.addWidget(self.ueberspringen_button)
         knoepfe.addStretch(1)
         self.los_button = QPushButton("Los geht's", seite)
         self.los_button.setObjectName("PrimaryButton")
@@ -1094,9 +1107,34 @@ class ErsteinrichtungDialog(QDialog):
 
     def _abschliessen(self) -> None:
         app_config.update_config(
-            einrichtung_abgeschlossen=True, einrichtung_fortsetzen="", lokale_einrichtung_zurueckgestellt=False
+            einrichtung_abgeschlossen=True,
+            einrichtung_version=app_config.EINRICHTUNG_VERSION,
+            einrichtung_fortsetzen="",
+            lokale_einrichtung_zurueckgestellt=False,
         )
         self.accept()
+
+    def _ueberspringen(self) -> None:
+        """Keine lokale Einrichtung: Es wird nichts geladen, alle drei Arbeitsschritte
+        laufen ueber einen Online-Dienst. Anbieter und Schluessel traegt der
+        Anwender gleich danach in den Einstellungen ein; bis dahin weist das
+        Hauptfenster bei jedem Start eines Schritts darauf hin, was fehlt."""
+        app_config.update_config(
+            transkription_modus="api",
+            nachbearbeitung_modus="api",
+            chatbot_modus="api",
+            einrichtung_abgeschlossen=True,
+            einrichtung_version=app_config.EINRICHTUNG_VERSION,
+            einrichtung_fortsetzen="",
+            # Ohne Zustimmung nie ungefragt die Rechenumgebung laden -- auch dann nicht,
+            # wenn jemand spaeter wieder auf "Lokal" stellt: dann greift die Einrichtung
+            # ueber Einstellungen -> Transkription -> Lokal -> "Einrichtung starten".
+            lokale_einrichtung_zurueckgestellt=not laufzeit_vorhanden(),
+        )
+        self.accept()
+        oeffnen = getattr(self.parent(), "_open_settings", None)
+        if callable(oeffnen):
+            oeffnen()
 
     def _anbieter_eintragen(self) -> None:
         """Die Einstellungen des Hauptfensters oeffnen (dort werden die

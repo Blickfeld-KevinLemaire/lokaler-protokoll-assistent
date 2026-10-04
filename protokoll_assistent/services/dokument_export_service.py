@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import html
 import json
+import re
 import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -38,6 +39,9 @@ from protokoll_assistent.services.manifest_service import _ersetzen_mit_wiederho
 INHALT_TRANSKRIPT = "transkript"
 INHALT_PROTOKOLL = "protokoll"
 INHALT_BEIDES = "beides"
+
+# Schluessel in der Protokoll-JSON, unter dem der in der Vorschau korrigierte Text steht.
+SCHLUESSEL_KORRIGIERT = "korrigierter_text"
 
 # Abschnittsarten eines Dokuments
 UEBERSCHRIFT = "ueberschrift"
@@ -156,8 +160,17 @@ def transkript_dokument(daten: dict[str, Any]) -> Dokument:
     return dokument
 
 
-def protokoll_dokument(protokoll: dict[str, Any]) -> Dokument:
-    """Dieselben Abschnitte wie ``export_service.render_protocol_markdown``."""
+def protokoll_dokument(protokoll: dict[str, Any], mit_korrektur: bool = True) -> Dokument:
+    """Dieselben Abschnitte wie ``export_service.render_protocol_markdown``.
+
+    Hat der Anwender das Protokoll in der Vorschau korrigiert, steht sein Text
+    unter ``SCHLUESSEL_KORRIGIERT`` in der Protokoll-JSON (die Auswertung des
+    Modells bleibt daneben unveraendert erhalten). Jeder Export geht dann von
+    diesem Text aus -- es wird exportiert, was in der Vorschau steht.
+    ``mit_korrektur=False`` liefert die urspruengliche Auswertung."""
+    korrigiert = protokoll.get(SCHLUESSEL_KORRIGIERT)
+    if mit_korrektur and isinstance(korrigiert, str) and korrigiert.strip():
+        return dokument_aus_markdown(korrigiert)
     dokument = Dokument(str(protokoll.get("titel") or "Protokoll"))
     zusammenfassung = str(protokoll.get("kurzzusammenfassung") or "").strip()
     if zusammenfassung:
@@ -197,6 +210,62 @@ def protokoll_dokument(protokoll: dict[str, Any]) -> Dokument:
         ("Quellenhinweise", "quellenhinweise"),
     ):
         abschnitt(titel, protokoll.get(schluessel), export_service.listeneintrag_als_text)
+    return dokument
+
+
+def dokument_als_markdown(dokument: Dokument) -> str:
+    """Ein Dokument als schlichter, bearbeitbarer Text: ``# Titel``, Absaetze,
+    ``## Abschnitt`` und ``- Punkt``. Das ist genau das, was die Vorschau zeigt
+    und ``dokument_aus_markdown`` wieder einliest."""
+    zeilen = [f"# {dokument.titel}", ""]
+    for abschnitt in dokument.abschnitte:
+        if abschnitt.art == UEBERSCHRIFT:
+            zeilen += [f"{'#' * max(abschnitt.stufe, 1)} {abschnitt.text}", ""]
+        elif abschnitt.art == LISTE:
+            zeilen += [f"- {punkt}" for punkt in abschnitt.punkte] + [""]
+        elif abschnitt.art == ABSATZ:
+            zeilen += [(f"{abschnitt.betont}{abschnitt.text}").strip(), ""]
+    return "\n".join(zeilen).rstrip() + "\n"
+
+
+_FETT = re.compile(r"\*\*(.+?)\*\*")
+_UEBERSCHRIFT = re.compile(r"^(#{1,6})\s+(.*\S)\s*$")
+_LISTENPUNKT = re.compile(r"^[-*•]\s+(.*\S)\s*$")
+
+
+def dokument_aus_markdown(text: str) -> Dokument:
+    """Liest den Text der Vorschau zurueck. Erlaubt ist, was ``dokument_als_markdown``
+    schreibt: die erste ``# ``-Zeile ist der Titel, weitere Ueberschriften sind
+    Abschnitte, ``- `` ist ein Listenpunkt, jede andere Zeile ein eigener Absatz.
+    Hervorhebungen mit ``**`` fallen weg (das Dokumentmodell kennt sie nur im
+    Transkript). Leerzeilen trennen nur und zaehlen nicht."""
+    dokument = Dokument("Protokoll")
+    titel_gesetzt = False
+    punkte: list[str] = []
+
+    def liste_abschliessen() -> None:
+        if punkte:
+            dokument.abschnitte.append(Abschnitt(LISTE, punkte=tuple(punkte)))
+            punkte.clear()
+
+    for zeile in text.splitlines():
+        zeile = _FETT.sub(r"\1", zeile.strip())
+        if not zeile:
+            liste_abschliessen()
+            continue
+        if (treffer := _UEBERSCHRIFT.match(zeile)) is not None:
+            liste_abschliessen()
+            if treffer.group(1) == "#" and not titel_gesetzt:
+                dokument.titel = treffer.group(2)
+                titel_gesetzt = True
+            else:
+                dokument.abschnitte.append(Abschnitt(UEBERSCHRIFT, treffer.group(2), stufe=2))
+        elif (punkt := _LISTENPUNKT.match(zeile)) is not None:
+            punkte.append(punkt.group(1))
+        else:
+            liste_abschliessen()
+            dokument.abschnitte.append(Abschnitt(ABSATZ, zeile))
+    liste_abschliessen()
     return dokument
 
 

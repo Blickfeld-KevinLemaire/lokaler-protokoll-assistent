@@ -55,7 +55,10 @@ aufgebaut — ähnlich wie man es von heutiger Desktop-Software gewohnt ist:
    `python -m protokoll_assistent.app`). Das Hauptfenster erscheint sofort,
    darüber die **Ersteinrichtung** (`gui/ersteinrichtung.py`). Bis zur
    Zustimmung wird **nichts** heruntergeladen:
-   - **Willkommen** — was das Programm macht, in vier Schritten.
+   - **Willkommen** — was das Programm macht, in vier Schritten. Wer nur einen
+     Online-Dienst nutzen möchte, wählt hier „Überspringen – ich nutze einen
+     API-Schlüssel“: Es wird nichts geladen, die Einstellungen öffnen sich
+     für Anbieter und Schlüssel.
    - **Ihr Computer** — Arbeitsspeicher, Prozessor, Grafikkarte und freier
      Platz; je Arbeitsschritt (Mitschrift, Sprechererkennung, Protokoll, Frag
      mein Meeting), ob er hier gut, langsam oder nicht sinnvoll läuft und wie

@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPushButton,
     QRadioButton,
     QVBoxLayout,
@@ -213,6 +214,7 @@ class ExportDialog(QDialog):
             fehlermeldung = "\n".join(teilweise.fehler)
         except (export.ExportFehler, OSError) as fehler:
             self._melden(str(fehler), fehler=True)
+            QMessageBox.warning(self, "Export fehlgeschlagen", str(fehler))
             return
 
         # Auswahl merken (nur, was wirklich gelaufen ist)
@@ -222,6 +224,12 @@ class ExportDialog(QDialog):
             text += "\n\nNicht geschrieben:\n" + fehlermeldung
         self._melden(text, fehler=bool(fehlermeldung))
         self.ordner_oeffnen_button.setEnabled(True)
+        # Das Ergebnis steht zwar auch im Dialog, aber unscheinbar unten -- ohne
+        # eigenes Fenster blieb unklar, ob der Export gelaufen ist.
+        if fehlermeldung:
+            QMessageBox.warning(self, "Export nur teilweise gelungen", text)
+        else:
+            QMessageBox.information(self, "Export abgeschlossen", "Der Export war erfolgreich.\n\n" + text)
 
     def _melden(self, text: str, fehler: bool = False) -> None:
         self.status_label.setText(text)

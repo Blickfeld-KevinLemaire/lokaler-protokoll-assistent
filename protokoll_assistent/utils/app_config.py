@@ -21,6 +21,13 @@ from protokoll_assistent.utils.paths import get_config_file
 # bleiben leer, bis der Anwender einen Anbieter gewaehlt hat (siehe
 # 'services/api_anbieter.py'). Frueher stand hier OpenRouter -- und Aufnahmen
 # bzw. Texte gingen ohne bewusste Entscheidung an diesen Vermittler.
+# Fassung der Ersteinrichtung (``gui/ersteinrichtung.py``). Wer sie schon einmal
+# abgeschlossen hat, sieht sie nicht wieder -- ausser sie wurde grundlegend
+# ueberarbeitet: dann hochzaehlen. Konfigurationen ohne diesen Eintrag stammen
+# aus der Zeit des frueheren Einrichtungsassistenten; dessen "abgeschlossen"
+# sagt nichts darueber, ob jemand die jetzige Ersteinrichtung kennt.
+EINRICHTUNG_VERSION = 1
+
 _STANDARD_OLLAMA_MODELL = "qwen3.5:4b-q4_K_M"
 _STANDARD_CHATBOT_EMBEDDING = "bge-m3"
 
@@ -29,6 +36,8 @@ DEFAULTS: dict[str, Any] = {
     "ausgabeordner": None,
     "aufnahmegeraet": None,
     "einrichtung_abgeschlossen": False,
+    # Fassung der Ersteinrichtung, die zuletzt abgeschlossen wurde (0 = keine)
+    "einrichtung_version": 0,
     # "" | "transkription": Die Ersteinrichtung hat die Anwendung fuer die
     # Rechenumgebung neu gestartet und setzt danach an dieser Stelle fort.
     "einrichtung_fortsetzen": "",
@@ -72,6 +81,18 @@ DEFAULTS: dict[str, Any] = {
     "chatbot_api_eigener_schluessel": False,
     "chatbot_api_schluessel_merken": False,
 }
+
+
+def ersteinrichtung_offen(konfig: dict[str, Any]) -> bool:
+    """Soll die Ersteinrichtung erscheinen?
+
+    Ja beim allerersten Start, nach dem Neustart fuer die Rechenumgebung (sie
+    setzt dort fort) und einmalig, wenn die Konfiguration von einer aelteren
+    Fassung der Einrichtung stammt (siehe ``EINRICHTUNG_VERSION``)."""
+    if konfig.get("einrichtung_fortsetzen") or not konfig.get("einrichtung_abgeschlossen"):
+        return True
+    version = konfig.get("einrichtung_version")
+    return not isinstance(version, int) or version < EINRICHTUNG_VERSION
 
 
 def load_config() -> dict[str, Any]:

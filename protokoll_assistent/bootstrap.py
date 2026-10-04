@@ -229,7 +229,12 @@ def laufzeit_beim_start_einrichten(konfig: dict[str, Any], fenster_moeglich: boo
         return False
     if laufzeit_vorhanden or not fenster_moeglich:
         return True
-    erster_start = not konfig.get("einrichtung_abgeschlossen") and not konfig.get("einrichtung_fortsetzen")
+    from protokoll_assistent.utils import app_config
+
+    # Auch eine Konfiguration aus der Zeit des frueheren Assistenten gilt als
+    # "erster Start": Die Ersteinrichtung fragt dann einmal, statt dass die
+    # Rechenumgebung ungefragt geladen wird.
+    erster_start = app_config.ersteinrichtung_offen(konfig) and not konfig.get("einrichtung_fortsetzen")
     return not (erster_start or konfig.get("lokale_einrichtung_zurueckgestellt"))
 
 

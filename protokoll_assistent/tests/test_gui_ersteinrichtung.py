@@ -407,6 +407,7 @@ def test_loslegen_schliesst_die_einrichtung_ab(dialog):
     assert konfig["einrichtung_abgeschlossen"] is True
     assert konfig["einrichtung_fortsetzen"] == ""
     assert konfig["lokale_einrichtung_zurueckgestellt"] is False
+    assert konfig["einrichtung_version"] == app_config.EINRICHTUNG_VERSION
 
 
 def test_anbieter_eintragen_oeffnet_die_einstellungen_des_hauptfensters(qt_widgets, konfig, monkeypatch):
@@ -426,6 +427,70 @@ def test_anbieter_eintragen_oeffnet_die_einstellungen_des_hauptfensters(qt_widge
     fenster.anbieter_button.click()
     assert geoeffnet == [True]
     assert app_config.load_config()["einrichtung_abgeschlossen"] is True
+
+
+def test_erste_seite_bietet_das_ueberspringen_an(dialog):
+    assert dialog.stack.currentIndex() == dialog.S_WILLKOMMEN
+    assert dialog.ueberspringen_button.isVisibleTo(dialog)
+    assert "API-Schlüssel" in dialog.ueberspringen_button.text()
+
+
+def _dialog_mit_hauptfenster(qt_widgets, monkeypatch, laufzeit):
+    from PySide6.QtWidgets import QWidget
+
+    for klasse in (_Ermittlung, _Einrichtung, _Mitschrift):
+        klasse.instanzen = []
+    monkeypatch.setattr(ee, "ErmittlungsWorker", _Ermittlung)
+    monkeypatch.setattr(ee, "EinrichtungsWorker", _Einrichtung)
+    monkeypatch.setattr(ee, "MitschriftWorker", _Mitschrift)
+    monkeypatch.setattr(ee, "laufzeit_vorhanden", lambda: laufzeit)
+    geoeffnet = []
+
+    class _Hauptfenster(QWidget):
+        def _open_settings(self):
+            geoeffnet.append(True)
+
+    return ee.ErsteinrichtungDialog(qt_widgets(_Hauptfenster())), geoeffnet
+
+
+def test_ueberspringen_stellt_auf_online_und_oeffnet_die_einstellungen(qt_widgets, konfig, monkeypatch):
+    fenster, geoeffnet = _dialog_mit_hauptfenster(qt_widgets, monkeypatch, laufzeit=False)
+    fenster.ueberspringen_button.click()
+
+    gespeichert = app_config.load_config()
+    assert (gespeichert["transkription_modus"], gespeichert["nachbearbeitung_modus"], gespeichert["chatbot_modus"]) == (
+        "api",
+        "api",
+        "api",
+    )
+    assert gespeichert["einrichtung_abgeschlossen"] is True
+    assert gespeichert["einrichtung_version"] == app_config.EINRICHTUNG_VERSION
+    assert not app_config.ersteinrichtung_offen(gespeichert)  # kommt nicht wieder
+    assert geoeffnet == [True]  # dort kommt der API-Schluessel hinein
+    assert fenster.result() == ee.QDialog.Accepted
+    # Ohne Zustimmung wird nichts geladen -- auch nicht die Rechenumgebung beim naechsten Start.
+    assert gespeichert["lokale_einrichtung_zurueckgestellt"] is True
+    assert not bootstrap.laufzeit_beim_start_einrichten(gespeichert, fenster_moeglich=True, laufzeit_vorhanden=False)
+    assert _Ermittlung.instanzen == [] and _Einrichtung.instanzen == [] and _Mitschrift.instanzen == []
+
+
+def test_ueberspringen_mit_vorhandener_rechenumgebung_stellt_nichts_zurueck(qt_widgets, konfig, monkeypatch):
+    fenster, _ = _dialog_mit_hauptfenster(qt_widgets, monkeypatch, laufzeit=True)
+    fenster.ueberspringen_button.click()
+    assert app_config.load_config()["lokale_einrichtung_zurueckgestellt"] is False
+
+
+def test_ueberspringen_ohne_hauptfenster_schliesst_nur(dialog):
+    dialog.ueberspringen_button.click()  # kein Elternfenster, das Einstellungen haette
+    assert app_config.load_config()["einrichtung_abgeschlossen"] is True
+    assert dialog.result() == ee.QDialog.Accepted
+
+
+def test_abschluss_und_nicht_mehr_fragen_merken_die_einrichtungsversion(dialog):
+    dialog.nicht_mehr_fragen.setChecked(True)
+    dialog.spaeter_button.click()
+    assert app_config.load_config()["einrichtung_version"] == app_config.EINRICHTUNG_VERSION
+    assert not app_config.ersteinrichtung_offen(app_config.load_config())
 
 
 def test_spaeter_einrichten_kommt_wieder(dialog):

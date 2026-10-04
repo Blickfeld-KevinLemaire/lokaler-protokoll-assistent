@@ -10,6 +10,7 @@ import pytest
 
 from protokoll_assistent import bootstrap
 from protokoll_assistent.services import environment_service
+from protokoll_assistent.utils import app_config
 
 
 class _FakeSplash:
@@ -349,6 +350,7 @@ def test_create_venv_with_base_python_raises_on_failure(monkeypatch, tmp_path):
 # Rechenumgebung nur mit Zustimmung (Ersteinrichtung)
 # --------------------------------------------------------------------------
 FRISCH = {"transkription_modus": "lokal", "einrichtung_abgeschlossen": False, "einrichtung_fortsetzen": ""}
+FERTIG = {**FRISCH, "einrichtung_abgeschlossen": True, "einrichtung_version": app_config.EINRICHTUNG_VERSION}
 
 
 @pytest.mark.parametrize(
@@ -359,8 +361,12 @@ FRISCH = {"transkription_modus": "lokal", "einrichtung_abgeschlossen": False, "e
         (FRISCH, True, True, True),  # schon eingerichtet: wie immer hineinwechseln
         (FRISCH, False, False, True),  # ohne PySide6 kein Fenster: bisheriger Weg
         ({**FRISCH, "einrichtung_fortsetzen": "transkription"}, True, False, True),  # zugestimmt, Neustart
-        ({**FRISCH, "einrichtung_abgeschlossen": True}, True, False, True),  # aeltere Installation
-        ({**FRISCH, "einrichtung_abgeschlossen": True, "lokale_einrichtung_zurueckgestellt": True}, True, False, False),
+        (FERTIG, True, False, True),  # Einrichtung abgeschlossen: wie immer hineinwechseln
+        ({**FERTIG, "lokale_einrichtung_zurueckgestellt": True}, True, False, False),
+        # Konfiguration aus der Zeit des frueheren Assistenten: "abgeschlossen" ohne Versionsmarke --
+        # nichts ungefragt laden, die Ersteinrichtung fragt einmal.
+        ({**FRISCH, "einrichtung_abgeschlossen": True}, True, False, False),
+        ({**FRISCH, "einrichtung_abgeschlossen": True}, True, True, True),  # Umgebung da: hineinwechseln
     ],
 )
 def test_rechenumgebung_nur_mit_zustimmung(konfig, fenster, laufzeit, erwartet):
