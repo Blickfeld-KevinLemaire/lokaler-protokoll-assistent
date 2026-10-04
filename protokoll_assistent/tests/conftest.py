@@ -7,6 +7,7 @@ Build-Server ohne Bildschirm funktionieren.
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 import pytest
 
@@ -50,6 +51,10 @@ def qt_widgets(qt_app):
 
 @pytest.fixture(autouse=True)
 def _keine_echten_tokens(monkeypatch):
-    """Kein Test darf versehentlich einen echten Hugging-Face-Token benutzen."""
+    """Kein Test darf versehentlich einen echten Hugging-Face-Token benutzen --
+    weder aus der Umgebung noch aus der .env im Projektordner."""
+    from protokoll_assistent.utils import hf_env
+
     for name in ("HF_TOKEN", "HUGGINGFACE_TOKEN", "HUGGING_FACE_HUB_TOKEN"):
         monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(hf_env, "_env_datei", lambda: Path(__file__).parent / "gibt-es-nicht.env")

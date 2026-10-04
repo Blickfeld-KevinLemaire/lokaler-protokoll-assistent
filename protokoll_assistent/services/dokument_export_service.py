@@ -196,7 +196,7 @@ def protokoll_dokument(protokoll: dict[str, Any]) -> Dokument:
         ("Unsichere Transkriptstellen", "unsichere_transkriptstellen"),
         ("Quellenhinweise", "quellenhinweise"),
     ):
-        abschnitt(titel, protokoll.get(schluessel), str)
+        abschnitt(titel, protokoll.get(schluessel), export_service.listeneintrag_als_text)
     return dokument
 
 

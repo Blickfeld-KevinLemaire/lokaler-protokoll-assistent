@@ -33,7 +33,9 @@ from protokoll_assistent.utils.json_validation import validate_chunk_analysis_js
 
 # Stufe 2 laeuft immer mindestens einmal. Danach wird weiter verdichtet, solange
 # die Zwischenanalysen zusammen laenger als dieser Wert sind (Zeichen der
-# JSON-Darstellung; grob 4 Zeichen je Token) und mehr als eine uebrig ist.
+# JSON-Darstellung; gemessen gut 3 Zeichen je Token) und mehr als eine uebrig
+# ist. Muss samt Antwort in ollama_service.PROTOKOLL_NUM_CTX passen -- das
+# prueft test_ollama_service.test_kontext_reicht_fuer_die_groesste_protokollstufe.
 MAX_KONTEXT_ZEICHEN = 40_000
 MAX_VERDICHTUNGSRUNDEN = 8
 

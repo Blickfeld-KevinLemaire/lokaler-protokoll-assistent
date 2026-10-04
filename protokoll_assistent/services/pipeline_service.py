@@ -25,6 +25,7 @@ from typing import Any, Literal
 
 from protokoll_assistent.services import (
     chunking_service,
+    diarisierung_prozess,
     diarization_service,
     dokument_export_service,
     export_service,
@@ -263,6 +264,47 @@ def _automatisches_word(callbacks: PipelineCallbacks, transkript_json: Path, pro
         callbacks.on_log(f"Word-Datei erstellt: {ziel.name}")
 
 
+def _grafikspeicher_fuer_whisper_freimachen(device: str, callbacks: PipelineCallbacks) -> None:
+    """Reicht der freie Grafikspeicher nicht fuer Whisper, nimmt Ollama seine
+    Modelle heraus. Ist genug frei, bleibt alles geladen -- dann muss Ollama
+    das Sprachmodell fuer das Protokoll nicht neu laden. Das Entladen ist nur
+    der Ausweg fuer knappe Karten (6 GB); auf grossen Karten passiert nichts."""
+    if device != "cuda":
+        return
+    frei = model_service.freier_grafikspeicher()
+    if frei is None or frei >= model_service.WHISPER_GRAFIKSPEICHER_BYTES:
+        return
+    entladen = ollama_service.modelle_entladen()
+    if entladen:
+        callbacks.on_log(
+            f"Grafikspeicher fuer die Transkription freigemacht (frei waren {frei / 1024**3:.1f} GB): "
+            f"Ollama hat {', '.join(entladen)} entladen und laedt es fuer das Protokoll wieder."
+        )
+
+
+def _sprechertrennung(
+    audio: Path, settings: PipelineSettings, device: str, callbacks: PipelineCallbacks
+) -> tuple[list[dict[str, Any]], dict[str, list[float]]]:
+    """pyannote auf dem passenden Geraet. Auf der GPU immer in einem eigenen
+    Prozess (siehe ``diarisierung_prozess``); scheitert der, auf der CPU hier."""
+    geraet = model_service.geraet_fuer_sprechertrennung(device)
+    if geraet == "cuda":
+        callbacks.on_log("Sprechertrennung laeuft in einem eigenen Prozess auf der Grafikkarte.")
+        try:
+            return diarisierung_prozess.diarisiere_in_eigenem_prozess(
+                audio, settings.min_speakers, settings.max_speakers, "cuda"
+            )
+        except diarisierung_prozess.DiarisierungsprozessFehler as fehler:
+            callbacks.on_log(f"{fehler} -- die Sprechertrennung laeuft stattdessen auf der CPU.")
+    pipeline = model_service.load_pyannote_pipeline("cpu")
+    waveform_dict = diarization_service.build_waveform_dict(transcription_service.load_audio_array(audio))
+    embeddings: dict[str, list[float]] = {}
+    turns = diarization_service.diarize_waveform(
+        pipeline, waveform_dict, settings.min_speakers, settings.max_speakers, embeddings_out=embeddings
+    )
+    return turns, embeddings
+
+
 def _run_transcription_stage(
     settings: PipelineSettings,
     callbacks: PipelineCallbacks,
@@ -349,6 +391,7 @@ def _run_transcription_stage(
 
     whisper_model = None
     if transcribe_chunk_fn is None:
+        _grafikspeicher_fuer_whisper_freimachen(device, callbacks)
         whisper_model = transcription_service.load_whisper_model(
             settings.whisper_model, device, compute_type, settings.language
         )
@@ -415,17 +458,11 @@ def _run_transcription_stage(
         )
         diarization_turns: list[dict[str, Any]] = []
     elif diarize_fn is None:
-        pipeline = model_service.load_pyannote_pipeline(device)
-        full_audio_array = transcription_service.load_audio_array(normalized_path)
-        waveform_dict = diarization_service.build_waveform_dict(full_audio_array)
-        sprecher_embeddings: dict[str, list[float]] = {}
-        diarization_turns = diarization_service.diarize_waveform(
-            pipeline,
-            waveform_dict,
-            settings.min_speakers,
-            settings.max_speakers,
-            embeddings_out=sprecher_embeddings,
-        )
+        # Whisper wird hier nicht mehr gebraucht: vom Grafikspeicher nehmen,
+        # bevor pyannote rechnet (die Closure oben haelt sonst das Modell).
+        whisper_model = None
+        model_service.gpu_speicher_freigeben()
+        diarization_turns, sprecher_embeddings = _sprechertrennung(normalized_path, settings, device, callbacks)
         # Fuer die dauerhaften Sprecherprofile; im Arbeitsordner, nicht in
         # der Ausgabe. Ein Lauf ohne Embeddings loescht den alten Stand.
         sprecherprofil_service.speichere_lauf_embeddings(work_dir, sprecher_embeddings)

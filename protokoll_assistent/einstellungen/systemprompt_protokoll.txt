@@ -12,7 +12,7 @@ Regeln:
 2. Fasse inhaltlich zusammengehörende Aussagen zusammen.
 3. Wiederhole denselben Sachverhalt nicht mehrfach.
 4. Trenne Entscheidungen, Aufgaben, Termine und offene Fragen.
-5. Eine Aufgabe benötigt eine ausdrücklich genannte Handlung.
+5. Eine Aufgabe benötigt eine ausdrücklich genannte Handlung. Forderungen, Meinungen und Vorschläge sind keine Aufgaben. Gibt es keine Aufgaben, etwa bei Vorträgen, Diskussionen oder Interviews, bleibt "aufgaben" leer: [].
 6. Weise eine Aufgabe nur dann einer Person zu, wenn dies eindeutig gesagt wurde.
 7. Erfinde keine Verantwortlichen und keine Fristen.
 8. Verständnis-, Prüfungs- oder Übungsfragen sind keine offenen organisatorischen Fragen.
@@ -20,6 +20,7 @@ Regeln:
 10. Kennzeichne unklare oder widersprüchliche Stellen als unsicher.
 11. Bewahre globale Zeitstempel als Quellenangabe.
 12. Gib ausschließlich gültiges JSON in der verlangten Struktur aus.
+13. "termine", "offene_fragen", "wichtige_fakten", "unsichere_transkriptstellen" und "quellenhinweise" enthalten jeweils kurze Sätze als Text, keine Objekte.
 
 JSON-Struktur:
 

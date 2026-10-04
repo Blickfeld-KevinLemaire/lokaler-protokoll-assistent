@@ -17,12 +17,24 @@ from pathlib import Path
 import pytest
 
 from protokoll_assistent.tests.e2e import besprechung
-from protokoll_assistent.utils import paths
+from protokoll_assistent.utils import hf_env, paths
 
 pytestmark = pytest.mark.timeout(3600)
 
+LANG = os.environ.get("PROTOKOLL_E2E_LANG", "").strip() == "1"
 
-def _verarbeite(aufnahme: Path, laufzeit_python: Path, sprachmodell: str, tmp_path: Path) -> tuple[dict, Path]:
+# Beim Laden des Moduls erfasst: Die Fixture '_keine_echten_tokens' (tests/conftest.py)
+# entfernt HF_TOKEN fuer jeden Test und blendet die .env aus. Hier ist der echte
+# Token aber gewollt -- die Sprechertrennung laeuft nur mit ihm.
+_HF_TOKEN_AUS_UMGEBUNG = os.environ.get("HF_TOKEN", "").strip()
+MIT_SPRECHERTRENNUNG = bool(
+    _HF_TOKEN_AUS_UMGEBUNG or hf_env._token_aus_env_datei(paths.get_project_root() / hf_env.ENV_DATEI)
+)
+
+
+def _verarbeite(
+    aufnahme: Path, laufzeit_python: Path, sprachmodell: str, tmp_path: Path, sprecher: int | None = None
+) -> tuple[dict, Path]:
     eingang, ausgang, daten = tmp_path / "eingang", tmp_path / "ausgang", tmp_path / "daten"
     eingang.mkdir()
     shutil.copy2(aufnahme, eingang / aufnahme.name)
@@ -33,9 +45,12 @@ def _verarbeite(aufnahme: Path, laufzeit_python: Path, sprachmodell: str, tmp_pa
         "PROTOKOLL_DATEN_DIR": str(daten),
         "PROTOKOLL_STABIL_SEKUNDEN": "0",
         "PROTOKOLL_OLLAMA_MODELL": sprachmodell,
-        "PROTOKOLL_SPRECHERTRENNUNG": "1" if os.environ.get("HF_TOKEN") else "0",
+        "PROTOKOLL_SPRECHERTRENNUNG": "1" if MIT_SPRECHERTRENNUNG else "0",
+        # Aus der Umgebung gesetzt: weiterreichen (die .env liest der Server selbst).
+        **({"HF_TOKEN": _HF_TOKEN_AUS_UMGEBUNG} if _HF_TOKEN_AUS_UMGEBUNG else {}),
         "PROTOKOLL_EXPORT_FORMATE": "docx",
         "PYTHONUTF8": "1",
+        **({"PROTOKOLL_MIN_SPRECHER": str(sprecher), "PROTOKOLL_MAX_SPRECHER": str(sprecher)} if sprecher else {}),
     }
     lauf = subprocess.run(
         [str(laufzeit_python), "-m", "protokoll_assistent.server", "--einmal"],
@@ -70,7 +85,10 @@ def _protokoll(ordner: Path) -> dict:
 
 
 def test_gespielte_besprechung_wird_transkribiert_und_ausgewertet(besprechung_wav, laufzeit_python, sprachmodell, tmp_path):
-    _ergebnis, ordner = _verarbeite(besprechung_wav, laufzeit_python, sprachmodell, tmp_path)
+    # Die Sprecherzahl ist bekannt und wird vorgegeben: Automatisch fasst pyannote die drei
+    # gleichmaessigen Computerstimmen in 89 s zu einem Sprecher zusammen (bei echtem Material
+    # nicht -- die Podiumsdiskussion ergab automatisch 3). So prueft der Test auch die Vorgabe.
+    _ergebnis, ordner = _verarbeite(besprechung_wav, laufzeit_python, sprachmodell, tmp_path, sprecher=3)
 
     assert list(ordner.glob("*.docx")), sorted(p.name for p in ordner.iterdir())
     text = " ".join(s["text"] for s in _transkript(ordner)["segmente"])
@@ -78,6 +96,7 @@ def test_gespielte_besprechung_wird_transkribiert_und_ausgewertet(besprechung_wa
     for wort in ("Becker", "Wagner", "Schulz", "Testplan", "Betriebsrat"):
         assert besprechung.enthaelt_eines(text, wort), f"'{wort}' fehlt im Transkript: {text}"
     assert besprechung.enthaelt_eines(text, *besprechung.UMZUGSTERMIN), text
+    _sprecher_getrennt(ordner, mindestens=3)
 
     protokoll = json.dumps(_protokoll(ordner), ensure_ascii=False)
     assert besprechung.enthaelt_eines(protokoll, *besprechung.UMZUGSTERMIN), protokoll
@@ -85,20 +104,34 @@ def test_gespielte_besprechung_wird_transkribiert_und_ausgewertet(besprechung_wa
     assert besprechung.enthaelt_eines(protokoll, "testplan"), protokoll
 
 
-def test_echte_aufnahme_laeuft_durch(laufzeit_python, sprachmodell, tmp_path):
-    """Echtes Material (z. B. eine Podiumsdiskussion). Es gibt keine
-    Musterloesung, geprueft wird nur, dass jede Stufe etwas Plausibles liefert."""
-    roh = os.environ.get("PROTOKOLL_E2E_AUFNAHME", "").strip()
-    if not roh:
-        pytest.skip("PROTOKOLL_E2E_AUFNAHME ist nicht gesetzt.")
-    aufnahme = Path(roh)
-    assert aufnahme.is_file(), f"{aufnahme} gibt es nicht."
+def _sprecher_getrennt(ordner: Path, mindestens: int) -> None:
+    """Mit Token muss die Sprechertrennung mehrere Stimmen finden; ohne bleibt sie aus."""
+    if not MIT_SPRECHERTRENNUNG:
+        return
+    sprecher = {s.get("sprecher_id") for s in _transkript(ordner)["segmente"] if s.get("sprecher_id")}
+    assert len(sprecher) >= mindestens, f"Nur {len(sprecher)} Sprecher erkannt: {sprecher}"
 
-    _ergebnis, ordner = _verarbeite(aufnahme, laufzeit_python, sprachmodell, tmp_path)
 
-    segmente = _transkript(ordner)["segmente"]
-    woerter = sum(len(s["text"].split()) for s in segmente)
-    assert woerter > 100, f"Nur {woerter} Woerter erkannt."
+def _plausibel(ordner: Path, mindestens_woerter: int, mindestens_sprecher: int) -> None:
+    """Fuer echtes Material gibt es keine Musterloesung: Jede Stufe muss etwas
+    Plausibles liefern."""
+    woerter = sum(len(s["text"].split()) for s in _transkript(ordner)["segmente"])
+    assert woerter >= mindestens_woerter, f"Nur {woerter} Woerter erkannt."
+    _sprecher_getrennt(ordner, mindestens=mindestens_sprecher)
     protokoll = _protokoll(ordner)
     assert (protokoll.get("kurzzusammenfassung") or "").strip(), protokoll
     assert protokoll.get("themen"), protokoll
+
+
+def test_ausschnitt_einer_echten_aufnahme_laeuft_durch(aufnahme_ausschnitt, laufzeit_python, sprachmodell, tmp_path):
+    """Drei Minuten echtes Material (z. B. eine Podiumsdiskussion)."""
+    _ergebnis, ordner = _verarbeite(aufnahme_ausschnitt, laufzeit_python, sprachmodell, tmp_path)
+    _plausibel(ordner, mindestens_woerter=150, mindestens_sprecher=1)  # ab Minute 10: ein Vortrag
+
+
+@pytest.mark.skipif(not LANG, reason="Ganze Aufnahme nur mit PROTOKOLL_E2E_LANG=1 (siehe conftest.py)")
+def test_echte_aufnahme_in_voller_laenge(echte_aufnahme, laufzeit_python, sprachmodell, tmp_path):
+    """Mehrere 10-Minuten-Abschnitte, alle drei Stufen der Protokollauswertung
+    und der volle Kontext: nur bei Aenderungen genau daran noetig."""
+    _ergebnis, ordner = _verarbeite(echte_aufnahme, laufzeit_python, sprachmodell, tmp_path)
+    _plausibel(ordner, mindestens_woerter=1000, mindestens_sprecher=2)  # Moderation und Podium
