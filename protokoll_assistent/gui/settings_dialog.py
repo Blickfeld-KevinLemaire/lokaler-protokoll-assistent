@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from PySide6.QtWidgets import (
+    QApplication,
     QButtonGroup,
     QCheckBox,
     QComboBox,
@@ -158,8 +159,18 @@ class SettingsDialog(QDialog):
         return seite
 
     def _open_lokal_einrichtung(self) -> None:
+        from protokoll_assistent.gui import ersteinrichtung
         from protokoll_assistent.gui.wizard import LokalEinrichtungDialog
 
+        if not ersteinrichtung.laufzeit_vorhanden():
+            # Noch nichts eingerichtet: die gefuehrte Einrichtung -- sie sagt,
+            # was es kostet, und laedt erst nach Zustimmung.
+            gefuehrt = ersteinrichtung.ErsteinrichtungDialog(self)
+            if gefuehrt.exec() == ersteinrichtung.ErsteinrichtungDialog.NEUSTART:
+                anwendung = QApplication.instance()
+                if anwendung is not None:
+                    anwendung.quit()
+            return
         dialog = LokalEinrichtungDialog(self)
         dialog.exec()
 
@@ -550,6 +561,10 @@ class SettingsDialog(QDialog):
             "chatbot_api_eigener_schluessel": self.chatbot_api_eigener_schluessel_checkbox.isChecked(),
             "chatbot_api_schluessel_merken": self.chatbot_api_merken_checkbox.isChecked(),
         }
+        if aenderungen["transkription_modus"] == "lokal" and self._config["transkription_modus"] != "lokal":
+            # Ausdruecklich auf "Lokal" umgeschaltet: Die zurueckgestellte
+            # Rechenumgebung wird beim naechsten Start eingerichtet.
+            aenderungen["lokale_einrichtung_zurueckgestellt"] = False
         app_config.update_config(**aenderungen)
 
         transkription_schluessel = self.api_transkription_schluessel_edit.text().strip()

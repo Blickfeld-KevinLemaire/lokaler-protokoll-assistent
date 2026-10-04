@@ -29,6 +29,13 @@ DEFAULTS: dict[str, Any] = {
     "ausgabeordner": None,
     "aufnahmegeraet": None,
     "einrichtung_abgeschlossen": False,
+    # "" | "transkription": Die Ersteinrichtung hat die Anwendung fuer die
+    # Rechenumgebung neu gestartet und setzt danach an dieser Stelle fort.
+    "einrichtung_fortsetzen": "",
+    # Ersteinrichtung mit "Nicht mehr fragen" geschlossen, ohne zuzustimmen:
+    # Die schwere Rechenumgebung wird nicht ungefragt geladen, bis der Anwender
+    # die lokale Einrichtung selbst startet (siehe app.py).
+    "lokale_einrichtung_zurueckgestellt": False,
     # "lokal" | "api"
     "transkription_modus": "lokal",
     "whisper_modell": None,

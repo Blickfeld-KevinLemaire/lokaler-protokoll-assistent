@@ -207,17 +207,47 @@ def test_systemdiagnose_oeffnet_dialog(dialog, monkeypatch):
     dialog._open_diagnostics()  # darf nicht werfen
 
 
-def test_lokal_einrichten_oeffnet_dialog(dialog, monkeypatch):
-    # Die vollstaendige Einrichtung (Downloads, Systemtest, Modellwahl) ist
-    # jetzt ein gezielter Schritt aus den Einstellungen heraus, kein
-    # Startzwang mehr vor dem Hauptfenster (siehe 'app.py').
-    from protokoll_assistent.gui import wizard
+@pytest.mark.parametrize("laufzeit_da", [True, False])
+def test_lokal_einrichten_oeffnet_dialog(dialog, monkeypatch, laufzeit_da):
+    # Mit Rechenumgebung: Downloads, Systemtest, Modellwahl. Ohne: die gefuehrte
+    # Ersteinrichtung, die erst sagt, was es kostet.
+    from protokoll_assistent.gui import ersteinrichtung, wizard
 
-    monkeypatch.setattr(wizard.LokalEinrichtungDialog, "exec", lambda self: None)
+    geoeffnet = []
+    monkeypatch.setattr(ersteinrichtung, "laufzeit_vorhanden", lambda: laufzeit_da)
+    monkeypatch.setattr(wizard.LokalEinrichtungDialog, "exec", lambda self: geoeffnet.append("lokal"))
     monkeypatch.setattr(wizard.RechnerAnalysePage, "start", lambda self: None)
     monkeypatch.setattr(wizard.InstallPage, "start", lambda self: None)
+    monkeypatch.setattr(ersteinrichtung.ErsteinrichtungDialog, "exec", lambda self: geoeffnet.append("gefuehrt") or 0)
 
-    dialog._open_lokal_einrichtung()  # darf nicht werfen
+    dialog._open_lokal_einrichtung()
+
+    assert geoeffnet == (["lokal"] if laufzeit_da else ["gefuehrt"])
+
+
+def test_lokal_einrichten_mit_neustart_beendet_die_anwendung(dialog, monkeypatch):
+    from unittest import mock
+
+    from protokoll_assistent.gui import ersteinrichtung
+
+    monkeypatch.setattr(ersteinrichtung, "laufzeit_vorhanden", lambda: False)
+    monkeypatch.setattr(
+        ersteinrichtung.ErsteinrichtungDialog, "exec", lambda self: ersteinrichtung.ErsteinrichtungDialog.NEUSTART
+    )
+    with mock.patch("protokoll_assistent.gui.settings_dialog.QApplication") as anwendung:
+        dialog._open_lokal_einrichtung()
+    anwendung.instance.return_value.quit.assert_called_once()
+
+
+@pytest.mark.parametrize(("vorher", "zurueckgestellt"), [("api", False), ("lokal", True)])
+def test_umschalten_auf_lokal_hebt_die_zurueckstellung_auf(dialog, vorher, zurueckgestellt):
+    """Nur ein ausdrueckliches Umschalten auf "Lokal" gilt als Zustimmung zur
+    Rechenumgebung -- bloßes Speichern mit unveraendertem "Lokal" nicht."""
+    app_config.update_config(transkription_modus=vorher, lokale_einrichtung_zurueckgestellt=True)
+    dialog._config = app_config.load_config()
+    dialog.transkription_lokal_radio.setChecked(True)
+    dialog._speichern_und_schliessen()
+    assert app_config.load_config()["lokale_einrichtung_zurueckgestellt"] is zurueckgestellt
 
 
 def test_systemdiagnose_prueft_den_ausgabeordner(qt_widgets, isolierte_konfiguration, schluessel_speicher, tmp_path, monkeypatch):

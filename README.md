@@ -83,7 +83,10 @@ sich normal ueber „Apps & Features" wieder entfernen.
 
 Er bringt alles mit, was gebraucht wird - auch eine eigene
 Python-Laufzeitumgebung fuer den lokalen Modus. Vorinstallieren muessen Sie
-nichts.
+nichts: Beim ersten Start zeigt eine Ersteinrichtung, was auf Ihrem Computer
+moeglich ist und was es kostet (Downloads, Platz, Zeit), und laedt erst nach
+Ihrer Zustimmung - Ollama dabei direkt vom Hersteller, still und ohne
+Administratorrechte.
 
 Der Installer ist **nicht signiert**. Windows SmartScreen meldet sich deshalb
 beim Start; ueber „Weitere Informationen" -> „Trotzdem ausfuehren" laesst er

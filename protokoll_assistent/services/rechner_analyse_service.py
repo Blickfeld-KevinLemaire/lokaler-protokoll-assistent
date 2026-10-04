@@ -72,7 +72,7 @@ ECHTZEIT_MAESSIG = 0.7
 # Downloadgroessen der Bausteine, die immer gebraucht werden (gerundet).
 GROESSE_WHISPER_TURBO_GB = 1.6
 GROESSE_PYANNOTE_GB = 0.5
-GROESSE_WERKZEUGE_GB = 1.9  # FFmpeg ca. 0,2 + Ollama ca. 1,7
+GROESSE_WERKZEUGE_GB = 3.1  # FFmpeg ca. 0,2 + Ollama installiert 2,9 (gemessen 04.10.2026: 2,8)
 
 
 HERSTELLER_NVIDIA = "nvidia"
