@@ -194,4 +194,4 @@ def aufnahme_ausschnitt(echte_aufnahme, tmp_path_factory) -> Path:
         # 16 kHz * 2 Byte: unter 30 s Ton war die Aufnahme kuerzer als der Startpunkt.
         if ziel.is_file() and ziel.stat().st_size > 30 * 16000 * 2:
             return ziel
-    pytest.fail(f"Aus {echte_aufnahme} liess sich kein Ausschnitt schneiden.")
+    raise AssertionError(f"Aus {echte_aufnahme} liess sich kein Ausschnitt schneiden.")
