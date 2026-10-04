@@ -27,6 +27,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import time
 import urllib.parse
 import urllib.request
@@ -97,10 +98,12 @@ class SignaturErgebnis:
 def _registry_eintrag() -> tuple[Path | None, str | None] | None:
     """(Installationsordner, Version) aus dem Deinstallationseintrag, ``None``
     ohne Eintrag oder ausserhalb von Windows."""
-    try:
-        import winreg
-    except ImportError:
+    # Diese Form versteht mypy: Auf Linux (CI-Pruefung) gilt der Rest als
+    # unerreichbar, statt die Windows-Funktionen von 'winreg' zu vermissen.
+    if sys.platform != "win32":
         return None
+    import winreg
+
     try:
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, _DEINSTALLATIONS_SCHLUESSEL) as schluessel:
 
