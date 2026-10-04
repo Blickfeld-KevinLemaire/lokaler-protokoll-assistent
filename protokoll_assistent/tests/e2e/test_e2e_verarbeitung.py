@@ -21,6 +21,8 @@ from protokoll_assistent.utils import paths
 
 pytestmark = pytest.mark.timeout(3600)
 
+LANG = os.environ.get("PROTOKOLL_E2E_LANG", "").strip() == "1"
+
 
 def _verarbeite(aufnahme: Path, laufzeit_python: Path, sprachmodell: str, tmp_path: Path) -> tuple[dict, Path]:
     eingang, ausgang, daten = tmp_path / "eingang", tmp_path / "ausgang", tmp_path / "daten"
@@ -85,20 +87,25 @@ def test_gespielte_besprechung_wird_transkribiert_und_ausgewertet(besprechung_wa
     assert besprechung.enthaelt_eines(protokoll, "testplan"), protokoll
 
 
-def test_echte_aufnahme_laeuft_durch(laufzeit_python, sprachmodell, tmp_path):
-    """Echtes Material (z. B. eine Podiumsdiskussion). Es gibt keine
-    Musterloesung, geprueft wird nur, dass jede Stufe etwas Plausibles liefert."""
-    roh = os.environ.get("PROTOKOLL_E2E_AUFNAHME", "").strip()
-    if not roh:
-        pytest.skip("PROTOKOLL_E2E_AUFNAHME ist nicht gesetzt.")
-    aufnahme = Path(roh)
-    assert aufnahme.is_file(), f"{aufnahme} gibt es nicht."
-
-    _ergebnis, ordner = _verarbeite(aufnahme, laufzeit_python, sprachmodell, tmp_path)
-
-    segmente = _transkript(ordner)["segmente"]
-    woerter = sum(len(s["text"].split()) for s in segmente)
-    assert woerter > 100, f"Nur {woerter} Woerter erkannt."
+def _plausibel(ordner: Path, mindestens_woerter: int) -> None:
+    """Fuer echtes Material gibt es keine Musterloesung: Jede Stufe muss etwas
+    Plausibles liefern."""
+    woerter = sum(len(s["text"].split()) for s in _transkript(ordner)["segmente"])
+    assert woerter >= mindestens_woerter, f"Nur {woerter} Woerter erkannt."
     protokoll = _protokoll(ordner)
     assert (protokoll.get("kurzzusammenfassung") or "").strip(), protokoll
     assert protokoll.get("themen"), protokoll
+
+
+def test_ausschnitt_einer_echten_aufnahme_laeuft_durch(aufnahme_ausschnitt, laufzeit_python, sprachmodell, tmp_path):
+    """Drei Minuten echtes Material (z. B. eine Podiumsdiskussion)."""
+    _ergebnis, ordner = _verarbeite(aufnahme_ausschnitt, laufzeit_python, sprachmodell, tmp_path)
+    _plausibel(ordner, mindestens_woerter=150)
+
+
+@pytest.mark.skipif(not LANG, reason="Ganze Aufnahme nur mit PROTOKOLL_E2E_LANG=1 (siehe conftest.py)")
+def test_echte_aufnahme_in_voller_laenge(echte_aufnahme, laufzeit_python, sprachmodell, tmp_path):
+    """Mehrere 10-Minuten-Abschnitte, alle drei Stufen der Protokollauswertung
+    und der volle Kontext: nur bei Aenderungen genau daran noetig."""
+    _ergebnis, ordner = _verarbeite(echte_aufnahme, laufzeit_python, sprachmodell, tmp_path)
+    _plausibel(ordner, mindestens_woerter=1000)

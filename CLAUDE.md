@@ -139,10 +139,16 @@ $env:PROTOKOLL_E2E = "1"; uv run pytest protokoll_assistent/tests/e2e -m e2e
 
 Ohne `PROTOKOLL_E2E=1` werden sie übersprungen — in der CI immer. Sie prüfen
 eine gespielte Besprechung mit bekannten Fakten (`tests/e2e/besprechung.py`,
-gesprochen von den deutschen Windows-Stimmen) und optional eine echte Aufnahme
-(`PROTOKOLL_E2E_AUFNAHME`). Wer die Modellauswahl, die Prompts oder die
-Ollama-Aufrufe ändert, lässt sie vorher einmal laufen. Einzelheiten stehen in
-`tests/e2e/conftest.py`.
+gesprochen von den deutschen Windows-Stimmen) und optional einen
+**dreiminütigen Ausschnitt** einer echten Aufnahme (`PROTOKOLL_E2E_AUFNAHME`).
+Ein Lauf dauert so wenige Minuten. Wer die Modellauswahl, die Prompts oder die
+Ollama-Aufrufe ändert, lässt sie vorher einmal laufen.
+
+Die **ganze** Aufnahme (`PROTOKOLL_E2E_LANG=1`, bei einer Stunde Material
+deutlich länger und unter Volllast) bitte **nicht** routinemäßig: nur, wenn
+sich genau die Verarbeitung langer Aufnahmen ändert — Abschnitte
+(`chunking_service`), die mehrstufige Protokollauswertung (`protocol_service`)
+oder die Kontextgröße für Ollama. Einzelheiten in `tests/e2e/conftest.py`.
 
 ### 5. Fenstertests
 

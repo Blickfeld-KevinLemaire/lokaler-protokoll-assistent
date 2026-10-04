@@ -10,8 +10,14 @@ Ohne ``PROTOKOLL_E2E=1`` werden sie uebersprungen -- in der CI und bei jedem
 normalen ``uv run pytest``. Weitere Schalter:
 
 * ``PROTOKOLL_E2E_AUFNAHME``: eine echte Aufnahme (z. B. eine
-  Podiumsdiskussion) fuer den Lauf mit echtem Material. Sie wird nur gelesen,
-  nie ins Repository kopiert.
+  Podiumsdiskussion). Verarbeitet wird standardmaessig nur ein Ausschnitt von
+  drei Minuten, damit ein Lauf wenige Minuten dauert. Die Datei wird nur
+  gelesen, nie ins Repository kopiert.
+* ``PROTOKOLL_E2E_LANG=1``: zusaetzlich die ganze Aufnahme (bei einer Stunde
+  Material rund fuenf Minuten mehr). Nur noetig, wenn sich genau die
+  Verarbeitung langer Aufnahmen aendert: Abschnitte (``chunking_service``),
+  die mehrstufige Protokollauswertung (``protocol_service``) oder die
+  Kontextgroesse fuer Ollama.
 * ``PROTOKOLL_E2E_PYTHON``: das Python der ML-Laufzeitumgebung fuer die
   komplette Verarbeitung (sonst die Umgebung, die ``bootstrap`` anlegt).
 """
@@ -29,7 +35,12 @@ import pytest
 from protokoll_assistent.tests.e2e import besprechung
 
 AKTIV = os.environ.get("PROTOKOLL_E2E", "").strip() == "1"
+LANG = os.environ.get("PROTOKOLL_E2E_LANG", "").strip() == "1"
 EINBETTUNGSMODELL = "bge-m3"
+# Ausschnitt aus der echten Aufnahme: ab Minute 10 (Begruessung und Vorspann
+# sind vorbei), drei Minuten lang. Ist die Aufnahme kuerzer, ab dem Anfang.
+AUSSCHNITT_START_SEKUNDEN = 600
+AUSSCHNITT_SEKUNDEN = 180
 
 
 def pytest_collection_modifyitems(config, items):
@@ -150,3 +161,37 @@ def laufzeit_python() -> Path:
     if probe.returncode != 0:
         pytest.skip(f"Die Laufzeitumgebung {python} ist unvollstaendig: {probe.stderr.strip()[-300:]}")
     return python
+
+
+@pytest.fixture(scope="session")
+def echte_aufnahme() -> Path:
+    roh = os.environ.get("PROTOKOLL_E2E_AUFNAHME", "").strip()
+    if not roh:
+        pytest.skip("PROTOKOLL_E2E_AUFNAHME ist nicht gesetzt.")
+    aufnahme = Path(roh)
+    assert aufnahme.is_file(), f"{aufnahme} gibt es nicht."
+    return aufnahme
+
+
+@pytest.fixture(scope="session")
+def aufnahme_ausschnitt(echte_aufnahme, tmp_path_factory) -> Path:
+    """Drei Minuten der echten Aufnahme (16 kHz mono) -- genug Material fuer
+    einen echten Durchlauf, kurz genug, dass er bei jedem E2E-Lauf mitlaufen kann."""
+    from protokoll_assistent.services import ffmpeg_service
+
+    ffmpeg = ffmpeg_service.find_ffmpeg()
+    if ffmpeg is None:
+        pytest.skip("FFmpeg fehlt (die Anwendung laedt es beim ersten Start nach tools/ffmpeg).")
+    ziel = tmp_path_factory.mktemp("ausschnitt") / f"{echte_aufnahme.stem}_ausschnitt.wav"
+    for start in (AUSSCHNITT_START_SEKUNDEN, 0):
+        subprocess.run(
+            [str(ffmpeg), "-y", "-v", "error", "-ss", str(start), "-t", str(AUSSCHNITT_SEKUNDEN),
+             "-i", str(echte_aufnahme), "-ac", "1", "-ar", "16000", str(ziel)],
+            capture_output=True,
+            timeout=300,
+            check=False,
+        )
+        # 16 kHz * 2 Byte: unter 30 s Ton war die Aufnahme kuerzer als der Startpunkt.
+        if ziel.is_file() and ziel.stat().st_size > 30 * 16000 * 2:
+            return ziel
+    pytest.fail(f"Aus {echte_aufnahme} liess sich kein Ausschnitt schneiden.")
