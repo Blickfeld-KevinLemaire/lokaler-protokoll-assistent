@@ -8,23 +8,23 @@ eigenes Programm -- es gibt genau diese eine Anwendung.
 
 Die Anwendung zeigt beim Start immer sofort das Hauptfenster -- nie einen
 Einrichtungsassistenten DAVOR (kein separater "Willkommensbildschirm", der
-das Hauptfenster verdeckt). Bei einer frischen Installation (Einrichtung noch
-nicht abgeschlossen) oeffnet sich die Ersteinrichtung fuer den lokalen Modus
-(Downloads, Systemtest, Modellwahl; ``gui.wizard.LokalEinrichtungDialog``)
-trotzdem einmalig automatisch -- als Dialog UEBER dem bereits sichtbaren
-Hauptfenster, nicht davor: die lokale Verarbeitung ist der bevorzugte,
-datenschutzfreundliche Weg und bekommt deshalb beim allerersten Start
-Vorrang. Egal ob abgeschlossen oder vorzeitig geschlossen, danach fragt die
-Anwendung nicht erneut -- ueber "Einstellungen -> Transkription -> Lokal ->
-Einrichtung starten" bleibt der Weg jederzeit erreichbar.
+das Hauptfenster verdeckt). Solange die Einrichtung nicht abgeschlossen ist,
+oeffnet sich die Ersteinrichtung (``gui.ersteinrichtung``) als Dialog UEBER dem
+bereits sichtbaren Hauptfenster: Sie erklaert das Programm, zeigt, was auf
+diesem Computer moeglich ist und was es kostet, und laedt erst nach
+Zustimmung. Wer sie vorher schliesst, sieht sie beim naechsten Start wieder --
+ausser mit "Nicht mehr fragen". Ueber "Einstellungen -> Transkription -> Lokal
+-> Einrichtung starten" bleibt der Weg jederzeit erreichbar.
 
 Die schwere lokale Laufzeitumgebung (Torch/faster-whisper/pyannote, per
 ``bootstrap.py`` selbstinstallierend) wird NUR eingerichtet, wenn der
-gespeicherte Transkriptionsmodus tatsaechlich "lokal" ist. Wer ausschliesslich
-ueber eine API arbeitet, bekommt einen schnellen, leichten Start mit den
-Paketen aus ``requirements-anwendung.txt``. Schaltet der Anwender spaeter in
-den Einstellungen auf "Lokal" um, greift dieselbe Einrichtung beim naechsten
-Start.
+gespeicherte Transkriptionsmodus "lokal" ist UND der Anwender zugestimmt hat
+(``bootstrap.laufzeit_beim_start_einrichten``). Die Ersteinrichtung laeuft
+deshalb in der leichten Umgebung aus ``requirements-anwendung.txt`` und startet
+die Anwendung nach der Zustimmung neu; erst dann richtet ``bootstrap`` die
+Rechenumgebung ein, und die Ersteinrichtung setzt dort fort. Schaltet der
+Anwender spaeter in den Einstellungen auf "Lokal" um, greift dieselbe
+Einrichtung beim naechsten Start.
 
 ``bootstrap.ensure_runtime_and_relaunch`` MUSS vor jedem Import von
 PySide6/Torch stehen (siehe dessen Docstring) -- daher die ungewoehnliche
@@ -44,15 +44,18 @@ ebenfalls als Modul neu startet).
 
 from __future__ import annotations
 
+import importlib.util
 import sys
 
-from protokoll_assistent.utils import app_config
+from protokoll_assistent import bootstrap
+from protokoll_assistent.utils import app_config, paths
 
 _config = app_config.load_config()
+_fenster_moeglich = getattr(sys, "frozen", False) or importlib.util.find_spec("PySide6") is not None
 
-if _config["transkription_modus"] == "lokal":
-    from protokoll_assistent import bootstrap
-
+if bootstrap.laufzeit_beim_start_einrichten(
+    _config, _fenster_moeglich, laufzeit_vorhanden=paths.get_active_venv_python().is_file()
+):
     bootstrap.ensure_runtime_and_relaunch()
 
 # Ab hier laeuft der Prozess entweder in der vom lokalen Modus vorbereiteten
@@ -90,7 +93,8 @@ def main() -> int:
     window = MainWindow()
     window.show()
 
-    if not app_config.load_config()["einrichtung_abgeschlossen"]:
+    konfig = app_config.load_config()
+    if konfig["einrichtung_fortsetzen"] or not konfig["einrichtung_abgeschlossen"]:
         # Verzoegert (statt direkt vor 'app.exec()'), damit das Hauptfenster
         # tatsaechlich zuerst sichtbar gezeichnet wird, bevor der Dialog
         # darueber erscheint.
@@ -102,14 +106,19 @@ def main() -> int:
 
 
 def _erstmalige_lokale_einrichtung_anbieten(parent) -> None:
-    """Bei einer frischen Installation einmalig automatisch den
-    Einrichtungsdialog fuer den lokalen Modus anbieten (Systemtest,
-    Modellempfehlung, Downloads) -- siehe Modul-Docstring."""
-    from protokoll_assistent.gui.wizard import LokalEinrichtungDialog
+    """Die Ersteinrichtung anbieten -- oder nach dem Neustart fuer die
+    Rechenumgebung an derselben Stelle fortsetzen (siehe Modul-Docstring).
+    Ob sie als abgeschlossen gilt, entscheidet der Dialog selbst."""
+    from PySide6.QtWidgets import QApplication
 
-    dialog = LokalEinrichtungDialog(parent)
-    dialog.exec()
-    app_config.update_config(einrichtung_abgeschlossen=True)
+    from protokoll_assistent.gui.ersteinrichtung import ErsteinrichtungDialog
+
+    dialog = ErsteinrichtungDialog(parent, start_bei=app_config.load_config()["einrichtung_fortsetzen"])
+    if dialog.exec() == ErsteinrichtungDialog.NEUSTART:
+        # Die neue Instanz ist schon gestartet; diese beendet sich.
+        anwendung = QApplication.instance()
+        if anwendung is not None:
+            anwendung.quit()
 
 
 if __name__ == "__main__":

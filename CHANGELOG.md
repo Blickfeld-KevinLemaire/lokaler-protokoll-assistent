@@ -10,6 +10,23 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 ### Added
 
+- **Neue Ersteinrichtung:** Beim ersten Start erklärt ein Assistent in
+  einfachen Worten, was das Programm macht, zeigt für **diesen** Computer je
+  Arbeitsschritt (Mitschrift, Sprechererkennung, Protokoll, Frag mein Meeting),
+  ob er gut, langsam oder gar nicht geht und wie lange eine Stunde Aufnahme
+  ungefähr dauert, und empfiehlt eine Arbeitsweise (alles lokal, gemischt oder
+  online – online wird nie vorausgewählt). Danach steht genau da, was geladen
+  wird, mit Download- und Platzbedarf; erst nach Zustimmung geht es los.
+- **Ollama wird auf Wunsch automatisch installiert:** Der offizielle
+  Installer kommt direkt vom Hersteller, wird auf seine Signatur
+  („Ollama Inc.“) geprüft und still nur für das eigene Benutzerkonto
+  installiert – ohne Administratorrechte, ohne Rückfragen. Ist Ollama schon da,
+  wird nichts neu installiert. Ollama wird weiterhin nicht mit dem Programm
+  ausgeliefert.
+- **Hugging-Face-Zugang merken:** Die Ersteinrichtung fragt den Schlüssel für
+  die Sprechererkennung mit Anleitung ab und merkt ihn auf Wunsch verschlüsselt
+  in der Windows-Anmeldeinformationsverwaltung (nie in einer Datei).
+
 - **Hugging-Face-Token aus `.env`:** Wer den Token nicht bei jedem Start als
   Umgebungsvariable setzen will, traegt ihn als `HF_TOKEN=...` in die `.env`
   im Programmordner ein (Vorlage `.env.beispiel`; die Datei ist von Git

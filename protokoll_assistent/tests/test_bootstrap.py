@@ -343,3 +343,46 @@ def test_create_venv_with_base_python_raises_on_failure(monkeypatch, tmp_path):
 
     with pytest.raises(RuntimeError, match="irgendein Fehler"):
         bootstrap._create_venv(tmp_path / "venv", base_python=Path("/anderswo/python3.11"))
+
+
+# --------------------------------------------------------------------------
+# Rechenumgebung nur mit Zustimmung (Ersteinrichtung)
+# --------------------------------------------------------------------------
+FRISCH = {"transkription_modus": "lokal", "einrichtung_abgeschlossen": False, "einrichtung_fortsetzen": ""}
+
+
+@pytest.mark.parametrize(
+    ("konfig", "fenster", "laufzeit", "erwartet"),
+    [
+        ({**FRISCH, "transkription_modus": "api"}, True, True, False),  # API: nie
+        (FRISCH, True, False, False),  # frische Installation: erst fragen
+        (FRISCH, True, True, True),  # schon eingerichtet: wie immer hineinwechseln
+        (FRISCH, False, False, True),  # ohne PySide6 kein Fenster: bisheriger Weg
+        ({**FRISCH, "einrichtung_fortsetzen": "transkription"}, True, False, True),  # zugestimmt, Neustart
+        ({**FRISCH, "einrichtung_abgeschlossen": True}, True, False, True),  # aeltere Installation
+        ({**FRISCH, "einrichtung_abgeschlossen": True, "lokale_einrichtung_zurueckgestellt": True}, True, False, False),
+    ],
+)
+def test_rechenumgebung_nur_mit_zustimmung(konfig, fenster, laufzeit, erwartet):
+    assert bootstrap.laufzeit_beim_start_einrichten(konfig, fenster, laufzeit) is erwartet
+
+
+def test_neustart_aus_dem_quelltext_als_modul_ohne_markierung(monkeypatch, tmp_path):
+    from protokoll_assistent.utils import paths
+
+    monkeypatch.setattr(paths, "get_app_dir", lambda: tmp_path / "protokoll_assistent")
+    monkeypatch.setenv(bootstrap.MARKER_ENV_VAR, "1")
+    monkeypatch.delattr(bootstrap.sys, "frozen", raising=False)
+    befehl, ordner, umgebung = bootstrap.neustart_kommando()
+    assert befehl == [bootstrap.sys.executable, "-m", bootstrap.ANWENDUNGSMODUL]
+    assert ordner == tmp_path  # die Projektwurzel (CLAUDE.md, Regel 9)
+    assert bootstrap.MARKER_ENV_VAR not in umgebung
+
+
+def test_neustart_der_gebauten_exe(monkeypatch, tmp_path):
+    from protokoll_assistent.utils import paths
+
+    monkeypatch.setattr(paths, "get_app_dir", lambda: tmp_path)
+    monkeypatch.setattr(bootstrap.sys, "frozen", True, raising=False)
+    befehl, ordner, _umgebung = bootstrap.neustart_kommando()
+    assert befehl == [bootstrap.sys.executable] and ordner == tmp_path
