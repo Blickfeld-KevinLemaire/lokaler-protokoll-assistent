@@ -66,6 +66,7 @@ testpaths = ["protokoll_assistent/tests"]
 addopts = "-q --strict-markers --strict-config --capture=sys --timeout=120"
 markers = [
     "gui: Test braucht eine echte Fensterumgebung (tkinter oder Qt)",
+    "e2e: Ende-zu-Ende mit echten Modellen; laeuft nur mit PROTOKOLL_E2E=1 (siehe tests/e2e/conftest.py)",
 ]
 filterwarnings = ["error::DeprecationWarning:services.*", "error::DeprecationWarning:utils.*"]
 

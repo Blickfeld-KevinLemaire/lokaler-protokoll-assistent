@@ -129,6 +129,21 @@ bleibt dieselbe.
 Kein Test darf etwas herunterladen, einen Netzwerkaufruf machen oder eine GPU
 brauchen. Die ganze Suite läuft in Sekunden; das soll so bleiben.
 
+**Die einzige Ausnahme sind die Ende-zu-Ende-Tests in `tests/e2e/`.** Sie
+rechnen mit echten Modellen (Ollama, faster-whisper) auf der eigenen
+Grafikkarte und laufen nur auf Wunsch:
+
+```powershell
+$env:PROTOKOLL_E2E = "1"; uv run pytest protokoll_assistent/tests/e2e -m e2e
+```
+
+Ohne `PROTOKOLL_E2E=1` werden sie übersprungen — in der CI immer. Sie prüfen
+eine gespielte Besprechung mit bekannten Fakten (`tests/e2e/besprechung.py`,
+gesprochen von den deutschen Windows-Stimmen) und optional eine echte Aufnahme
+(`PROTOKOLL_E2E_AUFNAHME`). Wer die Modellauswahl, die Prompts oder die
+Ollama-Aufrufe ändert, lässt sie vorher einmal laufen. Einzelheiten stehen in
+`tests/e2e/conftest.py`.
+
 ### 5. Fenstertests
 
 * Qt läuft unsichtbar über `QT_QPA_PLATFORM=offscreen`, gesetzt in
