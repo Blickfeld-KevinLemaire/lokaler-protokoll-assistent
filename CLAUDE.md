@@ -251,6 +251,12 @@ aktiv; diese Prüfungen müssen grün sein:
 * Geheimnisse und Schwachstellen
 * Laufzeit-Pakete der lokalen Anwendung
 * Analyse (Python) — CodeQL
+* CodeQL — das *Ergebnis* der Analyse: rot, wenn der Pull Request neue
+  Meldungen einführt (bei #27 genügten zwei vom Typ `error`). „Analyse
+  (Python)" kann dabei grün sein; die Analyse ist ja gelaufen. Reine Fehlalarme in GitHub
+  unter *Security → Code scanning* mit Begründung schließen.
+
+Außerdem ist ein Pull Request mit **einer Freigabe** (Review) nötig.
 
 Dazu kommt `strict`: Der Branch muss auf dem Stand von `main` sein, bevor er
 zusammengeführt werden darf. Das ist kein Schikane-Schalter — genau dieser Fall
@@ -261,7 +267,13 @@ trotzdem kaputt.
 
 Beide Administratoren können die Regeln umgehen (`enforce_admins` ist aus),
 damit sich niemand aussperrt. Das ist als Notausgang gedacht, nicht als
-Normalweg.
+Normalweg — und auch dann erst zusammenführen, wenn alle Prüfungen grün sind.
+Der Notausgang ersetzt die fehlende Freigabe, nicht die CI.
+
+Die Linux-Läufer sind auf `ubuntu-24.04` festgelegt, nicht `ubuntu-latest`:
+GitHub stellt `ubuntu-latest` ab dem 19.10.2026 auf Ubuntu 26 um, und ein
+solcher Wechsel soll die CI nicht unangekündigt verändern. Umstellen bewusst
+und in einem eigenen Pull Request.
 
 ### CodeQL: den Schalter „Code quality" in den Einstellungen NICHT umlegen
 

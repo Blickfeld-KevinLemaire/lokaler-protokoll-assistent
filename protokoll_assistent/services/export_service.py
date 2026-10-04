@@ -498,7 +498,7 @@ def write_protocol_docx(protocol: dict[str, Any], output_path: Path) -> bool:
         lambda a: f"{a.get('aufgabe', '')} (Verantwortlich: {a.get('verantwortlich', '') or 'unklar'}, "
         f"Frist: {a.get('frist', '') or 'unklar'})",
     )
-    add_section("Offene Fragen", protocol.get("offene_fragen", []), lambda item: str(item))
+    add_section("Offene Fragen", protocol.get("offene_fragen", []), str)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     document.save(str(output_path))

@@ -10,6 +10,7 @@ umgewandelt und pyannote als Waveform-Dictionary uebergeben:
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 SAMPLE_RATE = 16000
@@ -85,7 +86,7 @@ def _embeddings_je_sprecher(ergebnis: Any, annotation: Any) -> dict[str, list[fl
     if len(labels) != len(zeilen):
         return {}
     # NaN (kein verwertbarer Abschnitt) taugt nicht als Stimmabdruck.
-    return {label: zeile for label, zeile in zip(labels, zeilen, strict=True) if zeile and all(x == x for x in zeile)}
+    return {label: zeile for label, zeile in zip(labels, zeilen, strict=True) if zeile and not any(math.isnan(x) for x in zeile)}
 
 
 def extract_speaker_embedding(
