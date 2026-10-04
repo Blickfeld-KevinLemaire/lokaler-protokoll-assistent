@@ -415,7 +415,17 @@ def _run_transcription_stage(
         )
         diarization_turns: list[dict[str, Any]] = []
     elif diarize_fn is None:
-        pipeline = model_service.load_pyannote_pipeline(device)
+        # Whisper wird hier nicht mehr gebraucht: vom Grafikspeicher nehmen,
+        # bevor pyannote geladen wird (die Closure oben haelt sonst das Modell).
+        whisper_model = None
+        model_service.gpu_speicher_freigeben()
+        diarisierung_geraet = model_service.geraet_fuer_sprechertrennung(device)
+        if diarisierung_geraet != device:
+            callbacks.on_log(
+                "Sprechertrennung rechnet auf der CPU (Schutz vor einem Windows-Systemabsturz auf "
+                f"NVIDIA-Karten; GPU nur mit {model_service.SPRECHERTRENNUNG_GPU_VARIABLE}=1)."
+            )
+        pipeline = model_service.load_pyannote_pipeline(diarisierung_geraet)
         full_audio_array = transcription_service.load_audio_array(normalized_path)
         waveform_dict = diarization_service.build_waveform_dict(full_audio_array)
         sprecher_embeddings: dict[str, list[float]] = {}

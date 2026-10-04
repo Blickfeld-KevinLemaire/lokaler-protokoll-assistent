@@ -15,9 +15,16 @@ automatisch und unbemerkt online gegangen.
 
 from __future__ import annotations
 
+import gc
+import os
+import sys
 from dataclasses import dataclass
 
 from protokoll_assistent.utils.hf_env import disable_offline_mode, enable_offline_mode, get_hf_token_for_download
+
+# Sprechertrennung auf der NVIDIA-GPU nur auf ausdruecklichen Wunsch (siehe
+# 'geraet_fuer_sprechertrennung').
+SPRECHERTRENNUNG_GPU_VARIABLE = "PROTOKOLL_SPRECHERTRENNUNG_GPU"
 
 WHISPER_MODEL_NAME = "large-v3-turbo"
 PYANNOTE_MODEL_NAME = "pyannote/speaker-diarization-community-1"
@@ -319,6 +326,41 @@ def get_gpu_description() -> str:
         )
     except ImportError:
         return "PyTorch nicht installiert"
+
+
+def geraet_fuer_sprechertrennung(geraet: str) -> str:
+    """Auf welchem Geraet pyannote rechnet.
+
+    Unter Windows standardmaessig auf der CPU, auch wenn Whisper die GPU
+    nutzt: Auf einem Laptop mit RTX PRO 500 (Blackwell), NVIDIA-Treiber
+    32.0.15.9658 und aktiver Speicherintegritaet (VBS/HVCI) stuerzte der
+    ganze Rechner beim Start der Sprechertrennung auf der GPU ab -- dreimal
+    derselbe Bluescreen HYPERVISOR_ERROR (0x20001, 0x28, 0x1, 0x29b92701,
+    0xfc801000), am 19.09. und 04.10.2026. Whisper (CTranslate2) und Ollama
+    liefen auf derselben Karte nie in diesen Fehler. Die Ursache liegt in
+    Treiber/Hypervisor, nicht in dieser Anwendung -- trifft aber jeden mit
+    derselben Kombination, und VBS ist auf aktuellen Windows-11-Geraeten oft
+    ab Werk an. Ein Systemabsturz kostet mehr als eine langsamere
+    Sprechertrennung. Wer die GPU trotzdem will: PROTOKOLL_SPRECHERTRENNUNG_GPU=1.
+    Unter Linux (Servermodus im Container) gibt es diesen Hypervisor nicht."""
+    if geraet != "cuda":
+        return geraet
+    if sys.platform == "win32" and os.environ.get(SPRECHERTRENNUNG_GPU_VARIABLE, "").strip() != "1":
+        return "cpu"
+    return "cuda"
+
+
+def gpu_speicher_freigeben() -> None:
+    """Gibt nicht mehr referenzierten GPU-Speicher frei (vor dem naechsten
+    Modell), damit nie zwei grosse Modelle zugleich auf der Karte liegen."""
+    gc.collect()
+    try:
+        import torch  # type: ignore
+
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except Exception:  # noqa: S110 - ohne torch/GPU gibt es nichts freizugeben
+        pass
 
 
 def load_pyannote_pipeline(device: str = "cuda"):
