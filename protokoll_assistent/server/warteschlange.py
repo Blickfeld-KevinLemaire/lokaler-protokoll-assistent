@@ -48,6 +48,9 @@ class Zustand:
             if isinstance(daten, dict) and isinstance(daten.get("dateien"), dict):
                 self._eintraege = daten["dateien"]
         except (OSError, ValueError):
+            # Fehlt die Datei oder ist sie unlesbar, beginnt der Zustand leer.
+            # Folge: Aufnahmen, die nicht verschoben werden konnten, werden
+            # ein zweites Mal verarbeitet -- verloren geht nichts.
             pass
 
     def bekannt(self, schluessel: str) -> bool:

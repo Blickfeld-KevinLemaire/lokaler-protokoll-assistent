@@ -256,9 +256,11 @@ def als_html(dokument: Dokument) -> str:
         "<!DOCTYPE html>",
         '<html lang="de"><head><meta charset="utf-8">',
         f"<title>{e(dokument.titel)}</title>",
-        "<style>body{font-family:'Segoe UI',Arial,sans-serif;line-height:1.45;margin:2em;}"
-        "h1{font-size:20pt;} h2{font-size:14pt;margin-top:1.4em;} .kopf{color:#555;margin:0;}"
-        "li{margin:0.2em 0;}</style></head><body>",
+        (
+            "<style>body{font-family:'Segoe UI',Arial,sans-serif;line-height:1.45;margin:2em;}"
+            "h1{font-size:20pt;} h2{font-size:14pt;margin-top:1.4em;} .kopf{color:#555;margin:0;}"
+            "li{margin:0.2em 0;}</style></head><body>"
+        ),
         f"<h1>{e(dokument.titel)}</h1>",
     ]
     teile += [f'<p class="kopf">{e(kopf)}</p>' for kopf in dokument.kopfzeilen]
