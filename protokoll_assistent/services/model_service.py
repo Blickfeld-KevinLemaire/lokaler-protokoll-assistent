@@ -17,14 +17,16 @@ from __future__ import annotations
 
 import gc
 import os
-import sys
 from dataclasses import dataclass
 
 from protokoll_assistent.utils.hf_env import disable_offline_mode, enable_offline_mode, get_hf_token_for_download
 
-# Sprechertrennung auf der NVIDIA-GPU nur auf ausdruecklichen Wunsch (siehe
-# 'geraet_fuer_sprechertrennung').
-SPRECHERTRENNUNG_GPU_VARIABLE = "PROTOKOLL_SPRECHERTRENNUNG_GPU"
+# Erzwingt das Geraet der Sprechertrennung ("cpu" oder "cuda"), siehe
+# 'geraet_fuer_sprechertrennung'.
+SPRECHERTRENNUNG_GERAET_VARIABLE = "PROTOKOLL_SPRECHERTRENNUNG_GERAET"
+# So viel freien Grafikspeicher braucht Whisper large-v3-turbo (gemessen 2,3 GB)
+# samt Reserve. Ist weniger frei, muss Ollama seine Modelle erst entladen.
+WHISPER_GRAFIKSPEICHER_BYTES = 3 * 1024**3
 
 WHISPER_MODEL_NAME = "large-v3-turbo"
 PYANNOTE_MODEL_NAME = "pyannote/speaker-diarization-community-1"
@@ -329,25 +331,31 @@ def get_gpu_description() -> str:
 
 
 def geraet_fuer_sprechertrennung(geraet: str) -> str:
-    """Auf welchem Geraet pyannote rechnet.
+    """Auf welchem Geraet pyannote rechnet: wie Whisper, ausser
+    ``PROTOKOLL_SPRECHERTRENNUNG_GERAET`` erzwingt "cpu" oder "cuda".
 
-    Unter Windows standardmaessig auf der CPU, auch wenn Whisper die GPU
-    nutzt: Auf einem Laptop mit RTX PRO 500 (Blackwell), NVIDIA-Treiber
-    32.0.15.9658 und aktiver Speicherintegritaet (VBS/HVCI) stuerzte der
-    ganze Rechner beim Start der Sprechertrennung auf der GPU ab -- dreimal
-    derselbe Bluescreen HYPERVISOR_ERROR (0x20001, 0x28, 0x1, 0x29b92701,
-    0xfc801000), am 19.09. und 04.10.2026. Whisper (CTranslate2) und Ollama
-    liefen auf derselben Karte nie in diesen Fehler. Die Ursache liegt in
-    Treiber/Hypervisor, nicht in dieser Anwendung -- trifft aber jeden mit
-    derselben Kombination, und VBS ist auf aktuellen Windows-11-Geraeten oft
-    ab Werk an. Ein Systemabsturz kostet mehr als eine langsamere
-    Sprechertrennung. Wer die GPU trotzdem will: PROTOKOLL_SPRECHERTRENNUNG_GPU=1.
-    Unter Linux (Servermodus im Container) gibt es diesen Hypervisor nicht."""
-    if geraet != "cuda":
-        return geraet
-    if sys.platform == "win32" and os.environ.get(SPRECHERTRENNUNG_GPU_VARIABLE, "").strip() != "1":
-        return "cpu"
-    return "cuda"
+    Auf der GPU laeuft die Sprechertrennung immer in einem eigenen Prozess
+    (``diarisierung_prozess``): Im Prozess neben Whisper loeste sie auf einem
+    Laptop mit RTX PRO 500 und aktiver Speicherintegritaet (VBS/HVCI) dreimal
+    einen Bluescreen HYPERVISOR_ERROR aus; allein in einem frischen Prozess
+    lief sie stabil -- und rund zwanzigmal schneller als auf der CPU."""
+    erzwungen = os.environ.get(SPRECHERTRENNUNG_GERAET_VARIABLE, "").strip().lower()
+    if erzwungen in ("cpu", "cuda"):
+        return erzwungen
+    return geraet
+
+
+def freier_grafikspeicher() -> int | None:
+    """Freier Grafikspeicher in Bytes, oder None ohne nutzbare CUDA-GPU."""
+    try:
+        import torch  # type: ignore
+
+        if not torch.cuda.is_available():
+            return None
+        frei, _gesamt = torch.cuda.mem_get_info()
+        return int(frei)
+    except Exception:
+        return None
 
 
 def gpu_speicher_freigeben() -> None:

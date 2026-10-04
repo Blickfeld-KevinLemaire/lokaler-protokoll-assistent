@@ -87,14 +87,14 @@ wiederholt den Versuch deshalb ein paar Mal
 die eine Datei atomar ersetzt, braucht dieselbe Wiederholung — der Fehler tritt
 zufällig auf und riss vorher ganze Verarbeitungsläufe ab.
 
-**pyannote nicht auf die NVIDIA-GPU legen (Windows).** Die Sprechertrennung
-rechnet unter Windows absichtlich auf der CPU
-(`model_service.geraet_fuer_sprechertrennung`). Auf der GPU löste sie
-dreimal einen Bluescreen `HYPERVISOR_ERROR` aus (Laptop mit RTX PRO 500,
-Speicherintegrität/VBS an) – der ganze Rechner ging aus. Whisper und Ollama
-sind davon nicht betroffen. Nur mit `PROTOKOLL_SPRECHERTRENNUNG_GPU=1` geht
-pyannote auf die GPU; diesen Weg nicht zum Standard machen, ohne ihn auf
-solcher Hardware geprüft zu haben.
+**pyannote auf der GPU nur im eigenen Prozess.** Im selben Prozess wie Whisper
+(CTranslate2) löste pyannote auf der GPU dreimal einen Bluescreen
+`HYPERVISOR_ERROR` aus (Laptop mit RTX PRO 500, Speicherintegrität/VBS an) –
+der ganze Rechner ging aus. Allein in einem frischen Prozess lief dieselbe
+Sprechertrennung stabil. Deshalb startet die Pipeline sie über
+`services/diarisierung_prozess.py` als eigenen Prozess; nur auf der CPU läuft
+sie im Prozess. Diesen Weg nicht „vereinfachen", ohne ihn auf solcher Hardware
+geprüft zu haben – ein Fehlversuch schaltet den Rechner ab.
 
 ### 2. Die Abdeckungsgrenze nicht senken und die Messung nicht verengen
 

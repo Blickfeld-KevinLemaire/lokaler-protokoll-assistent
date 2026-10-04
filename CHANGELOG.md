@@ -115,14 +115,18 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 ### Fixed
 
-- **Kein Systemabsturz mehr bei der Sprechertrennung:** Unter Windows rechnet
-  pyannote jetzt standardmäßig auf der CPU. Auf einem Laptop mit NVIDIA-Karte
-  und aktiver Speicherintegrität (VBS/HVCI) stürzte beim Start der
-  Sprechertrennung auf der GPU der ganze Rechner ab (Bluescreen
-  HYPERVISOR_ERROR) – ein Treiber-/Hypervisor-Problem, das die Anwendung
-  auslöste. Whisper nutzt die Grafikkarte weiter; vor der Sprechertrennung
-  wird sein Modell aus dem Grafikspeicher genommen. Wer die GPU trotzdem will,
-  setzt `PROTOKOLL_SPRECHERTRENNUNG_GPU=1`.
+- **Kein Systemabsturz mehr bei der Sprechertrennung:** Auf einem Laptop mit
+  NVIDIA-Karte und aktiver Speicherintegrität (VBS/HVCI) stürzte beim Start der
+  Sprechertrennung der ganze Rechner ab (Bluescreen HYPERVISOR_ERROR) – ein
+  Treiber-/Hypervisor-Problem, ausgelöst durch pyannote auf der GPU im selben
+  Prozess wie Whisper. Die Sprechertrennung läuft auf der GPU jetzt in einem
+  eigenen Prozess, erst nachdem Whisper fertig und entladen ist; scheitert der
+  Prozess, rechnet sie auf der CPU. `PROTOKOLL_SPRECHERTRENNUNG_GERAET=cpu`
+  erzwingt die CPU.
+- **Grafikspeicher wird geteilt statt überbucht:** Reicht der freie
+  Grafikspeicher vor der Transkription nicht für Whisper, entlädt Ollama zuerst
+  seine Modelle und lädt das Sprachmodell für das Protokoll danach wieder. Ist
+  genug frei, bleibt alles geladen.
 - **Lokale Protokolle aus vollständigem Text:** Die Nachbearbeitung über
   Ollama lief mit dessen Standard-Kontext von 4096 Tokens. Ein
   10-Minuten-Abschnitt samt Anweisung passt da oft nicht hinein; Ollama hat

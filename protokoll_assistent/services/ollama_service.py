@@ -203,6 +203,29 @@ def list_models(base_url: str = OLLAMA_BASE_URL, timeout: float = 5) -> list[str
     return [entry.get("name", "") for entry in models if isinstance(entry, dict)]
 
 
+def modelle_entladen(base_url: str = OLLAMA_BASE_URL, opener: OeffneFn | None = None, timeout: float = 30) -> list[str]:
+    """Nimmt alle gerade geladenen Modelle aus dem Speicher (``keep_alive: 0``)
+    und liefert ihre Namen. Ollama haelt ein Modell sonst noch Minuten nach dem
+    letzten Aufruf im Grafikspeicher -- auf einer 6-GB-Karte fehlt dieser Platz
+    dann Whisper. Ist Ollama nicht erreichbar, gibt es nichts zu entladen."""
+    try:
+        geladen = [
+            str(eintrag.get("name") or eintrag.get("model") or "")
+            for eintrag in _get_json(f"{base_url}/api/ps", timeout=5).get("models", [])
+            if isinstance(eintrag, dict)
+        ]
+    except (urllib.error.URLError, OSError, ValueError, TimeoutError):
+        return []
+    entladen = []
+    for name in (n for n in geladen if n):
+        try:
+            with _post_json(f"{base_url}/api/generate", {"model": name, "keep_alive": 0}, timeout, opener):
+                entladen.append(name)
+        except (urllib.error.URLError, OSError, TimeoutError):
+            continue
+    return entladen
+
+
 def is_model_available(model: str = DEFAULT_MODEL, base_url: str = OLLAMA_BASE_URL) -> bool:
     """Prueft, ob genau dieses Modell bei Ollama liegt.
 
