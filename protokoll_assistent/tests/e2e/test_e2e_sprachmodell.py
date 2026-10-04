@@ -152,9 +152,10 @@ def test_chatbot_liest_zu_langen_text_in_stuecken(sprachmodell, transkript):
         [],
         chat_fn,
         on_status=status.append,
-        # Der Text hat gut 1.500 Zeichen: passt nicht in "eine Anfrage" (1.000),
-        # die Notizen aber schon - so wird nichts davon gekuerzt.
-        max_zeichen=1000,
+        # Der Text hat knapp 1.300 Zeichen: passt nicht in "eine Anfrage" (1.200),
+        # die knappen Notizen aber schon. Mit 1.000 wurden ausfuehrliche Notizen
+        # hinten gekuerzt -- und mit ihnen die Frist (04.10.2026).
+        max_zeichen=1200,
         stueck_zeichen=450,
         ueberlappung=100,
     )

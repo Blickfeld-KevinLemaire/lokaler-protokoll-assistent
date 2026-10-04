@@ -83,8 +83,20 @@ VOLLTEXT_SYSTEMPROMPT = (
 NOTIZ_SYSTEMPROMPT = (
     "Du liest einen Abschnitt aus den Unterlagen einer Besprechung. Notiere stichpunktartig alles aus "
     "diesem Abschnitt, was zur Frage beitraegt, jeweils mit Uhrzeit und Sprecher, soweit angegeben. "
+    "Schreibe knapp: ein kurzer Stichpunkt je Angabe, ohne Ueberschriften und ohne Hervorhebungen. "
     "Bittet die Frage um eine Zusammenfassung, fasse den Abschnitt in Stichpunkten zusammen. "
+    "Die uebrigen Abschnitte werden getrennt gelesen: Ziehe keine Schluesse darueber, was in der "
+    "Besprechung NICHT gesagt wurde, und beantworte die Frage nicht abschliessend - notiere nur, was in "
+    "diesem Abschnitt steht, ohne Saetze darueber, was fehlt oder nicht erwaehnt wird. Uebernimm Zahlen, "
+    "Daten und Namen genau so, wie sie im Text stehen. "
     "Erfinde nichts. Steht nichts Passendes darin, antworte genau mit dem Wort " + NICHTS_RELEVANTES + "."
+)
+# Gemessen am 04.10.2026 (Qwen3.5 4B): Ohne diesen Hinweis schloss ein Abschnitt
+# "kein Termin genannt", der naechste nannte ihn -- und die Antwort glaubte dem ersten.
+NOTIZEN_HINWEIS = (
+    "Die Notizen stammen aus nacheinander gelesenen Abschnitten. Eine Angabe aus einem Abschnitt gilt, "
+    "auch wenn andere Abschnitte sie nicht erwaehnen; steht in einer Notiz, etwas fehle, gilt das nur fuer "
+    "ihren eigenen Abschnitt. Pruefe deshalb alle Notizen, bevor du sagst, dass etwas nicht genannt wurde."
 )
 
 
@@ -485,7 +497,12 @@ def _notiz(chat_fn: ChatFn, frage: str, herkunft: str, text: str) -> str | None:
         {"role": "user", "content": f"Frage: {frage}\n\nAbschnitt ({herkunft}):\n{text}"},
     ]
     notiz = bereinige_antwort(chat_fn(nachrichten, None))
-    if not notiz or notiz.strip().strip(".").upper() == NICHTS_RELEVANTES:
+    zeilen = notiz.strip().splitlines()
+    # Manche Modelle haengen ein "NICHTS" an echte Notizen an: dann nur die Notizen.
+    while zeilen and zeilen[-1].strip().strip(".").upper() == NICHTS_RELEVANTES:
+        zeilen.pop()
+    notiz = "\n".join(zeilen).strip()
+    if not notiz:
         return None
     return f"[{herkunft}]\n{notiz}"
 
@@ -551,7 +568,9 @@ def beantworte_volltext(
         if len(inhalt) > max_zeichen:
             # Lieber sichtbar kuerzen als Ollama vorne still abschneiden lassen.
             inhalt = inhalt[:max_zeichen] + "\n[... weitere Notizen aus Platzgruenden weggelassen]"
-        nachrichten = _volltext_nachrichten(frage, inhalt, verlauf, "Notizen aus den Abschnitten der Unterlagen")
+        nachrichten = _volltext_nachrichten(
+            frage, inhalt, verlauf, f"Notizen aus den Abschnitten der Unterlagen ({NOTIZEN_HINWEIS})"
+        )
 
     antwort = bereinige_antwort(chat_fn(nachrichten, on_token))
     if not antwort:

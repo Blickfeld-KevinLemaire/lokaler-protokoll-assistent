@@ -123,6 +123,16 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 ### Fixed
 
+- **„Danach direkt das Protokoll erstellen“ wirkte nicht:** Nach der
+  Transkription blieb das Fenster bei „Transkription abgeschlossen.“ stehen,
+  das Protokoll startete nie. Die Anwendung wartete auf das Ende des
+  Arbeits-Threads, das zu diesem Zeitpunkt meist schon vorbei war. Gefunden vom
+  neuen Oberflächentest mit echten Modellen.
+- **Frag mein Meeting, „Ganzer Text“ bei langen Unterlagen:** Wird der Text in
+  Abschnitten gelesen, schloss ein Abschnitt mitunter „kein Termin genannt“,
+  obwohl der nächste ihn nannte, und die Antwort übernahm das. Die Notizen je
+  Abschnitt sind jetzt knapp und ziehen keine Schlüsse über Fehlendes; die
+  Antwort wertet alle Notizen zusammen aus.
 - **Kein Systemabsturz mehr bei der Sprechertrennung:** Auf einem Laptop mit
   NVIDIA-Karte und aktiver Speicherintegrität (VBS/HVCI) stürzte beim Start der
   Sprechertrennung der ganze Rechner ab (Bluescreen HYPERVISOR_ERROR) – ein

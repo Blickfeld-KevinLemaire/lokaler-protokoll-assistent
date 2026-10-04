@@ -165,3 +165,22 @@ def test_api_ohne_einbettungs_endpunkt_nur_im_volltext_modus():
     assert "api_anbieter" not in ergebnis and ergebnis["chat_test"].ok
     with pytest.raises(cs.ChatFehler, match="kein Anbieter"):
         cs.funktionen_aus_einstellungen(cs.ChatEinstellungen("api", "m", "e", "https://x/chat", "", "schluessel"))
+
+
+def test_angehaengtes_nichts_wird_von_echten_notizen_entfernt():
+    """Qwen3.5 schrieb Notizen und danach noch "NICHTS" -- die Notizen zaehlen."""
+    notiz = cs._notiz(lambda nachrichten, on_token: "- Thomas schreibt den Testplan\n\nNICHTS", "F", "A", "Text")
+    assert notiz == "[A]\n- Thomas schreibt den Testplan"
+    assert cs._notiz(lambda nachrichten, on_token: "NICHTS.", "F", "A", "Text") is None
+
+
+def test_notizen_kommen_mit_dem_hinweis_dass_sie_sich_ergaenzen(tmp_path):
+    anfragen = []
+
+    def chat(nachrichten, on_token):
+        anfragen.append(nachrichten)
+        return "- Frist: 24. Oktober" if nachrichten[0]["content"] == cs.NOTIZ_SYSTEMPROMPT else "Bis 24. Oktober."
+
+    dokument = _lang(tmp_path, ["Zeile mit Text"] * 30)
+    cs.beantworte_volltext("Frist?", [dokument], [], chat, max_zeichen=100, stueck_zeichen=120, ueberlappung=10)
+    assert cs.NOTIZEN_HINWEIS in anfragen[-1][-1]["content"]
