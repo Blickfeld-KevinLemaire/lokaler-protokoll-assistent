@@ -10,6 +10,10 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 ### Added
 
+- **Hugging-Face-Token aus `.env`:** Wer den Token nicht bei jedem Start als
+  Umgebungsvariable setzen will, traegt ihn als `HF_TOKEN=...` in die `.env`
+  im Programmordner ein (Vorlage `.env.beispiel`; die Datei ist von Git
+  ignoriert). Eine gesetzte Umgebungsvariable hat Vorrang.
 - **Frag mein Meeting:** Neuer Chatbot in der Seitenleiste. Links werden
   Transkripte und Zusammenfassungen angehakt, rechts stellt man Fragen; die
   Antworten stützen sich nur auf die ausgewählten Unterlagen und nennen ihre

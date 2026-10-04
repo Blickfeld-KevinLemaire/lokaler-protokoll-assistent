@@ -12,6 +12,7 @@ from collections.abc import Mapping, Sequence
 
 from protokoll_assistent.server.dienst import Dienst
 from protokoll_assistent.server.einstellungen import EinstellungsFehler, ServerEinstellungen
+from protokoll_assistent.utils.hf_env import has_hf_token
 from protokoll_assistent.utils.paths import _daten_ordner, ensure_system_prompt_file_exists, get_work_dir
 
 
@@ -29,7 +30,7 @@ def pruefe_umgebung(einstellungen: ServerEinstellungen) -> list[tuple[bool, str]
         except ImportError:
             vorhanden = False
         ergebnisse.append((vorhanden, f"Paket {bezeichnung}"))
-    ergebnisse.append((bool(os.environ.get("HF_TOKEN", "").strip()), "HF_TOKEN gesetzt (fuer die Sprechertrennung)"))
+    ergebnisse.append((has_hf_token(), "HF_TOKEN gesetzt (fuer die Sprechertrennung)"))
     for ordner, name in ((einstellungen.eingang, "Eingang"), (einstellungen.ausgang, "Ausgang")):
         try:
             ordner.mkdir(parents=True, exist_ok=True)

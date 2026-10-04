@@ -102,8 +102,16 @@ gemeldete Zahl war zu hoch. Neue Ausnahmen gehören in `omit`, mit Begründung.
 
 API-Schlüssel und Hugging-Face-Token kommen aus Umgebungsvariablen, aus einer
 verdeckten Eingabe (`getpass`) oder aus der
-Windows-Anmeldeinformationsverwaltung — nie aus einer Datei im Repository, nie
+Windows-Anmeldeinformationsverwaltung — nie aus einer versionierten Datei, nie
 als Standardwert im Code, nie in einer Logausgabe.
+
+Einzige Datei-Ausnahme: `HF_TOKEN` darf zusätzlich in der `.env` im
+Projektordner stehen (von Git ignoriert, Vorlage `.env.beispiel`; dieselbe
+Datei nutzt `docker-compose` im Servermodus). Gelesen wird sie nur in
+`utils/hf_env.py` und dort nur diese eine Zeile; die Umgebungsvariable hat
+Vorrang. Die Tests blenden die echte `.env` aus (`tests/conftest.py`). Ein
+Token in einer `.py`-Datei oder in einer anderen versionierten Datei bleibt
+verboten — gitleaks schlägt in der CI an.
 
 `services/secret_store.py` ist der **einzige** Ort, der `keyring` importiert.
 Wer einen Schlüssel braucht, ruft die drei Funktionen dort auf. In
