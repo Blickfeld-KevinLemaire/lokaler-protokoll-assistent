@@ -52,6 +52,41 @@ SYSTEMPROMPT = (
     "Antworte knapp und auf Deutsch."
 )
 
+# Grundlage einer Antwort: die passenden Ausschnitte (Einbettung, Standard) oder
+# der ganze Text. Der ganze Text braucht kein Einbettungsmodell; passt er nicht
+# in eine Anfrage, wird er in ueberlappenden Stuecken gelesen (siehe
+# 'beantworte_volltext').
+KONTEXT_AUSZUEGE = "auszuege"
+KONTEXT_VOLLTEXT = "volltext"
+
+# Kontextgroesse fuer Ollama im Volltext-Modus. Qwen3.5 rechnet ueberwiegend mit
+# linearer Aufmerksamkeit; 32K passen mit dem 4B-Modell in 6 GB Grafikspeicher.
+VOLLTEXT_NUM_CTX = 32768
+# Etwa 3 Zeichen je Token im Deutschen, mit Reserve fuer Anweisung, Verlauf und
+# Antwort: so viel Text geht in einem Stueck an das Modell.
+MAX_VOLLTEXT_ZEICHEN = 80_000
+# Groesse und Ueberlappung der Stuecke, wenn der Text nicht in eine Anfrage passt.
+VOLLTEXT_STUECK_ZEICHEN = 24_000
+VOLLTEXT_UEBERLAPPUNG_ZEICHEN = 1_500
+NICHTS_RELEVANTES = "NICHTS"
+
+VOLLTEXT_SYSTEMPROMPT = (
+    "Du bist ein sorgfaeltiger deutschsprachiger Assistent fuer Besprechungen. "
+    "Beantworte die Frage ausschliesslich anhand der folgenden Unterlagen (vollstaendige Transkripte "
+    "und Zusammenfassungen oder Notizen daraus). Steht die Antwort nicht darin, sage ausdruecklich, "
+    "dass du sie den Unterlagen nicht entnehmen kannst - erfinde nichts und ergaenze kein eigenes Wissen. "
+    "Behalte Sprecherbezeichnungen bei. Nenne die Quellen am Ende in der Form (Dokument, Uhrzeit). "
+    "Bittet die Frage um eine Zusammenfassung, fasse die Unterlagen vollstaendig, aber knapp zusammen. "
+    "Antworte auf Deutsch."
+)
+
+NOTIZ_SYSTEMPROMPT = (
+    "Du liest einen Abschnitt aus den Unterlagen einer Besprechung. Notiere stichpunktartig alles aus "
+    "diesem Abschnitt, was zur Frage beitraegt, jeweils mit Uhrzeit und Sprecher, soweit angegeben. "
+    "Bittet die Frage um eine Zusammenfassung, fasse den Abschnitt in Stichpunkten zusammen. "
+    "Erfinde nichts. Steht nichts Passendes darin, antworte genau mit dem Wort " + NICHTS_RELEVANTES + "."
+)
+
 
 class ChatFehler(RuntimeError):
     """Fehler mit einer Meldung, die der Anwender lesen kann."""
@@ -88,6 +123,11 @@ class ChatEinstellungen:
     api_endpunkt: str = ""
     api_embedding_endpunkt: str = ""
     api_schluessel: str = ""
+    kontext: str = KONTEXT_AUSZUEGE
+
+    @property
+    def braucht_einbettung(self) -> bool:
+        return self.kontext != KONTEXT_VOLLTEXT
 
     @property
     def modell_kennung(self) -> str:
@@ -103,7 +143,10 @@ def funktionen_aus_einstellungen(einstellungen: ChatEinstellungen) -> tuple[Embe
             raise ChatFehler("Fuer den Chatbot im API-Modus fehlt der API-Schluessel (Einstellungen, Reiter Chatbot).")
         if not (
             api_anbieter.adresse_vollstaendig(einstellungen.api_endpunkt)
-            and api_anbieter.adresse_vollstaendig(einstellungen.api_embedding_endpunkt)
+            and (
+                not einstellungen.braucht_einbettung
+                or api_anbieter.adresse_vollstaendig(einstellungen.api_embedding_endpunkt)
+            )
         ):
             raise ChatFehler(
                 "Fuer den Chatbot im API-Modus ist noch kein Anbieter gewaehlt oder die Adresse unvollstaendig "
@@ -134,8 +177,13 @@ def funktionen_aus_einstellungen(einstellungen: ChatEinstellungen) -> tuple[Embe
     def embed_lokal(texte: list[str]) -> list[list[float]]:
         return ollama_service.embed(einstellungen.embedding_modell, texte)
 
+    # Im Volltext-Modus mit grossem Kontext, sonst schnitte Ollama den Text ab.
+    kontext_tokens = VOLLTEXT_NUM_CTX if einstellungen.kontext == KONTEXT_VOLLTEXT else 8192
+
     def chat_lokal(nachrichten: list[dict[str, str]], on_token: Callable[[str], None] | None) -> str:
-        return ollama_service.chat_stream(nachrichten, einstellungen.chat_modell, on_token=on_token)
+        return ollama_service.chat_stream(
+            nachrichten, einstellungen.chat_modell, on_token=on_token, num_ctx=kontext_tokens
+        )
 
     return embed_lokal, chat_lokal
 
@@ -367,6 +415,7 @@ def beantworte(
     chat_modell: str = "",
     on_status: Callable[[str], None] | None = None,
     on_token: Callable[[str], None] | None = None,
+    kontext: str = KONTEXT_AUSZUEGE,
 ) -> tuple[str, list[str]]:
     """Ganzer Ablauf einer Frage. Liefert ``(antwort, quellen)``."""
     meldung = on_status or (lambda text: None)
@@ -374,6 +423,8 @@ def beantworte(
         raise ChatFehler("Bitte eine Frage eingeben.")
     if not dokumente:
         raise ChatFehler("Bitte links mindestens ein Transkript oder eine Zusammenfassung auswaehlen.")
+    if kontext == KONTEXT_VOLLTEXT:
+        return beantworte_volltext(frage, dokumente, verlauf, chat_fn, on_status=meldung, on_token=on_token)
 
     meldung("Unterlagen werden vorbereitet …")
     def vorbereitung(titel: str, fertig: int, gesamt: int) -> None:
@@ -396,19 +447,134 @@ def beantworte(
 
 
 # ---------------------------------------------------------------------------
+# Ganzer Text
+# ---------------------------------------------------------------------------
+def mit_ueberlappung(abschnitte: list[Abschnitt], zeichen: int) -> list[Abschnitt]:
+    """Stellt jedem Abschnitt das Ende des vorigen voran (ganze Zeilen, hoechstens
+    ``zeichen``), damit nichts verloren geht, was genau an einer Grenze steht.
+    Die Zeitangabe bleibt die des Abschnitts selbst."""
+    ergebnis: list[Abschnitt] = []
+    for nummer, abschnitt in enumerate(abschnitte):
+        vorher = abschnitte[nummer - 1] if nummer else None
+        if vorher is None or vorher.dokument != abschnitt.dokument or zeichen <= 0:
+            ergebnis.append(abschnitt)
+            continue
+        uebernommen: list[str] = []
+        laenge = 0
+        for zeile in reversed(vorher.text.splitlines()):
+            if laenge + len(zeile) + 1 > zeichen:
+                break
+            uebernommen.insert(0, zeile)
+            laenge += len(zeile) + 1
+        text = "\n".join([*uebernommen, abschnitt.text]) if uebernommen else abschnitt.text
+        ergebnis.append(Abschnitt(abschnitt.dokument, text, abschnitt.zeit))
+    return ergebnis
+
+
+def _volltext_nachrichten(frage: str, unterlagen: str, verlauf: list[dict[str, str]], art: str) -> list[dict[str, str]]:
+    nachrichten = [{"role": "system", "content": VOLLTEXT_SYSTEMPROMPT}]
+    nachrichten.extend(verlauf[-MAX_VERLAUF_NACHRICHTEN:])
+    nachrichten.append({"role": "user", "content": f"{art}:\n\n{unterlagen}\n\nFrage: {frage}"})
+    return nachrichten
+
+
+def _notiz(chat_fn: ChatFn, frage: str, herkunft: str, text: str) -> str | None:
+    """Notizen eines Stuecks zur Frage; None, wenn nichts Passendes darin steht."""
+    nachrichten = [
+        {"role": "system", "content": NOTIZ_SYSTEMPROMPT},
+        {"role": "user", "content": f"Frage: {frage}\n\nAbschnitt ({herkunft}):\n{text}"},
+    ]
+    notiz = bereinige_antwort(chat_fn(nachrichten, None))
+    if not notiz or notiz.strip().strip(".").upper() == NICHTS_RELEVANTES:
+        return None
+    return f"[{herkunft}]\n{notiz}"
+
+
+def beantworte_volltext(
+    frage: str,
+    dokumente: list[Dokument],
+    verlauf: list[dict[str, str]],
+    chat_fn: ChatFn,
+    on_status: Callable[[str], None] | None = None,
+    on_token: Callable[[str], None] | None = None,
+    max_zeichen: int = MAX_VOLLTEXT_ZEICHEN,
+    stueck_zeichen: int = VOLLTEXT_STUECK_ZEICHEN,
+    ueberlappung: int = VOLLTEXT_UEBERLAPPUNG_ZEICHEN,
+) -> tuple[str, list[str]]:
+    """Antwort auf Grundlage des ganzen Textes.
+
+    Passt alles in eine Anfrage, geht es in einem Stueck an das Modell. Sonst
+    wird jedes Dokument in ueberlappende Stuecke geteilt; je Stueck entstehen
+    Notizen zur Frage, und aus den Notizen die Antwort. Sind selbst die Notizen
+    zu lang, werden sie gruppenweise weiter verdichtet."""
+    meldung = on_status or (lambda text: None)
+    mit_text = [d for d in dokumente if d.text.strip()]
+    if not mit_text:
+        raise ChatFehler("In den ausgewaehlten Unterlagen steht kein Text.")
+    quellen = [d.titel for d in mit_text]
+    gesamt = "\n\n".join(f"=== {d.titel} ({d.art}) ===\n{d.text}" for d in mit_text)
+
+    if len(gesamt) <= max_zeichen:
+        meldung("Antwort wird erzeugt …")
+        nachrichten = _volltext_nachrichten(frage, gesamt, verlauf, "Unterlagen")
+    else:
+        stuecke = [
+            stueck for d in mit_text for stueck in mit_ueberlappung(zerlege(d, stueck_zeichen), ueberlappung)
+        ]
+        notizen: list[str] = []
+        for nummer, stueck in enumerate(stuecke, start=1):
+            meldung(f"Abschnitt {nummer} von {len(stuecke)} wird gelesen …")
+            herkunft = stueck.dokument + (f", ab {stueck.zeit}" if stueck.zeit else "")
+            notiz = _notiz(chat_fn, frage, herkunft, stueck.text)
+            if notiz:
+                notizen.append(notiz)
+        # Hoechstens drei Runden, und nur solange es wirklich kuerzer wird: Ein
+        # Modell, das nicht verdichtet, darf die Schleife nicht endlos halten.
+        for _runde in range(3):
+            laenge = len("\n\n".join(notizen))
+            if laenge <= max_zeichen or len(notizen) <= 1:
+                break
+            meldung("Notizen werden verdichtet …")
+            gruppen: list[list[str]] = [[]]
+            for notiz in notizen:
+                if gruppen[-1] and len("\n\n".join([*gruppen[-1], notiz])) > max_zeichen // 2:
+                    gruppen.append([])
+                gruppen[-1].append(notiz)
+            if len(gruppen) >= len(notizen):
+                break  # jede Notiz fuer sich schon zu gross - weiter verdichten bringt nichts
+            verdichtet = [n for n in (_notiz(chat_fn, frage, "Notizen", "\n\n".join(g)) for g in gruppen) if n]
+            if len("\n\n".join(verdichtet)) >= laenge:
+                break
+            notizen = verdichtet
+        meldung("Antwort wird zusammengestellt …")
+        inhalt = "\n\n".join(notizen) or "(In keinem Abschnitt stand etwas Passendes.)"
+        if len(inhalt) > max_zeichen:
+            # Lieber sichtbar kuerzen als Ollama vorne still abschneiden lassen.
+            inhalt = inhalt[:max_zeichen] + "\n[... weitere Notizen aus Platzgruenden weggelassen]"
+        nachrichten = _volltext_nachrichten(frage, inhalt, verlauf, "Notizen aus den Abschnitten der Unterlagen")
+
+    antwort = bereinige_antwort(chat_fn(nachrichten, on_token))
+    if not antwort:
+        raise ChatFehler("Das Modell hat keine Antwort geliefert.")
+    return antwort, quellen
+
+
+# ---------------------------------------------------------------------------
 # Systemcheck
 # ---------------------------------------------------------------------------
 def fehlendes_modell(einstellungen: ChatEinstellungen) -> str | None:
     """Das erste fehlende Ollama-Modell des lokalen Chatbots (zuerst das
     Einbettungsmodell, dann das Chatmodell) oder None. Auch None, wenn Ollama
-    nicht erreichbar ist - das meldet der Systemcheck gesondert."""
+    nicht erreichbar ist - das meldet der Systemcheck gesondert. Mit dem ganzen
+    Text als Grundlage wird kein Einbettungsmodell gebraucht."""
     if einstellungen.modus != "lokal":
         return None
     try:
         ollama_service.list_models(timeout=1.5)
     except ollama_service.OllamaError:
         return None
-    for modell in (einstellungen.embedding_modell, einstellungen.chat_modell):
+    benoetigt = [einstellungen.embedding_modell] if einstellungen.braucht_einbettung else []
+    for modell in (*benoetigt, einstellungen.chat_modell):
         if modell and not ollama_service.is_model_available(modell):
             return modell
     return None
@@ -438,7 +604,10 @@ def systemcheck(
         melden("api_schluessel", "API-Schluessel", True, "Ein Schluessel ist hinterlegt.")
         if not (
             api_anbieter.adresse_vollstaendig(einstellungen.api_endpunkt)
-            and api_anbieter.adresse_vollstaendig(einstellungen.api_embedding_endpunkt)
+            and (
+                not einstellungen.braucht_einbettung
+                or api_anbieter.adresse_vollstaendig(einstellungen.api_embedding_endpunkt)
+            )
         ):
             melden(
                 "api_anbieter",
@@ -463,10 +632,10 @@ def systemcheck(
             return ergebnisse
         melden("ollama_dienst", "Ollama-Dienst erreichbar", True, "Ollama-Dienst antwortet.")
         fehlt = False
-        for schluessel, bezeichnung, modell in (
-            ("embedding_modell", "Einbettungsmodell installiert", einstellungen.embedding_modell),
-            ("chat_modell", "Chatmodell installiert", einstellungen.chat_modell),
-        ):
+        pruefen = [("chat_modell", "Chatmodell installiert", einstellungen.chat_modell)]
+        if einstellungen.braucht_einbettung:
+            pruefen.insert(0, ("embedding_modell", "Einbettungsmodell installiert", einstellungen.embedding_modell))
+        for schluessel, bezeichnung, modell in pruefen:
             vorhanden = bool(modell) and ollama_service.is_model_available(modell)
             fehlt = fehlt or not vorhanden
             melden(
@@ -487,18 +656,19 @@ def systemcheck(
         embed_fn, chat_fn = embed_fn or standard_embed, chat_fn or standard_chat
 
     fehlerarten = (ChatFehler, ollama_service.OllamaError, api_chat_service.ApiChatError)
-    try:
-        vektor = embed_fn(["Dies ist ein Test."])[0]
-        melden(
-            "embedding_test",
-            "Einbettungstest",
-            bool(vektor),
-            f"Einbettung funktioniert ({len(vektor)} Dimensionen)." if vektor else "Das Modell lieferte einen leeren Vektor.",
-        )
-    except fehlerarten as fehler:
-        melden("embedding_test", "Einbettungstest", False, str(fehler))
-    except (IndexError, TypeError, ValueError) as fehler:
-        melden("embedding_test", "Einbettungstest", False, f"Unerwartete Antwort des Einbettungsmodells: {fehler}")
+    if einstellungen.braucht_einbettung:
+        try:
+            vektor = embed_fn(["Dies ist ein Test."])[0]
+            melden(
+                "embedding_test",
+                "Einbettungstest",
+                bool(vektor),
+                f"Einbettung funktioniert ({len(vektor)} Dimensionen)." if vektor else "Das Modell lieferte einen leeren Vektor.",
+            )
+        except fehlerarten as fehler:
+            melden("embedding_test", "Einbettungstest", False, str(fehler))
+        except (IndexError, TypeError, ValueError) as fehler:
+            melden("embedding_test", "Einbettungstest", False, f"Unerwartete Antwort des Einbettungsmodells: {fehler}")
 
     if mit_antworttest:
         try:

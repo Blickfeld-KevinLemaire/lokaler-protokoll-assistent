@@ -55,6 +55,8 @@ DEFAULTS: dict[str, Any] = {
     "chatbot_modus": "lokal",
     "chatbot_ollama_modell": _STANDARD_OLLAMA_MODELL,
     "chatbot_embedding_modell": _STANDARD_CHATBOT_EMBEDDING,
+    # Grundlage der Antworten: "auszuege" (passende Ausschnitte) | "volltext" (ganzer Text)
+    "chatbot_kontext": "auszuege",
     "chatbot_api_voreinstellung": "",
     "chatbot_api_endpunkt": "",
     "chatbot_api_modell": "",

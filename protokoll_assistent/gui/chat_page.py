@@ -23,6 +23,7 @@ from typing import Any
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QComboBox,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -200,6 +201,23 @@ class ChatPage(QWidget):
         self.fortschritt.setVisible(False)
         layout.addWidget(self.fortschritt)
 
+        grundlage_zeile = QHBoxLayout()
+        grundlage_zeile.addWidget(QLabel("Grundlage:", self))
+        self.grundlage_wahl = QComboBox(self)
+        self.grundlage_wahl.addItem("Passende Ausschnitte", chat_service.KONTEXT_AUSZUEGE)
+        self.grundlage_wahl.addItem("Ganzer Text", chat_service.KONTEXT_VOLLTEXT)
+        self.grundlage_wahl.setToolTip(
+            "Passende Ausschnitte: Die Suche wählt die Stellen, die zur Frage passen – schnell, gut für "
+            "Einzelfragen.\nGanzer Text: Das Modell liest alles – für Zusammenfassungen und Fragen, die "
+            "die ganze Besprechung betreffen. Lange Texte werden in Abschnitten gelesen; das dauert länger."
+        )
+        gespeichert = self.grundlage_wahl.findData(app_config.load_config().get("chatbot_kontext"))
+        self.grundlage_wahl.setCurrentIndex(max(gespeichert, 0))
+        self.grundlage_wahl.currentIndexChanged.connect(self._grundlage_geaendert)
+        grundlage_zeile.addWidget(self.grundlage_wahl)
+        grundlage_zeile.addStretch(1)
+        layout.addLayout(grundlage_zeile)
+
         eingabe_zeile = QHBoxLayout()
         self.eingabe = QLineEdit(self)
         self.eingabe.setPlaceholderText("Frag mein Meeting …")
@@ -265,8 +283,17 @@ class ChatPage(QWidget):
                 konfig["chatbot_api_endpunkt"],
                 konfig["chatbot_api_embedding_endpunkt"],
                 self._schluessel_fn() or "",
+                kontext=konfig["chatbot_kontext"],
             )
-        return chat_service.ChatEinstellungen("lokal", konfig["chatbot_ollama_modell"], konfig["chatbot_embedding_modell"])
+        return chat_service.ChatEinstellungen(
+            "lokal", konfig["chatbot_ollama_modell"], konfig["chatbot_embedding_modell"], kontext=konfig["chatbot_kontext"]
+        )
+
+    def _grundlage_geaendert(self) -> None:
+        """Merkt sich die Wahl und prueft den Hinweis neu: Fuer den ganzen Text
+        wird kein Einbettungsmodell gebraucht."""
+        app_config.update_config(chatbot_kontext=self.grundlage_wahl.currentData())
+        self.hinweis_pruefen()
 
     def einstellungen_aktualisiert(self) -> None:
         """Zeigt an, welches Modell gilt, und prueft den Hinweis neu."""
@@ -291,7 +318,10 @@ class ChatPage(QWidget):
         if einstellungen.modus == "api":
             if not (
                 api_anbieter.adresse_vollstaendig(einstellungen.api_endpunkt)
-                and api_anbieter.adresse_vollstaendig(einstellungen.api_embedding_endpunkt)
+                and (
+                    not einstellungen.braucht_einbettung
+                    or api_anbieter.adresse_vollstaendig(einstellungen.api_embedding_endpunkt)
+                )
             ):
                 text = (
                     "Für den Chat im API-Modus ist noch kein Anbieter gewählt oder die Adresse unvollständig "

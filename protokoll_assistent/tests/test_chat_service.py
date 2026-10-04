@@ -175,13 +175,21 @@ def test_funktionen_aus_einstellungen_lokal_und_api(monkeypatch):
     aufrufe = {}
     monkeypatch.setattr(cs.ollama_service, "embed", lambda modell, texte: aufrufe.setdefault("embed", (modell, texte)) and [[1.0]])
     monkeypatch.setattr(
-        cs.ollama_service, "chat_stream", lambda n, m, on_token=None: aufrufe.setdefault("chat", (m, on_token)) and "ok"
+        cs.ollama_service,
+        "chat_stream",
+        lambda n, m, on_token=None, num_ctx=8192: aufrufe.__setitem__("chat", (m, on_token, num_ctx)) or "ok",
     )
     lokal = cs.ChatEinstellungen("lokal", "qwen3:8b", "bge-m3")
     assert lokal.modell_kennung == "lokal:bge-m3"
     embed, chat = cs.funktionen_aus_einstellungen(lokal)
     assert embed(["a"]) == [[1.0]] and chat([], None) == "ok"
     assert aufrufe["embed"][0] == "bge-m3" and aufrufe["chat"][0] == "qwen3:8b"
+    assert aufrufe["chat"][2] == 8192
+    # Mit dem ganzen Text als Grundlage braucht Ollama den grossen Kontext.
+    volltext = cs.ChatEinstellungen("lokal", "qwen3:8b", "bge-m3", kontext=cs.KONTEXT_VOLLTEXT)
+    _embed, chat = cs.funktionen_aus_einstellungen(volltext)
+    chat([], None)
+    assert aufrufe["chat"][2] == cs.VOLLTEXT_NUM_CTX
 
     with pytest.raises(cs.ChatFehler, match="API-Schluessel"):
         cs.funktionen_aus_einstellungen(cs.ChatEinstellungen("api", "m", "e", "u", "v", ""))
