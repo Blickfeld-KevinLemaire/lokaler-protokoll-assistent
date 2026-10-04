@@ -267,7 +267,8 @@ def _automatisches_word(callbacks: PipelineCallbacks, transkript_json: Path, pro
 def _grafikspeicher_fuer_whisper_freimachen(device: str, callbacks: PipelineCallbacks) -> None:
     """Reicht der freie Grafikspeicher nicht fuer Whisper, nimmt Ollama seine
     Modelle heraus. Ist genug frei, bleibt alles geladen -- dann muss Ollama
-    das Sprachmodell fuer das Protokoll nicht neu laden."""
+    das Sprachmodell fuer das Protokoll nicht neu laden. Das Entladen ist nur
+    der Ausweg fuer knappe Karten (6 GB); auf grossen Karten passiert nichts."""
     if device != "cuda":
         return
     frei = model_service.freier_grafikspeicher()
