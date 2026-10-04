@@ -52,32 +52,40 @@ Die Anwendung ist als moderner, selbsterklärender Einrichtungsassistent
 aufgebaut — ähnlich wie man es von heutiger Desktop-Software gewohnt ist:
 
 1. **Anwendung starten** (`Start-Protokoll-Assistent.ps1` oder
-   `python -m protokoll_assistent.app`).
-   Fehlt noch eine passende Python-Laufzeitumgebung, richtet sich die
-   Anwendung **automatisch selbst ein**: sie legt eine eigene, private
-   Umgebung an (`runtime\venv`) und installiert dort PyTorch passend zur
-   erkannten Grafikkarte (oder für reinen CPU-Betrieb, falls keine
-   NVIDIA-GPU gefunden wird), faster-whisper, pyannote.audio, PySide6 usw. Dabei
-   erscheint ein kleines Fortschrittsfenster mit Protokoll — das kann beim
-   allerersten Mal je nach Internetverbindung einige Minuten dauern.
-2. Danach öffnet sich der **Einrichtungsassistent** in der Anwendung selbst:
-   - **Willkommen** — kurze Erklärung und Datenschutzhinweis.
-   - **Einrichtung** — fehlendes FFmpeg und/oder Ollama werden automatisch
-     heruntergeladen, danach das pyannote-Modell und das Ollama-Modell.
-   - **Systemtest** — zeigt übersichtlich, ob alles vorhanden und
-     einsatzbereit ist (Python, GPU/CPU, VRAM, RAM, FFmpeg, Modelle,
-     Ollama, ...).
-   - **Modell** — anhand der beim Systemtest erkannten Hardware (VRAM bzw.
-     Arbeitsspeicher) wird ein passendes Whisper-Modell **vorgeschlagen**;
-     Sie sehen alle verfügbaren Modelle (siehe
-     [Verfügbare Whisper-Modelle](#verfügbare-whisper-modelle)) und
-     entscheiden selbst, welches heruntergeladen und verwendet wird.
-   - **Eingabeordner** — Sie wählen einmalig den Ordner mit Ihren
-     Aufnahmen; unterstützte Dateien darin werden sofort aufgelistet.
-3. Danach öffnet sich das **Hauptfenster** und Sie können direkt eine Datei
-   auswählen und die Verarbeitung starten. Das Whisper-Modell lässt sich
-   dort jederzeit über das Dropdown "Whisper-Modell" ändern (auch nach der
-   Ersteinrichtung), die Wahl wird gemerkt.
+   `python -m protokoll_assistent.app`). Das Hauptfenster erscheint sofort,
+   darüber die **Ersteinrichtung** (`gui/ersteinrichtung.py`). Bis zur
+   Zustimmung wird **nichts** heruntergeladen:
+   - **Willkommen** — was das Programm macht, in vier Schritten.
+   - **Ihr Computer** — Arbeitsspeicher, Prozessor, Grafikkarte und freier
+     Platz; je Arbeitsschritt (Mitschrift, Sprechererkennung, Protokoll, Frag
+     mein Meeting), ob er hier gut, langsam oder nicht sinnvoll läuft und wie
+     lange eine Stunde Aufnahme ungefähr dauert, dazu eine Empfehlung.
+   - **Arbeitsweise** — alles auf diesem Computer, alles online oder je
+     Schritt gemischt. Online wird nie vorausgewählt.
+   - **Was dafür nötig ist** — jeder Baustein mit Download- und Platzbedarf,
+     Vorhandenes ist markiert; Lizenzhinweise; Zustimmung per Häkchen.
+   - **Einrichtung** — FFmpeg, Ollama (offizieller Installer, Signatur
+     geprüft, still für das eigene Benutzerkonto installiert) und die
+     Sprachmodelle. Fehlt für die lokale Mitschrift noch die Rechenumgebung,
+     startet die Anwendung dafür einmal neu: Sie legt eine eigene, private
+     Umgebung an (`runtime\venv`) und installiert dort PyTorch passend zur
+     erkannten Grafikkarte (oder für reinen CPU-Betrieb), faster-whisper,
+     pyannote.audio usw. — mit kleinem Fortschrittsfenster, je nach
+     Internetverbindung einige Minuten. Danach geht die Einrichtung weiter.
+   - **Mitschrift** — Whisper-Modell (vorgeschlagen nach der Analyse, siehe
+     [Verfügbare Whisper-Modelle](#verfügbare-whisper-modelle)) und der
+     Hugging-Face-Zugang für die Sprechererkennung, mit Anleitung; auf Wunsch
+     verschlüsselt in der Windows-Anmeldeinformationsverwaltung gemerkt.
+   - **Fertig** — Übersicht; wer online arbeiten will, trägt hier Anbieter
+     und Schlüssel ein.
+
+   „Später einrichten“ schließt den Dialog; beim nächsten Start erscheint er
+   wieder. Mit „Nicht mehr fragen“ bleibt er weg — dann lädt die Anwendung
+   auch die Rechenumgebung nicht von selbst, bis Sie unter Einstellungen →
+   Transkription → Lokal „Einrichtung starten“ wählen.
+2. Danach können Sie im **Hauptfenster** direkt eine Datei auswählen oder
+   aufnehmen und die Verarbeitung starten. Das Whisper-Modell lässt sich dort
+   jederzeit über das Dropdown "Whisper-Modell" ändern, die Wahl wird gemerkt.
 
 Der zuletzt verwendete Eingabe-/Ausgabeordner wird lokal in
 `konfiguration.json` gemerkt (keine Zugangsdaten, keine Rechnernamen) —

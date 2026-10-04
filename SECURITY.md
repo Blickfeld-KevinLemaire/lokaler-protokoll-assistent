@@ -44,6 +44,26 @@ zugestimmt haben. Entsprechend gelten hier ein paar Punkte besonders:
   (`protokoll_assistent/konfiguration.json`) enthaelt dabei nur ein
   Häkchen, ob gemerkt werden soll — nie den Schluessel selbst. Ohne dieses
   Häkchen gilt ein eingegebener Schluessel nur fuer die laufende Sitzung.
+  Das gilt auch fuer den Hugging-Face-Zugang, den die Ersteinrichtung abfragt
+  (Eintrag `hf_token`); `utils/hf_env.py` liest ihn dort als dritte Quelle nach
+  Umgebungsvariable und `.env`.
+* **Die Ersteinrichtung laedt und startet den Ollama-Installer** — nur nach
+  ausdruecklicher Zustimmung des Anwenders (Haken, standardmaessig leer) und
+  nur, wenn Ollama noch nicht installiert ist
+  (`protokoll_assistent/services/ollama_einrichtung_service.py`). Geladen wird
+  ausschliesslich ueber HTTPS von `ollama.com`; Weiterleitungen sind nur zu
+  `github.com` und dessen Speicher fuer Release-Dateien erlaubt. Groesse und
+  Dateiformat werden geprueft, und ausgefuehrt wird die Datei nur, wenn ihre
+  Authenticode-Signatur gueltig ist und von „Ollama Inc.“ stammt — sonst nicht
+  (auch dann nicht, wenn sich die Signatur nicht pruefen laesst). Installiert
+  wird still, nur fuer das eigene Benutzerkonto und ohne Administratorrechte;
+  der Installer wird danach geloescht. Ollama startet anschliessend mit Windows
+  und ist nur auf diesem Rechner erreichbar (127.0.0.1:11434). Uebertragen wird
+  dabei nur die Download-Anfrage selbst, keine Aufnahme und kein Text.
+* **Ohne Zustimmung keine schwere Laufzeitumgebung.** Die gut 5 GB fuer PyTorch
+  und CUDA laedt `bootstrap.py` bei einer frischen Installation erst, nachdem
+  der Anwender in der Ersteinrichtung zugestimmt hat
+  (`bootstrap.laufzeit_beim_start_einrichten`).
 * **Im lokalen Modus werden keine Audio- oder Videodaten uebertragen.**
   Bleibt das so, ist das eine Zusage an die Anwender — Aenderungen daran
   gehoeren ausdruecklich in die Release-Hinweise.

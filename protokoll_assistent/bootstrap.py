@@ -215,6 +215,38 @@ def _relaunch(python_exe: Path) -> None:
     sys.exit(completed.returncode)
 
 
+def laufzeit_beim_start_einrichten(konfig: dict[str, Any], fenster_moeglich: bool, laufzeit_vorhanden: bool) -> bool:
+    """Soll ``app.py`` vor dem ersten Fenster die Rechenumgebung einrichten
+    (bzw. in die vorhandene wechseln)?
+
+    Nur im lokalen Transkriptionsmodus -- und nie ohne Zustimmung: Bei einer
+    frischen Installation (und nach "Nicht mehr fragen") erscheint zuerst die
+    Ersteinrichtung in der leichten Umgebung. Sie sagt, was die gut 5 GB kosten,
+    und startet erst nach der Zustimmung neu. Ist die Umgebung schon da, wird
+    nichts geladen -- dann wird wie immer in sie gewechselt. Ohne PySide6 gaebe
+    es gar kein Fenster -- dann bleibt es beim bisherigen Weg."""
+    if konfig.get("transkription_modus") != "lokal":
+        return False
+    if laufzeit_vorhanden or not fenster_moeglich:
+        return True
+    erster_start = not konfig.get("einrichtung_abgeschlossen") and not konfig.get("einrichtung_fortsetzen")
+    return not (erster_start or konfig.get("lokale_einrichtung_zurueckgestellt"))
+
+
+def neustart_kommando() -> tuple[list[str], Path, dict[str, str]]:
+    """(Befehl, Arbeitsordner, Umgebung), um die Anwendung als NEUEN Prozess zu
+    starten -- so, als haette der Anwender sie selbst geoeffnet. Die
+    Ersteinrichtung braucht das, damit nach ihrer Zustimmung dieses Modul die
+    Rechenumgebung einrichtet. Die Markierung der verwalteten Umgebung wird
+    deshalb bewusst NICHT weitergegeben."""
+    from protokoll_assistent.utils.paths import get_app_dir
+
+    umgebung = {name: wert for name, wert in os.environ.items() if name != MARKER_ENV_VAR}
+    if getattr(sys, "frozen", False):
+        return [sys.executable], get_app_dir(), umgebung
+    return [sys.executable, "-m", ANWENDUNGSMODUL], get_app_dir().parent, umgebung
+
+
 def ensure_runtime_and_relaunch() -> None:
     """Sorgt fuer eine lauffaehige Umgebung und startet die Anwendung darin
     neu. Kehrt NUR zurueck, wenn bereits in der verwalteten Umgebung

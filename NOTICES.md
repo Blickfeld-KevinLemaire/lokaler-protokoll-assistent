@@ -146,7 +146,7 @@ dem jeweiligen Urheber.
 | PyAV (`av`) | BSD-3-Clause | Audio-Dekodierung fuer faster-whisper |
 | pyannote.audio | MIT | in `.venv-whisperx` |
 | huggingface_hub | Apache-2.0 | Modell-Download |
-| Ollama | MIT | eigenstaendiges Programm |
+| Ollama | MIT | eigenstaendiges Programm. Wird **nicht** mitgeliefert: Die Ersteinrichtung laedt den offiziellen Installer auf Wunsch des Anwenders direkt vom Hersteller und installiert ihn fuer dessen Benutzerkonto. Grund: Ollama bringt Laufzeitbibliotheken von NVIDIA (CUDA) und AMD (ROCm) unter deren eigenen Bedingungen mit, die wir nicht weitergeben. Bedingungen des Herstellers: https://ollama.com/terms |
 
 **Warum kein WhisperX mehr:** WhisperX ist eine Huelle um faster-whisper und
 hat den gesamten Abhaengigkeitsbaum festgenagelt (`torch~=2.8.0`,
@@ -168,6 +168,7 @@ und stimmt dabei den jeweiligen Bedingungen zu.
 |---|---|
 | `pyannote/speaker-diarization-community-1` | Zugang ueber Hugging Face, Zustimmung zu den dortigen Nutzungsbedingungen erforderlich (Token). |
 | Whisper-Modelle (faster-whisper/CTranslate2) | MIT (Modell von OpenAI unter MIT) |
+| `bge-m3` (Suchmodell fuer „Frag mein Meeting“, ueber Ollama) | MIT (BAAI) |
 | Ollama-Modelle | Je Modell unterschiedlich. Qwen3.5, Qwen3.8 und Gemma 4 aus der Auswahl stehen unter Apache 2.0. Von Hand eingetragene Modelle (z. B. Llama oder Gemma 3) haben eigene Lizenzen mit eigenen Auflagen. Vor einer kommerziellen Nutzung bitte je Modell pruefen. |
 
 ---

@@ -1,10 +1,12 @@
 """Umgang mit Hugging-Face-Token und Offline-Modus.
 
 Regeln (verbindlich):
-* Der Token kommt aus der Umgebungsvariable ``HF_TOKEN`` oder, wenn sie fehlt,
-  aus der Datei ``.env`` im Projektordner (Zeile ``HF_TOKEN=...``). Die
-  ``.env`` ist von Git ignoriert und darf nie committet werden; aus ihr wird
-  nur ``HF_TOKEN`` gelesen, nichts anderes.
+* Der Token kommt aus der Umgebungsvariable ``HF_TOKEN``, sonst aus der Datei
+  ``.env`` im Projektordner (Zeile ``HF_TOKEN=...``), sonst aus der
+  Windows-Anmeldeinformationsverwaltung (dort legt ihn die Ersteinrichtung ab,
+  wenn der Anwender "merken" waehlt). Die ``.env`` ist von Git ignoriert und
+  darf nie committet werden; aus ihr wird nur ``HF_TOKEN`` gelesen, nichts
+  anderes.
 * Der Token wird niemals angezeigt, geloggt oder in einer Konfigurationsdatei
   gespeichert.
 * Es wird jeweils nur geprueft, OB ein Token vorhanden ist (Ja/Nein).
@@ -16,6 +18,8 @@ import os
 from pathlib import Path
 
 ENV_DATEI = ".env"
+# Bezeichner in der Anmeldeinformationsverwaltung (services/secret_store.py).
+SCHLUESSEL_NAME = "hf_token"
 
 
 def _env_datei() -> Path:
@@ -41,8 +45,19 @@ def _token_aus_env_datei(datei: Path | None = None) -> str:
     return ""
 
 
+def _token_aus_anmeldeinfos() -> str:
+    """Der in der Anmeldeinformationsverwaltung gemerkte Token. Fehlt 'keyring'
+    (Servermodus) oder gibt es keinen Speicher, ist das kein Fehler."""
+    from protokoll_assistent.services import secret_store
+
+    try:
+        return (secret_store.load_api_key(SCHLUESSEL_NAME) or "").strip()
+    except secret_store.SecretStoreUnavailableError:
+        return ""
+
+
 def _token() -> str:
-    return os.environ.get("HF_TOKEN", "").strip() or _token_aus_env_datei()
+    return os.environ.get("HF_TOKEN", "").strip() or _token_aus_env_datei() or _token_aus_anmeldeinfos()
 
 
 def has_hf_token() -> bool:

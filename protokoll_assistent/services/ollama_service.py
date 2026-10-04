@@ -56,10 +56,11 @@ def kontext_fuer_protokoll(system: str, prompt: str) -> int:
 
 # Offizieller Windows-Installer. Wird nur heruntergeladen/gestartet, wenn
 # 'ollama' auf dem Zielrechner nirgends gefunden wurde -- macht die
-# Anwendung auch auf einem PC ohne vorinstalliertes Ollama benutzbar. Da
-# der Installer eine Rechteerhoehung/Nutzerinteraktion verlangt, kann er
-# nicht lautlos im Hintergrund durchlaufen; die Anwendung laedt ihn herunter
-# und startet ihn, der Nutzer schliesst die Installation selbst ab.
+# Anwendung auch auf einem PC ohne vorinstalliertes Ollama benutzbar. Die
+# Ersteinrichtung installiert ihn nach Zustimmung still und ohne
+# Administratorrechte (siehe 'ollama_einrichtung_service'); das Nachladen im
+# Systemtest ('ensure_ollama_or_offer_installer') startet ihn dagegen noch
+# sichtbar, und der Nutzer schliesst die Installation selbst ab.
 OLLAMA_INSTALLER_URL = "https://ollama.com/download/OllamaSetup.exe"
 
 DownloadFn = Callable[[str, Path], None]

@@ -52,9 +52,11 @@ def qt_widgets(qt_app):
 @pytest.fixture(autouse=True)
 def _keine_echten_tokens(monkeypatch):
     """Kein Test darf versehentlich einen echten Hugging-Face-Token benutzen --
-    weder aus der Umgebung noch aus der .env im Projektordner."""
+    weder aus der Umgebung noch aus der .env im Projektordner noch aus der
+    Windows-Anmeldeinformationsverwaltung."""
     from protokoll_assistent.utils import hf_env
 
     for name in ("HF_TOKEN", "HUGGINGFACE_TOKEN", "HUGGING_FACE_HUB_TOKEN"):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setattr(hf_env, "_env_datei", lambda: Path(__file__).parent / "gibt-es-nicht.env")
+    monkeypatch.setattr(hf_env, "_token_aus_anmeldeinfos", lambda: "")

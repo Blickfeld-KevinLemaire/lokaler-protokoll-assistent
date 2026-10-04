@@ -381,3 +381,11 @@ protokoll_assistent/
 Die Verarbeitungskette in `services/` kennt kein Qt. Das soll so bleiben:
 Oberfläche und Logik sind getrennt, deshalb sind die Dienste ohne Fenster
 testbar.
+
+Die **Ersteinrichtung** (`gui/ersteinrichtung.py`, nur Windows-Anwendung,
+nicht der Servermodus) stuetzt sich auf `services/einrichtungsplan_service.py`
+(was geht auf diesem Rechner, was kostet es) und
+`services/ollama_einrichtung_service.py` (Ollama-Installer laden, Signatur
+pruefen, still installieren). Ohne Zustimmung darf nichts geladen werden – auch
+nicht die Rechenumgebung beim Start (`bootstrap.laufzeit_beim_start_einrichten`).
+Ollama wird nie mitgeliefert (Lizenzen der NVIDIA-/AMD-Bibliotheken darin).

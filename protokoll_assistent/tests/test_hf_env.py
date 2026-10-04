@@ -50,3 +50,33 @@ def test_nur_hf_token_wird_gelesen_sonst_nichts(tmp_path, monkeypatch):
     import os
 
     assert "PROTOKOLL_SPRACHE" not in os.environ  # .env wird nicht in die Umgebung geladen
+
+
+
+# Beim Import gemerkt: Die Fixture '_keine_echten_tokens' (conftest.py) ersetzt die
+# Funktion fuer jeden Test, damit nie der echte Speicher gelesen wird.
+_ECHT_AUS_ANMELDEINFOS = hf_env._token_aus_anmeldeinfos
+
+
+def test_gemerkter_token_aus_der_anmeldeinformationsverwaltung(monkeypatch):
+    """Dritte Quelle (die Ersteinrichtung legt ihn dort ab), nach Umgebung und .env."""
+    from protokoll_assistent.services import secret_store
+
+    gelesen = []
+    monkeypatch.setattr(secret_store, "load_api_key", lambda name: gelesen.append(name) or "hf_gemerkt")
+    monkeypatch.setattr(hf_env, "_token_aus_anmeldeinfos", _ECHT_AUS_ANMELDEINFOS)
+    assert hf_env.get_hf_token_for_download() == "hf_gemerkt"
+    assert gelesen == [hf_env.SCHLUESSEL_NAME]
+
+    monkeypatch.setenv("HF_TOKEN", "hf_umgebung")  # die Umgebung geht vor
+    assert hf_env.get_hf_token_for_download() == "hf_umgebung"
+
+
+def test_ohne_anmeldeinformationsspeicher_kein_token(monkeypatch):
+    from protokoll_assistent.services import secret_store
+
+    def nicht_verfuegbar(name):
+        raise secret_store.SecretStoreUnavailableError("kein keyring")
+
+    monkeypatch.setattr(secret_store, "load_api_key", nicht_verfuegbar)
+    assert _ECHT_AUS_ANMELDEINFOS() == ""
