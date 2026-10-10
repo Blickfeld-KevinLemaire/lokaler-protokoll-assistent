@@ -1,0 +1,5 @@
+# Name,     Type, SubType, Offset,   Size, Flags
+# VERMERK S3-AUDIO-Board: Aufnahmen gehen auf die SD-Karte; ohne Karte in die FAT-Partition "storage" im Flash.
+nvs,        data,   nvs,      0x9000,       0x6000,
+factory,    0,      0,        0x10000,      2M,
+storage,    data,   fat,      0x210000,     0xDF0000,

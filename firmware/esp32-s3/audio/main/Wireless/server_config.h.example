@@ -1,0 +1,11 @@
+#pragma once
+
+/* Vorlage: nach server_config.h kopieren und anpassen. Die echte Datei ist in .gitignore.
+ *
+ * Upload-Ziele. Beide bieten /vermerk-status.txt und /upload an.
+ * Leerer String = Ziel nicht konfiguriert. Sind beide erreichbar, hat der Server Vorrang. */
+#define VERMERK_PC_BASE_URL      "http://192.168.0.10:8765"
+#define VERMERK_SERVER_BASE_URL  ""
+
+#define VERMERK_STATUS_PATH      "/vermerk-status.txt"
+#define VERMERK_UPLOAD_PATH      "/upload"
