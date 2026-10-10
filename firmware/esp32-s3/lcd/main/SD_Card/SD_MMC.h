@@ -35,6 +35,7 @@ extern uint32_t Flash_Size;
 extern sdmmc_card_t *g_sd_card;
 extern bool g_sd_mounted;
 void SD_Init(void);
+uint64_t SD_Free_Bytes(void);   /* freier Platz auf der Karte in Bytes (0 bei Fehler) */
 void Flash_Searching(void);
 FILE* Open_File(const char *file_path);
 uint16_t Folder_retrieval(const char* directory, const char* fileExtension, char File_Name[][100],uint16_t maxFiles);

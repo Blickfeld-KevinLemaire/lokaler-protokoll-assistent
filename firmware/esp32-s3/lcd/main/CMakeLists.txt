@@ -8,16 +8,18 @@ idf_component_register(
                               "./Touch_Driver/esp_lcd_touch/esp_lcd_touch.c"        
                               "./Touch_Driver/CST816.c"  
                               "./LVGL_Driver/LVGL_Driver.c"
-                              "./LVGL_UI/LVGL_Example.c"
-                              "./LVGL_UI/LVGL_Music.c"
+                              # LVGL_UI/LVGL_Example.c und LVGL_Music.c (Demo-Oberflaechen) sind nicht mehr Teil des Builds:
+                              # sie brauchen die LVGL-Demos und damit einen groesseren LVGL-Speicherpool im knappen internen RAM.
                               "./SD_Card/SD_MMC.c" 
                               "./PCF85063/PCF85063.c"
                               "./BAT_Driver/BAT_Driver.c"
                               "./Wireless/Wireless.c"
                               "./Audio_Driver/Audio_Driver.c" 
+                              "./Opus_Encoder/Opus_Encoder.c"
 
                          INCLUDE_DIRS 
                               "./Audio_Driver" 
+                              "./Opus_Encoder"
                               "./MIC_Driver" 
                               "./LCD_Driver/esp_lcd_st77916" 
                               "./LCD_Driver" 

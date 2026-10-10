@@ -228,7 +228,13 @@ esp_err_t VERMERK_Upload_File(const char *path, const char *filename)
     }
 
     /* Grosse Bloecke: weniger SD-Zugriffe und weniger Aufrufe in den TCP-Stack */
-    uint8_t *buffer = heap_caps_malloc(UPLOAD_CHUNK_SIZE, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    size_t chunk_size = UPLOAD_CHUNK_SIZE;
+    uint8_t *buffer = heap_caps_malloc(chunk_size, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (buffer == NULL) {
+        /* Internes RAM ist knapp (Opus-Encoder und sein Stack liegen dauerhaft darin): kleiner Puffer */
+        chunk_size = 4 * 1024;
+        buffer = heap_caps_malloc(chunk_size, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    }
     if (buffer == NULL) {
         esp_http_client_close(client);
         esp_http_client_cleanup(client);
@@ -239,7 +245,7 @@ esp_err_t VERMERK_Upload_File(const char *path, const char *filename)
 
     while (!feof(file)) {
         int64_t t0 = esp_timer_get_time();
-        size_t read_len = fread(buffer, 1, UPLOAD_CHUNK_SIZE, file);
+        size_t read_len = fread(buffer, 1, chunk_size, file);
         int64_t t1 = esp_timer_get_time();
         sd_us += t1 - t0;
         if (read_len == 0) {

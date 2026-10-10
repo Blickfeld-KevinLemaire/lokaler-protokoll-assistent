@@ -4,3 +4,4 @@ dependencies:
   espressif/esp_audio_simple_player: ^0.9.4~2
   espressif/esp-sr: ^2.1.4
   espressif/esp_tinyusb: ^2.0.0
+  espressif/esp_audio_codec: ^2.5.0

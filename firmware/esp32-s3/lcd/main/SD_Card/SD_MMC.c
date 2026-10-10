@@ -189,3 +189,12 @@ uint16_t Folder_retrieval(const char* directory, const char* fileExtension, char
 
     return fileCount; 
 }
+
+uint64_t SD_Free_Bytes(void)
+{
+    uint64_t total = 0, free_b = 0;
+    if (!g_sd_mounted || esp_vfs_fat_info(MOUNT_POINT, &total, &free_b) != ESP_OK) {
+        return 0;
+    }
+    return free_b;
+}

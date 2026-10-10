@@ -275,11 +275,11 @@ static esp_err_t bsp_i2s_init(i2s_port_t i2s_num, uint32_t sample_rate, int chan
     }
 
     i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(i2s_num, I2S_ROLE_MASTER);
-    ret_val |= i2s_new_channel(&chan_cfg, &tx_handle, &rx_handle);
+    /* VERMERK: nur der Aufnahme-Kanal. Der Lautsprecher wird nicht genutzt, und ein Sende-Kanal kostet
+     * allein ca. 11 KB internes RAM (DMA-Puffer), das der Opus-Encoder und der Upload brauchen. */
+    ret_val |= i2s_new_channel(&chan_cfg, NULL, &rx_handle);
     i2s_std_config_t std_cfg = I2S_CONFIG_DEFAULT(sample_rate, channel_fmt, bits_per_chan);
-    ret_val |= i2s_channel_init_std_mode(tx_handle, &std_cfg);
     ret_val |= i2s_channel_init_std_mode(rx_handle, &std_cfg);
-    ret_val |= i2s_channel_enable(tx_handle);
     ret_val |= i2s_channel_enable(rx_handle);
 #else
     i2s_channel_fmt_t channel_fmt = I2S_CHANNEL_FMT_RIGHT_LEFT;
@@ -342,7 +342,8 @@ static esp_err_t bsp_codec_init(int adc_sample_rate, int dac_sample_rate, int da
     esp_err_t ret_val = ESP_OK;
 
     ret_val |= bsp_codec_adc_init(adc_sample_rate);
-    ret_val |= bsp_codec_dac_init(dac_sample_rate, dac_channel_format, dac_bits_per_chan);
+    /* Wiedergabe (DAC/Lautsprecher) wird nicht initialisiert, siehe bsp_i2s_init() */
+    (void)dac_sample_rate; (void)dac_channel_format; (void)dac_bits_per_chan;
 
     return ret_val;
 }
