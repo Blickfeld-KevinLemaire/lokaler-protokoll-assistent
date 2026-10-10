@@ -7,6 +7,7 @@ idf_component_register(
         "./LVGL_Driver/LVGL_Driver.c"
         "./Storage/Storage.c"
         "./MP3_Encoder/MP3_Encoder.c"
+        "./Opus_Encoder/Opus_Encoder.c"
         "./BAT_Driver/BAT_Driver.cpp"
         "./Wireless/Wireless.c"
     INCLUDE_DIRS
@@ -16,6 +17,7 @@ idf_component_register(
         "./LVGL_Driver"
         "./Storage"
         "./MP3_Encoder"
+        "./Opus_Encoder"
         "./BAT_Driver"
         "./Wireless"
         "."
@@ -36,5 +38,6 @@ idf_component_register(
         fatfs
         wear_levelling
         shine
+        espressif__esp_audio_codec
         nvs_flash
 )

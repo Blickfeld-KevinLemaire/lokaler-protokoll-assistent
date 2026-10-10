@@ -3,7 +3,7 @@
 #include "Audio_Board.h"
 #include "vermerk_logo.h"
 #include "Storage.h"
-#include "MP3_Encoder.h"
+#include "Rec_Codec.h"
 #include "BAT_Driver.h"
 #include "Wireless.h"
 
@@ -28,10 +28,11 @@
 #define AUDIO_RAW_CHANNELS   4
 #define AUDIO_FRAMES         256
 
-#define RECORD_SAMPLE_RATE   MP3_SAMPLE_RATE   /* Aufnahme: Mono, 16 kHz, MP3 (siehe MP3_Encoder.h) */
+#define RECORD_SAMPLE_RATE   REC_SAMPLE_RATE   /* Aufnahme: Mono, 16 kHz, Opus oder MP3 (siehe Rec_Codec.h) */
 
 #define UPLOAD_FIRST_ID      1      /* Das C6-Geraet startet leer: alle Aufnahmen hochladen */
 #define WAVE_BARS            29
+#define AUDIO_TASK_STACK     28672   /* der Opus-Encoder rechnet auf dem Stack dieser Task */
 #define STORAGE_MIN_FREE_START    (256 * 1024)   /* darunter keine neue Aufnahme */
 #define STORAGE_MIN_FREE_RUNNING  (64 * 1024)    /* darunter wird die laufende Aufnahme beendet */
 #define BUTTON_Y             204   /* Start-/Stopp-/Pause-Tasten (Display 240x284) */
@@ -198,7 +199,7 @@ static FILE *open_new_recording(char *path, size_t path_len)
             return NULL;
         }
 
-        if (!mp3_enc_begin(f)) {
+        if (!rec_enc_begin(f)) {
             fclose(f);
             remove(path);
             return NULL;
@@ -226,7 +227,7 @@ static esp_err_t finalize_recording(FILE *f)
     }
 
     /* Restpuffer des Encoders in die Datei schreiben, dann sauber schliessen */
-    bool ok = mp3_enc_end();
+    bool ok = rec_enc_end();
     fflush(f);
     fsync(fileno(f));
     ok = (fclose(f) == 0) && ok;
@@ -316,7 +317,7 @@ static void audio_task(void *arg)
         }
 
         if (rec_state == REC_RECORDING) {
-            if (!mp3_enc_push(mono, AUDIO_FRAMES)) {
+            if (!rec_enc_push(mono, AUDIO_FRAMES)) {
                 /* Schreiben fehlgeschlagen (Speicher voll): bisherigen Stand sauber abschliessen */
                 storage_full_stop = true;
                 rec_state = REC_STOP_REQUESTED;
@@ -342,11 +343,12 @@ static void audio_task(void *arg)
 
             /* Rechenlast des Encoders alle 10 s ausgeben (Messung fuer die Bitrate-Wahl) */
             if ((recorded_frames % (RECORD_SAMPLE_RATE * 10ULL)) < AUDIO_FRAMES) {
-                printf("VERMERK MP3: Encoder-Last %d %%, Speicher frei %llu KB, RAM frei %u (Minimum %u) Bytes\n",
-                       mp3_enc_load_percent(),
+                printf("VERMERK REC: Encoder-Last %d %%, Speicher frei %llu KB, RAM frei %u (Minimum %u) Bytes, Stack-Reserve %u Bytes\n",
+                       rec_enc_load_percent(),
                        (unsigned long long)(Storage_Free_Bytes() / 1024),
                        (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
-                       (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL));
+                       (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL),
+                       (unsigned)uxTaskGetStackHighWaterMark(NULL));
             }
             paused_flushed = false;
         }
@@ -729,7 +731,7 @@ static void update_ui(void)
                 break;
 
             case REC_SAVING:
-                lv_label_set_text(status_label, "Speichere MP3...");
+                lv_label_set_text(status_label, "Speichere...");
                 lv_obj_add_state(record_button, LV_STATE_DISABLED);
                 lv_obj_add_state(pause_button, LV_STATE_DISABLED);
                 break;
@@ -860,7 +862,7 @@ static void vermerk_h3_ui_create(void)
     lv_obj_add_flag(pending_label, LV_OBJ_FLAG_HIDDEN);
 }
 
-/* Zaehlt H5_xxx.mp3 im Flash-Speicher, die der Upload-Manager noch senden wuerde
+/* Zaehlt die Aufnahmen (H5_xxx) im Flash-Speicher, die der Upload-Manager noch senden wuerde
  * (gleicher ID-Bereich wie dort). Hochgeladene Dateien werden geloescht. */
 static uint32_t count_pending_recordings(void)
 {
@@ -999,7 +1001,7 @@ static void upload_manager_task(void *arg)
 void app_main(void)
 {
     ESP_ERROR_CHECK(esp_board_init(16000, 2, 16));
-    mp3_enc_init();   /* grossen RAM-Block fuer den Encoder sichern, bevor WLAN und Display ihn zerstueckeln */
+    rec_enc_init();   /* grossen RAM-Block fuer den Encoder sichern, bevor WLAN und Display ihn zerstueckeln */
     BAT_Init();
     LCD_Init();
     Storage_Init();   /* Aufnahmen liegen im Flash (keine SD-Karte auf diesem Board) */
@@ -1010,7 +1012,7 @@ void app_main(void)
     recording_counter_init();
 
     /* Der C6 hat nur einen Kern: Tasks ohne feste Kernzuordnung */
-    xTaskCreate(audio_task, "h3_audio", 6144, NULL, 5, NULL);
+    xTaskCreate(audio_task, "h3_audio", AUDIO_TASK_STACK, NULL, 5, NULL);
     xTaskCreate(upload_manager_task, "upload_manager", 8192, NULL, 2, NULL);
 
     while (1) {

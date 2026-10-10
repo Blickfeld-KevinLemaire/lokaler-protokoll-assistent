@@ -80,10 +80,10 @@ static esp_err_t i2s_init(void)
         },
     };
 
-    esp_err_t ret = i2s_new_channel(&chan_cfg, &tx_handle, &rx_handle);
-    ret |= i2s_channel_init_std_mode(tx_handle, &std_cfg);
+    /* Nur der Aufnahme-Kanal: Der Lautsprecher wird nicht genutzt, und ein Sende-Kanal
+     * kostet allein 23 KB DMA-Puffer, die der C6 (ohne PSRAM) fuer den Upload braucht. */
+    esp_err_t ret = i2s_new_channel(&chan_cfg, NULL, &rx_handle);
     ret |= i2s_channel_init_std_mode(rx_handle, &std_cfg);
-    ret |= i2s_channel_enable(tx_handle);
     ret |= i2s_channel_enable(rx_handle);
     return ret;
 }
@@ -125,7 +125,7 @@ static esp_err_t codec_adc_init(void)
     return ESP_OK;
 }
 
-static esp_err_t codec_dac_init(int sample_rate, int channel_format, int bits_per_chan)
+__attribute__((unused)) static esp_err_t codec_dac_init(int sample_rate, int channel_format, int bits_per_chan)
 {
     audio_codec_i2s_cfg_t i2s_cfg = {
         .port = I2S_NUM_0,
@@ -191,6 +191,5 @@ esp_err_t esp_board_init(uint32_t sample_rate, int channel_format, int bits_per_
     /* Aufnahme und Wiedergabe teilen sich denselben I2S-Port (wie beim S3) */
     ESP_RETURN_ON_ERROR(i2s_init(), TAG, "I2S init failed");
     codec_adc_init();
-    codec_dac_init(I2S_SAMPLE_RATE, 2, 32);
     return ESP_OK;
 }

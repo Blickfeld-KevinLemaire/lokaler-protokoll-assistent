@@ -136,7 +136,7 @@ void VERMERK_Wifi_Fast_Mode(bool on)
     }
 }
 
-#define UPLOAD_CHUNK_SIZE (16 * 1024)
+#define UPLOAD_CHUNK_SIZE (4 * 1024)   /* klein halten: der C6 hat kein PSRAM */
 
 esp_err_t VERMERK_Upload_File(const char *path, const char *filename)
 {

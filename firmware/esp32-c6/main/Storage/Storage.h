@@ -6,7 +6,6 @@
 /* Der C6 hat keine SD-Karte: Aufnahmen liegen in der FAT-Partition "storage" im Flash
  * (siehe partitions.csv), eingehaengt unter REC_DIR. */
 #define REC_DIR   "/rec"
-#define REC_EXT   "mp3"
 
 extern bool g_storage_mounted;
 
