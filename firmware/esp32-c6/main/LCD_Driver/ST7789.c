@@ -55,11 +55,11 @@ void LCD_Init(void)
 {
     backlight_init();
 
-    /* Nur Senden an das Display; dieses Board hat keine SD-Karte */
+    /* Display (MOSI/SCLK) und optionale SD-Karte (MISO) haengen am selben SPI2-Bus */
     const spi_bus_config_t buscfg = {
         .sclk_io_num = BOARD_SPI_SCLK,
         .mosi_io_num = BOARD_SPI_MOSI,
-        .miso_io_num = -1,
+        .miso_io_num = BOARD_SPI_MISO,
         .quadwp_io_num = -1,
         .quadhd_io_num = -1,
         .max_transfer_sz = LCD_SPI_MAX_TRANSFER,

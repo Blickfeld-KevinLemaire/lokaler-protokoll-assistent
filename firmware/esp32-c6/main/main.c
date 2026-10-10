@@ -71,6 +71,7 @@ static lv_obj_t *waveform;
 static lv_obj_t *pause_button;
 static lv_obj_t *pause_button_label;
 static lv_obj_t *pending_label;
+static lv_obj_t *storage_label;
 static lv_obj_t *status_label;
 static lv_obj_t *mic_status_label;
 static lv_obj_t *record_indicator;
@@ -134,16 +135,27 @@ static transfer_mode_t detect_transfer_mode(void)
 }
 
 
-static uint32_t find_next_sd_record_id(void)
+/* Gibt es die Aufnahme mit dieser Nummer (egal in welchem Speicher)? Mit Pfad des Fundes. */
+static bool find_recording(uint32_t id, const char *ext, char *path, size_t path_len)
 {
-    uint32_t highest = 0;
-    char path[64];
-
-    for (uint32_t i = 1; i <= 999; i++) {
-        snprintf(path, sizeof(path), REC_DIR "/H5_%03u." REC_EXT, (unsigned)i);
+    for (int d = 0; d < Storage_Dir_Count(); d++) {
+        snprintf(path, path_len, "%s/H5_%03u.%s", Storage_Dir_At(d), (unsigned)id, ext);
         FILE *f = fopen(path, "rb");
         if (f != NULL) {
             fclose(f);
+            return true;
+        }
+    }
+    return false;
+}
+
+static uint32_t find_next_sd_record_id(void)
+{
+    uint32_t highest = 0;
+    char path[96];
+
+    for (uint32_t i = 1; i <= 999; i++) {
+        if (find_recording(i, REC_EXT, path, sizeof(path))) {
             highest = i;
         }
     }
@@ -185,14 +197,12 @@ static FILE *open_new_recording(char *path, size_t path_len)
 {
     for (uint32_t attempt = 0; attempt < 1000; attempt++) {
         uint32_t id = next_record_id;
-        snprintf(path, path_len, REC_DIR "/H5_%03u." REC_EXT, (unsigned)id);
-
-        FILE *existing = fopen(path, "rb");
-        if (existing != NULL) {
-            fclose(existing);
+        char found[96];
+        if (find_recording(id, REC_EXT, found, sizeof(found))) {
             next_record_id++;
             continue;
         }
+        snprintf(path, path_len, "%s/H5_%03u." REC_EXT, Storage_Dir(), (unsigned)id);
 
         FILE *f = fopen(path, "wb");
         if (f == NULL) {
@@ -857,6 +867,10 @@ static void vermerk_h3_ui_create(void)
     lv_obj_set_style_text_color(pause_button_label, lv_color_hex(0xFFFFFF), 0);
     lv_obj_center(pause_button_label);
 
+    storage_label = make_label(scr, Storage_Is_Sd() ? "SD" : "FLASH", lv_color_hex(0x6E6E73));
+    lv_obj_set_style_text_font(storage_label, &lv_font_montserrat_12, 0);
+    lv_obj_align(storage_label, LV_ALIGN_BOTTOM_LEFT, 6, -4);
+
     pending_label = make_label(scr, "", lv_color_hex(0xAAAAAA));
     lv_obj_align(pending_label, LV_ALIGN_TOP_MID, 0, 260);
     lv_obj_add_flag(pending_label, LV_OBJ_FLAG_HIDDEN);
@@ -866,25 +880,106 @@ static void vermerk_h3_ui_create(void)
  * (gleicher ID-Bereich wie dort). Hochgeladene Dateien werden geloescht. */
 static uint32_t count_pending_recordings(void)
 {
-    DIR *dir = opendir(REC_DIR);
-    if (dir == NULL) {
+    uint32_t count = 0;
+    uint32_t limit = next_record_id;
+
+    for (int d = 0; d < Storage_Dir_Count(); d++) {
+        DIR *dir = opendir(Storage_Dir_At(d));
+        if (dir == NULL) {
+            continue;
+        }
+
+        struct dirent *entry;
+        while ((entry = readdir(dir)) != NULL) {
+            unsigned id = 0;
+            char ext[4] = {0};
+            if (sscanf(entry->d_name, "%*1[Hh]5_%3u.%3s", &id, ext) == 2 &&
+                strcasecmp(ext, REC_EXT) == 0 &&
+                id >= UPLOAD_FIRST_ID && id < limit) {
+                count++;
+            }
+        }
+        closedir(dir);
+    }
+    return count;
+}
+
+/* Eine Aufnahme aus einem Speicher hochladen. 0 = nichts zu tun, 1 = erledigt, -1 = Fehler (abbrechen) */
+static int upload_one(uint32_t i, const char *dir)
+{
+    char path[96];
+    char sent_path[96];
+    char filename[32];
+
+    snprintf(path, sizeof(path), "%s/H5_%03u." REC_EXT, dir, (unsigned)i);
+    snprintf(sent_path, sizeof(sent_path), "%s/H5_%03u.sent", dir, (unsigned)i);
+
+    FILE *wav = fopen(path, "rb");
+    FILE *sent = fopen(sent_path, "rb");
+
+    if (sent != NULL) {
+        fclose(sent);
+
+        if (wav != NULL) {
+            fclose(wav);
+            if (remove(path) == 0) {
+                remove(sent_path);
+                printf("VERMERK lokale Kopie entfernt: H5_%03u." REC_EXT "\n", (unsigned)i);
+            }
+        } else {
+            remove(sent_path);
+        }
         return 0;
     }
 
-    uint32_t count = 0;
-    uint32_t limit = next_record_id;
-    struct dirent *entry;
-    while ((entry = readdir(dir)) != NULL) {
-        unsigned id = 0;
-        char ext[4] = {0};
-        if (sscanf(entry->d_name, "%*1[Hh]5_%3u.%3s", &id, ext) == 2 &&
-            strcasecmp(ext, REC_EXT) == 0 &&
-            id >= UPLOAD_FIRST_ID && id < limit) {
-            count++;
-        }
+    if (wav == NULL) {
+        return 0;
     }
-    closedir(dir);
-    return count;
+    /* Leere Datei (Reset oder Stromverlust waehrend der Aufnahme): nie hochladbar und wuerde die
+     * Warteschlange fuer alle spaeteren Aufnahmen blockieren, also entfernen. */
+    if (fseek(wav, 0, SEEK_END) == 0 && ftell(wav) <= 0) {
+        fclose(wav);
+        remove(path);
+        printf("VERMERK leere Aufnahme entfernt: %s\n", path);
+        return 0;
+    }
+    fclose(wav);
+
+    snprintf(filename, sizeof(filename), "H5_%03u." REC_EXT, (unsigned)i);
+    printf("VERMERK Upload: %s (%s)\n", filename, dir);
+
+    upload_active = true;
+    int64_t upload_start_us = esp_timer_get_time();
+    esp_err_t err = VERMERK_Upload_File(path, filename);
+    upload_active = false;
+    printf("VERMERK Upload-Dauer: %s %lld ms\n", filename,
+           (long long)((esp_timer_get_time() - upload_start_us) / 1000));
+    if (err != ESP_OK) {
+        printf("VERMERK Upload FEHLER: %s (%s)\n", filename, esp_err_to_name(err));
+        return -1;
+    }
+
+    FILE *marker = fopen(sent_path, "wb");
+    if (marker == NULL) {
+        printf("VERMERK Marker FEHLER: %s\n", filename);
+        return -1;
+    }
+
+    fprintf(marker, "uploaded\n");
+    fclose(marker);
+
+    if (remove(path) == 0) {
+        remove(sent_path);
+        if (pending_uploads > 0) {
+            pending_uploads--;
+        }
+        printf("VERMERK Upload + Loeschen erfolgreich: %s\n", filename);
+    } else {
+        printf("VERMERK Upload OK, lokale Datei noch vorhanden: %s\n", filename);
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(20));
+    return 1;
 }
 
 static void upload_manager_task(void *arg)
@@ -910,10 +1005,6 @@ static void upload_manager_task(void *arg)
             continue;
         }
 
-        char path[64];
-        char sent_path[64];
-        char filename[32];
-
         uint32_t current_limit = next_record_id;
 
         /* WLAN-Energiesparen nur abschalten, wenn wirklich etwas zu senden ist */
@@ -922,72 +1013,18 @@ static void upload_manager_task(void *arg)
             VERMERK_Wifi_Fast_Mode(true);
         }
 
-        for (uint32_t i = UPLOAD_FIRST_ID; i < current_limit; i++) {
+        bool failed = false;
+        for (uint32_t i = UPLOAD_FIRST_ID; i < current_limit && !failed; i++) {
             if (rec_state != REC_IDLE && rec_state != REC_DONE && rec_state != REC_ERROR) {
                 break;  /* Neue Aufnahme hat Vorrang vor dem Upload */
             }
 
-
-            snprintf(path, sizeof(path), REC_DIR "/H5_%03u." REC_EXT, (unsigned)i);
-            snprintf(sent_path, sizeof(sent_path), REC_DIR "/H5_%03u.sent", (unsigned)i);
-
-            FILE *wav = fopen(path, "rb");
-            FILE *sent = fopen(sent_path, "rb");
-
-            if (sent != NULL) {
-                fclose(sent);
-
-                if (wav != NULL) {
-                    fclose(wav);
-                    if (remove(path) == 0) {
-                        remove(sent_path);
-                        printf("VERMERK lokale Kopie entfernt: H5_%03u." REC_EXT "\n", (unsigned)i);
-                    }
-                } else {
-                    remove(sent_path);
+            for (int d = 0; d < Storage_Dir_Count(); d++) {
+                if (upload_one(i, Storage_Dir_At(d)) < 0) {
+                    failed = true;
+                    break;
                 }
-                continue;
             }
-
-            if (wav == NULL) {
-                continue;
-            }
-            fclose(wav);
-
-            snprintf(filename, sizeof(filename), "H5_%03u." REC_EXT, (unsigned)i);
-            printf("VERMERK Upload: %s\n", filename);
-
-            upload_active = true;
-            int64_t upload_start_us = esp_timer_get_time();
-            esp_err_t err = VERMERK_Upload_File(path, filename);
-            upload_active = false;
-            printf("VERMERK Upload-Dauer: %s %lld ms\n", filename,
-                   (long long)((esp_timer_get_time() - upload_start_us) / 1000));
-            if (err != ESP_OK) {
-                printf("VERMERK Upload FEHLER: %s (%s)\n", filename, esp_err_to_name(err));
-                break;
-            }
-
-            FILE *marker = fopen(sent_path, "wb");
-            if (marker == NULL) {
-                printf("VERMERK Marker FEHLER: %s\n", filename);
-                break;
-            }
-
-            fprintf(marker, "uploaded\n");
-            fclose(marker);
-
-            if (remove(path) == 0) {
-                remove(sent_path);
-                if (pending_uploads > 0) {
-                    pending_uploads--;
-                }
-                printf("VERMERK Upload + Loeschen erfolgreich: %s\n", filename);
-            } else {
-                printf("VERMERK Upload OK, lokale Datei noch vorhanden: %s\n", filename);
-            }
-
-            vTaskDelay(pdMS_TO_TICKS(20));
         }
 
         if (fast_mode) {
@@ -1004,7 +1041,7 @@ void app_main(void)
     rec_enc_init();   /* grossen RAM-Block fuer den Encoder sichern, bevor WLAN und Display ihn zerstueckeln */
     BAT_Init();
     LCD_Init();
-    Storage_Init();   /* Aufnahmen liegen im Flash (keine SD-Karte auf diesem Board) */
+    Storage_Init();   /* SD-Karte, wenn eine steckt, sonst Flash */
     LVGL_Init();
 
     vermerk_h3_ui_create();

@@ -37,6 +37,8 @@ idf_component_register(
         esp_timer
         fatfs
         wear_levelling
+        sdmmc
+        esp_driver_sdspi
         shine
         espressif__esp_audio_codec
         nvs_flash
