@@ -577,10 +577,39 @@ static void on_key(key_id_t key, key_event_t ev)
     }
 }
 
+/* Verbindungslage entprellen (wie bei den Geraeten mit Bildschirm): Aufstieg nach 1 s, Abstieg erst nach 6 s,
+ * damit ein einzelner verpasster Server-Check den Modus nicht flackern laesst. Der Upload-Manager richtet sich
+ * nach transfer_mode. */
+static void update_transfer_mode(void)
+{
+    static transfer_mode_t pending_mode = TRANSFER_MODE_LOCAL;
+    static uint32_t pending_since = 0;
+
+    uint32_t now = (uint32_t)(esp_timer_get_time() / 1000);
+    transfer_mode_t detected = detect_transfer_mode();
+
+    if (detected == transfer_mode) {
+        pending_mode = detected;
+        pending_since = now;
+        return;
+    }
+    if (detected != pending_mode) {
+        pending_mode = detected;
+        pending_since = now;
+    }
+    uint32_t hold_ms = (detected > transfer_mode) ? 1000 : 6000;
+    if ((now - pending_since) >= hold_ms) {
+        transfer_mode = detected;
+        printf("VERMERK Modus: %d\n", (int)detected);
+    }
+}
+
 /* ---- Anzeige: Aufnahmezustand -> LED-Ring ---- */
 
 static void update_leds(void)
 {
+    update_transfer_mode();
+
     static rec_state_t last_state = (rec_state_t)-1;
     static int64_t state_since_ms = 0;
     static uint8_t level_smooth = 0;

@@ -40,9 +40,25 @@ static void buttons_task(void *arg)
 {
     const uint32_t key_mask = EXIO_BIT(BOARD_KEY1_EXIO) | EXIO_BIT(BOARD_KEY2_EXIO) | EXIO_BIT(BOARD_KEY3_EXIO);
 
+    /* Diagnose: jede Aenderung an den Expander-Eingaengen (Pin 2 und die drei Tasten) sofort ins Log schreiben,
+     * damit sich die Tastenzuordnung am echten Board ueberpruefen laesst. */
+    const uint32_t watch_mask = EXIO_BIT(2) | key_mask;
+    uint32_t last_watch = 0xFFFFFFFF;
+    int read_errors = 0;
+
     while (1) {
         uint32_t level = 0;
-        bool exio_ok = (esp_io_expander_get_level(s_exio, key_mask, &level) == ESP_OK);
+        bool exio_ok = (esp_io_expander_get_level(s_exio, 0xFFFF, &level) == ESP_OK);
+        if (!exio_ok) {
+            if (++read_errors == 1 || read_errors % 500 == 0) {
+                ESP_LOGW(TAG, "Expander nicht lesbar (%d Fehler)", read_errors);
+            }
+        } else if ((level & watch_mask) != last_watch) {
+            last_watch = level & watch_mask;
+            ESP_LOGI(TAG, "Expander-Eingaenge: EXIO2=%d KEY1(EXIO9)=%d KEY2(EXIO10)=%d KEY3(EXIO11)=%d  (0 = gedrueckt)",
+                     (int)((level >> 2) & 1), (int)((level >> BOARD_KEY1_EXIO) & 1),
+                     (int)((level >> BOARD_KEY2_EXIO) & 1), (int)((level >> BOARD_KEY3_EXIO) & 1));
+        }
 
         /* Tasten sind aktiv low */
         bool raw[KEY_COUNT];

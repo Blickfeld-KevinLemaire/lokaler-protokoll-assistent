@@ -10,7 +10,7 @@ Opus-Dateien und schickt sie per WLAN an den PC oder Server, auf dem die Protoko
 | Bedienung | Touchscreen (Start, Pause, Stopp) | 3 Tasten **KEY1–KEY3** und **BOOT** (RESET startet nur neu) |
 | Anzeige | Bildschirm: Zustand, Zeit, Pegel, Verbindung, Akku | 7 RGB-LEDs im Ring |
 | Speicher | SD-Karte | SD-Karte; ohne Karte automatisch der Flash (ca. 13,8 MB = ca. 77 min) |
-| Stand | auf Hardware getestet | **kompiliert, aber noch nicht auf dem echten Board getestet** (siehe unten) |
+| Stand | auf Hardware getestet | Aufnahme, Speicher und Upload auf dem echten Board getestet; **Tasten und LED-Ring noch nicht von Hand bestätigt** (siehe unten) |
 
 ## Gemeinsam
 
@@ -69,11 +69,13 @@ Bedienung ausschließlich über den Touchscreen. Die zwei Tasten am Gehäuse hab
 
 ## S3 ohne Bildschirm (AUDIO-Board)
 
-> **Stand:** Die Firmware kompiliert und nutzt die Pinbelegung aus dem Beispielcode von Waveshare
-> (Schaltplan V1.1). Sie wurde beim Entwickeln **noch nicht auf dem echten Board** ausprobiert, weil es am
-> PC nicht als USB-Gerät erschien. Aufnahme-, Upload- und Opus-Logik sind identisch mit den getesteten Geräten;
-> neu und ungetestet sind nur Tasten, LED-Ring und das Einhängen der SD-Karte. Bitte beim ersten Einschalten die
-> Checkliste unten durchgehen.
+> **Stand (11.10.2026):** Auf dem echten Board geprüft: Start, Mikrofon (beide werden zu Mono gemischt), Opus-Aufnahme
+> (Last ca. 25 % eines Kerns, ca. 99 KB RAM frei), Aufnahme in den Flash, Upload an den Empfänger (ca. 100 KB in 120 ms),
+> sauberes Speichern und das Erkennen von IO-Expander und LED-Ring. Eine Testaufnahme mit gesprochenem Text wurde von
+> Whisper fehlerfrei transkribiert. **Noch nicht von Hand bestätigt:** die Reaktion der Tasten KEY1–KEY3/BOOT, die
+> Farben des LED-Rings und die SD-Karte (im Test steckte keine). Im Monitor erscheint bei jeder Tastenänderung eine Zeile
+> `KEYS: Expander-Eingaenge: …` und bei jedem erkannten Druck `VERMERK Taste KEY1 kurz` bzw. `lang`; damit lässt sich die
+> Belegung am eigenen Gerät sofort prüfen.
 
 ### Bedienung
 
@@ -137,6 +139,8 @@ im Betrieb wird sie nicht erkannt. Aufnahmen, die im jeweils anderen Speicher li
   Hilft das nicht: **BOOT gedrückt halten, USB anstecken, loslassen** (Download-Modus), dann flashen.
 * **Keine LED, keine Reaktion auf Tasten, aber das Board ist erkannt:** im Monitor nach `IO-Expander TCA9555 nicht
   gefunden` suchen. Dann stimmt die I2C-Verdrahtung/Revision nicht mit `main/Board_Pins.h` überein. BOOT geht trotzdem.
+  Beim Drücken einer Taste muss im Monitor `KEYS: Expander-Eingaenge: … KEY1(EXIO9)=0 …` erscheinen (0 = gedrückt). Erscheint
+  nichts, kommt die Taste am Expander nicht an.
 * **`Keine SD-Karte` obwohl eine steckt:** Karte FAT32 formatieren, ggf. andere Karte. Die SD-Daten-Leitung 3 liegt am
   IO-Expander (EXIO3) und wird beim Start hochgezogen; `STORAGE: … ESP_ERR_TIMEOUT` heißt „Karte antwortet nicht“.
 * **Ring violett blinkend:** Mikrofon-Datenstrom steht. Neustart; tritt es wieder auf, Mikrofonverstärkung/Verdrahtung
