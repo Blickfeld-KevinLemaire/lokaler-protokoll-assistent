@@ -61,7 +61,7 @@ Vorher die beiden Vorlagen kopieren und ausfüllen (die echten Dateien sind in `
 
 Die Geräte laden Aufnahmen per `POST /upload` hoch (Dateiname im Header `X-Filename`) und fragen
 `GET /vermerk-status.txt` ab, um zu prüfen, ob die Gegenstelle erreichbar ist. Die Ordnerüberwachung der
-Protokoll-Software nimmt `.wav`, `.mp3` und `.opus` an. Ein Mini-Empfänger liegt als
+Protokoll-Software nimmt `.wav`, `.mp3` und `.opus` an. **Achtung:** Jedes Gerät zählt seine Dateien selbst (H5_001, H5_002 …), mehrere Geräte können also dieselbe Nummer erreichen. Der Empfänger muss gleiche Namen unterscheiden und darf nie überschreiben; der Mini-Empfänger unten hängt dann _2, _3 … an. Ein Mini-Empfänger liegt als
 [`tools/vermerk_receiver.py.txt`](tools/vermerk_receiver.py.txt) (zu `.py` umbenennen).
 
 ## Fremder Code

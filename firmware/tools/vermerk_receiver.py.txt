@@ -5,6 +5,18 @@ import time
 UPLOAD_DIR = Path(__file__).with_name("uploads")
 UPLOAD_DIR.mkdir(exist_ok=True)
 
+
+def unique_target(name: str) -> Path:
+    """Nie eine vorhandene Aufnahme ueberschreiben. Mehrere Geraete zaehlen ihre Dateien unabhaengig
+    (H5_001, H5_002 ...) und koennen dieselbe Nummer erreichen: dann wird _2, _3 ... angehaengt."""
+    target = UPLOAD_DIR / name
+    n = 2
+    while target.exists():
+        target = UPLOAD_DIR / f"{Path(name).stem}_{n}{Path(name).suffix}"
+        n += 1
+    return target
+
+
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/vermerk-status.txt":
@@ -26,8 +38,8 @@ class Handler(BaseHTTPRequestHandler):
         start = time.monotonic()
         filename = Path(self.headers.get("X-Filename", "upload.wav")).name
         length = int(self.headers.get("Content-Length", "0"))
-        target = UPLOAD_DIR / filename
-        temp_target = UPLOAD_DIR / (filename + ".part")
+        target = unique_target(filename)
+        temp_target = UPLOAD_DIR / (target.name + ".part")
 
         remaining = length
         with open(temp_target, "wb") as f:
