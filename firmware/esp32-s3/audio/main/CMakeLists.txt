@@ -6,6 +6,7 @@ idf_component_register(
         "./Leds/Leds.c"
         "./Storage/Storage.c"
         "./Opus_Encoder/Opus_Encoder.c"
+        "./Gain_Control/Gain_Control.c"
         "./Wireless/Wireless.c"
     INCLUDE_DIRS
         "./Audio_Driver"
@@ -13,6 +14,7 @@ idf_component_register(
         "./Leds"
         "./Storage"
         "./Opus_Encoder"
+        "./Gain_Control"
         "./Wireless"
         "."
     REQUIRES

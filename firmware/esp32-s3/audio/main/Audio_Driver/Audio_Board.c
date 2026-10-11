@@ -13,7 +13,7 @@
 #include "Board_Pins.h"
 
 #define ADC_I2S_CHANNEL   4
-#define RECORD_VOLUME     (30.0)     /* Mikrofonverstaerkung in dB; Waveshare-Beispiel: 30 */
+#define RECORD_VOLUME     (33.0)     /* Mikrofonverstaerkung in dB (ES7210: bis 37,5). Waveshare-Beispiel: 30; die AGC (Gain_Control) hebt leise Sprache zusaetzlich an. */
 #define I2S_SAMPLE_RATE   16000
 /* I2S-DMA-Puffer: 12 x 240 Frames = ca. 180 ms Reserve fuer kurze Pausen bei SD-Zugriffen */
 #define I2S_DMA_DESC_NUM  12

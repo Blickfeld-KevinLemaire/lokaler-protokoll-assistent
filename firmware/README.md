@@ -15,6 +15,12 @@ Ausführliche Bedienung, LED- und Tastenbelegung der beiden S3: [`esp32-s3/READM
 Alle Versionen haben dieselbe Aufnahme-, Pause- und Upload-Logik; Treiber, Pinbelegung und Bedienung unterscheiden sich je nach Board. Der C6 zeigt außerdem den
 USB-/Ladezustand direkt vom Power-Chip AXP2101 an, statt ihn aus der Akkuspannung zu erraten.
 
+## Lautstärke
+
+Alle Geräte regeln den Aufnahmepegel automatisch (AGC, `main/Gain_Control/`): leise Sprache wird bis +18 dB angehoben,
+laute Stellen werden begrenzt, Rauschen in Pausen wird nicht hochgezogen. Ohne das lag eine Aufnahme aus einigen
+Metern Abstand bei ca. −55 dB im Mittel und war beim Abspielen kaum zu hören.
+
 ## Warum Mono, 16 kHz?
 
 Die Protokoll-Software wandelt jede Eingabe vor der Transkription per ffmpeg in Mono, 16 kHz, 16 Bit um

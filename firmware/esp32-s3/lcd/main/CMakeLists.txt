@@ -16,10 +16,12 @@ idf_component_register(
                               "./Wireless/Wireless.c"
                               "./Audio_Driver/Audio_Driver.c" 
                               "./Opus_Encoder/Opus_Encoder.c"
+                              "./Gain_Control/Gain_Control.c"
 
                          INCLUDE_DIRS 
                               "./Audio_Driver" 
                               "./Opus_Encoder"
+                              "./Gain_Control"
                               "./MIC_Driver" 
                               "./LCD_Driver/esp_lcd_st77916" 
                               "./LCD_Driver" 

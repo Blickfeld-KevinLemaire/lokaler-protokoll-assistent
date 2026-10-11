@@ -8,6 +8,7 @@ idf_component_register(
         "./Storage/Storage.c"
         "./MP3_Encoder/MP3_Encoder.c"
         "./Opus_Encoder/Opus_Encoder.c"
+        "./Gain_Control/Gain_Control.c"
         "./BAT_Driver/BAT_Driver.cpp"
         "./Wireless/Wireless.c"
     INCLUDE_DIRS
@@ -18,6 +19,7 @@ idf_component_register(
         "./Storage"
         "./MP3_Encoder"
         "./Opus_Encoder"
+        "./Gain_Control"
         "./BAT_Driver"
         "./Wireless"
         "."

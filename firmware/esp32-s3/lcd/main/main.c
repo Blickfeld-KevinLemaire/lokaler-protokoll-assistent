@@ -7,6 +7,7 @@
 #include "BAT_Driver.h"
 #include "Wireless.h"
 #include "Rec_Codec.h"
+#include "Gain_Control.h"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -282,6 +283,8 @@ static void audio_task(void *arg)
             /* Beide Mikrofone zu Mono mischen, so wie es die Transkription ohnehin macht */
             mono[i] = (int16_t)(((int32_t)raw[i * 4 + 1] + (int32_t)raw[i * 4 + 3]) / 2);
         }
+        /* Leise Sprache anheben, laute Stellen begrenzen (Pegelanzeige und Mikrofonpruefung nutzen die Rohwerte oben) */
+        agc_process(mono, AUDIO_FRAMES);
 
         mic1_peak = p1;
         mic2_peak = p2;
@@ -355,8 +358,9 @@ static void audio_task(void *arg)
 
             /* Rechenlast des Encoders alle 10 s ausgeben (Messung fuer die Bitrate-Wahl) */
             if ((recorded_frames % (RECORD_SAMPLE_RATE * 10ULL)) < AUDIO_FRAMES) {
-                printf("VERMERK REC: Encoder-Last %d %%, Speicher frei %llu KB, RAM frei %u (Minimum %u) Bytes, Stack-Reserve %u Bytes\n",
+                printf("VERMERK REC: Encoder-Last %d %%, AGC-Gain x%d.%d, Speicher frei %llu KB, RAM frei %u (Minimum %u) Bytes, Stack-Reserve %u Bytes\n",
                        rec_enc_load_percent(),
+                       agc_gain_x10() / 10, agc_gain_x10() % 10,
                        (unsigned long long)(Storage_Free_Bytes() / 1024),
                        (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
                        (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL),

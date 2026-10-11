@@ -17,6 +17,10 @@ Opus-Dateien und schickt sie per WLAN an den PC oder Server, auf dem die Protoko
 * **Aufnahmeformat:** Ogg-Opus (`.opus`), Mono, 16 kHz, 24 kbit/s (variable Bitrate). Die beiden Mikrofone werden
   zu Mono gemischt. Das passt zur Protokoll-Software, die alles ohnehin auf Mono/16 kHz umrechnet
   (`services/ffmpeg_service.py`).
+* **Lautstärke (AGC):** Leise Sprache (Abstand, Raum) wird beim Aufnehmen automatisch auf eine einheitliche Höhe
+  gebracht: bis zu +18 dB Anhebung, laute Stellen werden begrenzt (nie übersteuert), Stille und Rauschen werden nicht
+  hochgezogen. Gemessen am AUDIO-Board mit derselben Quelle: Mittelwert −55 dB → −37 dB, Spitzen −22 → −2,6 dBFS, kein
+  übersteuertes Sample. Der Code liegt in `main/Gain_Control/`. Ältere Aufnahmen bleiben natürlich leise.
 * **Dateigröße:** ca. 3 KB pro Sekunde, 10,8 MB pro Stunde. Auf eine 32-GB-Karte passen weit über 1000 Stunden.
   Früher (WAV, Stereo) waren es 115 MB pro Stunde.
 * **Dateinamen:** `H5_001.opus`, `H5_002.opus` … fortlaufend. Der Zähler überlebt Neustarts und wird nie zurückgesetzt.
@@ -144,8 +148,10 @@ im Betrieb wird sie nicht erkannt. Aufnahmen, die im jeweils anderen Speicher li
 * **`Keine SD-Karte` obwohl eine steckt:** Karte FAT32 formatieren, ggf. andere Karte. Die SD-Daten-Leitung 3 liegt am
   IO-Expander (EXIO3) und wird beim Start hochgezogen; `STORAGE: … ESP_ERR_TIMEOUT` heißt „Karte antwortet nicht“.
 * **Ring violett blinkend:** Mikrofon-Datenstrom steht. Neustart; tritt es wieder auf, Mikrofonverstärkung/Verdrahtung
-  prüfen (`RECORD_VOLUME` in `main/Audio_Driver/Audio_Board.c`, Standard 30 dB wie im Waveshare-Beispiel).
-* **Aufnahme sehr leise:** `RECORD_VOLUME` erhöhen (bis 37,5 dB). Der S3 mit Bildschirm läuft mit 37,5.
+  prüfen (`RECORD_VOLUME` in `main/Audio_Driver/Audio_Board.c`, Standard 33 dB, das Waveshare-Beispiel nutzt 30 dB).
+* **Aufnahme zu leise:** Neue Aufnahmen werden automatisch angehoben (AGC, siehe oben); im Monitor zeigt
+  `AGC-Gain x7.5`, wie stark. Reicht das nicht, `RECORD_VOLUME` erhöhen (Standard 33 dB, bis 37,5 dB). Zu hohe
+  Analogverstärkung kann bei lautem, nahem Sprechen übersteuern.
 * **Aufnahmen kommen nicht an:** Ring türkis statt grün → Empfänger läuft nicht oder falsche Adresse in
   `server_config.h`; im Monitor stehen `Upload FEHLER`-Zeilen mit dem Grund.
 
