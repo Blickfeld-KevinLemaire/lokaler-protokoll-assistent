@@ -182,34 +182,39 @@ COM-Port; ESP32-S3/C6 mit eingebautem USB-Serial-JTAG, Hersteller-Kennung
 der Chip neu oder in den Bootloader. Baudrate 115200 (für USB-Serial-JTAG
 ohne Bedeutung).
 
-**Zeilen:** ASCII, eine Anweisung je Zeile, Ende `\n`, höchstens 512 Zeichen.
-Anweisungen der Software und Antworten des Geräts beginnen mit `#VERMERK `;
-alles andere sind Protokollzeilen des Geräts und werden übergangen. Werte
-werden **hexadezimal** übertragen (Bytes, zwei Zeichen je Byte, klein) – so
-stören Leerzeichen, Anführungszeichen oder Umlaute in WLAN-Name und Passwort
-nicht.
+**Zeilen:** ASCII, eine Anweisung je Zeile, Ende `\n`. Anweisungen an das
+Gerät höchstens 512 Zeichen (längere: `#VERMERK FEHLER ZEILE zu lang …`),
+Antworten des Geräts höchstens 1024 (eine `INFO` mit langem WLAN-Namen und
+zwei Adressen kommt auf gut 700). Anweisungen der Software und Antworten des
+Geräts beginnen mit `#VERMERK `; alles andere sind Protokollzeilen des Geräts
+und werden übergangen. Werte werden **hexadezimal** übertragen (Bytes, zwei
+Zeichen je Byte; die Software schickt klein, das Gerät nimmt beides) – so
+stören Leerzeichen, Anführungszeichen oder Umlaute im WLAN-Namen nicht. Eine
+unbekannte Anweisung beantwortet das Gerät mit
+`#VERMERK FEHLER <Wort> unbekannte Anweisung`.
 
 | Software → Gerät | Antwort | Bedeutung |
 |---|---|---|
-| `#VERMERK INFO` | `#VERMERK INFO {"geraete_id":"1a2b3c4d5e6f","board":"esp32-s3-audio","firmware":"1.0.0","eingerichtet":true,"wlan_hex":"…","pc_url_hex":"…","server_url_hex":"…","token_pc":true,"token_server":false}` | Wer ist da, was ist eingerichtet? Passwort und Token werden **nie** ausgegeben, nur ob sie gesetzt sind. Kompaktes JSON wie bei HTTP. |
+| `#VERMERK INFO` | `#VERMERK INFO {"geraete_id":"1a2b3c4d5e6f","board":"esp32-s3-audio","firmware":"1.0.0","eingerichtet":true,"wlan_hex":"…","pc_url_hex":"…","server_url_hex":"…","token_pc":true,"token_server":false}` | Wer ist da, was gilt gerade? Die Werte sind die **wirksamen** – ohne Einrichtung die einkompilierten; `eingerichtet` sagt, woher sie kommen. Passwort und Token werden **nie** ausgegeben, nur ob sie gesetzt sind. Kompaktes JSON wie bei HTTP. |
 | `#VERMERK SETZE <Schlüssel> <Hex>` | `#VERMERK OK SETZE <Schlüssel>` oder `#VERMERK FEHLER <Schlüssel> <Text>` | Wert vormerken (noch nicht gespeichert). |
 | `#VERMERK SPEICHERN` | `#VERMERK OK SPEICHERN` oder `#VERMERK FEHLER SPEICHERN <Text>` | Vorgemerkte Werte prüfen und **zusammen** speichern, danach Neustart (ca. 1 s). Läuft eine Aufnahme: Fehler, nichts gespeichert. |
 | `#VERMERK VERWERFEN` | `#VERMERK OK VERWERFEN` | Vorgemerktes vergessen. |
-| `#VERMERK LOESCHEN` | `#VERMERK OK LOESCHEN` | Eingerichtete Werte löschen (zurück zu den einkompilierten), danach Neustart. |
+| `#VERMERK LOESCHEN` | `#VERMERK OK LOESCHEN` oder `#VERMERK FEHLER LOESCHEN <Text>` | Eingerichtete Werte löschen (zurück zu den einkompilierten), danach Neustart. Während einer Aufnahme abgelehnt. Der Aufnahmezähler bleibt. |
 
 Schlüssel und Grenzen:
 
 | Schlüssel | Inhalt |
 |---|---|
 | `wlan_ssid` | 1–32 Bytes, Pflicht |
-| `wlan_passwort` | leer (offenes WLAN) oder 8–63 Bytes |
-| `pc_url`, `server_url` | `http://…`, höchstens 96 Bytes; leer = Ziel nicht genutzt |
+| `wlan_passwort` | leer (offenes WLAN) oder 8–63 druckbare ASCII-Zeichen (0x20–0x7E, wie WPA es verlangt) |
+| `pc_url`, `server_url` | `http://<Rechner>[:Port]`, nur ASCII, höchstens 96 Bytes, ohne `/` am Ende (kein `https://` – die Firmware kann kein TLS); leer = Ziel nicht genutzt |
 | `pc_token`, `server_token` | wie bei HTTP (1–128 sichtbare ASCII-Zeichen); Pflicht, wenn die zugehörige Adresse gesetzt ist |
-| `erste_nummer` | Dezimalzahl als Text, z. B. `29`; optional |
+| `erste_nummer` | Dezimalzahl als Text, z. B. `29`; optional – fehlt sie, gilt der einkompilierte Wert |
 
 Beim `SPEICHERN` muss mindestens ein Ziel vollständig sein (Adresse **und**
-Token). Was nicht gesetzt wurde, wird leer gespeichert – eine Einrichtung
-ersetzt immer die ganze vorherige.
+Token). Was nicht gesetzt wurde, wird leer gespeichert (Ausnahme
+`erste_nummer`, siehe oben) – eine Einrichtung ersetzt immer die ganze
+vorherige. Kein Wert darf ein NUL-Byte enthalten.
 
 **Ablauf in der Software:** Port öffnen → `INFO` (bis zu dreimal, das Gerät kann
 gerade starten) → Gerätename vergeben, Token erzeugen → alle `SETZE` →

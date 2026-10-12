@@ -23,12 +23,17 @@ PRAEFIX = "#VERMERK "
 ESPRESSIF_VID = 0x303A
 BAUDRATE = 115200
 MAX_ZEILE = 512
+# Antworten des Geraets duerfen laenger sein (INFO mit langem WLAN-Namen).
+MAX_ANTWORT = 1024
 # Ein Geraet, das gerade startet, antwortet erst nach ein, zwei Sekunden.
 INFO_VERSUCHE = 3
 ANTWORT_SEKUNDEN = 3.0
 NEUSTART_SEKUNDEN = 20.0
 
 _TOKEN = re.compile(r"^[\x21-\x7e]{1,128}$")
+_PASSWORT = re.compile(r"^[\x20-\x7e]*$")
+# http://<Rechner>[:Port] -- wie im Geraet: kein https (kein TLS), kein "/" am Ende.
+_URL = re.compile(r"^http://[A-Za-z0-9._-]+(:[0-9]{1,5})?$")
 
 
 class UsbFehler(Exception):
@@ -149,17 +154,23 @@ class Einrichtung:
         """Dieselben Regeln wie im Geraet -- hier geprueft, damit der Anwender
         die Meldung sofort und auf Deutsch sieht."""
         meldungen: list[str] = []
-        if not 1 <= len(self.wlan_ssid.encode("utf-8")) <= 32:
+        if not 1 <= len(self.wlan_ssid.encode("utf-8")) <= 32 or "\x00" in self.wlan_ssid:
             meldungen.append("Der WLAN-Name muss 1 bis 32 Bytes lang sein.")
-        passwort = len(self.wlan_passwort.encode("utf-8"))
-        if passwort and not 8 <= passwort <= 63:
-            meldungen.append("Das WLAN-Passwort muss leer (offenes WLAN) oder 8 bis 63 Zeichen lang sein.")
+        passwort = len(self.wlan_passwort)
+        if (passwort and not 8 <= passwort <= 63) or not _PASSWORT.match(self.wlan_passwort):
+            meldungen.append(
+                "Das WLAN-Passwort muss leer (offenes WLAN) oder 8 bis 63 Zeichen lang sein, "
+                "ohne Umlaute und Zeichen ausserhalb von ASCII."
+            )
         vollstaendig = 0
         for bezeichnung, url, token in (("PC", self.pc_url, self.pc_token), ("Server", self.server_url, self.server_token)):
             if not url and not token:
                 continue
-            if not url.startswith("http://") or len(url.encode("utf-8")) > 96 or len(url) <= len("http://"):
-                meldungen.append(f"{bezeichnung}-Adresse: http://… mit hoechstens 96 Zeichen.")
+            if not _URL.match(url) or len(url) > 96:
+                meldungen.append(
+                    f"{bezeichnung}-Adresse: http://Rechner:Port mit hoechstens 96 Zeichen, ohne / am Ende "
+                    "(https geht nicht, das Geraet kann kein TLS)."
+                )
             if not _TOKEN.match(token):
                 meldungen.append(f"{bezeichnung}: Zur Adresse gehoert ein Token (1 bis 128 Zeichen ohne Leerzeichen).")
             if url and token:
@@ -217,7 +228,7 @@ class Geraetesitzung:
                 raise UsbFehler(f"Lesen vom Geraet gescheitert ({fehler}).") from fehler
             if not roh:
                 continue
-            zeile = roh[: MAX_ZEILE * 2].decode("utf-8", errors="replace").strip()
+            zeile = roh[:MAX_ANTWORT].decode("utf-8", errors="replace").strip()
             if zeile.startswith(PRAEFIX) and passt(zeile[len(PRAEFIX):]):
                 return zeile[len(PRAEFIX):]
         raise UsbFehler("Das Geraet antwortet nicht. Ist die richtige Firmware drauf und der richtige Anschluss gewaehlt?")
