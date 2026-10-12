@@ -435,6 +435,17 @@ def _generate_request(body: dict[str, Any], base_url: str, timeout: float) -> st
         raise OllamaError(f"Ollama ist nicht erreichbar: {error}") from error
     except TimeoutError as error:
         raise OllamaError("Die Anfrage an das lokale Modell hat das Zeitlimit ueberschritten.") from error
+    # 'done_reason: length': Das Modell hat die Laengen- bzw. Kontextgrenze
+    # erreicht und mitten im Text aufgehoert. So ein Ergebnis darf weder
+    # weiterverarbeitet noch als Zwischenstand gespeichert werden -- der Fehler
+    # faellt vor dem Speichern in 'protocol_service._load_or_compute'. Der Chat
+    # nutzt 'chat_stream' und ist davon nicht betroffen.
+    if result.get("done_reason") == "length":
+        raise OllamaError(
+            "Die Antwort des lokalen Modells wurde abgeschnitten: Es hat die Laengen- bzw. "
+            "Kontextgrenze erreicht. Das unvollstaendige Ergebnis wird nicht verwendet. Bitte den "
+            "Auftrag (Systemprompt) knapper fassen oder ein Modell mit groesserem Kontext waehlen."
+        )
     return str(result.get("response", ""))
 
 

@@ -110,6 +110,32 @@ def test_generate_text_raises_ollama_error_on_http_error(monkeypatch):
         ollama_service.generate_text("Frage", "System")
 
 
+def test_generate_text_meldet_abgeschnittene_antwort(monkeypatch):
+    """Erreicht das Modell die Laengen- oder Kontextgrenze, meldet Ollama
+    'done_reason: length'. Der Text ist dann unvollstaendig und darf nicht als
+    Ergebnis (und damit als Zwischenstand) durchgehen."""
+    monkeypatch.setattr(
+        ollama_service.urllib.request,
+        "urlopen",
+        lambda request, timeout=None: _FakeResponse(
+            {"response": "## Termine\n- 12.10. Abg", "done": True, "done_reason": "length"}
+        ),
+    )
+    with pytest.raises(ollama_service.OllamaError, match="abgeschnitten"):
+        ollama_service.generate_text("Frage", "System")
+    with pytest.raises(ollama_service.OllamaError, match="abgeschnitten"):
+        ollama_service.generate_json("Frage", "System")
+
+
+def test_generate_text_nimmt_vollstaendige_antwort_an(monkeypatch):
+    monkeypatch.setattr(
+        ollama_service.urllib.request,
+        "urlopen",
+        lambda request, timeout=None: _FakeResponse({"response": "Fertig.", "done": True, "done_reason": "stop"}),
+    )
+    assert ollama_service.generate_text("Frage", "System") == "Fertig."
+
+
 def test_generate_json_sends_temperature_zero_and_json_format(monkeypatch):
     captured = {}
 

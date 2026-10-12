@@ -227,3 +227,20 @@ def test_verdichtung_wiederaufnahme_fragt_fertige_runden_nicht_erneut(tmp_path):
     generate_fn2, calls2 = _fake_generate_factory()
     protocol_service.run_full_protocol_pipeline(_chunks(4), tmp_path, "System", generate_fn2, group_size=2)
     assert calls2["count"] == 1  # nur das Endergebnis
+
+
+def test_abgeschnittene_antwort_wird_nicht_als_zwischenstand_gespeichert(tmp_path, monkeypatch):
+    """Ollama meldet 'done_reason: length' -- der unvollstaendige Text darf
+    nicht gespeichert werden, sonst kaeme er beim naechsten Lauf als fertiges
+    Ergebnis zurueck."""
+    import io
+    import json
+
+    from protokoll_assistent.services import ollama_service
+
+    antwort = json.dumps({"response": "Halber Sa", "done": True, "done_reason": "length"}).encode("utf-8")
+    monkeypatch.setattr(ollama_service.urllib.request, "urlopen", lambda request, timeout=None: io.BytesIO(antwort))
+
+    with pytest.raises(ollama_service.OllamaError, match="abgeschnitten"):
+        protocol_service.run_full_protocol_pipeline(_chunks(2), tmp_path, "Auftrag")
+    assert not list(tmp_path.rglob("*.md"))
