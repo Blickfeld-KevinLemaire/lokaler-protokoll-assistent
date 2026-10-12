@@ -188,6 +188,11 @@ oder die Kontextgröße für Ollama. Einzelheiten in `tests/e2e/conftest.py`.
   `einrichtung_abgeschlossen`, der nächste sah deshalb den
   Einrichtungsassistenten nicht mehr).
 
+**Welcher Test in der CI fehlschlug**, steht seit Oktober 2026 in der
+Zusammenfassung des Laufs (Tabelle mit Name, Ort und Meldung) und als
+Fehler-Annotation in der Prüfliste des Pull Requests
+(`tools/testergebnis_zusammenfassen.py`, gespeist aus `--junitxml`).
+
 **Wenn ein CI-Lauf ohne Testausgabe fehlschlägt**, ist das fast immer ein
 Absturz des Prozesses und keine fehlgeschlagene Zusicherung. Dann im
 Rohprotokoll des Jobs nach `fatal exception` suchen — die Zusammenfassung von

@@ -74,6 +74,10 @@ _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _GERAETE_ID = re.compile(r"^[0-9a-f]{12}$")
 _FIRMWARE = re.compile(r"^[A-Za-z0-9._/+-]{1,64}$")
 _LESEBLOCK = 64 * 1024
+# Sanftes Schliessen: So lange und so viel liest der Dienst nach seiner Antwort
+# noch weg, bevor er die Verbindung schliesst (siehe _Anfrage.finish).
+NACHLAUF_SEKUNDEN = 2.0
+NACHLAUF_MAX_BYTES = TEIL_MAX_BYTES + 1024 * 1024
 
 
 # --------------------------------------------------------------------------
@@ -497,6 +501,12 @@ class _Anfrage(BaseHTTPRequestHandler):
             if belegt:
                 self.server.plaetze.release()
 
+    def finish(self) -> None:
+        try:
+            super().finish()
+        finally:
+            _sanft_schliessen(self.connection)
+
     def log_message(self, format: str, *args: Any) -> None:
         # Nicht auf stderr: Die Anwendung hat kein Konsolenfenster, und der Pfad
         # enthaelt nichts Geheimes, das Token steht nur in einer Kopfzeile.
@@ -615,6 +625,31 @@ class _Anfrage(BaseHTTPRequestHandler):
         self._senden(_fehler(405, "Methode nicht erlaubt."), schliessen=True)
 
     do_POST = do_DELETE = do_PATCH = do_HEAD = _nicht_erlaubt
+
+
+def _sanft_schliessen(verbindung: socket.socket) -> None:
+    """Schliesst wie Apache ("lingering close"): erst die Senderichtung, dann
+    noch Ankommendes verwerfen, bis die Gegenseite schliesst.
+
+    Schliesst ein Server, waehrend ungelesene Daten im Puffer liegen (der
+    Inhalt einer abgelehnten Anfrage: 401, 404, 405, 411 ...), setzt TCP die
+    Verbindung zurueck. Kommt das RST beim Geraet an, bevor es die Antwort
+    gelesen hat, sieht es nur "Verbindung zurueckgesetzt" statt des Status. So
+    kommt die Antwort sicher an. Begrenzt durch NACHLAUF_SEKUNDEN und
+    NACHLAUF_MAX_BYTES -- ein Fremder kann den Dienst damit nicht festhalten."""
+    with contextlib.suppress(OSError):
+        verbindung.shutdown(socket.SHUT_WR)
+        ende = time.monotonic() + NACHLAUF_SEKUNDEN
+        verworfen = 0
+        while verworfen <= NACHLAUF_MAX_BYTES:
+            rest = ende - time.monotonic()
+            if rest <= 0:
+                break
+            verbindung.settimeout(rest)
+            daten = verbindung.recv(_LESEBLOCK)
+            if not daten:
+                break
+            verworfen += len(daten)
 
 
 class GeraeteEmpfang:

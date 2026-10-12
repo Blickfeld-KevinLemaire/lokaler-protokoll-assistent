@@ -500,7 +500,13 @@ def test_zu_viele_verbindungen_503(tmp_path, monkeypatch):
     try:
         with socket.create_connection(("127.0.0.1", laufend.port), timeout=10) as belegt:
             belegt.sendall(b"GET /api/v1/hallo HTTP/1.1\r\n")  # unvollstaendig: haelt den Platz
-            time.sleep(0.2)
+            # Warten, bis der Faden den Platz wirklich belegt hat -- eine feste
+            # Wartezeit reicht unter Last nicht.
+            server = laufend._server
+            assert server is not None
+            ende = time.monotonic() + 10
+            while server.plaetze._value > 0 and time.monotonic() < ende:  # type: ignore[attr-defined]
+                time.sleep(0.01)
             status, daten, _ = anfrage(laufend, "GET", "/api/v1/hallo")
         assert status == 503 and daten["fehler"]
     finally:
@@ -574,3 +580,62 @@ def test_ohne_kennung_wird_trotzdem_angenommen(dienst):
 def test_abgewiesene_anfragen_hinterlassen_keinen_kontakt(dienst):
     anfrage(dienst, "GET", "/api/v1/hallo", token="falsch", X_Geraete_Id="1a2b3c4d5e6f")
     assert dienst.kontakte() == {}
+
+
+# --------------------------------------------------------------------------
+# Sanftes Schliessen
+# --------------------------------------------------------------------------
+def test_abgelehnte_anfragen_mit_inhalt_kommen_immer_an(dienst):
+    """Unter Last setzte TCP die Verbindung zurueck, bevor die Antwort gelesen
+    war (404/405/401 mit ungelesenem Inhalt) -- ein Test schlug so gelegentlich
+    fehl. Viele Wiederholungen machen den Zufall sichtbar."""
+    for _ in range(40):
+        assert anfrage(dienst, "PUT", "/upload", b"x" * 2000, X_Offset="0")[0] == 404
+        assert anfrage(dienst, "POST", "/upload", b"x" * 2000)[0] == 405
+        assert anfrage(dienst, "PUT", "/api/v1/aufnahmen/H5.opus", b"x" * 2000, token="falsch", X_Offset="0")[0] == 401
+
+
+class _Verbindung:
+    def __init__(self, bloecke, fehler_bei_shutdown=False):
+        self.bloecke = list(bloecke)
+        self.fehler_bei_shutdown = fehler_bei_shutdown
+        self.ablauf: list[str] = []
+
+    def shutdown(self, _art):
+        if self.fehler_bei_shutdown:
+            raise OSError("schon zu")
+        self.ablauf.append("shutdown")
+
+    def settimeout(self, _sekunden):
+        pass
+
+    def recv(self, _anzahl):
+        self.ablauf.append("recv")
+        return self.bloecke.pop(0) if self.bloecke else b""
+
+
+def test_sanft_schliessen_liest_bis_zum_ende_der_gegenseite():
+    verbindung = _Verbindung([b"rest", b"mehr", b""])
+    empfang._sanft_schliessen(verbindung)
+    assert verbindung.ablauf == ["shutdown", "recv", "recv", "recv"]
+
+
+def test_sanft_schliessen_ist_begrenzt(monkeypatch):
+    monkeypatch.setattr(empfang, "NACHLAUF_MAX_BYTES", 10)
+    verbindung = _Verbindung([b"x" * 8] * 100)
+    empfang._sanft_schliessen(verbindung)
+    assert verbindung.ablauf.count("recv") == 2  # nach 16 Bytes Schluss
+
+
+def test_sanft_schliessen_ist_zeitlich_begrenzt(monkeypatch):
+    zeiten = iter([0.0, 0.5, 3.0])
+    monkeypatch.setattr(empfang.time, "monotonic", lambda: next(zeiten))
+    verbindung = _Verbindung([b"x"] * 100)
+    empfang._sanft_schliessen(verbindung)
+    assert verbindung.ablauf.count("recv") == 1
+
+
+def test_sanft_schliessen_bei_schon_geschlossener_verbindung():
+    verbindung = _Verbindung([], fehler_bei_shutdown=True)
+    empfang._sanft_schliessen(verbindung)
+    assert verbindung.ablauf == []

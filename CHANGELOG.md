@@ -181,6 +181,12 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 ### Fixed
 
+- **Aufnahmegeräte: Antworten kommen sicher an.** Lehnte der Empfang eine
+  Anfrage ab, ohne ihren Inhalt zu lesen (z. B. falsches Token), konnte das
+  Gerät statt der Antwort nur „Verbindung zurückgesetzt“ sehen. Der Empfang
+  schließt die Verbindung jetzt sanft (wie Webserver es tun), begrenzt in Zeit
+  und Menge. Aufgefallen durch einen gelegentlich fehlschlagenden Test.
+
 - **„CUDA out of memory“ bei der zweiten Transkription hintereinander:** Hielt
   Ollama noch das Sprachmodell der vorigen Auswertung (standardmäßig fünf
   Minuten), scheiterte Whisper auf Grafikkarten mit 8 GB. Die Prüfung, ob noch

@@ -98,3 +98,6 @@ desktop.ini
 
 # Servermodus (docker-compose): Eingang, Ausgang -- enthalten Aufnahmen und Protokolle
 daten/
+
+# Testergebnis fuer die Zusammenfassung in der CI (tools/testergebnis_zusammenfassen.py)
+testergebnis.xml
