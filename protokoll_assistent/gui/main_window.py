@@ -75,6 +75,7 @@ from protokoll_assistent.gui.dialogs import (
 )
 from protokoll_assistent.gui.dokument_qt import SCHREIBER as QT_SCHREIBER
 from protokoll_assistent.gui.export_dialog import ExportDialog
+from protokoll_assistent.gui.geraete_empfang import EmpfangsSteuerung
 from protokoll_assistent.gui.settings_dialog import DATENSCHUTZ_HINWEIS_API, SettingsDialog
 from protokoll_assistent.gui.strings import PRIVACY_NOTICE
 from protokoll_assistent.gui.worker import (
@@ -215,6 +216,13 @@ class MainWindow(QMainWindow):
 
         self._build_ui()
         self._refresh_hardware_label()
+
+        # Empfang fuer die WLAN-Aufnahmegeraete -- aus, bis er in den
+        # Einstellungen eingeschaltet wird (siehe 'gui/geraete_empfang.py').
+        self._empfang_zuletzt = ""
+        self._geraete_empfang = EmpfangsSteuerung(self)
+        self._geraete_empfang.neue_aufnahme.connect(self._neue_geraete_aufnahme)
+        self._geraete_empfang_anwenden()
 
         if self._source_path is not None:
             self.file_label.setText(f"Ausgewählt: {self._source_path.name}")
@@ -419,6 +427,7 @@ class MainWindow(QMainWindow):
             self._session_api_keys.update(dialog.eingegebene_schluessel)
             self._apply_modus_from_config()
             self.chat_page.einstellungen_aktualisiert()
+            self._geraete_empfang_anwenden()
 
     def _apply_modus_from_config(self) -> None:
         config = app_config.load_config()
@@ -654,6 +663,12 @@ class MainWindow(QMainWindow):
         folder_row.addWidget(choose_folder_button)
         folder_row.addWidget(self.folder_label, stretch=1)
         layout.addLayout(folder_row)
+
+        # Zustand des Empfangs fuer die Aufnahmegeraete; unsichtbar, solange er aus ist.
+        self.empfang_label = QLabel("", self)
+        self.empfang_label.setWordWrap(True)
+        self.empfang_label.setVisible(False)
+        layout.addWidget(self.empfang_label)
 
         # Die Liste nimmt den uebrigen Platz der Spalte ein, statt eine feste
         # Hoehe zu haben.
@@ -1000,6 +1015,7 @@ class MainWindow(QMainWindow):
         self.folder_label.setText(str(folder))
         self._populate_file_list(folder)
         app_config.update_config(eingabeordner=str(folder))
+        self._geraete_empfang_anwenden()
 
     def _populate_file_list(self, folder: Path) -> None:
         self.file_list.clear()
@@ -1066,7 +1082,40 @@ class MainWindow(QMainWindow):
         if self._recording is not None:
             with contextlib.suppress(Exception):
                 self._recording.stop()
+        self._geraete_empfang.stoppen()
         super().closeEvent(event)
+
+    # ------------------------------------------------------------------
+    # Aufnahmegeraete im WLAN
+    # ------------------------------------------------------------------
+    def _geraete_empfang_anwenden(self) -> None:
+        """Empfang passend zu den Einstellungen starten oder stoppen. Die Geraete
+        liefern in den Eingabeordner -- ohne einen in den Aufnahmeordner, damit
+        eine Aufnahme immer irgendwo landen kann."""
+        ziel = self._input_folder if self._input_folder is not None else get_recordings_dir()
+        self._geraete_empfang.anwenden(ziel)
+        self._empfang_anzeigen()
+
+    def geraete_kontakte(self) -> dict[str, Any]:
+        """Fuer den Einstellungsdialog: letzter Kontakt je Aufnahmegeraet."""
+        return dict(self._geraete_empfang.kontakte())
+
+    def _empfang_anzeigen(self) -> None:
+        text = self._geraete_empfang.beschreibung()
+        if text and self._empfang_zuletzt:
+            text = f"{text}\n{self._empfang_zuletzt}"
+        self.empfang_label.setText(text)
+        self.empfang_label.setVisible(bool(text))
+
+    def _neue_geraete_aufnahme(self, pfad: str, geraet: str) -> None:
+        datei = Path(pfad)
+        if self._input_folder is not None and datei.parent == self._input_folder:
+            ausgewaehlt = self._source_path
+            self._populate_file_list(self._input_folder)
+            if ausgewaehlt is not None and ausgewaehlt.parent == self._input_folder:
+                self._select_file_in_list(ausgewaehlt.name)
+        self._empfang_zuletzt = f"Zuletzt angekommen: {datei.name} von {geraet} ({time.strftime('%H:%M')})"
+        self._empfang_anzeigen()
 
     def _choose_output_dir(self) -> None:
         directory = QFileDialog.getExistingDirectory(self, "Ausgabeordner wählen", str(self._output_dir))
