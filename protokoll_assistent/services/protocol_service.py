@@ -65,9 +65,14 @@ GenerateFn = Callable[[str, str], str]
 # ohne Gliederung, ohne Abschnittsnamen und ohne Ausgabeformat.
 OHNE_VORGABE_SYSTEMPROMPT = (
     "Du bist ein genauer deutschsprachiger Assistent. Fasse das bereitgestellte "
-    "Besprechungstranskript so zusammen, wie es fuer den Inhalt am sinnvollsten ist. "
-    "Beschraenke dich auf das, was im Transkript steht, und erfinde nichts dazu."
+    "Besprechungstranskript (oder die bereitgestellten Teilergebnisse daraus) so zusammen, "
+    "wie es fuer den Inhalt am sinnvollsten ist. "
+    "Beschraenke dich auf das, was dort steht, und erfinde nichts dazu."
 )
+
+# Die Stufen 2 und 3 bekommen statt des Transkripts Teilergebnisse. Ein
+# Auftrag, der vom "Transkript" spricht, gilt dort fuer diese.
+_TEILERGEBNISSE_STATT_TRANSKRIPT = "Spricht der Auftrag vom Transkript, sind damit hier diese Teilergebnisse gemeint."
 
 _DENKBLOCK = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
 _DENKBLOCK_ENDE = re.compile(r"</think>", re.IGNORECASE)
@@ -177,6 +182,7 @@ def build_stage2_prompt(group_results: list[str]) -> str:
     return (
         "Die folgenden Teilergebnisse stammen aus aufeinanderfolgenden Abschnitten "
         "desselben Transkripts und wurden nach dem Auftrag aus dem Systemprompt erstellt. "
+        f"{_TEILERGEBNISSE_STATT_TRANSKRIPT} "
         "Fuehre sie zu EINEM Teilergebnis zusammen -- in derselben Form und mit demselben "
         "Aufbau, den der Auftrag verlangt. Entferne Dopplungen aus Ueberlappungsbereichen, "
         "lasse aber keine inhaltliche Angabe weg und ergaenze nichts.\n\n" + teile
@@ -199,7 +205,8 @@ def build_stage3_prompt(consolidated: list[str]) -> str:
     teile = "\n\n".join(f"--- Teilergebnis {nummer} ---\n{text}" for nummer, text in enumerate(consolidated, 1))
     return (
         "Die folgenden Teilergebnisse stammen aus aufeinanderfolgenden Teilen desselben "
-        "Transkripts und wurden nach dem Auftrag aus dem Systemprompt erstellt. Erstelle "
+        "Transkripts und wurden nach dem Auftrag aus dem Systemprompt erstellt. "
+        f"{_TEILERGEBNISSE_STATT_TRANSKRIPT} Erstelle "
         "daraus das Endergebnis, genau so wie der Auftrag es verlangt. Fuege keine Gliederung, "
         "Ueberschriften oder Abschnitte hinzu, die der Auftrag nicht verlangt, und ergaenze "
         "keine Informationen, die nicht in den Teilergebnissen vorkommen.\n\n" + teile

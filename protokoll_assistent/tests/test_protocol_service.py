@@ -415,3 +415,13 @@ def test_anderes_modell_verwendet_kein_altes_ergebnis_wieder(tmp_path):
     assert protocol_service.run_full_protocol_pipeline(_chunks(1), tmp_path, "Auftrag", drittes, modell="modell-a") == a
     assert calls3["count"] == 0
     assert protocol_service.prompt_kennung("Auftrag", "modell-a") != protocol_service.prompt_kennung("Auftrag", "modell-b")
+
+
+def test_stufen_2_und_3_beschreiben_ihre_eingabe_als_teilergebnisse():
+    """Der Auftrag spricht meist vom Transkript; in Stufe 2 und 3 liegen aber
+    Teilergebnisse vor. Die Anfragen muessen das aufloesen, und auch die
+    Vorgabe ohne Systemprompt darf nicht nur von einem Transkript sprechen."""
+    hinweis = "Spricht der Auftrag vom Transkript, sind damit hier diese Teilergebnisse gemeint."
+    assert hinweis in protocol_service.build_stage2_prompt(["a", "b"])
+    assert hinweis in protocol_service.build_stage3_prompt(["a", "b"])
+    assert "Teilergebnisse" in protocol_service.OHNE_VORGABE_SYSTEMPROMPT
