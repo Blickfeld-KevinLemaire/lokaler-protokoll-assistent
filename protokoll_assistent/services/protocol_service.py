@@ -27,9 +27,11 @@ Stufe 3: alle zusammengefuehrten Teilergebnisse werden zum Endergebnis
 Jede Stufe wird als eigene Datei gespeichert. Ist eine Datei bereits
 vorhanden, wird sie wiederverwendet statt erneut angefragt -- ein Fehler in
 einem einzelnen Abschnitt zwingt also nicht zur kompletten Wiederholung.
-Die Zwischenstaende gelten **je Systemprompt** (Unterordner mit einer
-Kennung des Prompts): Wer den Auftrag aendert, bekommt ein neues Ergebnis
-und nicht das zum alten Auftrag gespeicherte zurueck.
+Die Zwischenstaende gelten **je Systemprompt und Modell** (Unterordner mit
+einer Kennung aus beidem): Wer den Auftrag oder das Modell wechselt, bekommt
+ein neues Ergebnis und nicht das frueher gespeicherte zurueck. Zwischenstaende
+aus aelteren Versionen (Kennung nur aus dem Prompt) bleiben liegen, werden
+aber nicht mehr gelesen.
 
 Eine leere Modellantwort wird genau EINMAL erneut angefragt. Bleibt auch
 sie leer, wird ein ``ProtocolValidationError`` ausgeloest, ohne vorhandene
@@ -87,11 +89,15 @@ def effektiver_systemprompt(system_prompt: str | None) -> str:
     return text or OHNE_VORGABE_SYSTEMPROMPT
 
 
-def prompt_kennung(system_prompt: str | None) -> str:
-    """Kurze, stabile Kennung des Auftrags. Benennt den Unterordner der
-    Zwischenstaende, damit ein anderer Systemprompt nie ein Ergebnis
-    wiederverwendet, das zu einem anderen Auftrag entstanden ist."""
-    return hashlib.sha256(effektiver_systemprompt(system_prompt).encode("utf-8")).hexdigest()[:12]
+def prompt_kennung(system_prompt: str | None, modell: str | None = None) -> str:
+    """Kurze, stabile Kennung des Auftrags und des Modells. Benennt den
+    Unterordner der Zwischenstaende, damit weder ein anderer Systemprompt noch
+    ein anderes Modell ein Ergebnis wiederverwendet, das unter anderen
+    Bedingungen entstanden ist. Ohne ``modell`` wie in aelteren Versionen."""
+    grundlage = effektiver_systemprompt(system_prompt)
+    if modell:
+        grundlage += f"\n--- Modell: {modell}"
+    return hashlib.sha256(grundlage.encode("utf-8")).hexdigest()[:12]
 
 
 def antwort_bereinigen(text: str) -> str:
@@ -290,6 +296,7 @@ def run_full_protocol_pipeline(
     group_size: int = 4,
     progress_cb: Callable[[str, int, int], None] | None = None,
     max_kontext_zeichen: int = MAX_KONTEXT_ZEICHEN,
+    modell: str | None = None,
 ) -> str:
     """``chunk_texts``: Liste von ``{"index", "start_str", "end_str", "text"}``.
 
@@ -297,11 +304,13 @@ def run_full_protocol_pipeline(
     Ergebnis als Text zurueck -- in der Form, die der Auftrag verlangt.
     Bereits vorhandene Zwischenstaende zum selben Auftrag werden
     wiederverwendet. ``system_prompt`` darf leer sein (siehe
-    ``OHNE_VORGABE_SYSTEMPROMPT``).
+    ``OHNE_VORGABE_SYSTEMPROMPT``). ``modell`` kennzeichnet das antwortende
+    Modell (z. B. den Ollama-Namen); es geht in die Kennung der
+    Zwischenstaende ein (siehe ``prompt_kennung``).
     """
     generate_fn = generate_fn or default_generate_fn
     auftrag = effektiver_systemprompt(system_prompt)
-    kennung = prompt_kennung(system_prompt)
+    kennung = prompt_kennung(system_prompt, modell)
     analysen_dir = work_dir / "analysen" / kennung
     zusammen_dir = work_dir / "zusammengefuehrt" / kennung
     analysen_dir.mkdir(parents=True, exist_ok=True)

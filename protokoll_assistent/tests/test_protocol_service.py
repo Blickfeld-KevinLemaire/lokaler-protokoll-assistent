@@ -396,3 +396,22 @@ def test_leere_zusammenfuehrung_bleibt_ein_fehler(tmp_path):
         protocol_service.run_full_protocol_pipeline(_chunks(2), tmp_path, "Auftrag", generate_fn, group_size=4)
     kennung = protocol_service.prompt_kennung("Auftrag")
     assert not (tmp_path / "zusammengefuehrt" / kennung / "zwischenergebnis_0001.md").is_file()
+
+
+def test_anderes_modell_verwendet_kein_altes_ergebnis_wieder(tmp_path):
+    """Gleicher Auftrag, anderes Modell: Die Zwischenstaende des alten Modells
+    duerfen nicht zurueckkommen -- sonst bliebe ein Modellwechsel wirkungslos."""
+    erstes, _ = _fake_generate_factory(responses_by_call={1: "ERGEBNIS VON MODELL A"})
+    a = protocol_service.run_full_protocol_pipeline(_chunks(1), tmp_path, "Auftrag", erstes, modell="modell-a")
+    assert a == "ERGEBNIS VON MODELL A"
+
+    zweites, calls = _fake_generate_factory(responses_by_call={1: "ERGEBNIS VON MODELL B"})
+    b = protocol_service.run_full_protocol_pipeline(_chunks(1), tmp_path, "Auftrag", zweites, modell="modell-b")
+    assert b == "ERGEBNIS VON MODELL B"
+    assert calls["count"] == 1
+
+    # Dasselbe Modell noch einmal: das gespeicherte Ergebnis wird wiederverwendet.
+    drittes, calls3 = _fake_generate_factory()
+    assert protocol_service.run_full_protocol_pipeline(_chunks(1), tmp_path, "Auftrag", drittes, modell="modell-a") == a
+    assert calls3["count"] == 0
+    assert protocol_service.prompt_kennung("Auftrag", "modell-a") != protocol_service.prompt_kennung("Auftrag", "modell-b")
