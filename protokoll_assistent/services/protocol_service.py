@@ -58,6 +58,8 @@ OHNE_VORGABE_SYSTEMPROMPT = (
 )
 
 _DENKBLOCK = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
+_DENKBLOCK_ENDE = re.compile(r"</think>", re.IGNORECASE)
+_DENKBLOCK_ANFANG = re.compile(r"<think>", re.IGNORECASE)
 
 
 class ProtocolValidationError(RuntimeError):
@@ -84,8 +86,22 @@ def prompt_kennung(system_prompt: str | None) -> str:
 
 def antwort_bereinigen(text: str) -> str:
     """Entfernt Denkbloecke (``<think>...</think>``), die manche Modelle in
-    die Antwort schreiben, sowie Leerraum an den Raendern."""
-    return _DENKBLOCK.sub("", str(text)).strip()
+    die Antwort schreiben, sowie Leerraum an den Raendern.
+
+    Auch unvollstaendige Denkbloecke: Steht nach dem Entfernen der
+    geschlossenen Bloecke noch ein ``</think>`` im Text, hat die Vorlage des
+    Modells den Block schon im Prompt geoeffnet -- alles davor ist Nachdenken
+    und entfaellt. Ein ``<think>`` ohne Ende macht den Rest zu Nachdenken;
+    steht es am Anfang, ist die Antwort leer (und wird wie eine leere Antwort
+    behandelt)."""
+    bereinigt = _DENKBLOCK.sub("", str(text))
+    enden = list(_DENKBLOCK_ENDE.finditer(bereinigt))
+    if enden:
+        bereinigt = bereinigt[enden[-1].end() :]
+    anfang = _DENKBLOCK_ANFANG.search(bereinigt)
+    if anfang:
+        bereinigt = bereinigt[: anfang.start()]
+    return bereinigt.strip()
 
 
 def _load_or_compute(path: Path, compute: Callable[[], str]) -> str:

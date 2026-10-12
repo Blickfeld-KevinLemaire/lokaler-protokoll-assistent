@@ -244,3 +244,26 @@ def test_abgeschnittene_antwort_wird_nicht_als_zwischenstand_gespeichert(tmp_pat
     with pytest.raises(ollama_service.OllamaError, match="abgeschnitten"):
         protocol_service.run_full_protocol_pipeline(_chunks(2), tmp_path, "Auftrag")
     assert not list(tmp_path.rglob("*.md"))
+
+
+def test_antwort_bereinigen_ungeschlossener_denkblock_ist_keine_antwort():
+    """Ein geoeffneter, nie geschlossener Denkblock ist reines Nachdenken --
+    das darf nicht als Ergebnis im Protokoll landen."""
+    assert protocol_service.antwort_bereinigen("<think>Ich ueberlege noch, was wichtig ist ...") == ""
+    assert protocol_service.antwort_bereinigen("  <THINK>\nnur Gedanken") == ""
+
+
+def test_antwort_bereinigen_verwaister_schluss_tag():
+    """Manche Vorlagen oeffnen den Denkblock schon im Prompt; die Antwort
+    beginnt dann mitten im Nachdenken und enthaelt nur das schliessende Tag."""
+    assert protocol_service.antwort_bereinigen("ueberlege ich\nnoch</think>\n\nDas Ergebnis.") == "Das Ergebnis."
+
+
+def test_antwort_bereinigen_laesst_normalen_text_unveraendert():
+    assert protocol_service.antwort_bereinigen("  ## Termine\n- 12.10. Abgabe\n") == "## Termine\n- 12.10. Abgabe"
+
+
+def test_generate_checked_wiederholt_reines_nachdenken():
+    generate_fn, calls = _fake_generate_factory(responses_by_call={1: "<think>abgebrochen", 2: "Brauchbar"})
+    assert protocol_service.generate_checked("Prompt", "System", generate_fn) == "Brauchbar"
+    assert calls["count"] == 2
