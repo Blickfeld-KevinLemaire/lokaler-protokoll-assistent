@@ -91,6 +91,9 @@ void Wireless_Init(void)
     }
     ESP_ERROR_CHECK( ret );
 
+    /* Einrichtung ueber USB aus dem NVS, sonst die einkompilierten Werte (vor dem WLAN-Start) */
+    vermerk_konfig_laden();
+
     /* Kennung fuer die Zuordnung am USB-Monitor; geht auch mit jeder Anfrage an die Software */
     const char *geraete_id = vermerk_geraete_id();
     printf("VERMERK Geraete-Id: %s, Firmware: %s\n", geraete_id[0] != '\0' ? geraete_id : "unbekannt", vermerk_firmware());
@@ -127,7 +130,9 @@ void WIFI_Init(void *arg)
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &wifi_event_handler, NULL));
 
     wifi_config_t wifi_config = {0};
-    strncpy((char *)wifi_config.sta.ssid, vermerk_konfig_wlan_name(), sizeof(wifi_config.sta.ssid) - 1);
+    /* 32 Bytes ohne abschliessendes Nullbyte sind ein gueltiger WLAN-Name */
+    memcpy(wifi_config.sta.ssid, vermerk_konfig_wlan_name(),
+           strnlen(vermerk_konfig_wlan_name(), sizeof(wifi_config.sta.ssid)));
     strncpy((char *)wifi_config.sta.password, vermerk_konfig_wlan_passwort(), sizeof(wifi_config.sta.password) - 1);
     wifi_config.sta.pmf_cfg.capable = true;
     wifi_config.sta.pmf_cfg.required = false;

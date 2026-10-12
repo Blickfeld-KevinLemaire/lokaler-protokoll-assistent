@@ -20,7 +20,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define VERMERK_URL_MAX          160
+#define VERMERK_URL_MAX          192    /* 96 Bytes Adresse + /api/v1/aufnahmen/ + Dateiname (69) */
 #define VERMERK_AUTH_MAX         (sizeof("Bearer ") + VERMERK_TOKEN_MAX)
 #define VERMERK_ANTWORT_MAX      256    /* die Antworten sind kurz; mehr wird nicht gelesen */
 #define VERMERK_HALLO_TIMEOUT_MS 2000
