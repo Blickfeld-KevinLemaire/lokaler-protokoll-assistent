@@ -21,6 +21,14 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
   es sich zuletzt gemeldet hat – mit Werks-Id und Firmware. Ab Werk ist der
   Empfang aus; die Übertragung ist nicht verschlüsselt und nur für das eigene
   Netz gedacht (siehe `SECURITY.md`).
+- **Aufnahmegeräte per USB einrichten:** Gerät per USB-Kabel anschließen,
+  unter *Einstellungen → Aufnahmegeräte → Gerät per USB einrichten* WLAN-Name
+  und Passwort eingeben – die Anwendung erkennt das Gerät (Board, Werks-Id,
+  Firmware), erzeugt das Token und schreibt WLAN, eigene Adresse und Token in
+  einem Zug ins Gerät. Niemand muss mehr Firmware kompilieren oder Token
+  abtippen. Danach steht das Gerät mit seiner Id in der Liste, und eine Zeile
+  für das Geräte-Inventar lässt sich kopieren. Meldet sich unter dem Namen
+  eines Geräts plötzlich andere Hardware, zeigt die Liste eine Warnung.
 
 - **Neue Ersteinrichtung:** Beim ersten Start erklärt ein Assistent in
   einfachen Worten, was das Programm macht, zeigt für **diesen** Computer je
