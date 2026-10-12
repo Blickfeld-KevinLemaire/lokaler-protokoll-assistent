@@ -415,6 +415,54 @@ def chat_stream(
     return "".join(teile)
 
 
+def _generate_request(body: dict[str, Any], base_url: str, timeout: float) -> str:
+    """Schickt die Anfrage an ``/api/generate`` und liefert das Feld
+    ``response`` der Ollama-Antwort."""
+    data = json.dumps(body, ensure_ascii=False).encode("utf-8")
+    request = urllib.request.Request(
+        f"{base_url}/api/generate",
+        data=data,
+        headers={"Content-Type": "application/json; charset=utf-8"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            result = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as error:
+        details = error.read().decode("utf-8", errors="replace")[:1000]
+        raise OllamaError(f"Ollama-Fehler HTTP {error.code}: {details}") from error
+    except urllib.error.URLError as error:
+        raise OllamaError(f"Ollama ist nicht erreichbar: {error}") from error
+    except TimeoutError as error:
+        raise OllamaError("Die Anfrage an das lokale Modell hat das Zeitlimit ueberschritten.") from error
+    return str(result.get("response", ""))
+
+
+def generate_text(
+    prompt: str,
+    system: str,
+    model: str = DEFAULT_MODEL,
+    base_url: str = OLLAMA_BASE_URL,
+    temperature: float = 0.0,
+    timeout: float = DEFAULT_TIMEOUT_SECONDS,
+    num_ctx: int | None = None,
+) -> str:
+    """Ruft ``/api/generate`` mit Temperatur 0 auf und liefert die Antwort des
+    Modells als Freitext zurueck -- ohne ``format: json``. Das Modell
+    bestimmt Aufbau und Form der Antwort allein nach dem Systemprompt.
+    Denkphase abgeschaltet und Kontextgroesse wie bei ``generate_json``."""
+    num_ctx = num_ctx or kontext_fuer_protokoll(system, prompt)
+    body = {
+        "model": model,
+        "system": system,
+        "prompt": prompt,
+        "stream": False,
+        "think": False,
+        "options": {"temperature": temperature, "num_ctx": num_ctx},
+    }
+    return _generate_request(body, base_url, timeout)
+
+
 def generate_json(
     prompt: str,
     system: str,
@@ -438,25 +486,7 @@ def generate_json(
         "think": False,
         "options": {"temperature": temperature, "num_ctx": num_ctx},
     }
-    data = json.dumps(body, ensure_ascii=False).encode("utf-8")
-    request = urllib.request.Request(
-        f"{base_url}/api/generate",
-        data=data,
-        headers={"Content-Type": "application/json; charset=utf-8"},
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            result = json.loads(response.read().decode("utf-8"))
-    except urllib.error.HTTPError as error:
-        details = error.read().decode("utf-8", errors="replace")[:1000]
-        raise OllamaError(f"Ollama-Fehler HTTP {error.code}: {details}") from error
-    except urllib.error.URLError as error:
-        raise OllamaError(f"Ollama ist nicht erreichbar: {error}") from error
-    except TimeoutError as error:
-        raise OllamaError("Die Anfrage an das lokale Modell hat das Zeitlimit ueberschritten.") from error
-
-    raw_text = result.get("response", "")
+    raw_text = _generate_request(body, base_url, timeout)
     parsed = extract_json_object(raw_text)
     if parsed is None:
         raise OllamaError(

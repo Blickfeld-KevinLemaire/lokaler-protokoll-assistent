@@ -85,6 +85,31 @@ def test_generate_json_raises_ollama_error_on_http_error(monkeypatch):
         ollama_service.generate_json("Frage", "System")
 
 
+def test_generate_text_liefert_freitext_ohne_json_format(monkeypatch):
+    captured = {}
+
+    def fake_urlopen(request, timeout=None):
+        captured["body"] = json.loads(request.data.decode("utf-8"))
+        return _FakeResponse({"response": "## Termine\n- 12.10. Abgabe"})
+
+    monkeypatch.setattr(ollama_service.urllib.request, "urlopen", fake_urlopen)
+    result = ollama_service.generate_text("Frage", "System", model="qwen3:8b")
+    assert result == "## Termine\n- 12.10. Abgabe"
+    assert "format" not in captured["body"]
+    assert captured["body"]["system"] == "System"
+    assert captured["body"]["options"]["temperature"] == 0.0
+    assert captured["body"]["stream"] is False
+
+
+def test_generate_text_raises_ollama_error_on_http_error(monkeypatch):
+    def raise_http_error(request, timeout=None):
+        raise urllib.error.HTTPError("url", 500, "Serverfehler", {}, None)
+
+    monkeypatch.setattr(ollama_service.urllib.request, "urlopen", raise_http_error)
+    with pytest.raises(ollama_service.OllamaError):
+        ollama_service.generate_text("Frage", "System")
+
+
 def test_generate_json_sends_temperature_zero_and_json_format(monkeypatch):
     captured = {}
 

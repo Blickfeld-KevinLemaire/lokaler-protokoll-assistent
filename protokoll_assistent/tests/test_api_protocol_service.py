@@ -31,6 +31,41 @@ def _chat_antwort(inhalt: str) -> dict:
     return {"choices": [{"message": {"content": inhalt}}]}
 
 
+def test_generate_text_liefert_freitext_ohne_json_vorgabe(monkeypatch):
+    aufgezeichnet = {}
+
+    def fake_urlopen(request, timeout=None):
+        aufgezeichnet["body"] = json.loads(request.data.decode("utf-8"))
+        return _FakeResponse(_chat_antwort("- 12.10. Abgabe"))
+
+    monkeypatch.setattr(svc.urllib.request, "urlopen", fake_urlopen)
+
+    ergebnis = svc.generate_text(
+        "Transkripttext", "Systemprompt", "modell-x",
+        endpoint_url="https://example.test/chat/completions", api_key="geheim",
+    )
+
+    assert ergebnis == "- 12.10. Abgabe"
+    assert "response_format" not in aufgezeichnet["body"]
+    assert aufgezeichnet["body"]["messages"] == [
+        {"role": "system", "content": "Systemprompt"},
+        {"role": "user", "content": "Transkripttext"},
+    ]
+
+
+def test_generate_text_meldet_http_fehler(monkeypatch):
+    def fake_urlopen(request, timeout=None):
+        raise urllib.error.HTTPError("url", 401, "Unauthorized", {}, None)
+
+    monkeypatch.setattr(svc.urllib.request, "urlopen", fake_urlopen)
+
+    with pytest.raises(svc.ApiProtocolError, match="401"):
+        svc.generate_text(
+            "T", "S", "modell-x",
+            endpoint_url="https://example.test/chat/completions", api_key="geheim",
+        )
+
+
 def test_generate_json_liest_json_aus_der_antwort(monkeypatch):
     protokoll = {"titel": "Testprotokoll", "themen": []}
     monkeypatch.setattr(
