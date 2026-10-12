@@ -346,7 +346,13 @@ def geraet_fuer_sprechertrennung(geraet: str) -> str:
 
 
 def freier_grafikspeicher() -> int | None:
-    """Freier Grafikspeicher in Bytes, oder None ohne nutzbare CUDA-GPU."""
+    """Freier Grafikspeicher in Bytes, oder None ohne nutzbare CUDA-GPU.
+
+    Unter Windows ist der Wert zu optimistisch, solange ein anderer Prozess
+    (Ollama) Speicher haelt: gemessen meldete torch 6,9 GB frei, obwohl Ollama
+    5,6 GB von 8 GB belegte. Wer entscheiden will, ob Whisper noch Platz hat,
+    zieht den Speicher der Ollama-Modelle selbst ab (siehe
+    ``pipeline_service._grafikspeicher_fuer_whisper_freimachen``)."""
     try:
         import torch  # type: ignore
 
@@ -354,6 +360,19 @@ def freier_grafikspeicher() -> int | None:
             return None
         frei, _gesamt = torch.cuda.mem_get_info()
         return int(frei)
+    except Exception:
+        return None
+
+
+def gesamter_grafikspeicher() -> int | None:
+    """Gesamter Grafikspeicher in Bytes, oder None ohne nutzbare CUDA-GPU."""
+    try:
+        import torch  # type: ignore
+
+        if not torch.cuda.is_available():
+            return None
+        _frei, gesamt = torch.cuda.mem_get_info()
+        return int(gesamt)
     except Exception:
         return None
 
