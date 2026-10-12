@@ -95,24 +95,26 @@ das Sprachmodell, Export. Maßnahmen, geordnet nach erwartetem Nutzen:
 1. **Laufend transkribieren** (Phase 2): Whisper schafft auf der RTX 3060 Ti ca. 35-fache Echtzeit. Beim Ende ist nur noch das letzte Stück offen (unter 1 s).
 2. **Auswertung vorbereiten, solange das Meeting läuft:** Die Software fasst heute Gruppen von Chunks zusammen und führt sie am Ende zusammen. Die Teilzusammenfassungen können
    schon während des Meetings entstehen; am Ende fehlt nur der letzte Teil und die Zusammenführung.
-3. **Modelle warm halten:** Beim Start der Sitzung Whisper und das Ollama-Modell laden und im Speicher lassen (`keep_alive`). Sie passen zusammen in 8 GB VRAM
-   (Whisper ca. 2,3 GB, Sprachmodell ca. 3 GB), es wird nichts ausgetauscht. Spart die Ladezeit.
+3. **Modelle warm halten, aber auf die richtige Hardware verteilen:** Gemessen (siehe [`messung-phase0.md`](messung-phase0.md)) belegt Whisper ca. 3 GB und das 8B-Sprachmodell ca. 7 GB der 8 GB
+   Grafikspeicher, **beide zusammen passen nicht**. Entweder läuft Whisper live auf dem **Prozessor** (3,2-fache Echtzeit reicht für 15-s-Stücke) und die Grafikkarte gehört dem Sprachmodell,
+   oder es kommt ein 4B-Modell zum Einsatz, das neben Whisper passt. Außerdem muss Ollama das Modell nach dem letzten Aufruf entladen: Sonst scheitert die nächste Transkription mit „CUDA out of memory“.
 4. **Sprechertrennung entkoppeln:** pyannote arbeitet heute über die ganze Aufnahme. Entweder reicht die Zeit (messen), oder Sprecher-Merkmale werden laufend je
    Sprechabschnitt berechnet und am Ende nur noch gruppiert.
 5. **Früh melden:** Das Häkchen erscheint, sobald das **Auftragsergebnis** da ist. Word-Datei, SRT & Co. entstehen danach im Hintergrund.
 6. **Zwei Stufen:** erst „Transkript fertig“, dann „Auswertung fertig ✓“. Der Nutzer sieht den Fortschritt, statt zu warten.
 7. **Kurzer Auftrag, kurze Antwort:** ein auf ToDos zugeschnittener Auftrag erzeugt weniger Text als ein volles Protokoll und ist schneller.
 
-Die tatsächliche Verteilung wird in Phase 0 an einer echten Aufnahme gemessen, bevor etwas umgebaut wird.
+**Gemessen (Phase 0, siehe [`messung-phase0.md`](messung-phase0.md)):** Bei 73 Minuten Aufnahme dauert die Verarbeitung heute ca. 25 Minuten, davon 84 % Sprachmodell
+(Transkription 79 s, Sprechertrennung 143 s). Das Sprachmodell ist der Engpass, nicht die Transkription.
 
 ## Phasen (überarbeitet)
 
 | Phase | Inhalt | Ergebnis |
 |---|---|---|
-| **0 – Messen** | Zeit je Schritt der vorhandenen Verarbeitung auf diesem PC, auch hochgerechnet auf 60 Minuten; Entscheidung zur Sprechertrennung | Zahlen statt Vermutungen |
+| **0 – Messen** (erledigt, [`messung-phase0.md`](messung-phase0.md)) | Zeit je Schritt der vorhandenen Verarbeitung auf diesem PC bei 8 und 73 Minuten | Das Sprachmodell ist der Engpass; Whisper und das 8B-Modell passen nicht zusammen auf die Karte; Fehler „CUDA out of memory“ bei zwei Aufnahmen kurz nacheinander gefunden |
 | **1 – Übertragung** | Dienst am PC (Opt-in, Token, Sitzungsordner pro Tag/Meeting), Sender im Gerät (15-s-Stücke, Bestätigung, Wiederaufnahme, lokale Kopie bleibt), Statusanzeige, danach vorhandene Verarbeitung; Token-Verwaltung in der Software | Aufnahme ist beim Ende schon am PC; nichts geht verloren |
-| **2 – Laufende Transkription** | Schnitte an Sprechpausen (5–30 s, 2–3 s Überlappung bei Zwangsschnitt), wachsendes Transkript | Wartezeit nach dem Ende sinkt stark |
-| **3 – Auftrag und schnelle Auswertung** | Aufträge (Dropdown am PC/Gerät), Teilzusammenfassungen während des Meetings, Modelle warm, früher Status, „Transkription erfolgreich ✓“ | Der beschriebene Ablauf |
+| **2 – Laufende Transkription** | Schnitte an Sprechpausen (5–30 s, 2–3 s Überlappung bei Zwangsschnitt), wachsendes Transkript; Whisper live auf dem Prozessor oder mit kleinerem Modell; Sprachmodell nach Gebrauch entladen | spart ca. 1–2 min nach dem Ende; vermeidet den Speicherfehler |
+| **3 – Auftrag und schnelle Auswertung** | Aufträge (Dropdown am PC/Gerät), Block-Analysen (je 73 s) schon während des Meetings, knappes Auftragsergebnis statt vollem Protokoll, früher Status, „Transkription erfolgreich ✓“ | Der beschriebene Ablauf; Wartezeit grob 2–5 min statt ca. 25 min (zu bestätigen) |
 | **4 – Ergebnis aufs Gerät** | Kurzfassung/ToDos auf dem Display, „Frag mein Meeting“ als Text | Rückmeldung am Gerät |
 | **5 – Sprache** | Frage per Mikrofon, KI-Sprachausgabe der Antwort | später |
 
