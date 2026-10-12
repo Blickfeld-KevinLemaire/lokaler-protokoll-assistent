@@ -19,6 +19,7 @@ Eingangsordner liegt, und wertet Ausgaben von Geraet und Proxy als Beleg aus.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import hashlib
 import http.client
 import importlib
@@ -32,11 +33,13 @@ import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 TOKEN = "nur-fuer-den-qemu-test-kein-echtes-token-0"  # noqa: S105 - Test-Token, kein Geheimnis
 GERAET = "E2E"
 EMPFANG_PORT = 8765
 PROXY_PORT = 8766
+KONSOLE_PORT = 5555  # serielle Konsole von QEMU, nur 127.0.0.1 im Container
 TEIL = 256 * 1024
 
 # (Name, Groesse, Saat) - dieselben Werte wie in main/e2e_main.c
@@ -206,15 +209,14 @@ class Proxy:
 # QEMU und serielle Konsole
 # --------------------------------------------------------------------------
 class Qemu:
-    """QEMU mit der Test-App. Die serielle Konsole (UART0) haengt an einem Unix-Socket im Arbeitsordner:
-    lesen (Ausgabe des Geraets) und schreiben (Anweisungen der Einrichtung). Kein Netzwerk-Port.
-    Der Flash liegt in einer Datei und bleibt ueber Neustarts des Geraets erhalten (NVS)."""
+    """QEMU mit der Test-App. Die serielle Konsole (UART0) ist ein TCP-Server auf 127.0.0.1 im Container
+    (nur Loopback): der Treiber oder - fuer den App-Fall - pyserial ("socket://") verbindet sich damit,
+    immer nur einer zur Zeit. Der Flash liegt in einer Datei und bleibt ueber Neustarts erhalten (NVS)."""
 
     def __init__(self, build: Path, arbeit: Path):
         self.arbeit = arbeit
         self.flash = arbeit / "qemu_flash.bin"
         self.efuse = arbeit / "qemu_efuse.bin"
-        self.socket_pfad = arbeit / "konsole.sock"
         self.zeilen: list[str] = []
         self._bedingung = threading.Condition()
         self._prozess: subprocess.Popen[bytes] | None = None
@@ -237,7 +239,6 @@ class Qemu:
         self.efuse.write_bytes(EFUSE_ESP32)
 
     def starten(self) -> None:
-        self.socket_pfad.unlink(missing_ok=True)
         befehl = [
             "qemu-system-xtensa",
             "-M",
@@ -259,7 +260,7 @@ class Qemu:
             "-monitor",
             "none",
             "-chardev",
-            f"socket,id=konsole,path={self.socket_pfad},server=on,wait=on",
+            f"socket,id=konsole,host=127.0.0.1,port={KONSOLE_PORT},server=on,wait=on",
             "-serial",
             "chardev:konsole",
         ]
@@ -268,19 +269,37 @@ class Qemu:
             self._prozess = subprocess.Popen(
                 befehl, stdout=protokoll, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL
             )
+        self.verbinden()
+
+    def verbinden(self) -> None:
         ende = time.monotonic() + 60
         while True:
             try:
-                konsole = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-                konsole.connect(str(self.socket_pfad))
+                konsole = socket.create_connection(("127.0.0.1", KONSOLE_PORT), timeout=5)
+                konsole.settimeout(None)
                 break
             except OSError:
-                konsole.close()
-                if time.monotonic() > ende or self._prozess.poll() is not None:
+                if time.monotonic() > ende or not self.laeuft():
                     raise RuntimeError("QEMU-Konsole nicht erreichbar") from None
                 time.sleep(0.2)
         self._konsole = konsole
         threading.Thread(target=self._lesen, args=(konsole,), daemon=True).start()
+
+    def trennen(self) -> None:
+        """Konsole freigeben (z. B. fuer pyserial im App-Fall)."""
+        if self._konsole is not None:
+            # shutdown weckt den lesenden Faden und beendet die Verbindung wirklich; QEMU nimmt erst dann
+            # den naechsten Client an (close allein laesst sie offen, solange recv() noch wartet)
+            with contextlib.suppress(OSError):
+                self._konsole.shutdown(socket.SHUT_RDWR)
+            self._konsole.close()
+            self._konsole = None
+
+    def zeile_aufnehmen(self, zeile: str, quelle: str = "QEMU") -> None:
+        with self._bedingung:
+            self.zeilen.append(zeile)
+            print(f"{quelle}| {zeile}", flush=True)
+            self._bedingung.notify_all()
 
     def _lesen(self, konsole: socket.socket) -> None:
         rest = b""
@@ -295,12 +314,8 @@ class Qemu:
                 return
             rest += block
             *fertig, rest = rest.split(b"\n")
-            with self._bedingung:
-                for roh in fertig:
-                    zeile = roh.decode("utf-8", errors="replace").rstrip("\r")
-                    self.zeilen.append(zeile)
-                    print(f"QEMU| {zeile}", flush=True)
-                self._bedingung.notify_all()
+            for roh in fertig:
+                self.zeile_aufnehmen(roh.decode("utf-8", errors="replace").rstrip("\r"))
 
     def laeuft(self) -> bool:
         return self._prozess is not None and self._prozess.poll() is None
@@ -310,7 +325,8 @@ class Qemu:
         with self._bedingung:
             ab = len(self.zeilen)
         print(f"AN GERAET| {text[:120]}{'...' if len(text) > 120 else ''}", flush=True)
-        assert self._konsole is not None  # noqa: S101 - nach starten() immer gesetzt
+        if self._konsole is None:
+            raise RuntimeError("Konsole nicht verbunden")
         self._konsole.sendall(text.encode("ascii") + b"\n")
         return ab
 
@@ -340,8 +356,7 @@ class Qemu:
         return self.warten("#VERMERK ", ab, zeitlimit) or "(keine Antwort)"
 
     def stoppen(self) -> None:
-        if self._konsole is not None:
-            self._konsole.close()
+        self.trennen()
         if self._prozess is not None:
             self._prozess.kill()
             self._prozess.wait()
@@ -487,12 +502,207 @@ def einrichtung_pruefen(
     return ergebnisse
 
 
+class Mitschnitt:
+    """Haengt zwischen dem echten Code der Anwendung und pyserial: reicht alles durch, schreibt jede
+    gelesene Zeile des Geraets in qemu.zeilen (fuer die Suche nach Passwort und Token) und zaehlt, was
+    die Anwendung sendet."""
+
+    def __init__(self, verbindung: Any, qemu: Qemu, gesendet: list[str]):
+        self._verbindung = verbindung
+        self._qemu = qemu
+        self._gesendet = gesendet
+
+    def write(self, daten: bytes) -> Any:
+        text = daten.decode("ascii", errors="replace").rstrip("\n")
+        self._gesendet.append(text)
+        print(f"APP AN GERAET| {text[:100]}{'...' if len(text) > 100 else ''}", flush=True)
+        return self._verbindung.write(daten)
+
+    def readline(self) -> bytes:
+        roh: bytes = self._verbindung.readline()
+        if roh:
+            self._qemu.zeile_aufnehmen(roh.decode("utf-8", errors="replace").rstrip("\r\n"), "APP<-GERAET")
+        return roh
+
+    def close(self) -> None:
+        self._verbindung.close()
+
+
+def app_pruefen(
+    qemu: Qemu, usb: Any, token: str, eingang: Path, kontakte: Callable[[], dict[str, object]]
+) -> list[tuple[str, bool, str]]:
+    """Der echte Code der Anwendung (services/geraete_usb_service.py) richtet das Geraet ein - ueber
+    pyserial wie am COM-Port, hier mit "socket://" auf die Konsole von QEMU."""
+    serial = importlib.import_module("serial")
+    ergebnisse: list[tuple[str, bool, str]] = []
+    gesendet: list[str] = []
+    url = f"http://10.0.2.2:{EMPFANG_PORT}"
+    ssid = 'Gäste "Büro" ÄÖÜ'
+    passwort = "Passwort mit Leerzeichen!"
+
+    def oeffnen(_port: str) -> Mitschnitt:
+        return Mitschnitt(serial.serial_for_url(f"socket://127.0.0.1:{KONSOLE_PORT}", timeout=0.2), qemu, gesendet)
+
+    def kurz_schlafen(sekunden: float) -> None:
+        # nach_neustart_verbinden() wartet sonst 1,5 s, bevor es neu oeffnet. Am echten Geraet verschwindet der
+        # COM-Port beim Neustart ohnehin. In QEMU bleibt die Konsole bestehen, und ein Neustart OHNE
+        # verbundenen Client endete zweimal in einer Panik beim Start (Task-Watchdog-ISR, weil QEMU die
+        # Timergruppe beim Software-Reset nicht zuruecksetzt). Deshalb hier sofort wieder verbinden.
+        time.sleep(min(sekunden, 0.05))
+
+    def info_mit_geduld(sitzung: Any) -> Any:
+        letzter: Exception | None = None
+        for _ in range(10):  # das Geraet startet gerade (QEMU ist langsam)
+            try:
+                return sitzung.info()
+            except usb.UsbFehler as fehler:
+                letzter = fehler
+        raise letzter or RuntimeError("keine Antwort")
+
+    def bis_zeile(sitzung: Any, praefix: str, ab: int, zeitlimit: float) -> str | None:
+        """Liest ueber die Verbindung der Anwendung weiter, bis das Geraet `praefix` ausgibt."""
+        ende = time.monotonic() + zeitlimit
+        while time.monotonic() < ende:
+            treffer = next((z for z in qemu.zeilen[ab:] if z.startswith(praefix)), None)
+            if treffer is not None:
+                return treffer
+            sitzung._verbindung.readline()
+        return None
+
+    qemu.trennen()
+    sitzung = usb.Geraetesitzung(oeffnen("qemu"))
+    try:
+        info = info_mit_geduld(sitzung)
+        ergebnisse.append(
+            ("APP info() vor der Einrichtung", info.eingerichtet is False and info.board == "e2e-qemu", str(info))
+        )
+
+        # Von der Anwendung selbst abgelehnt (gleiche Regeln wie im Geraet): nichts geht an das Geraet
+        for fall, falsch in [
+            (
+                "7-stelliges Passwort",
+                usb.Einrichtung(wlan_ssid=ssid, wlan_passwort="1234567", pc_url=url, pc_token=token),
+            ),
+            (
+                "Passwort mit Umlaut",
+                usb.Einrichtung(wlan_ssid=ssid, wlan_passwort="geheimnis-äöü", pc_url=url, pc_token=token),
+            ),
+            (
+                "Adresse mit / am Ende",
+                usb.Einrichtung(wlan_ssid=ssid, wlan_passwort=passwort, pc_url=url + "/", pc_token=token),
+            ),
+        ]:
+            vorher = len(gesendet)
+            try:
+                sitzung.einrichten(falsch)
+                ergebnisse.append((f"APP lehnt ab: {fall}", False, "keine Ausnahme"))
+            except usb.UsbFehler as fehler:
+                ergebnisse.append(
+                    (
+                        f"APP lehnt ab, nichts gesendet: {fall}",
+                        len(gesendet) == vorher and bool(falsch.fehler()),
+                        f"UsbFehler: {fehler} | gesendet: {len(gesendet) - vorher} Zeilen",
+                    )
+                )
+
+        # Vom Geraet abgelehnt, durch den Code der Anwendung (_anweisung/_antwort). Ueber einrichten() geht
+        # das nicht mehr: Die Anwendung prueft vorher mindestens so streng wie das Geraet.
+        for fall, schritte, erwartet in [
+            (
+                "SETZE Adresse mit / am Ende",
+                [(f"SETZE pc_url {(url + '/').encode().hex()}", "SETZE pc_url", "pc_url")],
+                "Das Geraet lehnt 'pc_url' ab: Adresse ohne / am Ende angeben",
+            ),
+            (
+                "SPEICHERN ohne Token",
+                [
+                    ("VERWERFEN", "VERWERFEN", "VERWERFEN"),
+                    (f"SETZE wlan_ssid {ssid.encode().hex()}", "SETZE wlan_ssid", "wlan_ssid"),
+                    (f"SETZE pc_url {url.encode().hex()}", "SETZE pc_url", "pc_url"),
+                    ("SPEICHERN", "SPEICHERN", "SPEICHERN"),
+                ],
+                "Das Geraet lehnt 'SPEICHERN' ab: pc_token fehlt (pc_url ist gesetzt)",
+            ),
+        ]:
+            try:
+                for befehl, ok, schluessel in schritte:
+                    sitzung._anweisung(befehl, ok, schluessel)
+                ergebnisse.append((f"APP Geraet lehnt ab: {fall}", False, "keine Ausnahme"))
+            except usb.UsbFehler as fehler:
+                ergebnisse.append((f"APP Geraet lehnt ab: {fall}", str(fehler) == erwartet, f"UsbFehler: {fehler}"))
+
+        # Einrichten wie die Anwendung
+        richtig = usb.Einrichtung(wlan_ssid=ssid, wlan_passwort=passwort, pc_url=url, pc_token=token, erste_nummer=1)
+        sitzung.einrichten(richtig)
+        ergebnisse.append(("APP einrichten()", True, f"{len(richtig.befehle())} SETZE + SPEICHERN ohne Fehler"))
+    finally:
+        sitzung.schliessen()
+
+    # Nach dem Neustart neu verbinden, wie die Anwendung es tut
+    ab = len(qemu.zeilen)
+    sitzung = usb.nach_neustart_verbinden("qemu", oeffnen, zeitlimit=120, schlafen=kurz_schlafen)
+    try:
+        info = info_mit_geduld(sitzung)
+        ergebnisse.append(
+            (
+                "APP info() nach dem Neustart",
+                info.eingerichtet is True
+                and info.wlan == ssid
+                and info.pc_url == url
+                and info.token_pc is True
+                and info.token_server is False,
+                str(info),
+            )
+        )
+        n = bis_zeile(sitzung, "E2E n:", ab, 300) or "(kein Ergebnis)"
+        datei = eingang / "APP_E2E_N.opus"
+        gleich = datei.exists() and datei.read_bytes() == daten(300000, 0x4E)
+        kontakt = kontakte().get("APP")
+        ergebnisse.append(
+            (
+                "APP Upload mit den eingerichteten Werten",
+                n.startswith("E2E n: OK") and gleich and getattr(kontakt, "firmware", None) == "e2e-qemu/1.0.0",
+                f"{n} | {datei.name} {'byte-gleich' if gleich else 'FEHLT/ABWEICHEND'} | kontakte()['APP']: {kontakt}",
+            )
+        )
+        bis_zeile(sitzung, "E2E BEREIT", ab, 120)
+        sitzung.loeschen()
+        ergebnisse.append(("APP loeschen()", True, "OK LOESCHEN"))
+    finally:
+        sitzung.schliessen()
+
+    sitzung = usb.nach_neustart_verbinden("qemu", oeffnen, zeitlimit=120, schlafen=kurz_schlafen)
+    try:
+        info = info_mit_geduld(sitzung)
+        ergebnisse.append(
+            (
+                "APP info() nach loeschen()",
+                info.eingerichtet is False and info.pc_url == "" and not info.token_pc,
+                str(info),
+            )
+        )
+    finally:
+        sitzung.schliessen()
+
+    geheim = [token, token.encode().hex(), passwort, passwort.encode().hex()]
+    funde = [z for z in qemu.zeilen if any(x in z for x in geheim)]
+    ergebnisse.append(
+        ("APP Passwort/Token nie vom Geraet ausgegeben", not funde, f"{len(qemu.zeilen)} Zeilen, Funde: {len(funde)}")
+    )
+    return ergebnisse
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--empfang-root", required=True, type=Path, help="Ordner mit protokoll_assistent/")
     parser.add_argument("--build", required=True, type=Path, help="Build-Ordner der Test-App")
     parser.add_argument("--arbeit", required=True, type=Path)
     parser.add_argument("--zeitlimit", type=float, default=1800.0)
+    parser.add_argument(
+        "--app-root",
+        type=Path,
+        help="Ordner mit protokoll_assistent/services/geraete_usb_service.py (Standard: --empfang-root)",
+    )
     args = parser.parse_args()
 
     sys.path.insert(0, str(args.empfang_root))
@@ -506,9 +716,14 @@ def main() -> int:
 
     # Zweites Geraet "USB": sein Token erzeugt der Empfang wie in der Anwendung, eingerichtet wird es ueber USB
     usb_token = g.token_erzeugen()
+    app_token = g.token_erzeugen()
     empfang = g.GeraeteEmpfang(
         eingang,
-        [g.Geraet(GERAET, g.token_hash(TOKEN)), g.Geraet("USB", g.token_hash(usb_token))],
+        [
+            g.Geraet(GERAET, g.token_hash(TOKEN)),
+            g.Geraet("USB", g.token_hash(usb_token)),
+            g.Geraet("APP", g.token_hash(app_token)),
+        ],
         port=EMPFANG_PORT,
         adresse="127.0.0.1",
     )
@@ -533,6 +748,16 @@ def main() -> int:
         dauer = time.monotonic() - beginn
         if qemu.warten("E2E BEREIT", 0, 120) is not None:
             usb_ergebnisse = einrichtung_pruefen(qemu, usb_token, eingang, empfang.kontakte)
+            app_root = args.app_root or args.empfang_root
+            if (app_root / "protokoll_assistent/services/geraete_usb_service.py").exists():
+                sys.path.insert(0, str(app_root))
+                usb = importlib.import_module("protokoll_assistent.services.geraete_usb_service")
+                try:
+                    usb_ergebnisse += app_pruefen(qemu, usb, app_token, eingang, empfang.kontakte)
+                except Exception as fehler:  # Bericht trotzdem ausgeben
+                    usb_ergebnisse.append(("APP Ablauf", False, f"{type(fehler).__name__}: {fehler}"))
+            else:
+                print("APP-Fall uebersprungen: services/geraete_usb_service.py fehlt", flush=True)
         else:
             usb_ergebnisse = [("USB Einrichtung", False, "Geraet nicht bereit")]
     finally:

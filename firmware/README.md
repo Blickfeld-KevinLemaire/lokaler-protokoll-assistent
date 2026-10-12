@@ -174,6 +174,12 @@ getestet, und `vermerk_konsole.c`):
   Neustart; danach `INFO` mit `eingerichtet:true` und ein Upload **nur** mit den Werten aus dem NVS (Datei byte-gleich
   angekommen); `LOESCHEN`, Neustart, wieder nicht eingerichtet. Passwort und Token standen in keiner der ca. 580 Zeilen,
   die das Gerät ausgegeben hat. Die Prüf- und Antwortlogik hat dazu eigene Tests auf dem PC (`test_vermerk_einrichtung.c`).
+* **Anwendung gegen Firmware in QEMU** (derselbe Lauf): Der echte USB-Code der Anwendung
+  (`services/geraete_usb_service.py`, über pyserial) richtet das Gerät ein: `info()`, Ablehnungen durch die Anwendung
+  selbst (7-stelliges Passwort, Umlaut im Passwort, Adresse mit `/` am Ende; dabei geht nichts an das Gerät),
+  Ablehnungen durch das Gerät, die als `UsbFehler` mit dem Text des Geräts ankommen, `einrichten()` mit Umlauten und
+  Anführungszeichen im WLAN-Namen, `nach_neustart_verbinden()`, `info()` mit `eingerichtet`, Upload mit diesen Werten,
+  `loeschen()`. Beide Seiten sprechen also dieselbe Zeilen-Schnittstelle.
 
 **Nicht geprüft** (nur auf echter Hardware zu klären): die Einrichtung über **USB-Serial-JTAG** (in QEMU läuft die
 Konsole über UART; auf S3/C6 installiert die Firmware den USB-Serial-JTAG-Treiber, das ist nur gebaut), das Öffnen des
