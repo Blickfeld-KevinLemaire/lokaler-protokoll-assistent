@@ -33,4 +33,5 @@ idf_component_register(
         sdmmc
         wear_levelling
         nvs_flash
+        vermerk_upload
 )

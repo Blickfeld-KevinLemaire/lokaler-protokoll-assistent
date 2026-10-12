@@ -1,16 +1,19 @@
 #include "Wireless.h"
-#include "wifi_credentials.h"
-#include "server_config.h"
-#include "esp_http_client.h"
+#include "vermerk_konfig.h"
 #include "esp_event.h"
 #include "esp_netif.h"
-#include "esp_heap_caps.h"
-#include "esp_timer.h"
 #include <stdlib.h>
 
 volatile bool WIFI_CONNECTED = false;
 volatile bool SERVER_REACHABLE = false;
 volatile bool PC_REACHABLE = false;
+
+/* Lesepuffer fuer den Upload: klein halten, der C6 hat kein PSRAM */
+#define UPLOAD_PUFFER_GROSS  (4 * 1024)
+#define UPLOAD_PUFFER_KLEIN  (4 * 1024)
+
+/* Von /api/v1/hallo gemeldete Stueckgroesse je Ziel (0 = Standard) */
+static volatile uint32_t teil_max_bytes[2];
 
 static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data)
 {
@@ -28,41 +31,50 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
     }
 }
 
-/* Fragt /vermerk-status.txt eines Ziels ab. Leere Basis-URL = nicht konfiguriert. */
-static bool probe_target(const char *base_url)
+/* Fragt GET /api/v1/hallo eines Ziels ab (mit Token). Erreichbar nur, wenn dort wirklich die
+ * Protokoll-Software antwortet. Aenderungen erscheinen einmal im Monitor. */
+static bool probe_target(vermerk_ziel_t ziel, int *letzter_zustand)
 {
-    if (base_url[0] == '\0') {
-        return false;
+    vermerk_hallo_t hallo = vermerk_hallo(ziel);
+    int zustand = hallo.erreichbar ? 1000 : hallo.http_status;
+
+    if (zustand != *letzter_zustand) {
+        *letzter_zustand = zustand;
+        const char *name = vermerk_konfig_ziel_name(ziel);
+        if (hallo.erreichbar) {
+            printf("VERMERK %s erreichbar (Stuecke bis %u KB)\n", name,
+                   (unsigned)(vermerk_teil_bytes(hallo.teil_max_bytes) / 1024));
+        } else if (hallo.http_status == -1) {
+            /* Ziel nicht eingerichtet (leere Adresse oder kein Token): nichts melden */
+        } else if (hallo.http_status == 0) {
+            printf("VERMERK %s antwortet nicht\n", name);
+        } else if (hallo.http_status == 401) {
+            printf("VERMERK %s lehnt das Token ab (HTTP 401): Token in server_config.h pruefen\n", name);
+        } else if (hallo.http_status == 200) {
+            printf("VERMERK %s: dort antwortet nicht die Protokoll-Software (Schnittstelle 1)\n", name);
+        } else {
+            printf("VERMERK %s: HTTP %d auf /api/v1/hallo\n", name, hallo.http_status);
+        }
     }
 
-    char url[128];
-    snprintf(url, sizeof(url), "%s%s", base_url, VERMERK_STATUS_PATH);
-
-    esp_http_client_config_t config = {
-        .url = url,
-        .method = HTTP_METHOD_GET,
-        .timeout_ms = 2000,
-    };
-
-    esp_http_client_handle_t client = esp_http_client_init(&config);
-    if (client == NULL) {
-        return false;
-    }
-    esp_err_t err = esp_http_client_perform(client);
-    int status = (err == ESP_OK) ? esp_http_client_get_status_code(client) : 0;
-    esp_http_client_cleanup(client);
-    return err == ESP_OK && status == 200;
+    teil_max_bytes[ziel] = hallo.teil_max_bytes;
+    return hallo.erreichbar;
 }
 
 static void server_check_task(void *arg)
 {
+    int zustand_server = -2;
+    int zustand_pc = -2;
+
     while (1) {
         if (WIFI_CONNECTED) {
-            SERVER_REACHABLE = probe_target(VERMERK_SERVER_BASE_URL);
-            PC_REACHABLE = probe_target(VERMERK_PC_BASE_URL);
+            SERVER_REACHABLE = probe_target(VERMERK_ZIEL_SERVER, &zustand_server);
+            PC_REACHABLE = probe_target(VERMERK_ZIEL_PC, &zustand_pc);
         } else {
             SERVER_REACHABLE = false;
             PC_REACHABLE = false;
+            zustand_server = -2;
+            zustand_pc = -2;
         }
 
         vTaskDelay(pdMS_TO_TICKS(3000));
@@ -78,14 +90,22 @@ void Wireless_Init(void)
         ret = nvs_flash_init();
     }
     ESP_ERROR_CHECK( ret );
+
+    /* Einrichtung ueber USB aus dem NVS, sonst die einkompilierten Werte (vor dem WLAN-Start) */
+    vermerk_konfig_laden();
+
+    /* Kennung fuer die Zuordnung am USB-Monitor; geht auch mit jeder Anfrage an die Software */
+    const char *geraete_id = vermerk_geraete_id();
+    printf("VERMERK Geraete-Id: %s, Firmware: %s\n", geraete_id[0] != '\0' ? geraete_id : "unbekannt", vermerk_firmware());
+
     // WiFi
     xTaskCreatePinnedToCore(
-        WIFI_Init, 
+        WIFI_Init,
         "WIFI task",
-        4096, 
-        NULL, 
-        1, 
-        NULL, 
+        4096,
+        NULL,
+        1,
+        NULL,
         0);
     xTaskCreatePinnedToCore(
         server_check_task,
@@ -110,8 +130,10 @@ void WIFI_Init(void *arg)
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &wifi_event_handler, NULL));
 
     wifi_config_t wifi_config = {0};
-    strncpy((char *)wifi_config.sta.ssid, VERMERK_WIFI_SSID, sizeof(wifi_config.sta.ssid) - 1);
-    strncpy((char *)wifi_config.sta.password, VERMERK_WIFI_PASSWORD, sizeof(wifi_config.sta.password) - 1);
+    /* 32 Bytes ohne abschliessendes Nullbyte sind ein gueltiger WLAN-Name */
+    memcpy(wifi_config.sta.ssid, vermerk_konfig_wlan_name(),
+           strnlen(vermerk_konfig_wlan_name(), sizeof(wifi_config.sta.ssid)));
+    strncpy((char *)wifi_config.sta.password, vermerk_konfig_wlan_passwort(), sizeof(wifi_config.sta.password) - 1);
     wifi_config.sta.pmf_cfg.capable = true;
     wifi_config.sta.pmf_cfg.required = false;
 
@@ -136,131 +158,18 @@ void VERMERK_Wifi_Fast_Mode(bool on)
     }
 }
 
-#define UPLOAD_CHUNK_SIZE (4 * 1024)   /* klein halten: der C6 hat kein PSRAM */
-
-esp_err_t VERMERK_Upload_File(const char *path, const char *filename)
+/* Eine Aufnahme hochladen (wiederaufnehmbar, siehe components/vermerk_upload). Ziel: Server hat Vorrang, sonst PC. */
+vermerk_ergebnis_t VERMERK_Upload_File(const char *path, const char *filename, vermerk_abbrechen_t abbrechen)
 {
-    /* Ziel waehlen: Server hat Vorrang, sonst PC */
-    const char *base_url;
+    vermerk_ziel_t ziel;
     if (WIFI_CONNECTED && SERVER_REACHABLE) {
-        base_url = VERMERK_SERVER_BASE_URL;
+        ziel = VERMERK_ZIEL_SERVER;
     } else if (WIFI_CONNECTED && PC_REACHABLE) {
-        base_url = VERMERK_PC_BASE_URL;
+        ziel = VERMERK_ZIEL_PC;
     } else {
-        return ESP_ERR_INVALID_STATE;
-    }
-    char upload_url[128];
-    snprintf(upload_url, sizeof(upload_url), "%s%s", base_url, VERMERK_UPLOAD_PATH);
-
-    FILE *file = fopen(path, "rb");
-    if (file == NULL) {
-        return ESP_ERR_NOT_FOUND;
+        return VERMERK_ERGEBNIS_KEIN_ZIEL;
     }
 
-    if (fseek(file, 0, SEEK_END) != 0) {
-        fclose(file);
-        return ESP_FAIL;
-    }
-
-    long file_size = ftell(file);
-    if (file_size <= 0) {
-        fclose(file);
-        return ESP_FAIL;
-    }
-
-    rewind(file);
-
-    esp_http_client_config_t config = {
-        .url = upload_url,
-        .method = HTTP_METHOD_POST,
-        .timeout_ms = 15000,
-    };
-
-    esp_http_client_handle_t client = esp_http_client_init(&config);
-    if (client == NULL) {
-        fclose(file);
-        return ESP_FAIL;
-    }
-
-    esp_http_client_set_header(client, "Content-Type", "application/octet-stream");
-    esp_http_client_set_header(client, "X-Filename", filename);
-
-    int64_t t_start = esp_timer_get_time();
-    esp_err_t err = esp_http_client_open(client, (int)file_size);
-    int64_t t_connected = esp_timer_get_time();
-    int64_t sd_us = 0;
-    int64_t net_us = 0;
-    if (err != ESP_OK) {
-        esp_http_client_cleanup(client);
-        fclose(file);
-        return err;
-    }
-
-    /* Grosse Bloecke: weniger SD-Zugriffe und weniger Aufrufe in den TCP-Stack */
-    uint8_t *buffer = heap_caps_malloc(UPLOAD_CHUNK_SIZE, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-    if (buffer == NULL) {
-        esp_http_client_close(client);
-        esp_http_client_cleanup(client);
-        fclose(file);
-        return ESP_ERR_NO_MEM;
-    }
-    size_t total_sent = 0;
-
-    while (!feof(file)) {
-        int64_t t0 = esp_timer_get_time();
-        size_t read_len = fread(buffer, 1, UPLOAD_CHUNK_SIZE, file);
-        int64_t t1 = esp_timer_get_time();
-        sd_us += t1 - t0;
-        if (read_len == 0) {
-            if (ferror(file)) {
-                err = ESP_FAIL;
-            }
-            break;
-        }
-
-        size_t offset = 0;
-        while (offset < read_len) {
-            int written = esp_http_client_write(client, (const char *)buffer + offset, read_len - offset);
-            if (written <= 0) {
-                err = ESP_FAIL;
-                break;
-            }
-            offset += (size_t)written;
-        }
-
-        net_us += esp_timer_get_time() - t1;
-
-        if (err != ESP_OK) {
-            break;
-        }
-
-        total_sent += read_len;
-    }
-
-    free(buffer);
-    fclose(file);
-
-    if (err == ESP_OK && total_sent == (size_t)file_size) {
-        int64_t t_sent = esp_timer_get_time();
-        esp_http_client_fetch_headers(client);
-        int status = esp_http_client_get_status_code(client);
-        int64_t t_done = esp_timer_get_time();
-        int64_t total_ms = (t_done - t_start) / 1000;
-        printf("VERMERK Upload-Diagnose %s: %u KB, gesamt %lld ms (%lld KB/s) | "
-               "Verbinden %lld ms, SD lesen %lld ms, WLAN senden %lld ms, Serverantwort %lld ms\n",
-               filename, (unsigned)(total_sent / 1024), (long long)total_ms,
-               (long long)(total_ms > 0 ? (int64_t)(total_sent / 1024) * 1000 / total_ms : 0),
-               (long long)((t_connected - t_start) / 1000), (long long)(sd_us / 1000),
-               (long long)(net_us / 1000), (long long)((t_done - t_sent) / 1000));
-        if (status != 200) {
-            err = ESP_FAIL;
-        }
-    } else {
-        err = ESP_FAIL;
-    }
-
-    esp_http_client_close(client);
-    esp_http_client_cleanup(client);
-    return err;
+    return vermerk_upload_datei(ziel, teil_max_bytes[ziel], path, filename,
+                                UPLOAD_PUFFER_GROSS, UPLOAD_PUFFER_KLEIN, abbrechen);
 }
-
