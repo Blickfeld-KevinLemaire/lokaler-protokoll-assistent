@@ -7,6 +7,7 @@ Anwendung (bzw. der gebauten EXE) ermittelt.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import sys
 from pathlib import Path
@@ -114,12 +115,62 @@ def get_default_system_prompt_file() -> Path:
     return get_settings_dir() / "systemprompt_protokoll.default.txt"
 
 
+# SHA-256 des normalisierten Textes (siehe '_prompt_normalisieren') der frueher
+# mitgelieferten Standard-Systemprompts mit fester JSON-Struktur: Fassung aus
+# 62736dd (wortgleich zuvor in 'lokale_windows_app/einstellungen/') und aus
+# 96674cf. Seit die Nachbearbeitung nur noch dem Systemprompt folgt, liesse ein
+# solcher Prompt das Modell JSON ins Protokoll schreiben. Die Texte selbst
+# stehen in 'tests/test_systemprompt_datei.py'.
+_FRUEHERE_STANDARD_SYSTEMPROMPTS_SHA256 = frozenset(
+    {
+        "02c4aa7fd8f01e22f5bb0877d1136fbb9b4808c091be5dabd204907bd6fedba3",
+        "6e3885a13ae1658828da4834d7dd0d9a144813ea81681adb1e630eb947051ca4",
+    }
+)
+
+
+def _prompt_normalisieren(text: str) -> str:
+    """Gleicht ab, was Editoren unter Windows nebenbei aendern: BOM,
+    Zeilenenden, Leerraum am Zeilenende und am Anfang/Ende."""
+    text = text.lstrip("﻿").replace("\r\n", "\n").replace("\r", "\n")
+    return "\n".join(zeile.rstrip() for zeile in text.split("\n")).strip()
+
+
+def ist_frueherer_standard_systemprompt(text: str) -> bool:
+    """True, wenn ``text`` unveraendert einer der frueher mitgelieferten
+    Standard-Prompts ist (also nie vom Anwender bearbeitet wurde)."""
+    pruefsumme = hashlib.sha256(_prompt_normalisieren(text).encode("utf-8")).hexdigest()
+    return pruefsumme in _FRUEHERE_STANDARD_SYSTEMPROMPTS_SHA256
+
+
 def ensure_system_prompt_file_exists() -> None:
+    """Legt die Prompt-Datei aus der Referenzkopie an, wenn sie fehlt.
+
+    Steht darin noch unveraendert ein frueher mitgelieferter Standard (feste
+    JSON-Struktur), wird er durch den aktuellen Standard ersetzt -- sonst
+    behielten Anwender nach einem Update den alten Prompt. Ein vom Anwender
+    bearbeiteter Prompt bleibt immer, wie er ist."""
     settings_file = get_system_prompt_file()
+    default_file = get_default_system_prompt_file()
+    standard = default_file.read_text(encoding="utf-8") if default_file.is_file() else None
+    if standard is not None and ist_frueherer_standard_systemprompt(standard):
+        # Auch die Referenzkopie kann noch die alte Fassung sein; der neue
+        # Standard ist leer.
+        standard = ""
     if not settings_file.is_file():
-        default_file = get_default_system_prompt_file()
-        if default_file.is_file():
-            settings_file.write_text(default_file.read_text(encoding="utf-8"), encoding="utf-8")
+        if standard is not None:
+            settings_file.write_text(standard, encoding="utf-8")
+        return
+    try:
+        inhalt = settings_file.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return
+    if ist_frueherer_standard_systemprompt(inhalt):
+        try:
+            settings_file.write_text(standard or "", encoding="utf-8")
+        except OSError:
+            # Gesperrt (z. B. Virenscanner): beim naechsten Start erneut.
+            pass
 
 def get_work_dir() -> Path:
     """Wurzelordner fuer Arbeitsdaten (Chunks, Zwischenstaende, Manifeste)."""

@@ -853,3 +853,36 @@ def test_fehler_bei_der_word_datei_bricht_die_verarbeitung_nicht_ab(tmp_path, mo
     monkeypatch.setattr(dienst, "automatisches_word", werfen)
     pipeline_service._automatisches_word(callbacks, tmp_path / "t.json")
     assert meldungen == ["Die Word-Datei wurde nicht erstellt: Zugriff verweigert"]
+
+
+def test_run_protocol_mit_anderem_modell_liefert_neues_ergebnis(monkeypatch, tmp_path, source_file):
+    """Gleiches Transkript, gleicher Auftrag, anderes Modell: Die gespeicherten
+    Zwischenstaende des alten Modells duerfen nicht wiederverwendet werden."""
+    monkeypatch.setattr(utils_paths, "get_work_dir", lambda: tmp_path / "arbeitsdaten")
+    _systemprompt_bereitstellen(monkeypatch, tmp_path)
+    _patch_ffmpeg(monkeypatch, total_duration=300.0)
+
+    transkript = pipeline_service.run_transcription(
+        _make_settings(source_file, tmp_path),
+        transcribe_chunk_fn=_einfaches_segment,
+        diarize_fn=_fake_diarize,
+    )
+
+    def lauf(antwort, **modell):
+        ergebnis = pipeline_service.run_protocol(
+            pipeline_service.ProtocolSettings(
+                transcript_json_path=transkript.export_paths.json,
+                output_dir=tmp_path / "ausgabe",
+                system_prompt="Fasse zusammen.",
+                **modell,
+            ),
+            protocol_generate_fn=lambda prompt, system: antwort,
+        )
+        return json.loads(ergebnis.protocol_paths[0].read_text(encoding="utf-8"))["ergebnis"]
+
+    assert lauf("VON QWEN", ollama_model="qwen3.5:4b-q4_K_M") == "VON QWEN"
+    assert lauf("VON GEMMA", ollama_model="gemma4:12b-it-q4_K_M") == "VON GEMMA"
+    # Ueber eine API: die Kennung des API-Modells zaehlt, nicht das lokale Modell.
+    assert lauf("VON DER API", ollama_model="gemma4:12b-it-q4_K_M", protokoll_modell_kennung="api:x") == "VON DER API"
+    # Dasselbe Modell wie zuvor: Zwischenstand wird wiederverwendet.
+    assert lauf("NICHT GEFRAGT", ollama_model="qwen3.5:4b-q4_K_M") == "VON QWEN"

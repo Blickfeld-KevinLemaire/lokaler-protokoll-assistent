@@ -1484,6 +1484,9 @@ class MainWindow(QMainWindow):
 
         config = app_config.load_config()
         protocol_generate_fn: ProtocolGenerateFn | None = None
+        # Die Zwischenstaende gelten je Modell; ueber die API zaehlen
+        # Endpunkt und API-Modell, lokal das Ollama-Modell (None).
+        modell_kennung: str | None = None
         if self.nachbearbeitung_api_radio.isChecked():
             if not (
                 api_anbieter.adresse_vollstaendig(config["api_nachbearbeitung_endpunkt"])
@@ -1535,6 +1538,7 @@ class MainWindow(QMainWindow):
                     raise ollama_service.OllamaError(str(fehler)) from fehler
 
             protocol_generate_fn = _api_nachbearbeitung
+            modell_kennung = f"api:{api_endpunkt}|{api_modell}"
 
         if not self.nachbearbeitung_api_radio.isChecked():
             lokales_modell = config["ollama_modell"] or ollama_service.DEFAULT_MODEL
@@ -1557,6 +1561,7 @@ class MainWindow(QMainWindow):
             # geschrieben: Was nur fuer einen Lauf gilt, gehoert nicht in
             # die gespeicherte Einstellung.
             system_prompt=systemprompt_text,
+            protokoll_modell_kennung=modell_kennung,
         )
 
         self._set_controls_running(True)

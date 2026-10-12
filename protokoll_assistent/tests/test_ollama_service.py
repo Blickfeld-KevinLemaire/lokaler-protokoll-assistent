@@ -110,6 +110,32 @@ def test_generate_text_raises_ollama_error_on_http_error(monkeypatch):
         ollama_service.generate_text("Frage", "System")
 
 
+def test_generate_text_meldet_abgeschnittene_antwort(monkeypatch):
+    """Erreicht das Modell die Laengen- oder Kontextgrenze, meldet Ollama
+    'done_reason: length'. Der Text ist dann unvollstaendig und darf nicht als
+    Ergebnis (und damit als Zwischenstand) durchgehen."""
+    monkeypatch.setattr(
+        ollama_service.urllib.request,
+        "urlopen",
+        lambda request, timeout=None: _FakeResponse(
+            {"response": "## Termine\n- 12.10. Abg", "done": True, "done_reason": "length"}
+        ),
+    )
+    with pytest.raises(ollama_service.OllamaError, match="abgeschnitten"):
+        ollama_service.generate_text("Frage", "System")
+    with pytest.raises(ollama_service.OllamaError, match="abgeschnitten"):
+        ollama_service.generate_json("Frage", "System")
+
+
+def test_generate_text_nimmt_vollstaendige_antwort_an(monkeypatch):
+    monkeypatch.setattr(
+        ollama_service.urllib.request,
+        "urlopen",
+        lambda request, timeout=None: _FakeResponse({"response": "Fertig.", "done": True, "done_reason": "stop"}),
+    )
+    assert ollama_service.generate_text("Frage", "System") == "Fertig."
+
+
 def test_generate_json_sends_temperature_zero_and_json_format(monkeypatch):
     captured = {}
 
@@ -146,6 +172,20 @@ def test_kontext_reicht_fuer_die_groesste_protokollstufe():
     assert bedarf <= ollama_service.kontext_fuer_protokoll(systemprompt, eingabe) == ollama_service.PROTOKOLL_NUM_CTX
     # Ein 10-Minuten-Abschnitt (gut 12.000 Zeichen) kommt mit der kleinen Stufe aus.
     assert ollama_service.kontext_fuer_protokoll(systemprompt, "a" * 12_000) == ollama_service.PROTOKOLL_KONTEXTSTUFEN[0]
+
+
+def test_volle_anfrage_der_stufen_2_und_3_passt_in_den_kontext():
+    """Nicht nur die Teilergebnisse, die ganze Anfrage zaehlt: Rahmentext und
+    Trenner je Teilergebnis kommen dazu. Bei vollem Zeichenbudget (die
+    Verdichtung laesst nie mehr zu) muss das samt Antwort in den Kontext passen."""
+    from protokoll_assistent.services import protocol_service
+
+    systemprompt = "s" * 2_000
+    for anzahl in (2, 4, 40):
+        teile = ["t" * (protocol_service.MAX_KONTEXT_ZEICHEN // anzahl)] * anzahl
+        for prompt in (protocol_service.build_stage2_prompt(teile), protocol_service.build_stage3_prompt(teile)):
+            bedarf = (len(systemprompt) + len(prompt)) / ollama_service.ZEICHEN_JE_TOKEN
+            assert bedarf + ollama_service.PROTOKOLL_ANTWORT_TOKENS <= ollama_service.PROTOKOLL_NUM_CTX
 
 
 def test_ensure_ollama_or_offer_installer_returns_true_when_already_installed(monkeypatch, tmp_path):

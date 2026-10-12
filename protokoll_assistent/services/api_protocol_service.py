@@ -76,9 +76,20 @@ def _chat_completion(
     if result.get("error"):
         raise ApiProtocolError(f"Der Endpunkt meldet einen Fehler: {result['error']}")
     try:
-        return str(result["choices"][0]["message"]["content"])
+        wahl = result["choices"][0]
+        inhalt = str(wahl["message"]["content"])
     except (KeyError, IndexError, TypeError) as error:
         raise ApiProtocolError(f"Unerwartete Antwort von {endpoint_url}: {result}") from error
+    # 'finish_reason: length': Das Modell hat die Laengengrenze erreicht und
+    # mitten im Text aufgehoert. Ein solches Ergebnis darf nicht als fertig
+    # durchgehen (und nicht als Zwischenstand gespeichert werden).
+    if isinstance(wahl, dict) and wahl.get("finish_reason") == "length":
+        raise ApiProtocolError(
+            "Die Antwort des API-Modells wurde abgeschnitten: Es hat die Laengengrenze erreicht. "
+            "Das unvollstaendige Ergebnis wird nicht verwendet. Bitte den Auftrag (Systemprompt) "
+            "knapper fassen oder ein Modell mit groesserem Kontext waehlen."
+        )
+    return inhalt
 
 
 def generate_text(

@@ -12,22 +12,34 @@ Andernfalls laeuft die Auswertung in drei Stufen:
 
 Stufe 1: der Auftrag wird auf jeden Transkript-Abschnitt einzeln angewendet.
 Stufe 2: benachbarte Teilergebnisse werden gruppenweise zusammengefuehrt.
-         Passt das Ergebnis danach noch nicht in den Kontext der Stufe 3, wird
-         in weiteren Runden erneut verdichtet (hoechstens
-         ``MAX_VERDICHTUNGSRUNDEN`` insgesamt).
+         Eine Gruppe enthaelt hoechstens ``group_size`` Teilergebnisse und
+         zusammen hoechstens ``MAX_KONTEXT_ZEICHEN`` Zeichen -- keine Anfrage
+         bekommt also mehr, als in den Kontext passt. Passt das Ergebnis
+         danach noch nicht in den Kontext der Stufe 3, wird in weiteren
+         Runden erneut verdichtet (hoechstens ``MAX_VERDICHTUNGSRUNDEN``
+         insgesamt). Wird eine Runde nicht kuerzer, ist ein einzelnes
+         Teilergebnis allein schon zu lang oder reichen die Runden nicht,
+         endet die Auswertung mit einem ``ProtocolValidationError`` -- statt
+         eine zu lange Eingabe weiterzugeben.
 Stufe 3: alle zusammengefuehrten Teilergebnisse werden zum Endergebnis
          vereint -- wieder genau so, wie es der Auftrag verlangt.
 
 Jede Stufe wird als eigene Datei gespeichert. Ist eine Datei bereits
 vorhanden, wird sie wiederverwendet statt erneut angefragt -- ein Fehler in
 einem einzelnen Abschnitt zwingt also nicht zur kompletten Wiederholung.
-Die Zwischenstaende gelten **je Systemprompt** (Unterordner mit einer
-Kennung des Prompts): Wer den Auftrag aendert, bekommt ein neues Ergebnis
-und nicht das zum alten Auftrag gespeicherte zurueck.
+Die Zwischenstaende gelten **je Systemprompt und Modell** (Unterordner mit
+einer Kennung aus beidem): Wer den Auftrag oder das Modell wechselt, bekommt
+ein neues Ergebnis und nicht das frueher gespeicherte zurueck. Zwischenstaende
+aus aelteren Versionen (Kennung nur aus dem Prompt) bleiben liegen, werden
+aber nicht mehr gelesen.
 
 Eine leere Modellantwort wird genau EINMAL erneut angefragt. Bleibt auch
 sie leer, wird ein ``ProtocolValidationError`` ausgeloest, ohne vorhandene
-Zwischenstaende zu ueberschreiben.
+Zwischenstaende zu ueberschreiben. Ausnahme Stufe 1: Ein filternder Auftrag
+("nur ToDos") kann fuer einen Abschnitt zu Recht nichts liefern. Dort gilt
+das leere Ergebnis nach dem zweiten Versuch, wird gespeichert und beim
+Zusammenfuehren uebersprungen; nur wenn ALLE Abschnitte leer bleiben, ist
+das ein Fehler.
 """
 
 from __future__ import annotations
@@ -53,11 +65,18 @@ GenerateFn = Callable[[str, str], str]
 # ohne Gliederung, ohne Abschnittsnamen und ohne Ausgabeformat.
 OHNE_VORGABE_SYSTEMPROMPT = (
     "Du bist ein genauer deutschsprachiger Assistent. Fasse das bereitgestellte "
-    "Besprechungstranskript so zusammen, wie es fuer den Inhalt am sinnvollsten ist. "
-    "Beschraenke dich auf das, was im Transkript steht, und erfinde nichts dazu."
+    "Besprechungstranskript (oder die bereitgestellten Teilergebnisse daraus) so zusammen, "
+    "wie es fuer den Inhalt am sinnvollsten ist. "
+    "Beschraenke dich auf das, was dort steht, und erfinde nichts dazu."
 )
 
+# Die Stufen 2 und 3 bekommen statt des Transkripts Teilergebnisse. Ein
+# Auftrag, der vom "Transkript" spricht, gilt dort fuer diese.
+_TEILERGEBNISSE_STATT_TRANSKRIPT = "Spricht der Auftrag vom Transkript, sind damit hier diese Teilergebnisse gemeint."
+
 _DENKBLOCK = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
+_DENKBLOCK_ENDE = re.compile(r"</think>", re.IGNORECASE)
+_DENKBLOCK_ANFANG = re.compile(r"<think>", re.IGNORECASE)
 
 
 class ProtocolValidationError(RuntimeError):
@@ -75,17 +94,35 @@ def effektiver_systemprompt(system_prompt: str | None) -> str:
     return text or OHNE_VORGABE_SYSTEMPROMPT
 
 
-def prompt_kennung(system_prompt: str | None) -> str:
-    """Kurze, stabile Kennung des Auftrags. Benennt den Unterordner der
-    Zwischenstaende, damit ein anderer Systemprompt nie ein Ergebnis
-    wiederverwendet, das zu einem anderen Auftrag entstanden ist."""
-    return hashlib.sha256(effektiver_systemprompt(system_prompt).encode("utf-8")).hexdigest()[:12]
+def prompt_kennung(system_prompt: str | None, modell: str | None = None) -> str:
+    """Kurze, stabile Kennung des Auftrags und des Modells. Benennt den
+    Unterordner der Zwischenstaende, damit weder ein anderer Systemprompt noch
+    ein anderes Modell ein Ergebnis wiederverwendet, das unter anderen
+    Bedingungen entstanden ist. Ohne ``modell`` wie in aelteren Versionen."""
+    grundlage = effektiver_systemprompt(system_prompt)
+    if modell:
+        grundlage += f"\n--- Modell: {modell}"
+    return hashlib.sha256(grundlage.encode("utf-8")).hexdigest()[:12]
 
 
 def antwort_bereinigen(text: str) -> str:
     """Entfernt Denkbloecke (``<think>...</think>``), die manche Modelle in
-    die Antwort schreiben, sowie Leerraum an den Raendern."""
-    return _DENKBLOCK.sub("", str(text)).strip()
+    die Antwort schreiben, sowie Leerraum an den Raendern.
+
+    Auch unvollstaendige Denkbloecke: Steht nach dem Entfernen der
+    geschlossenen Bloecke noch ein ``</think>`` im Text, hat die Vorlage des
+    Modells den Block schon im Prompt geoeffnet -- alles davor ist Nachdenken
+    und entfaellt. Ein ``<think>`` ohne Ende macht den Rest zu Nachdenken;
+    steht es am Anfang, ist die Antwort leer (und wird wie eine leere Antwort
+    behandelt)."""
+    bereinigt = _DENKBLOCK.sub("", str(text))
+    enden = list(_DENKBLOCK_ENDE.finditer(bereinigt))
+    if enden:
+        bereinigt = bereinigt[enden[-1].end() :]
+    anfang = _DENKBLOCK_ANFANG.search(bereinigt)
+    if anfang:
+        bereinigt = bereinigt[: anfang.start()]
+    return bereinigt.strip()
 
 
 def _load_or_compute(path: Path, compute: Callable[[], str]) -> str:
@@ -97,13 +134,15 @@ def _load_or_compute(path: Path, compute: Callable[[], str]) -> str:
     return result
 
 
-def generate_checked(prompt: str, system: str, generate_fn: GenerateFn) -> str:
-    """Fragt das Modell an. Eine leere Antwort wird einmal wiederholt."""
+def generate_checked(prompt: str, system: str, generate_fn: GenerateFn, leer_erlaubt: bool = False) -> str:
+    """Fragt das Modell an. Eine leere Antwort wird einmal wiederholt. Bleibt
+    sie leer, ist das ein Fehler -- ausser mit ``leer_erlaubt`` (Stufe 1),
+    dann ist das Ergebnis ein leerer Text."""
     antwort = antwort_bereinigen(generate_fn(prompt, system))
     if antwort:
         return antwort
     antwort = antwort_bereinigen(generate_fn(prompt, system))
-    if antwort:
+    if antwort or leer_erlaubt:
         return antwort
     raise ProtocolValidationError("Das Modell hat auch nach einem zweiten Versuch keine Antwort geliefert.")
 
@@ -133,7 +172,7 @@ def run_stage1_chunk_analysis(
 ) -> str:
     def compute() -> str:
         prompt = build_stage1_prompt(chunk_index, start_str, end_str, chunk_text)
-        return generate_checked(prompt, system_prompt, generate_fn)
+        return generate_checked(prompt, system_prompt, generate_fn, leer_erlaubt=True)
 
     return _load_or_compute(analysis_path, compute)
 
@@ -143,6 +182,7 @@ def build_stage2_prompt(group_results: list[str]) -> str:
     return (
         "Die folgenden Teilergebnisse stammen aus aufeinanderfolgenden Abschnitten "
         "desselben Transkripts und wurden nach dem Auftrag aus dem Systemprompt erstellt. "
+        f"{_TEILERGEBNISSE_STATT_TRANSKRIPT} "
         "Fuehre sie zu EINEM Teilergebnis zusammen -- in derselben Form und mit demselben "
         "Aufbau, den der Auftrag verlangt. Entferne Dopplungen aus Ueberlappungsbereichen, "
         "lasse aber keine inhaltliche Angabe weg und ergaenze nichts.\n\n" + teile
@@ -165,7 +205,8 @@ def build_stage3_prompt(consolidated: list[str]) -> str:
     teile = "\n\n".join(f"--- Teilergebnis {nummer} ---\n{text}" for nummer, text in enumerate(consolidated, 1))
     return (
         "Die folgenden Teilergebnisse stammen aus aufeinanderfolgenden Teilen desselben "
-        "Transkripts und wurden nach dem Auftrag aus dem Systemprompt erstellt. Erstelle "
+        "Transkripts und wurden nach dem Auftrag aus dem Systemprompt erstellt. "
+        f"{_TEILERGEBNISSE_STATT_TRANSKRIPT} Erstelle "
         "daraus das Endergebnis, genau so wie der Auftrag es verlangt. Fuege keine Gliederung, "
         "Ueberschriften oder Abschnitte hinzu, die der Auftrag nicht verlangt, und ergaenze "
         "keine Informationen, die nicht in den Teilergebnissen vorkommen.\n\n" + teile
@@ -184,6 +225,26 @@ def run_stage3_final_protocol(
     return _load_or_compute(output_path, compute)
 
 
+def _gruppen_bilden(teilergebnisse: list[str], gruppengroesse: int, max_zeichen: int) -> list[list[str]]:
+    """Teilt benachbarte Teilergebnisse in Gruppen: hoechstens
+    ``gruppengroesse`` je Gruppe und zusammen hoechstens ``max_zeichen``
+    Zeichen. Passt das naechste Teilergebnis nicht mehr dazu, beginnt eine
+    neue Gruppe; eines, das mit keinem Nachbarn zusammen passt, bleibt allein
+    (und wird dann unveraendert uebernommen)."""
+    gruppen: list[list[str]] = []
+    aktuell: list[str] = []
+    zeichen = 0
+    for text in teilergebnisse:
+        if aktuell and (len(aktuell) >= gruppengroesse or zeichen + len(text) > max_zeichen):
+            gruppen.append(aktuell)
+            aktuell, zeichen = [], 0
+        aktuell.append(text)
+        zeichen += len(text)
+    if aktuell:
+        gruppen.append(aktuell)
+    return gruppen
+
+
 def _verdichtungsrunde(
     teilergebnisse: list[str],
     runde: int,
@@ -192,11 +253,17 @@ def _verdichtungsrunde(
     system_prompt: str,
     generate_fn: GenerateFn,
     progress_cb: Callable[[str, int, int], None] | None,
+    max_zeichen: int = MAX_KONTEXT_ZEICHEN,
 ) -> list[str]:
-    """Eine Verdichtungsrunde: fasst je ``gruppengroesse`` benachbarte
-    Teilergebnisse zu einem zusammen. Runde 1 heisst wie bisher Stufe 2, weitere
-    Runden tragen die Rundennummer im Namen der Datei."""
-    gruppen = [teilergebnisse[i : i + gruppengroesse] for i in range(0, len(teilergebnisse), gruppengroesse)]
+    """Eine Verdichtungsrunde: fasst benachbarte Teilergebnisse gruppenweise
+    zu einem zusammen (siehe ``_gruppen_bilden``). Runde 1 heisst wie bisher
+    Stufe 2, weitere Runden tragen die Rundennummer im Namen der Datei.
+
+    Die Dateien heissen wie bisher nach Runde und Gruppennummer. Welche
+    Teilergebnisse eine Gruppe bilden, haengt seit dem Zeichenbudget auch von
+    ihrer Laenge ab; das ist bei gleichen Teilergebnissen stets dasselbe, eine
+    Wiederaufnahme findet also ihre Dateien wieder."""
+    gruppen = _gruppen_bilden(teilergebnisse, gruppengroesse, max_zeichen)
     stufe = "stufe2_zwischenzusammenfuehrung" if runde == 1 else f"stufe2_verdichtung_runde_{runde}"
     ergebnis = []
     for index, gruppe in enumerate(gruppen):
@@ -216,6 +283,18 @@ def _verdichtungsrunde(
     return ergebnis
 
 
+def _einzeln_passend_pruefen(teilergebnisse: list[str], max_zeichen: int) -> None:
+    """Ein Teilergebnis, das allein schon laenger als das Budget ist, laesst
+    sich mit nichts zusammenfuehren und passt in keine Anfrage der Stufe 3."""
+    laengstes = max(len(text) for text in teilergebnisse)
+    if laengstes > max_zeichen:
+        raise ProtocolValidationError(
+            f"Ein Teilergebnis ist mit {laengstes} Zeichen allein schon laenger, als in eine Anfrage "
+            f"passt ({max_zeichen} Zeichen), und laesst sich nicht weiter zusammenfuehren. Bitte einen "
+            "knapperen Auftrag (Systemprompt) waehlen."
+        )
+
+
 def run_full_protocol_pipeline(
     chunk_texts: list[dict[str, object]],
     work_dir: Path,
@@ -224,6 +303,7 @@ def run_full_protocol_pipeline(
     group_size: int = 4,
     progress_cb: Callable[[str, int, int], None] | None = None,
     max_kontext_zeichen: int = MAX_KONTEXT_ZEICHEN,
+    modell: str | None = None,
 ) -> str:
     """``chunk_texts``: Liste von ``{"index", "start_str", "end_str", "text"}``.
 
@@ -231,11 +311,13 @@ def run_full_protocol_pipeline(
     Ergebnis als Text zurueck -- in der Form, die der Auftrag verlangt.
     Bereits vorhandene Zwischenstaende zum selben Auftrag werden
     wiederverwendet. ``system_prompt`` darf leer sein (siehe
-    ``OHNE_VORGABE_SYSTEMPROMPT``).
+    ``OHNE_VORGABE_SYSTEMPROMPT``). ``modell`` kennzeichnet das antwortende
+    Modell (z. B. den Ollama-Namen); es geht in die Kennung der
+    Zwischenstaende ein (siehe ``prompt_kennung``).
     """
     generate_fn = generate_fn or default_generate_fn
     auftrag = effektiver_systemprompt(system_prompt)
-    kennung = prompt_kennung(system_prompt)
+    kennung = prompt_kennung(system_prompt, modell)
     analysen_dir = work_dir / "analysen" / kennung
     zusammen_dir = work_dir / "zusammengefuehrt" / kennung
     analysen_dir.mkdir(parents=True, exist_ok=True)
@@ -272,17 +354,41 @@ def run_full_protocol_pipeline(
             )
         )
 
-    consolidated = stage1_results
+    # Leere Abschnittsergebnisse (nichts Passendes zum Auftrag) bleiben
+    # gespeichert, werden aber nicht zusammengefuehrt.
+    consolidated = [text for text in stage1_results if text.strip()]
+    if not consolidated:
+        raise ProtocolValidationError(
+            f"Das Modell hat in keinem der {len(stage1_results)} Abschnitte etwas zum Auftrag gefunden "
+            "(alle Teilergebnisse sind leer). Bitte den Systemprompt pruefen."
+        )
     runde = 1
     while True:
+        if len(consolidated) > 1:
+            _einzeln_passend_pruefen(consolidated, max_kontext_zeichen)
         gruppengroesse = group_size if runde == 1 else max(group_size, 2)
+        vorher = sum(len(text) for text in consolidated)
         consolidated = _verdichtungsrunde(
-            consolidated, runde, gruppengroesse, zusammen_dir, auftrag, generate_fn, progress_cb
+            consolidated, runde, gruppengroesse, zusammen_dir, auftrag, generate_fn, progress_cb, max_kontext_zeichen
         )
-        if len(consolidated) <= 1 or runde >= MAX_VERDICHTUNGSRUNDEN:
+        nachher = sum(len(text) for text in consolidated)
+        if len(consolidated) <= 1 or nachher <= max_kontext_zeichen:
             break
-        if sum(len(text) for text in consolidated) <= max_kontext_zeichen:
-            break
+        # Noch zu lang fuer Stufe 3. Eine Runde, die nichts kuerzer macht,
+        # wuerde sich nur wiederholen (eine Runde mit Gruppengroesse 1 fasst
+        # absichtlich nichts zusammen und zaehlt nicht).
+        if nachher >= vorher and gruppengroesse > 1:
+            raise ProtocolValidationError(
+                f"Die Teilergebnisse lassen sich nicht weiter verdichten: Das Zusammenfuehren wurde "
+                f"nicht kuerzer ({nachher} Zeichen, erlaubt sind {max_kontext_zeichen}). Bitte einen "
+                "knapperen Auftrag (Systemprompt) waehlen."
+            )
+        if runde >= MAX_VERDICHTUNGSRUNDEN:
+            raise ProtocolValidationError(
+                f"Die Teilergebnisse sind auch nach {runde} Verdichtungsrunden noch zu lang "
+                f"({nachher} Zeichen, erlaubt sind {max_kontext_zeichen}). Bitte einen knapperen "
+                "Auftrag (Systemprompt) waehlen."
+            )
         runde += 1
 
     if progress_cb:

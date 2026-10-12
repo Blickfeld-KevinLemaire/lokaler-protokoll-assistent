@@ -165,6 +165,28 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
   Zuvor galten sie nur je Transkript: Wer denselben Text mit einem anderen
   Systemprompt erneut auswertete, bekam das gespeicherte Ergebnis zum alten
   Auftrag zurück.
+- Die Zwischenergebnisse gelten außerdem **je Modell**: Wer das Ollama- oder
+  API-Modell wechselt, bekommt ein neues Ergebnis statt der gespeicherten
+  Teilergebnisse des alten Modells.
+- **Abgeschnittene Antworten werden erkannt:** Hört das Modell an der
+  Längen- oder Kontextgrenze mitten im Text auf, meldet die Nachbearbeitung
+  das als Fehler, statt den halben Text als Protokoll auszugeben oder als
+  Zwischenergebnis zu speichern. „Frag mein Meeting“ ist davon nicht betroffen.
+- **Lange Aufnahmen:** Beim Zusammenführen der Teilergebnisse bekommt das
+  Modell nie mehr Text, als in seinen Kontext passt. Lässt sich ein Ergebnis
+  nicht weiter verdichten, endet die Nachbearbeitung mit einer klaren Meldung,
+  statt eine zu lange Anfrage zu schicken.
+- **Filternde Aufträge („nur ToDos“):** Ein Abschnitt ohne passenden Inhalt
+  bricht die Nachbearbeitung nicht mehr ab, er wird einfach übersprungen. Nur
+  wenn kein einziger Abschnitt etwas liefert, gibt es eine Meldung.
+- **Nach dem Update kein JSON mehr im Protokoll:** Wer den früher
+  mitgelieferten Systemprompt (feste JSON-Struktur) nie verändert hat, bekommt
+  beim Start den neuen Standard. Ein selbst bearbeiteter Prompt bleibt, wie er
+  ist.
+- Unvollständige Denkblöcke (`<think>` ohne Ende oder ein verwaistes
+  `</think>`) landen nicht mehr im Protokoll.
+- Ohne Systemprompt und bei langen Aufnahmen wissen die späteren Stufen jetzt,
+  dass sie Teilergebnisse statt des Transkripts vor sich haben.
 
 - **„Danach direkt das Protokoll erstellen“ wirkte nicht:** Nach der
   Transkription blieb das Fenster bei „Transkription abgeschlossen.“ stehen,

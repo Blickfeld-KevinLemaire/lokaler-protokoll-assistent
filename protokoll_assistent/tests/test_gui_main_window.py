@@ -1961,3 +1961,19 @@ def test_word_fehler_stoert_nicht(fenster, tmp_path, monkeypatch):
 
     monkeypatch.setattr(mw.dokument_export_service, "automatisches_word", werfen)
     fenster._word_neu_erzeugen(tmp_path / "t.json")  # darf nicht werfen
+
+
+def test_nachbearbeitung_kennt_das_modell_fuer_die_zwischenstaende(fenster, tmp_path, schluessel_speicher):
+    """Die Zwischenstaende gelten je Modell. Ueber die API muss deshalb das
+    API-Modell (samt Endpunkt) in die Kennung, nicht das lokale Ollama-Modell."""
+    schluessel_speicher["transkription"] = "schluessel"
+    transkript = tmp_path / "ergebnis.json"
+    transkript.write_text("{}", encoding="utf-8")
+    fenster._set_transcript_path(transkript)
+    fenster.systemprompt_editor.setPlainText("Fasse zusammen.")
+    fenster.nachbearbeitung_api_radio.setChecked(True)
+
+    fenster._start_protocol()
+
+    kennung = _WorkerAttrappe.instanzen[-1].settings.protokoll_modell_kennung
+    assert "modell-n" in kennung and "https://api.test/v1/chat/completions" in kennung

@@ -14,29 +14,27 @@ import pytest
 
 from protokoll_assistent.services import chat_service, ollama_service, pipeline_service
 from protokoll_assistent.tests.e2e import besprechung
-from protokoll_assistent.utils import paths
+from protokoll_assistent.utils import systemprompt_vorlagen
 
 pytestmark = pytest.mark.timeout(1800)
 
 
-def _text(wert) -> str:
-    return json.dumps(wert, ensure_ascii=False)
-
-
 def test_denkphase_ist_aus_und_die_antwort_kommt_zuegig(sprachmodell):
     """Qwen3.5 denkt ohne 'think: false' vor jeder Antwort lange nach. Ein
-    kurzer Auftrag muss deshalb schnell und ohne <think>-Block zurueckkommen."""
-    ollama_service.generate_json("Gib {\"ok\": true} zurueck.", "Antworte nur mit JSON.", model=sprachmodell)  # Modell laden
+    kurzer Auftrag muss deshalb schnell und ohne <think>-Block zurueckkommen.
+    Wie in der Nachbearbeitung ueber 'generate_text' (Freitext)."""
+    ollama_service.generate_text("Antworte nur mit: ok", "Antworte knapp.", model=sprachmodell)  # Modell laden
 
     beginn = time.monotonic()
-    antwort = ollama_service.generate_json(
-        "Nenne die Hauptstadt von Frankreich als JSON mit dem Schluessel 'stadt'.",
-        "Du antwortest ausschliesslich mit einem JSON-Objekt.",
+    antwort = ollama_service.generate_text(
+        "Nenne die Hauptstadt von Frankreich. Antworte mit einem Wort.",
+        "Du antwortest knapp auf Deutsch.",
         model=sprachmodell,
     )
     dauer = time.monotonic() - beginn
 
-    assert besprechung.enthaelt_eines(_text(antwort), "paris")
+    assert besprechung.enthaelt_eines(antwort, "paris"), antwort
+    assert "<think>" not in antwort
     # Mit Denkphase dauert selbst diese Frage Minuten; ohne sie auf der Grafikkarte
     # Sekunden. 60 s laesst auch einem Rechner ohne Grafikkarte genug Luft.
     assert dauer < 60, f"Antwort brauchte {dauer:.0f} s - laeuft die Denkphase doch?"
@@ -60,8 +58,10 @@ def test_protokoll_aus_transkript_enthaelt_beschluesse_aufgaben_und_offene_frage
             transcript_json_path=transkript,
             output_dir=tmp_path / "ausgabe",
             ollama_model=sprachmodell,
-            # Der mitgelieferte Systemprompt, nicht ein eventuell lokal bearbeiteter.
-            system_prompt=paths.get_default_system_prompt_file().read_text(encoding="utf-8"),
+            # Seit die Nachbearbeitung nur dem Systemprompt folgt, legt eine
+            # Abschnittsvorlage fest, was ins Protokoll gehoert (der
+            # mitgelieferte Standard ist leer).
+            system_prompt=systemprompt_vorlagen.ABSCHNITTSVORLAGEN["Formelles Protokoll"],
         ),
         pipeline_service.PipelineCallbacks(on_log=meldungen.append),
     )
@@ -69,24 +69,19 @@ def test_protokoll_aus_transkript_enthaelt_beschluesse_aufgaben_und_offene_frage
     assert ergebnis.protokoll_fehler is None, ergebnis.protokoll_fehler
     assert ergebnis.protocol_paths is not None
     json_pfad, md_pfad = ergebnis.protocol_paths
-    protokoll = json.loads(json_pfad.read_text(encoding="utf-8"))
-    assert md_pfad.read_text(encoding="utf-8").strip()
+    text = json.loads(json_pfad.read_text(encoding="utf-8"))["ergebnis"]
+    assert md_pfad.read_text(encoding="utf-8").strip() == text.strip()
     assert any("Word-Datei erstellt" in m for m in meldungen), meldungen
+    assert not text.lstrip().startswith("{"), text  # Freitext, kein JSON
 
-    entscheidungen = _text(protokoll.get("entscheidungen"))
-    assert besprechung.enthaelt_eines(entscheidungen, *besprechung.UMZUGSTERMIN), entscheidungen
-    assert besprechung.enthaelt_eines(_text(protokoll), *besprechung.BUDGET)
-
-    aufgaben = protokoll.get("aufgaben") or []
-    assert len(aufgaben) >= 2, aufgaben
-    testplan = [a for a in aufgaben if besprechung.enthaelt_eines(_text(a), "testplan")]
-    assert testplan, aufgaben
-    assert besprechung.enthaelt_eines(_text(testplan[0]), "wagner", "thomas"), testplan
-    assert besprechung.enthaelt_eines(_text(testplan[0]), *besprechung.FRIST_TESTPLAN), testplan
-    assert any(besprechung.enthaelt_eines(_text(a), "schulz", "katrin") for a in aufgaben), aufgaben
-
-    assert besprechung.enthaelt_eines(_text(protokoll.get("offene_fragen")), "wochenend"), protokoll.get("offene_fragen")
-    assert besprechung.enthaelt_eines(_text(protokoll), *besprechung.FOLGETERMIN)
+    assert besprechung.enthaelt_eines(text, *besprechung.UMZUGSTERMIN), text
+    assert besprechung.enthaelt_eines(text, *besprechung.BUDGET), text
+    assert besprechung.enthaelt_eines(text, "testplan"), text
+    assert besprechung.enthaelt_eines(text, "wagner", "thomas"), text
+    assert besprechung.enthaelt_eines(text, *besprechung.FRIST_TESTPLAN), text
+    assert besprechung.enthaelt_eines(text, "schulz", "katrin"), text
+    assert besprechung.enthaelt_eines(text, "wochenend"), text
+    assert besprechung.enthaelt_eines(text, *besprechung.FOLGETERMIN), text
 
 
 def test_chatbot_beantwortet_frage_aus_dem_transkript_mit_quelle(sprachmodell, einbettungsmodell, transkript, tmp_path):

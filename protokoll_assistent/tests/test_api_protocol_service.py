@@ -53,6 +53,29 @@ def test_generate_text_liefert_freitext_ohne_json_vorgabe(monkeypatch):
     ]
 
 
+def test_generate_text_meldet_abgeschnittene_antwort(monkeypatch):
+    """'finish_reason: length' heisst: Das Modell hat die Laengengrenze erreicht
+    und mitten im Text aufgehoert. So ein Ergebnis darf nicht durchgehen."""
+    antwort = {"choices": [{"message": {"content": "- 12.10. Abg"}, "finish_reason": "length"}]}
+    monkeypatch.setattr(svc.urllib.request, "urlopen", lambda *a, **k: _FakeResponse(antwort))
+
+    with pytest.raises(svc.ApiProtocolError, match="abgeschnitten"):
+        svc.generate_text(
+            "Transkripttext", "Systemprompt", "modell-x",
+            endpoint_url="https://example.test/chat/completions", api_key="geheim",
+        )
+
+
+def test_generate_text_nimmt_vollstaendige_antwort_an(monkeypatch):
+    antwort = {"choices": [{"message": {"content": "Fertig."}, "finish_reason": "stop"}]}
+    monkeypatch.setattr(svc.urllib.request, "urlopen", lambda *a, **k: _FakeResponse(antwort))
+
+    assert svc.generate_text(
+        "Transkripttext", "Systemprompt", "modell-x",
+        endpoint_url="https://example.test/chat/completions", api_key="geheim",
+    ) == "Fertig."
+
+
 def test_generate_text_meldet_http_fehler(monkeypatch):
     def fake_urlopen(request, timeout=None):
         raise urllib.error.HTTPError("url", 401, "Unauthorized", {}, None)

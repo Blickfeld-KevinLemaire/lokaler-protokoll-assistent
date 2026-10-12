@@ -175,27 +175,42 @@ def test_faulty_single_chunk_does_not_lose_previous_progress(tmp_path):
     assert chunk0_path.read_text(encoding="utf-8") == chunk0_before
 
 
+def _gleich_lange_antworten(laenge: int = 10):
+    """Jede Antwort ist genau ``laenge`` Zeichen lang -- so laesst sich das
+    Zeichenbudget der Verdichtung exakt nachrechnen."""
+    calls = {"count": 0, "prompts": []}
+
+    def generate(prompt: str, system: str) -> str:
+        calls["count"] += 1
+        calls["prompts"].append(prompt)
+        return "T" * laenge
+
+    return generate, calls
+
+
 def test_verdichtung_laeuft_in_runden_bis_es_passt(tmp_path):
-    generate_fn, calls = _fake_generate_factory()
+    generate_fn, calls = _gleich_lange_antworten(10)
     stufen = []
-    # Winziges Budget: jede Runde ist "zu gross", bis nur noch ein Teilergebnis uebrig ist.
+    # Budget 20: je zwei Teilergebnisse passen zusammen; 16 -> 8 -> 4 -> 2 (passt).
     ergebnis = protocol_service.run_full_protocol_pipeline(
-        _chunks(8),
+        _chunks(16),
         tmp_path,
         "System",
         generate_fn,
         group_size=2,
         progress_cb=lambda stage, current, total: stufen.append(stage),
-        max_kontext_zeichen=1,
+        max_kontext_zeichen=20,
     )
-    # 8 Abschnitte + (4 + 2 + 1) Verdichtungen; das eine Teilergebnis ist das Endergebnis
-    assert calls["count"] == 8 + 7
-    assert ergebnis.startswith("Text aus Aufruf")
+    # 16 Abschnitte + (8 + 4 + 2) Verdichtungen + 1 Endergebnis
+    assert calls["count"] == 16 + 14 + 1
+    assert ergebnis == "T" * 10
     assert "stufe2_zwischenzusammenfuehrung" in stufen
     assert "stufe2_verdichtung_runde_2" in stufen
     assert "stufe2_verdichtung_runde_3" in stufen
+    assert "stufe2_verdichtung_runde_4" not in stufen
     kennung = protocol_service.prompt_kennung("System")
     assert (tmp_path / "zusammengefuehrt" / kennung / "zwischenergebnis_r02_0001.md").is_file()
+    assert (tmp_path / "zusammengefuehrt" / kennung / "zwischenergebnis_r03_0002.md").is_file()
 
 
 def test_verdichtung_stoppt_wenn_es_passt(tmp_path):
@@ -208,15 +223,88 @@ def test_verdichtung_stoppt_wenn_es_passt(tmp_path):
     assert not list((tmp_path / "zusammengefuehrt" / kennung).glob("zwischenergebnis_r*"))
 
 
-def test_verdichtung_hoechstens_acht_runden(tmp_path):
-    generate_fn, _ = _fake_generate_factory()
-    # Gruppengroesse 1 wuerde nie schrumpfen; ab Runde 2 gilt mindestens 2.
+def test_verdichtung_hoechstens_maximale_rundenzahl(tmp_path, monkeypatch):
+    """Derselbe Lauf wie oben braucht drei Runden. Sind nur zwei erlaubt, endet
+    er mit einem Fehler -- statt eine zu lange Eingabe an Stufe 3 zu geben."""
+    monkeypatch.setattr(protocol_service, "MAX_VERDICHTUNGSRUNDEN", 2)
+    generate_fn, calls = _gleich_lange_antworten(10)
+    stufen = []
+    with pytest.raises(protocol_service.ProtocolValidationError, match="2 Verdichtungsrunden"):
+        protocol_service.run_full_protocol_pipeline(
+            _chunks(16),
+            tmp_path,
+            "System",
+            generate_fn,
+            group_size=2,
+            progress_cb=lambda stage, current, total: stufen.append(stage),
+            max_kontext_zeichen=20,
+        )
+    assert calls["count"] == 16 + 8 + 4  # keine dritte Runde, kein Endergebnis
+    assert "stufe2_verdichtung_runde_3" not in stufen
+    assert "stufe3_gesamtprotokoll" not in stufen
+
+
+def test_gruppen_halten_das_zeichenbudget_ein():
+    zehn = "a" * 10
+    assert protocol_service._gruppen_bilden([zehn] * 5, 4, 25) == [[zehn, zehn], [zehn, zehn], [zehn]]
+    assert protocol_service._gruppen_bilden([zehn] * 5, 4, 100) == [[zehn] * 4, [zehn]]
+    # Passt das naechste nicht mehr dazu, beginnt eine neue Gruppe -- auch mitten in der Folge.
+    lang = "b" * 20
+    assert protocol_service._gruppen_bilden([zehn, lang, zehn, zehn], 4, 25) == [[zehn], [lang], [zehn, zehn]]
+
+
+def test_keine_zusammenfuehrung_bekommt_mehr_als_das_budget(tmp_path):
+    """Unterschiedlich lange Teilergebnisse: Jede Anfrage der Stufen 2 und 3
+    darf zusammen hoechstens das Zeichenbudget an Teilergebnissen enthalten."""
+    import re
+
+    laengen = iter([3, 15, 7, 12, 4, 14, 9, 2, 11, 6, 8, 13])
+    eingaben: list[int] = []
+
+    def generate(prompt: str, system: str) -> str:
+        teile = re.split(r"--- Teilergebnis \d+ ---\n", prompt)[1:]
+        if teile:
+            eingaben.append(sum(len(teil.strip()) for teil in teile))
+            return "z" * 5
+        return "x" * next(laengen)
+
     protocol_service.run_full_protocol_pipeline(
-        _chunks(3), tmp_path, "System", generate_fn, group_size=1, max_kontext_zeichen=1
+        _chunks(12), tmp_path, "System", generate, group_size=4, max_kontext_zeichen=20
     )
-    kennung = protocol_service.prompt_kennung("System")
-    runden = {p.name.split("_")[1] for p in (tmp_path / "zusammengefuehrt" / kennung).glob("zwischenergebnis_r*")}
-    assert len(runden) <= protocol_service.MAX_VERDICHTUNGSRUNDEN
+    assert eingaben and max(eingaben) <= 20
+
+
+def test_verdichtung_die_nicht_kuerzer_wird_bricht_ab(tmp_path):
+    """Liefert das Zusammenfuehren nichts Kuerzeres, wuerde jede weitere Runde
+    nur Zeit kosten -- und am Ende ginge eine zu lange Eingabe an Stufe 3."""
+    calls = {"count": 0}
+
+    def generate(prompt: str, system: str) -> str:
+        calls["count"] += 1
+        return "M" * 20 if "Teilergebnis" in prompt else "T" * 10
+
+    with pytest.raises(protocol_service.ProtocolValidationError, match="nicht kuerzer"):
+        protocol_service.run_full_protocol_pipeline(
+            _chunks(4), tmp_path, "System", generate, group_size=2, max_kontext_zeichen=25
+        )
+    assert calls["count"] == 4 + 2  # eine Runde, dann Abbruch -- keine Endlosschleife
+
+
+def test_zu_langes_einzelnes_teilergebnis_wird_gemeldet(tmp_path):
+    """Ein Teilergebnis, das allein schon groesser als das Budget ist, passt in
+    keine Anfrage. Das endet mit einer klaren Meldung, ohne Schleife."""
+    antworten = iter(["k" * 5, "L" * 30, "k" * 5])
+    calls = {"count": 0}
+
+    def generate(prompt: str, system: str) -> str:
+        calls["count"] += 1
+        return next(antworten)
+
+    with pytest.raises(protocol_service.ProtocolValidationError, match="30 Zeichen"):
+        protocol_service.run_full_protocol_pipeline(
+            _chunks(3), tmp_path, "System", generate, group_size=4, max_kontext_zeichen=20
+        )
+    assert calls["count"] == 3  # nur die Abschnitte, keine Zusammenfuehrung
 
 
 def test_verdichtung_wiederaufnahme_fragt_fertige_runden_nicht_erneut(tmp_path):
@@ -227,3 +315,113 @@ def test_verdichtung_wiederaufnahme_fragt_fertige_runden_nicht_erneut(tmp_path):
     generate_fn2, calls2 = _fake_generate_factory()
     protocol_service.run_full_protocol_pipeline(_chunks(4), tmp_path, "System", generate_fn2, group_size=2)
     assert calls2["count"] == 1  # nur das Endergebnis
+
+
+def test_abgeschnittene_antwort_wird_nicht_als_zwischenstand_gespeichert(tmp_path, monkeypatch):
+    """Ollama meldet 'done_reason: length' -- der unvollstaendige Text darf
+    nicht gespeichert werden, sonst kaeme er beim naechsten Lauf als fertiges
+    Ergebnis zurueck."""
+    import io
+    import json
+
+    from protokoll_assistent.services import ollama_service
+
+    antwort = json.dumps({"response": "Halber Sa", "done": True, "done_reason": "length"}).encode("utf-8")
+    monkeypatch.setattr(ollama_service.urllib.request, "urlopen", lambda request, timeout=None: io.BytesIO(antwort))
+
+    with pytest.raises(ollama_service.OllamaError, match="abgeschnitten"):
+        protocol_service.run_full_protocol_pipeline(_chunks(2), tmp_path, "Auftrag")
+    assert not list(tmp_path.rglob("*.md"))
+
+
+def test_antwort_bereinigen_ungeschlossener_denkblock_ist_keine_antwort():
+    """Ein geoeffneter, nie geschlossener Denkblock ist reines Nachdenken --
+    das darf nicht als Ergebnis im Protokoll landen."""
+    assert protocol_service.antwort_bereinigen("<think>Ich ueberlege noch, was wichtig ist ...") == ""
+    assert protocol_service.antwort_bereinigen("  <THINK>\nnur Gedanken") == ""
+
+
+def test_antwort_bereinigen_verwaister_schluss_tag():
+    """Manche Vorlagen oeffnen den Denkblock schon im Prompt; die Antwort
+    beginnt dann mitten im Nachdenken und enthaelt nur das schliessende Tag."""
+    assert protocol_service.antwort_bereinigen("ueberlege ich\nnoch</think>\n\nDas Ergebnis.") == "Das Ergebnis."
+
+
+def test_antwort_bereinigen_laesst_normalen_text_unveraendert():
+    assert protocol_service.antwort_bereinigen("  ## Termine\n- 12.10. Abgabe\n") == "## Termine\n- 12.10. Abgabe"
+
+
+def test_generate_checked_wiederholt_reines_nachdenken():
+    generate_fn, calls = _fake_generate_factory(responses_by_call={1: "<think>abgebrochen", 2: "Brauchbar"})
+    assert protocol_service.generate_checked("Prompt", "System", generate_fn) == "Brauchbar"
+    assert calls["count"] == 2
+
+
+def test_leerer_abschnitt_wird_gespeichert_und_uebersprungen(tmp_path):
+    """Mit einem filternden Auftrag ('nur ToDos') kann ein Abschnitt zu Recht
+    nichts liefern. Das bricht den Lauf nicht ab: Nach einem zweiten Versuch
+    gilt das leere Ergebnis, wird gespeichert und beim Zusammenfuehren
+    uebersprungen."""
+    generate_fn, calls = _fake_generate_factory(responses_by_call={2: "", 3: "  "})
+    ergebnis = protocol_service.run_full_protocol_pipeline(_chunks(3), tmp_path, "Nur ToDos", generate_fn, group_size=4)
+
+    # Abschnitt 1, Abschnitt 2 zweimal (leer), Abschnitt 3, eine Zusammenfuehrung.
+    assert calls["count"] == 5
+    assert ergebnis == "Text aus Aufruf 5"
+    zusammenfuehrung = calls["prompts"][4]
+    assert "Text aus Aufruf 1" in zusammenfuehrung and "Text aus Aufruf 4" in zusammenfuehrung
+    assert "Teilergebnis 3" not in zusammenfuehrung  # nur die zwei nicht leeren
+
+    kennung = protocol_service.prompt_kennung("Nur ToDos")
+    leer = tmp_path / "analysen" / kennung / "chunk_0002.md"
+    assert leer.is_file() and leer.read_text(encoding="utf-8") == ""
+
+    # Wiederaufnahme: der leere Abschnitt wird nicht erneut angefragt.
+    (tmp_path / "zusammengefuehrt" / kennung / "ergebnis.md").unlink()
+    generate_fn2, calls2 = _fake_generate_factory()
+    protocol_service.run_full_protocol_pipeline(_chunks(3), tmp_path, "Nur ToDos", generate_fn2, group_size=4)
+    assert calls2["count"] == 0
+
+
+def test_alle_abschnitte_leer_wird_gemeldet(tmp_path):
+    generate_fn, calls = _fake_generate_factory(responses_by_call={n: "" for n in range(1, 7)})
+    with pytest.raises(protocol_service.ProtocolValidationError, match="keinem der 3 Abschnitte"):
+        protocol_service.run_full_protocol_pipeline(_chunks(3), tmp_path, "Nur ToDos", generate_fn)
+    assert calls["count"] == 6  # je Abschnitt ein zweiter Versuch, keine Zusammenfuehrung
+
+
+def test_leere_zusammenfuehrung_bleibt_ein_fehler(tmp_path):
+    generate_fn, _ = _fake_generate_factory(responses_by_call={3: "", 4: ""})
+    with pytest.raises(protocol_service.ProtocolValidationError):
+        protocol_service.run_full_protocol_pipeline(_chunks(2), tmp_path, "Auftrag", generate_fn, group_size=4)
+    kennung = protocol_service.prompt_kennung("Auftrag")
+    assert not (tmp_path / "zusammengefuehrt" / kennung / "zwischenergebnis_0001.md").is_file()
+
+
+def test_anderes_modell_verwendet_kein_altes_ergebnis_wieder(tmp_path):
+    """Gleicher Auftrag, anderes Modell: Die Zwischenstaende des alten Modells
+    duerfen nicht zurueckkommen -- sonst bliebe ein Modellwechsel wirkungslos."""
+    erstes, _ = _fake_generate_factory(responses_by_call={1: "ERGEBNIS VON MODELL A"})
+    a = protocol_service.run_full_protocol_pipeline(_chunks(1), tmp_path, "Auftrag", erstes, modell="modell-a")
+    assert a == "ERGEBNIS VON MODELL A"
+
+    zweites, calls = _fake_generate_factory(responses_by_call={1: "ERGEBNIS VON MODELL B"})
+    b = protocol_service.run_full_protocol_pipeline(_chunks(1), tmp_path, "Auftrag", zweites, modell="modell-b")
+    assert b == "ERGEBNIS VON MODELL B"
+    assert calls["count"] == 1
+
+    # Dasselbe Modell noch einmal: das gespeicherte Ergebnis wird wiederverwendet.
+    drittes, calls3 = _fake_generate_factory()
+    assert protocol_service.run_full_protocol_pipeline(_chunks(1), tmp_path, "Auftrag", drittes, modell="modell-a") == a
+    assert calls3["count"] == 0
+    assert protocol_service.prompt_kennung("Auftrag", "modell-a") != protocol_service.prompt_kennung("Auftrag", "modell-b")
+
+
+def test_stufen_2_und_3_beschreiben_ihre_eingabe_als_teilergebnisse():
+    """Der Auftrag spricht meist vom Transkript; in Stufe 2 und 3 liegen aber
+    Teilergebnisse vor. Die Anfragen muessen das aufloesen, und auch die
+    Vorgabe ohne Systemprompt darf nicht nur von einem Transkript sprechen."""
+    hinweis = "Spricht der Auftrag vom Transkript, sind damit hier diese Teilergebnisse gemeint."
+    assert hinweis in protocol_service.build_stage2_prompt(["a", "b"])
+    assert hinweis in protocol_service.build_stage3_prompt(["a", "b"])
+    assert "Teilergebnisse" in protocol_service.OHNE_VORGABE_SYSTEMPROMPT

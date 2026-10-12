@@ -171,6 +171,11 @@ class ProtocolSettings:
     # erst in die gemeinsame Einstellungsdatei schreiben und damit den
     # gespeicherten Systemprompt der lokalen Anwendung ueberschreiben.
     system_prompt: str | None = None
+    # Kennung des Modells, das die Nachbearbeitung rechnet. Die
+    # Zwischenstaende gelten je Modell; ohne Angabe zaehlt 'ollama_model'.
+    # Wer ein anderes Modell ueber 'protocol_generate_fn' anbindet (API),
+    # setzt hier dessen Kennung.
+    protokoll_modell_kennung: str | None = None
 
 
 @dataclass
@@ -646,6 +651,7 @@ def run_protocol(
                 "protokoll_auswertung",
                 f"{STAGE_LABELS['protokoll_auswertung']} ({stage}: {current + 1}/{max(total, 1)})",
             ),
+            modell=settings.protokoll_modell_kennung or settings.ollama_model,
         )
         protokoll_status = manifest_service.STATUS_ABGESCHLOSSEN
         callbacks.on_stage("export_protokoll", STAGE_LABELS["export_protokoll"])
@@ -743,6 +749,8 @@ def run_pipeline(
                     "protokoll_auswertung",
                     f"{STAGE_LABELS['protokoll_auswertung']} ({stage}: {current + 1}/{max(total, 1)})",
                 ),
+                # Der kombinierte Ablauf (Servermodus) rechnet nur mit Ollama.
+                modell=settings.ollama_model,
             )
             manifest["protokoll_status"] = manifest_service.STATUS_ABGESCHLOSSEN
             callbacks.on_stage("export_protokoll", STAGE_LABELS["export_protokoll"])
