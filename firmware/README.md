@@ -119,6 +119,9 @@ nur einmal angezeigt, die Software speichert nur seinen Hash.
   Welches Gerät (Id) mit welcher Firmware wo im Einsatz ist, steht im **privaten** Repository
   [`Blickfeld-KevinLemaire/aufnahmegeraete-inventar`](https://github.com/Blickfeld-KevinLemaire/aufnahmegeraete-inventar)
   (nur für Berechtigte) – Kundendaten gehören nicht in dieses öffentliche Repository. Jedes neue Gerät dort eintragen.
+  **Die Geräte-Id ist die USB-Seriennummer**, die Windows für das Gerät anzeigt (Geräte-Manager → Eigenschaften →
+  Details → „Pfad zur Geräteinstanz“, z. B. `…\20:6E:F1:16:E7:3C` = Id `206ef116e73c`): So lässt sich ein Gerät ohne
+  seriellen Monitor zuordnen.
 * Jedes Gerät zählt seine Dateien selbst (H5_001, H5_002 …), mehrere Geräte erreichen also dieselben Nummern. Die Software
   legt jede Aufnahme als `<Gerätename>_<Dateiname>` im Eingangsordner ab (Gerätename aus dem Token) und hängt bei gleichem
   Namen mit anderem Inhalt `_2`, `_3` … an; überschrieben wird nie. Von dort läuft die Aufnahme durch die normale Verarbeitung.

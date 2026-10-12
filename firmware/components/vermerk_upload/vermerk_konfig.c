@@ -172,9 +172,12 @@ const char *vermerk_geraete_id(void)
     static bool gelesen = false;
 
     if (!gelesen) {
-        uint8_t mac[6] = {0};
-        /* Werks-MAC (eFuse BLK0), nicht die WLAN-MAC: die laesst sich per esp_base_mac_addr_set umstellen */
-        if (esp_efuse_mac_get_default(mac) != ESP_OK || !vermerk_mac_hex(mac, id, sizeof(id))) {
+        /* Werks-MAC (eFuse BLK0, 6 Bytes, MAC-48), nicht die WLAN-MAC: die laesst sich per
+         * esp_base_mac_addr_set umstellen. Nicht esp_efuse_mac_get_default(): Auf Chips mit IEEE 802.15.4
+         * (C6, H2) schreibt sie eine 8-Byte-EUI-64 (20:6e:f1:ff:fe:16:e7:3c), die Id verloere ihr
+         * eindeutiges Ende. Der Puffer hat trotzdem 8 Bytes Platz, falls sich das je aendert. */
+        uint8_t mac[8] = {0};
+        if (esp_read_mac(mac, ESP_MAC_EFUSE_FACTORY) != ESP_OK || !vermerk_mac_hex(mac, id, sizeof(id))) {
             id[0] = '\0';   /* dann ohne X-Geraete-Id */
         }
         gelesen = true;
