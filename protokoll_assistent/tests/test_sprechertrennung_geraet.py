@@ -209,6 +209,51 @@ def test_ollama_entlaedt_nur_wenn_der_grafikspeicher_fehlt(monkeypatch, device, 
     assert any("qwen3.5" in m for m in meldungen) is entladen_erwartet
 
 
+@pytest.mark.parametrize(
+    ("torch_frei", "gesamt", "ollama_belegt", "entladen_erwartet"),
+    [
+        # Der gemessene Fall: torch meldet 6,9 GB frei, Ollama haelt 5,6 GB von 8 GB.
+        (6.9 * 1024**3, 8 * 1024**3, 5.6 * 1024**3, True),
+        # Grosse Karte: auch nach Abzug von Ollama bleibt genug.
+        (20 * 1024**3, 24 * 1024**3, 7 * 1024**3, False),
+        # Ollama haelt nichts: es gilt der Wert von torch.
+        (5 * 1024**3, 8 * 1024**3, 0, False),
+        (2 * 1024**3, 8 * 1024**3, 0, True),
+    ],
+)
+def test_ollama_entlaedt_auch_wenn_torch_zu_viel_freien_speicher_meldet(
+    monkeypatch, torch_frei, gesamt, ollama_belegt, entladen_erwartet
+):
+    aufgerufen = []
+    monkeypatch.setattr(model_service, "freier_grafikspeicher", lambda: int(torch_frei))
+    monkeypatch.setattr(model_service, "gesamter_grafikspeicher", lambda: int(gesamt))
+    monkeypatch.setattr(ollama_service, "belegter_grafikspeicher", lambda: int(ollama_belegt))
+    monkeypatch.setattr(ollama_service, "modelle_entladen", lambda: aufgerufen.append(True) or ["qwen3:8b"])
+    pipeline_service._grafikspeicher_fuer_whisper_freimachen("cuda", pipeline_service.PipelineCallbacks())
+    assert bool(aufgerufen) is entladen_erwartet
+
+
+def test_belegter_grafikspeicher_summiert_size_vram(monkeypatch):
+    monkeypatch.setattr(
+        ollama_service,
+        "_get_json",
+        lambda url, timeout: {"models": [{"size_vram": 100}, {"size_vram": "50"}, {"size_vram": None}, {"size_vram": "x"}, "kaputt"]},
+    )
+    assert ollama_service.belegter_grafikspeicher() == 150
+
+
+def test_belegter_grafikspeicher_ohne_ollama_ist_null(monkeypatch):
+    def nicht_erreichbar(url, timeout):
+        raise OSError("kein Dienst")
+
+    monkeypatch.setattr(ollama_service, "_get_json", nicht_erreichbar)
+    assert ollama_service.belegter_grafikspeicher() == 0
+
+
+def test_gesamter_grafikspeicher_ohne_torch_ist_none():
+    assert model_service.gesamter_grafikspeicher() is None  # Entwicklungsumgebung ohne torch
+
+
 def test_modelle_entladen_schickt_keep_alive_null_je_geladenem_modell(monkeypatch):
     monkeypatch.setattr(
         ollama_service, "_get_json", lambda url, timeout: {"models": [{"name": "qwen3.5:4b-q4_K_M"}, {"model": "bge-m3"}, "kaputt"]}

@@ -140,6 +140,16 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 ### Fixed
 
+- **„CUDA out of memory“ bei der zweiten Transkription hintereinander:** Hielt
+  Ollama noch das Sprachmodell der vorigen Auswertung (standardmäßig fünf
+  Minuten), scheiterte Whisper auf Grafikkarten mit 8 GB. Die Prüfung, ob noch
+  Platz ist, verließ sich auf den freien Speicher, den torch meldet – unter
+  Windows ist der zu hoch (gemessen: 6,9 GB „frei“ bei 5,6 GB, die Ollama
+  belegte), also wurde nie entladen. Jetzt zählt, was nach Abzug der
+  Ollama-Modelle von der Karte bleibt; reicht es nicht für Whisper, nimmt
+  Ollama das Modell heraus und lädt es für das Protokoll neu. Auf großen Karten
+  bleibt das Modell geladen.
+
 - **„Danach direkt das Protokoll erstellen“ wirkte nicht:** Nach der
   Transkription blieb das Fenster bei „Transkription abgeschlossen.“ stehen,
   das Protokoll startete nie. Die Anwendung wartete auf das Ende des
