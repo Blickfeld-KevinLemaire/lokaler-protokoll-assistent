@@ -565,3 +565,167 @@ def test_server_kennt_weder_oberflaeche_noch_qt():
     verboten = re.compile(r"^\s*(from|import)\s+(PySide6|protokoll_assistent\.gui)", re.MULTILINE)
     for datei in ordner.glob("*.py"):
         assert not verboten.search(datei.read_text(encoding="utf-8")), datei.name
+
+
+# --------------------------------------------------------------------------
+# Empfang fuer die Aufnahmegeraete
+# --------------------------------------------------------------------------
+def test_empfang_ist_ohne_einstellung_aus():
+    e = ServerEinstellungen.aus_umgebung({})
+    assert (e.empfang, e.empfang_port, e.empfang_geraete) == (False, 8765, ())
+
+
+def test_empfang_aus_der_umgebung():
+    from protokoll_assistent.services import geraete_empfang_service as empfang
+
+    hashwert = empfang.token_hash("t")
+    e = ServerEinstellungen.aus_umgebung(
+        {"PROTOKOLL_EMPFANG": "an", "PROTOKOLL_EMPFANG_PORT": "9000", "PROTOKOLL_EMPFANG_GERAETE": f"S3:{hashwert}"}
+    )
+    assert (e.empfang, e.empfang_port, e.empfang_geraete) == (True, 9000, (empfang.Geraet("S3", hashwert),))
+
+
+@pytest.mark.parametrize(
+    ("umgebung", "text"),
+    [
+        ({"PROTOKOLL_EMPFANG": "1"}, "leer"),
+        ({"PROTOKOLL_EMPFANG_GERAETE": "S3:kurz"}, "PROTOKOLL_EMPFANG_GERAETE"),
+        ({"PROTOKOLL_EMPFANG_PORT": "0"}, "mindestens"),
+        ({"PROTOKOLL_EMPFANG_PORT": "70000"}, "65535"),
+    ],
+)
+def test_empfang_meldet_fehler_lesbar(umgebung, text):
+    with pytest.raises(EinstellungsFehler, match=text):
+        ServerEinstellungen.aus_umgebung(umgebung)
+
+
+def test_token_erzeugen_zeigt_token_und_hash(capsys):
+    from protokoll_assistent.services import geraete_empfang_service as empfang
+
+    assert main(["--token-erzeugen", "S3-Audio"], {}) == 0
+    zeilen = [z.strip() for z in capsys.readouterr().out.splitlines()]
+    token = zeilen[1]
+    assert len(token) == 43 and f"S3-Audio:{empfang.token_hash(token)}" in zeilen
+    # Gilt die Zeile als Einstellung, passt das Token dazu.
+    geraete = empfang.geraete_aus_text(zeilen[-1])
+    assert empfang.geraet_zum_token(token, geraete) == geraete[0]
+
+
+def test_token_erzeugen_prueft_den_namen(capsys):
+    assert main(["--token-erzeugen", "S3 Audio"], {}) == 2
+    assert "kein gueltiger Geraetename" in capsys.readouterr().err
+
+
+def test_pruefen_nennt_den_empfang(tmp_path):
+    from protokoll_assistent.services import geraete_empfang_service as empfang
+
+    umgebung = {
+        "PROTOKOLL_EINGANG": str(tmp_path / "in"),
+        "PROTOKOLL_AUSGANG": str(tmp_path / "out"),
+        "PROTOKOLL_PROTOKOLL_ERSTELLEN": "0",
+        "PROTOKOLL_EMPFANG": "1",
+        "PROTOKOLL_EMPFANG_GERAETE": f"S3:{empfang.token_hash('a')},C6:{empfang.token_hash('b')}",
+    }
+    texte = [t for _, t in pruefe_umgebung(ServerEinstellungen.aus_umgebung(umgebung))]
+    assert "Empfang fuer Aufnahmegeraete auf Port 8765: S3, C6" in texte
+
+
+def _start_vorbereiten(tmp_path, monkeypatch):
+    from protokoll_assistent.server import __main__ as start
+
+    monkeypatch.setattr(start, "_daten_ordner", lambda name: tmp_path / name)
+    monkeypatch.setattr(start, "ensure_system_prompt_file_exists", lambda: None)
+    monkeypatch.setattr(start, "get_work_dir", lambda: tmp_path)
+    monkeypatch.setattr(start.signal, "signal", lambda *a, **k: None)
+    return start
+
+
+def test_main_startet_und_stoppt_den_empfang_mit_der_schleife(tmp_path, monkeypatch):
+    from protokoll_assistent.services import geraete_empfang_service as empfang
+
+    start = _start_vorbereiten(tmp_path, monkeypatch)
+    ablauf: list[str] = []
+
+    class Attrappe:
+        def __init__(self, ziel, geraete, *, port):
+            ablauf.append(f"neu {Path(ziel).name} {port} {len(tuple(geraete))}")
+
+        def starten(self):
+            ablauf.append("starten")
+
+        def stoppen(self):
+            ablauf.append("stoppen")
+
+    def lauf(_self):
+        ablauf.append("lauf")
+        raise KeyboardInterrupt  # auch bei einem Abbruch wird der Port wieder frei
+
+    monkeypatch.setattr(empfang, "GeraeteEmpfang", Attrappe)
+    monkeypatch.setattr(start.Dienst, "lauf", lauf)
+    umgebung = {
+        "PROTOKOLL_EINGANG": str(tmp_path / "in"),
+        "PROTOKOLL_AUSGANG": str(tmp_path / "out"),
+        "PROTOKOLL_EMPFANG": "1",
+        "PROTOKOLL_EMPFANG_PORT": "9123",
+        "PROTOKOLL_EMPFANG_GERAETE": f"S3:{empfang.token_hash('a')}",
+    }
+    with pytest.raises(KeyboardInterrupt):
+        start.main([], umgebung)
+    assert ablauf == ["neu in 9123 1", "starten", "lauf", "stoppen"]
+
+
+def test_main_meldet_belegten_port(tmp_path, monkeypatch, capsys):
+    from protokoll_assistent.services import geraete_empfang_service as empfang
+
+    start = _start_vorbereiten(tmp_path, monkeypatch)
+
+    def belegt(_self):
+        raise OSError("Adresse wird bereits verwendet")
+
+    monkeypatch.setattr(empfang.GeraeteEmpfang, "starten", belegt)
+    monkeypatch.setattr(start.Dienst, "lauf", lambda self: pytest.fail("ohne Empfang darf die Schleife nicht starten"))
+    umgebung = {
+        "PROTOKOLL_EINGANG": str(tmp_path / "in"),
+        "PROTOKOLL_AUSGANG": str(tmp_path / "out"),
+        "PROTOKOLL_EMPFANG": "1",
+        "PROTOKOLL_EMPFANG_GERAETE": f"S3:{empfang.token_hash('a')}",
+    }
+    assert start.main([], umgebung) == 2
+    assert "Port 8765 nicht nutzbar" in capsys.readouterr().err
+
+
+def test_empfangene_aufnahme_erreicht_die_warteschlange_erst_wenn_sie_fertig_ist(tmp_path):
+    """Die ganze Kette: Geraet laedt per HTTP hoch, die Warteschlange des
+    Servermodus sieht den Teilstand nie und die fertige Datei sofort."""
+    import hashlib
+    import http.client
+
+    from protokoll_assistent.services import geraete_empfang_service as empfang
+
+    eingang = tmp_path / "eingang"
+    token = empfang.token_erzeugen()
+    dienst = empfang.GeraeteEmpfang(eingang, [empfang.Geraet("S3", empfang.token_hash(token))], port=0, adresse="127.0.0.1")
+    dienst.ablage._freier_platz = lambda _p: 10**12
+    beobachter = warteschlange.Beobachter(eingang, 0, warteschlange.Zustand(tmp_path / "zustand.json"))
+    daten = b"OggS" + bytes(range(256)) * 40
+    dienst.starten()
+    try:
+
+        def senden(inhalt: bytes, **kopf: str) -> dict:
+            verbindung = http.client.HTTPConnection("127.0.0.1", dienst.port, timeout=10)
+            kopf_zeilen = {k.replace("_", "-"): v for k, v in kopf.items()}
+            verbindung.request("PUT", "/api/v1/aufnahmen/H5_001.opus", body=inhalt, headers={"Authorization": f"Bearer {token}", **kopf_zeilen})
+            antwort = json.loads(verbindung.getresponse().read())
+            verbindung.close()
+            return antwort
+
+        assert senden(daten[:5000], X_Offset="0")["naechstes_byte"] == 5000
+        for _ in range(2):  # zwei Abfragen: so prueft die Warteschlange "fertig geschrieben"
+            assert beobachter.bereite_dateien() == []
+        antwort = senden(daten[5000:], X_Offset="5000", X_Gesamtgroesse=str(len(daten)), X_SHA256=hashlib.sha256(daten).hexdigest())
+        assert antwort["fertig"] is True
+    finally:
+        dienst.stoppen()
+    beobachter.bereite_dateien()
+    bereit = beobachter.bereite_dateien()
+    assert bereit == [eingang / "S3_H5_001.opus"] and bereit[0].read_bytes() == daten

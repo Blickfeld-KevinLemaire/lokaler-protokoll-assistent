@@ -10,6 +10,26 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 ### Added
 
+- **Aufnahmegeräte im WLAN laden selbst hoch:** Ist der Empfang eingeschaltet
+  (Einstellungen → „Aufnahmegeräte“, im Servermodus `PROTOKOLL_EMPFANG=1`),
+  landen die Aufnahmen der eigenen ESP32-Geräte ohne Umweg im Eingabeordner und
+  erscheinen sofort in der Dateiliste. Jedes Gerät meldet sich mit einem eigenen
+  Token an, das die Anwendung erzeugt und einmal anzeigt. Bricht die Verbindung
+  ab, geht es beim letzten bestätigten Stück weiter statt von vorn; eine Datei
+  erscheint erst, wenn ihre Prüfsumme stimmt, und eine doppelt gesendete
+  Aufnahme wird nicht zweimal abgelegt. Die Einstellungen zeigen je Gerät, wann
+  es sich zuletzt gemeldet hat – mit Werks-Id und Firmware. Ab Werk ist der
+  Empfang aus; die Übertragung ist nicht verschlüsselt und nur für das eigene
+  Netz gedacht (siehe `SECURITY.md`).
+- **Aufnahmegeräte per USB einrichten:** Gerät per USB-Kabel anschließen,
+  unter *Einstellungen → Aufnahmegeräte → Gerät per USB einrichten* WLAN-Name
+  und Passwort eingeben – die Anwendung erkennt das Gerät (Board, Werks-Id,
+  Firmware), erzeugt das Token und schreibt WLAN, eigene Adresse und Token in
+  einem Zug ins Gerät. Niemand muss mehr Firmware kompilieren oder Token
+  abtippen. Danach steht das Gerät mit seiner Id in der Liste, und eine Zeile
+  für das Geräte-Inventar lässt sich kopieren. Meldet sich unter dem Namen
+  eines Geräts plötzlich andere Hardware, zeigt die Liste eine Warnung.
+
 - **Neue Ersteinrichtung:** Beim ersten Start erklärt ein Assistent in
   einfachen Worten, was das Programm macht, zeigt für **diesen** Computer je
   Arbeitsschritt (Mitschrift, Sprechererkennung, Protokoll, Frag mein Meeting),

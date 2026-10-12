@@ -375,6 +375,8 @@ protokoll_assistent/
   utils/                       Pfade, Konfiguration, Diagnose, Logging
   tests/                       die gesamte Testsuite
   einstellungen/               mitgelieferte Systemprompt-Vorlage
+  GERAETE-SCHNITTSTELLE.md     Upload-Schnittstelle der WLAN-Aufnahmegeraete
+                               (verbindlich fuer Software UND Firmware)
   requirements-*.txt           siehe Regel 8
 ```
 
