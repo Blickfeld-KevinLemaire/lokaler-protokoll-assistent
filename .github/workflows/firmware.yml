@@ -1,0 +1,121 @@
+name: Firmware
+
+# Prueft die Firmware der Aufnahmegeraete (firmware/): die Tests des reinen
+# C-Teils der Upload-Komponente auf dem PC, den Build aller drei Boards mit
+# ESP-IDF und einen Ende-zu-Ende-Test des Uploads in QEMU gegen den echten
+# Empfang der Protokoll-Software. Laeuft nur, wenn sich unter firmware/ oder am
+# Empfang etwas aendert (oder per "Run workflow").
+#
+# Kein Pflicht-Check: Die Firmware wird nicht mit der Anwendung ausgeliefert.
+# Ob sie auf den Geraeten laeuft, zeigt nur ein Test auf echter Hardware.
+
+on:
+  # Wie in 'ci.yml': Push nur auf 'main', sonst gaebe es zu einem Branch mit
+  # offenem Pull Request zwei Laeufe, von denen einer abgebrochen wuerde.
+  push:
+    branches: [main]
+    paths:
+      - firmware/**
+      - protokoll_assistent/services/geraete_empfang_service.py
+      - protokoll_assistent/GERAETE-SCHNITTSTELLE.md
+      - .github/workflows/firmware.yml
+  pull_request:
+    paths:
+      - firmware/**
+      - protokoll_assistent/services/geraete_empfang_service.py
+      - protokoll_assistent/GERAETE-SCHNITTSTELLE.md
+      - .github/workflows/firmware.yml
+  workflow_dispatch:
+
+# Schluessel ist der Branchname, damit Push- und Pull-Request-Laeufe in
+# derselben Gruppe landen (siehe 'ci.yml').
+concurrency:
+  group: firmware-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  host_tests:
+    name: Upload-Komponente (Tests auf dem PC)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Tests mit gcc (AddressSanitizer und UndefinedBehaviorSanitizer)
+        run: make -C firmware/components/vermerk_upload/test/host test
+
+      - name: Vertrag mit der Software (Antworten des Empfangs unveraendert?)
+        # Die Host-Tests lesen echte Antworten des Empfangs aus
+        # antworten_software.h. Hier werden sie aus dem Empfang in diesem Stand
+        # neu erzeugt: Weicht etwas ab, hat sich das Antwortformat geaendert -
+        # dann antworten_erzeugen.py ausfuehren und die Firmware pruefen.
+        # Der Empfang liegt erst nach dem Zusammenfuehren von #36 im Repository.
+        if: hashFiles('protokoll_assistent/services/geraete_empfang_service.py') != ''
+        run: |
+          cd firmware/components/vermerk_upload/test/host
+          python3 antworten_erzeugen.py "$GITHUB_WORKSPACE" > /tmp/antworten_neu.h
+          diff -u antworten_software.h /tmp/antworten_neu.h
+
+  build:
+    name: Build ${{ matrix.board }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - board: esp32-c6
+            path: firmware/esp32-c6
+            target: esp32c6
+          - board: esp32-s3-lcd
+            path: firmware/esp32-s3/lcd
+            target: esp32s3
+          - board: esp32-s3-audio
+            path: firmware/esp32-s3/audio
+            target: esp32s3
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Vorlagen fuer WLAN und Ziele einsetzen
+        # Die echten Dateien enthalten Zugangsdaten und Tokens und stehen in
+        # .gitignore. Fuer den Build reichen die Vorlagen.
+        working-directory: ${{ matrix.path }}/main/Wireless
+        run: |
+          cp server_config.h.example server_config.h
+          cp wifi_credentials.h.example wifi_credentials.h
+
+      - name: Bauen (ESP-IDF v5.5.5)
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.5.5
+          target: ${{ matrix.target }}
+          path: ${{ matrix.path }}
+          command: idf.py set-target ${{ matrix.target }} build
+
+  ende_zu_ende:
+    name: Upload Ende-zu-Ende (QEMU gegen den echten Empfang)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Ist der Empfang im Repository?
+        # Erst nach dem Zusammenfuehren von #36. Vorher wird der Test
+        # uebersprungen (lokal laeuft er mit dem Arbeitsbaum des Empfangs, siehe
+        # firmware/components/vermerk_upload/test/qemu/run_e2e.sh).
+        if: hashFiles('protokoll_assistent/services/geraete_empfang_service.py') == ''
+        run: echo "::notice::Empfang (protokoll_assistent/services/geraete_empfang_service.py) fehlt - Ende-zu-Ende-Test uebersprungen."
+
+      - name: Firmware-Code in QEMU (ESP32) gegen den Empfang
+        # Alles in einem Container: Empfang und Proxy lauschen nur auf
+        # 127.0.0.1, QEMU erreicht sie ueber sein User-Netz als 10.0.2.2.
+        if: hashFiles('protokoll_assistent/services/geraete_empfang_service.py') != ''
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.5.5
+          target: esp32
+          path: .
+          command: bash firmware/components/vermerk_upload/test/qemu/run_e2e.sh

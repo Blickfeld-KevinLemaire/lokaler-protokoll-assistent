@@ -1,0 +1,37 @@
+idf_component_register(
+    SRCS
+        "./main.c"
+        "./Audio_Driver/Audio_Board.c"
+        "./Buttons/Buttons.c"
+        "./Leds/Leds.c"
+        "./Storage/Storage.c"
+        "./Opus_Encoder/Opus_Encoder.c"
+        "./Gain_Control/Gain_Control.c"
+        "./Wireless/Wireless.c"
+    INCLUDE_DIRS
+        "./Audio_Driver"
+        "./Buttons"
+        "./Leds"
+        "./Storage"
+        "./Opus_Encoder"
+        "./Gain_Control"
+        "./Wireless"
+        "."
+    REQUIRES
+        driver
+        esp_driver_i2c
+        esp_driver_i2s
+        esp_driver_gpio
+        esp_driver_sdmmc
+        esp_driver_usb_serial_jtag
+        esp_http_client
+        esp_wifi
+        esp_netif
+        esp_event
+        esp_timer
+        fatfs
+        sdmmc
+        wear_levelling
+        nvs_flash
+        vermerk_upload
+)

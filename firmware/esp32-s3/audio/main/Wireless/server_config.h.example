@@ -1,0 +1,28 @@
+#pragma once
+
+/* Vorlage: nach server_config.h kopieren und anpassen. Die echte Datei ist in .gitignore,
+ * denn sie enthaelt die Tokens.
+ *
+ * Ziele fuer den Upload: die Protokoll-Software auf dem PC (Windows-Anwendung) und/oder im
+ * Servermodus. Leerer String = Ziel nicht eingerichtet. Sind beide erreichbar, hat der Server Vorrang.
+ * Ablauf und Format: protokoll_assistent/GERAETE-SCHNITTSTELLE.md
+ *
+ * Basis-Adresse ohne Schraegstrich am Ende, Standardport 8765. Nur HTTP im eigenen Netz:
+ * Das Token schuetzt vor fremden Geraeten, mitlesen kann im selben WLAN trotzdem, wer den
+ * Datenverkehr abgreift. */
+#define VERMERK_PC_BASE_URL      "http://192.168.0.10:8765"
+#define VERMERK_SERVER_BASE_URL  ""
+
+/* Token je Ziel. Jedes Geraet bekommt ein eigenes; es legt auch den Geraetenamen fest, unter dem
+ * die Aufnahmen ankommen. Erzeugt wird es
+ *   - in der Anwendung: Einstellungen, Bereich "Aufnahmegeraete" (Empfang dort einschalten), oder
+ *   - im Servermodus:   python -m protokoll_assistent.server --token-erzeugen <Name>
+ *                       (Empfang mit PROTOKOLL_EMPFANG=1 einschalten).
+ * Die Software zeigt das Token nur einmal an und speichert selbst nur seinen Hash. Hier eintragen,
+ * nie ins Repository. Die Firmware gibt es nie aus. */
+#define VERMERK_PC_TOKEN         ""
+#define VERMERK_SERVER_TOKEN     ""
+
+/* Optional: Aufnahmen mit kleinerer Nummer nicht hochladen (z. B. 29, wenn H5_001 bis H5_028 schon
+ * auf anderem Weg angekommen sind). Ohne diese Zeile: 1 = alle. */
+/* #define VERMERK_UPLOAD_ERSTE_NUMMER 1 */

@@ -1,0 +1,6 @@
+# Name,     Type, SubType, Offset,   Size, Flags
+# VERMERK C6: keine SD-Karte; Aufnahmen (MP3) liegen in der FAT-Partition "storage".
+# Kein ESP-SR (Sprachmodelle), daher keine srmodels/model-Partition.
+nvs,        data,   nvs,      0x9000,       0x6000,
+factory,    0,      0,        0x10000,      2M,
+storage,    data,   fat,      0x210000,     0xDF0000,
