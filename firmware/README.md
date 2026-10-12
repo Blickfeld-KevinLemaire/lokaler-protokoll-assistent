@@ -15,6 +15,12 @@ Ausführliche Bedienung, LED- und Tastenbelegung der beiden S3: [`esp32-s3/READM
 Alle Versionen haben dieselbe Aufnahme-, Pause- und Upload-Logik; Treiber, Pinbelegung und Bedienung unterscheiden sich je nach Board. Der C6 zeigt außerdem den
 USB-/Ladezustand direkt vom Power-Chip AXP2101 an, statt ihn aus der Akkuspannung zu erraten.
 
+## Geplant: Live-Übertragung
+
+Die Geräte sollen im WLAN der Software die Aufnahme in 15-s-Stücken schon während der Aufnahme an den PC schicken, wo sie
+laufend transkribiert und mit einem vorgegebenen Auftrag ausgewertet wird; das Gerät zeigt am Ende „Transkription erfolgreich“.
+Das Konzept mit Entscheidungen und Phasen steht in [`docs/streaming-konzept.md`](docs/streaming-konzept.md) (noch nicht umgesetzt).
+
 ## Lautstärke
 
 Alle Geräte regeln den Aufnahmepegel automatisch (AGC, `main/Gain_Control/`): leise Sprache wird bis +18 dB angehoben,
