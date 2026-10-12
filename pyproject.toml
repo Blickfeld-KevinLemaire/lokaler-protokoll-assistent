@@ -30,6 +30,9 @@ dev = [
     # werden koennen - ueber die Windows-Anmeldeinformationsverwaltung, nie
     # als Klartext-Datei (siehe 'services/secret_store.py').
     "keyring>=25.0",
+    # Aufnahmegeraete ueber USB einrichten (serielle Schnittstelle, siehe
+    # 'services/geraete_usb_service.py').
+    "pyserial>=3.5",
     # Wird fuer den Windows-Build und dessen Probelauf in der CI gebraucht.
     "pyinstaller>=6.22.3",
 

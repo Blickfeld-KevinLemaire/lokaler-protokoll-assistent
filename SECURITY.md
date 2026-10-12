@@ -106,6 +106,15 @@ zugestimmt haben. Entsprechend gelten hier ein paar Punkte besonders:
     oder offene Netze braeuchte es TLS (noch nicht umgesetzt).
   * `X-Geraete-Id` (Werks-MAC) und `X-Firmware` dienen nur der Zuordnung und
     Fehlersuche, nie der Anmeldung.
+  * **Einrichtung ueber USB** (`services/geraete_usb_service.py`): Die Anwendung
+    schreibt WLAN-Name, WLAN-Passwort, eigene Adresse und ein frisch erzeugtes
+    Token ueber das USB-Kabel ins Geraet (NVS). Das Passwort wird nirgends
+    gespeichert oder protokolliert, vom Token nur der Hash. Das Geraet gibt
+    Passwort und Token nie wieder aus. Wer ein Geraet per USB in der Hand hat,
+    kann es neu einrichten – das ist gewollt (physischer Zugriff). Das NVS des
+    ESP32 ist ohne Flash-Verschluesselung auslesbar: Wer ein Geraet mitnimmt,
+    kommt an WLAN-Passwort und Token. Ein verlorenes Geraet deshalb in der
+    Anwendung entfernen (Token ungueltig) und das WLAN-Passwort aendern.
 * **Kein API-Anbieter ist voreingestellt.** Endpunkte und Modelle sind ab Werk
   leer; erst wenn der Anwender in den Einstellungen einen Anbieter waehlt (oder
   einen eigenen Endpunkt eintraegt), geht etwas dorthin. Ohne Auswahl bricht die

@@ -233,15 +233,19 @@ class GeraeteSeite(QWidget):
         self.adressen_label.setTextInteractionFlags(self.adressen_label.textInteractionFlags() | Qt.TextSelectableByMouse)
         layout.addWidget(self.adressen_label)
 
-        self.tabelle = QTableWidget(0, 3, self)
-        self.tabelle.setHorizontalHeaderLabels(["Gerät", "Angelegt", "Zuletzt gesehen"])
+        self.tabelle = QTableWidget(0, 4, self)
+        self.tabelle.setHorizontalHeaderLabels(["Gerät", "Angelegt", "Zuletzt gesehen", "Geräte-Id"])
         self.tabelle.horizontalHeader().setStretchLastSection(True)
         self.tabelle.setSelectionBehavior(QTableWidget.SelectRows)
         self.tabelle.setEditTriggers(QTableWidget.NoEditTriggers)
         layout.addWidget(self.tabelle, stretch=1)
 
         knoepfe = QHBoxLayout()
-        self.hinzufuegen_button = QPushButton("Gerät hinzufügen …", self)
+        self.usb_button = QPushButton("Gerät per USB einrichten …", self)
+        self.usb_button.clicked.connect(self._per_usb_einrichten)
+        knoepfe.addWidget(self.usb_button)
+        self.hinzufuegen_button = QPushButton("Nur Token erzeugen …", self)
+        self.hinzufuegen_button.setToolTip("Für Geräte, deren Firmware selbst gebaut wird (server_config.h).")
         self.hinzufuegen_button.clicked.connect(self._hinzufuegen)
         self.entfernen_button = QPushButton("Entfernen", self)
         self.entfernen_button.clicked.connect(self._entfernen)
@@ -288,7 +292,14 @@ class GeraeteSeite(QWidget):
             self.tabelle.insertRow(zeile)
             self.tabelle.setItem(zeile, 0, QTableWidgetItem(str(eintrag.get("name", ""))))
             self.tabelle.setItem(zeile, 1, QTableWidgetItem(str(eintrag.get("angelegt", ""))))
-            self.tabelle.setItem(zeile, 2, QTableWidgetItem(kontakt_text(self._kontakte.get(str(eintrag.get("name", ""))))))
+            kontakt = self._kontakte.get(str(eintrag.get("name", "")))
+            text = kontakt_text(kontakt)
+            erwartet = str(eintrag.get("geraete_id") or "")
+            if kontakt is not None and kontakt.geraete_id and erwartet and kontakt.geraete_id != erwartet:
+                # Das Token steckt in einem anderen Geraet als dem eingerichteten.
+                text = f"⚠ andere Id als eingerichtet – {text}"
+            self.tabelle.setItem(zeile, 2, QTableWidgetItem(text))
+            self.tabelle.setItem(zeile, 3, QTableWidgetItem(erwartet))
 
     def _name_erfragen(self) -> str | None:
         name, ok = QInputDialog.getText(self, "Gerät hinzufügen", "Name des Geräts (z. B. S3-Audio):")
@@ -321,6 +332,26 @@ class GeraeteSeite(QWidget):
         )
         self._tabelle_fuellen()
         self._token_zeigen(name, token)
+
+    def _usb_dialog(self) -> QDialog:
+        from protokoll_assistent.gui.geraete_usb_einrichtung import UsbEinrichtungDialog
+
+        return UsbEinrichtungDialog(self._geraete, self.basis_url(), self)
+
+    def _per_usb_einrichten(self) -> None:
+        dialog = self._usb_dialog()
+        dialog.exec()
+        neu = getattr(dialog, "ergebnis", None)
+        if not neu:
+            return
+        # Ein schon bekanntes Geraet (gleiche Werks-Id) bekommt den neuen Eintrag
+        # samt neuem Token; sonst kommt es dazu.
+        self._geraete = [e for e in self._geraete if not neu.get("geraete_id") or e.get("geraete_id") != neu["geraete_id"]]
+        self._geraete.append(neu)
+        # Sofort speichern: Das Geraet traegt das neue Token schon. Ein
+        # "Abbrechen" im Einstellungsdialog duerfte es nicht mehr aussperren.
+        app_config.update_config(geraete_empfang_geraete=[dict(e) for e in self._geraete])
+        self._tabelle_fuellen()
 
     def _entfernen(self) -> None:
         zeilen = sorted({index.row() for index in self.tabelle.selectedIndexes()}, reverse=True)
