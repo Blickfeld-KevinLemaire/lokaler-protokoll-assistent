@@ -7,14 +7,22 @@
  *
  * Jeder Fall schreibt eine Testdatei (Pseudozufall mit fester Saat, gleiche Folge wie im Treiber) ins
  * FAT im Flash und laedt sie mit vermerk_upload_datei() hoch - derselbe Code wie auf den Geraeten.
- * Ausgabe: je Fall "E2E <Fall>: OK|FEHLER ...", am Ende "E2E ERGEBNIS: PASS|FAIL". */
+ * Ausgabe: je Fall "E2E <Fall>: OK|FEHLER ...", am Ende "E2E ERGEBNIS: PASS|FAIL".
+ *
+ * Einrichtung ueber USB: Die Konsole (UART0) nimmt "#VERMERK ..."-Anweisungen an wie auf den Geraeten.
+ * Einkompiliert ist kein Ziel (vermerk_konfig_test.c). Der Flash bleibt ueber Neustarts erhalten:
+ *   1. Start: Upload-Faelle (mit dem Test-Zugang), danach "E2E BEREIT"; der Treiber richtet ein.
+ *   2. Start (eingerichtet): Upload nur mit den Werten aus dem NVS (Fall n), "E2E BEREIT"; Treiber loescht.
+ *   3. Start (nicht mehr eingerichtet): nur "E2E BEREIT". */
 
 #include "vermerk_upload.h"
 #include "vermerk_konfig_test.h"
+#include "vermerk_konsole.h"
 
 #include "esp_event.h"
 #include "esp_netif.h"
 #include "esp_vfs_fat.h"
+#include "nvs.h"
 #include "nvs_flash.h"
 #include "protocol_examples_common.h"
 #include "freertos/FreeRTOS.h"
@@ -35,6 +43,8 @@
 
 static int s_ok = 0;
 static int s_fehler = 0;
+
+static void durchlauf_merken(void);
 
 static void melden(const char *fall, bool ok, const char *text)
 {
@@ -201,13 +211,68 @@ static void e2e_task(void *arg)
     printf("E2E Stack frei: %u B, Heap frei: %u B\n", (unsigned)uxTaskGetStackHighWaterMark(NULL),
            (unsigned)esp_get_free_heap_size());
     printf("E2E ERGEBNIS: %s (%d OK, %d FEHLER)\n", s_fehler == 0 ? "PASS" : "FAIL", s_ok, s_fehler);
+
+    /* Test-Zugang zuruecknehmen: ab jetzt gilt nur, was einkompiliert bzw. eingerichtet ist */
+    vermerk_konfig_laden();
+    durchlauf_merken();
+    printf("E2E BEREIT\n");
     fflush(stdout);
     vTaskDelete(NULL);
+}
+
+/* (n) Nach der Einrichtung ueber USB: Upload nur mit den Werten aus dem NVS (kein Test-Zugang) */
+static void e2e_eingerichtet_task(void *arg)
+{
+    char pfad[64];
+    char text[160];
+    vermerk_ziel_t ziel = (vermerk_konfig_server_url()[0] != '\0') ? VERMERK_ZIEL_SERVER : VERMERK_ZIEL_PC;
+    vermerk_hallo_t h = vermerk_hallo(ziel);
+    snprintf(pfad, sizeof(pfad), BASIS "/E2E_N.opus");
+    vermerk_ergebnis_t e = VERMERK_ERGEBNIS_SPAETER;
+    if (h.erreichbar && datei_schreiben(pfad, 300000, 0x4Eu)) {
+        e = hochladen(ziel, pfad, "E2E_N.opus", NULL);
+    }
+    snprintf(text, sizeof(text), "Ziel %s, hallo HTTP %d, Upload %s", vermerk_konfig_ziel_name(ziel), h.http_status,
+             vermerk_ergebnis_text(e));
+    melden("n", h.erreichbar && e == VERMERK_ERGEBNIS_FERTIG, text);
+    printf("E2E BEREIT\n");
+    fflush(stdout);
+    vTaskDelete(NULL);
+}
+
+static bool keine_aufnahme(void)
+{
+    return false;
+}
+
+static uint8_t durchlauf_lesen(void)
+{
+    uint8_t wert = 0;
+    nvs_handle_t nvs;
+    if (nvs_open("e2e", NVS_READONLY, &nvs) == ESP_OK) {
+        nvs_get_u8(nvs, "durchlauf", &wert);
+        nvs_close(nvs);
+    }
+    return wert;
+}
+
+static void durchlauf_merken(void)
+{
+    nvs_handle_t nvs;
+    if (nvs_open("e2e", NVS_READWRITE, &nvs) == ESP_OK) {
+        nvs_set_u8(nvs, "durchlauf", 1);
+        nvs_commit(nvs);
+        nvs_close(nvs);
+    }
 }
 
 void app_main(void)
 {
     ESP_ERROR_CHECK(nvs_flash_init());
+    vermerk_konfig_laden();
+    vermerk_konsole_starten(keine_aufnahme);
+    printf("E2E KONSOLE: eingerichtet=%d\n", vermerk_konfig_eingerichtet());
+
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
 
@@ -225,5 +290,11 @@ void app_main(void)
     ESP_ERROR_CHECK(example_connect());   /* Ethernet (open_eth), DHCP aus dem QEMU-User-Netz */
 
     /* Upload in einer eigenen Task mit demselben Stack wie auf den Geraeten (upload_manager: 8192) */
-    xTaskCreate(e2e_task, "e2e", 8192, NULL, 2, NULL);
+    if (durchlauf_lesen() == 0) {
+        xTaskCreate(e2e_task, "e2e", 8192, NULL, 2, NULL);
+    } else if (vermerk_konfig_eingerichtet()) {
+        xTaskCreate(e2e_eingerichtet_task, "e2e_n", 8192, NULL, 2, NULL);
+    } else {
+        printf("E2E BEREIT\n");
+    }
 }

@@ -8,6 +8,7 @@
 #include "Wireless.h"
 #include "vermerk_konfig.h"
 #include "vermerk_protokoll.h"
+#include "vermerk_konsole.h"
 #include "Rec_Codec.h"
 #include "Gain_Control.h"
 
@@ -1161,6 +1162,7 @@ void app_main(void)
 
     vermerk_h3_ui_create();
     Wireless_Init();
+    vermerk_konsole_starten(recording_has_priority);   /* Einrichtung ueber USB; nie waehrend einer Aufnahme speichern */
     recording_counter_init();
 
     xTaskCreatePinnedToCore(

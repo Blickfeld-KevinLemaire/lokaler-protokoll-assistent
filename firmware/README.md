@@ -75,24 +75,34 @@ Vorher die beiden Vorlagen kopieren und ausfüllen (die echten Dateien sind in `
 * `main/Wireless/server_config.h.example` → `server_config.h` (Adresse und Token der Protokoll-Software, siehe unten)
 
 Fehlt eine der beiden Dateien, bricht der Build mit einem Hinweis ab. Eine `server_config.h` aus der Zeit vor der neuen
-Schnittstelle (ohne `VERMERK_PC_TOKEN`) wird ebenfalls abgelehnt: dann die Vorlage neu kopieren.
+Schnittstelle (ohne `VERMERK_PC_TOKEN`) wird ebenfalls abgelehnt: dann die Vorlage neu kopieren. Werden die Geräte später
+über USB aus der Anwendung eingerichtet (siehe unten), dürfen die Vorlagen unverändert bleiben: Die Werte darin gelten nur,
+solange ein Gerät nicht eingerichtet ist.
 
 ## Gegenstelle: die Protokoll-Software
 
 Die Geräte laden direkt in die Protokoll-Software hoch, in die Windows-Anwendung oder in den Servermodus. Ablauf, Kopfzeilen
 und Antworten stehen verbindlich in [`protokoll_assistent/GERAETE-SCHNITTSTELLE.md`](../protokoll_assistent/GERAETE-SCHNITTSTELLE.md).
 
-**Einrichten:**
+**Einrichten über USB (ohne Neukompilieren):**
 
 1. Empfang einschalten: in der Anwendung unter Einstellungen, Bereich „Aufnahmegeräte“; im Servermodus mit
    `PROTOKOLL_EMPFANG=1`. Standardport 8765.
-2. Für **jedes Gerät ein eigenes Token** erzeugen: in der Anwendung im selben Bereich, im Servermodus mit
-   `python -m protokoll_assistent.server --token-erzeugen <Name>`. Der Name wird Teil des Dateinamens
-   (`<Name>_H5_007.opus`). Das Token wird nur einmal angezeigt; die Software speichert nur seinen Hash.
-3. In `main/Wireless/server_config.h` Adresse und Token eintragen: `VERMERK_PC_BASE_URL` und `VERMERK_PC_TOKEN`
-   und/oder `VERMERK_SERVER_BASE_URL` und `VERMERK_SERVER_TOKEN`. Bauen, flashen.
-4. Im Monitor erscheint `VERMERK PC erreichbar (Stuecke bis 256 KB)` (bzw. `SERVER`). `lehnt das Token ab (HTTP 401)`
-   heißt: Token falsch oder in der Software widerrufen.
+2. Gerät per USB-Datenkabel an den PC, in der Anwendung „Gerät einrichten“: Sie fragt das Gerät ab, vergibt einen
+   Gerätenamen, erzeugt ein eigenes Token und schreibt WLAN, Adresse und Token ins Gerät (NVS). Das Gerät startet neu und
+   meldet sich danach mit seiner Geräte-Id bei der Software.
+3. Im Monitor erscheint beim Start `VERMERK Einstellungen: ueber USB eingerichtet`, danach
+   `VERMERK PC erreichbar (Stuecke bis 256 KB)` (bzw. `SERVER`). `lehnt das Token ab (HTTP 401)` heißt: Token falsch
+   oder in der Software widerrufen.
+
+**Einrichten beim Bauen (für Entwickler):** Token wie oben erzeugen (im Servermodus mit
+`python -m protokoll_assistent.server --token-erzeugen <Name>`), in `main/Wireless/server_config.h` Adresse und Token
+eintragen (`VERMERK_PC_BASE_URL` und `VERMERK_PC_TOKEN` und/oder `VERMERK_SERVER_BASE_URL` und `VERMERK_SERVER_TOKEN`),
+bauen, flashen. Beim Start steht dann `VERMERK Einstellungen: einkompiliert`. Eine Einrichtung über USB hat Vorrang;
+`#VERMERK LOESCHEN` (siehe unten) macht sie rückgängig.
+
+Für **jedes Gerät ein eigenes Token**: Der Gerätename wird Teil des Dateinamens (`<Name>_H5_007.opus`), das Token wird
+nur einmal angezeigt, die Software speichert nur seinen Hash.
 
 **So läuft der Upload** (Code: [`components/vermerk_upload/`](components/vermerk_upload/), für alle drei Boards gleich):
 
@@ -109,14 +119,31 @@ und Antworten stehen verbindlich in [`protokoll_assistent/GERAETE-SCHNITTSTELLE.
   Welches Gerät (Id) mit welcher Firmware wo im Einsatz ist, steht im **privaten** Repository
   [`Blickfeld-KevinLemaire/aufnahmegeraete-inventar`](https://github.com/Blickfeld-KevinLemaire/aufnahmegeraete-inventar)
   (nur für Berechtigte) – Kundendaten gehören nicht in dieses öffentliche Repository. Jedes neue Gerät dort eintragen.
+  **Die Geräte-Id ist die USB-Seriennummer**, die Windows für das Gerät anzeigt (Geräte-Manager → Eigenschaften →
+  Details → „Pfad zur Geräteinstanz“, z. B. `…\20:6E:F1:16:E7:3C` = Id `206ef116e73c`): So lässt sich ein Gerät ohne
+  seriellen Monitor zuordnen.
 * Jedes Gerät zählt seine Dateien selbst (H5_001, H5_002 …), mehrere Geräte erreichen also dieselben Nummern. Die Software
   legt jede Aufnahme als `<Gerätename>_<Dateiname>` im Eingangsordner ab (Gerätename aus dem Token) und hängt bei gleichem
   Namen mit anderem Inhalt `_2`, `_3` … an; überschrieben wird nie. Von dort läuft die Aufnahme durch die normale Verarbeitung.
 * Übertragen wird per HTTP im eigenen Netz. Das Token schützt davor, dass Fremde Dateien einliefern oder die Software
   vortäuschen; mitlesen kann im selben WLAN trotzdem, wer den Datenverkehr abgreift (siehe `SECURITY.md`).
 * Alle Verbindungs-Einstellungen (WLAN, Adressen, Tokens, erste Nummer) liest die Firmware nur über
-  `components/vermerk_upload/include/vermerk_konfig.h`. Heute stehen sie fest im Build; sollen Kunden sie später selbst
-  setzen (z. B. per USB aus der Anwendung), ändert sich nur `vermerk_konfig.c`.
+  `components/vermerk_upload/include/vermerk_konfig.h`: die Einrichtung über USB aus dem NVS, sonst die einkompilierten
+  Werte.
+
+**Einrichtung über USB: was das Gerät versteht** (verbindlich: Abschnitt „Einrichtung über USB“ in
+[`GERAETE-SCHNITTSTELLE.md`](../protokoll_assistent/GERAETE-SCHNITTSTELLE.md); Code: `vermerk_einrichtung.c`, auf dem PC
+getestet, und `vermerk_konsole.c`):
+
+* Über die serielle USB-Schnittstelle (dieselbe wie der Monitor), eine Anweisung je Zeile: `#VERMERK INFO`,
+  `#VERMERK SETZE <Schlüssel> <Hex>`, `#VERMERK SPEICHERN`, `#VERMERK VERWERFEN`, `#VERMERK LOESCHEN`. Antworten
+  beginnen mit `#VERMERK INFO`, `#VERMERK OK` oder `#VERMERK FEHLER`; alles andere sind die üblichen Protokollzeilen.
+* `SPEICHERN` prüft alles zusammen (WLAN-Name, mindestens ein Ziel mit Adresse **und** Token), schreibt es in **einem**
+  NVS-Eintrag und startet nach ca. 1 s neu. Während einer Aufnahme lehnt das Gerät `SPEICHERN` und `LOESCHEN` ab.
+* Passwort und Token gibt das Gerät nie aus, auch nicht in `INFO` (dort steht nur, ob ein Token gesetzt ist).
+* **Selbst nachsehen:** `idf.py -p COMx monitor` öffnen, `#VERMERK INFO` tippen und Enter drücken. Die Antwort zeigt
+  `eingerichtet`, Board, Firmware, Geräte-Id und WLAN-Name/Adressen als Hex. `#VERMERK LOESCHEN` + Enter setzt das Gerät
+  auf die einkompilierten Werte zurück (Neustart). Der Aufnahmezähler bleibt dabei erhalten.
 
 **Nummern:**
 
@@ -144,8 +171,24 @@ und Antworten stehen verbindlich in [`protokoll_assistent/GERAETE-SCHNITTSTELLE.
   (neue Aufnahme), danach Fortsetzung; `409` auf ein volles Stück, Fortsetzung beim gemeldeten Byte; `422` (falscher
   Teilstand und Teilstand größer als die Datei), einmal von vorn; `X-Geraete-Id` und `X-Firmware` kommen an. Jede Datei
   liegt danach Byte für Byte gleich im Eingangsordner.
+* **Einrichtung über USB in QEMU** (derselbe Lauf, Konsole über UART0): `INFO` ohne Einrichtung; Fehler bei unbekanntem
+  Schlüssel, kaputtem Hex, 7-stelligem Passwort, Zeile über 512 Zeichen, Adresse ohne Token und leerer Einrichtung;
+  `VERWERFEN`; fünf Werte setzen (WLAN-Name mit Umlaut und Anführungszeichen, Token vom Empfang erzeugt), `SPEICHERN`,
+  Neustart; danach `INFO` mit `eingerichtet:true` und ein Upload **nur** mit den Werten aus dem NVS (Datei byte-gleich
+  angekommen); `LOESCHEN`, Neustart, wieder nicht eingerichtet. Passwort und Token standen in keiner der ca. 580 Zeilen,
+  die das Gerät ausgegeben hat. Die Prüf- und Antwortlogik hat dazu eigene Tests auf dem PC (`test_vermerk_einrichtung.c`).
+* **Anwendung gegen Firmware in QEMU** (derselbe Lauf): Der echte USB-Code der Anwendung
+  (`services/geraete_usb_service.py`, über pyserial) richtet das Gerät ein: `info()`, Ablehnungen durch die Anwendung
+  selbst (7-stelliges Passwort, Umlaut im Passwort, Adresse mit `/` am Ende; dabei geht nichts an das Gerät),
+  Ablehnungen durch das Gerät, die als `UsbFehler` mit dem Text des Geräts ankommen, `einrichten()` mit Umlauten und
+  Anführungszeichen im WLAN-Namen, `nach_neustart_verbinden()`, `info()` mit `eingerichtet`, Upload mit diesen Werten,
+  `loeschen()`. Beide Seiten sprechen also dieselbe Zeilen-Schnittstelle.
 
-**Nicht geprüft** (nur auf echter Hardware zu klären): WLAN statt Ethernet, die Chips S3 und C6 (QEMU emuliert den
+**Nicht geprüft** (nur auf echter Hardware zu klären): die Einrichtung über **USB-Serial-JTAG** (in QEMU läuft die
+Konsole über UART; auf S3/C6 installiert die Firmware den USB-Serial-JTAG-Treiber, das ist nur gebaut), das Öffnen des
+Ports durch die Anwendung (DTR/RTS aus, kein Neustart), die Ablehnung von `SPEICHERN` während einer echten Aufnahme (auf
+dem PC getestet), RAM auf dem C6 mit der Einrichtungs-Task (ca. 3,5 KB Stack, davon in QEMU ca. 1,9 KB frei, und ca.
+1,9 KB Puffer), WLAN statt Ethernet, die Chips S3 und C6 (QEMU emuliert den
 klassischen ESP32; die Komponente ist chipunabhängig), Durchsatz und Dauer auf den Geräten, Upload von SD-Karte,
 Wiederaufnahme nach einem echten Neustart des Geräts (in QEMU nur über einen neuen Aufruf), der Upload-Manager in
 `main.c` (Warteliste, `.sent`-Marker, Löschen nach „fertig“), RAM und Stack auf dem C6 während Aufnahme und Upload (die

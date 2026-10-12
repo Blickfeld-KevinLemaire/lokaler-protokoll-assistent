@@ -15,6 +15,7 @@
 #include "Wireless.h"
 #include "vermerk_konfig.h"
 #include "vermerk_protokoll.h"
+#include "vermerk_konsole.h"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -767,6 +768,7 @@ void app_main(void)
     Buttons_Init(esp_ret_i2c_handle(), on_key);   /* richtet auch den IO-Expander ein (SD-DAT3 hoch) */
     Storage_Init();   /* SD-Karte, wenn eine steckt, sonst Flash */
     Wireless_Init();
+    vermerk_konsole_starten(recording_has_priority);   /* Einrichtung ueber USB; nie waehrend einer Aufnahme speichern */
     recording_counter_init();
 
     xTaskCreatePinnedToCore(audio_task, "audio", AUDIO_TASK_STACK, NULL, 5, NULL, 1);

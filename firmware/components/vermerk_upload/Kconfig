@@ -4,8 +4,9 @@ menu "VERMERK Upload"
         bool "Einstellungen zur Laufzeit setzen (nur fuer den QEMU-Test)"
         default n
         help
-            Nur fuer test/qemu: Statt vermerk_konfig.c (Werte aus server_config.h und
-            wifi_credentials.h) wird vermerk_konfig_test.c gebaut, dessen Werte der Test
-            zur Laufzeit setzt (vermerk_konfig_test.h). Auf den Geraeten nie einschalten.
+            Nur fuer test/qemu: Statt vermerk_konfig_standard.c (Werte aus server_config.h
+            und wifi_credentials.h) wird vermerk_konfig_test.c gebaut: keine einkompilierten
+            Ziele, dazu ein Zugang, mit dem der Test Adresse und Token zur Laufzeit setzt
+            (vermerk_konfig_test.h). Auf den Geraeten nie einschalten.
 
 endmenu
