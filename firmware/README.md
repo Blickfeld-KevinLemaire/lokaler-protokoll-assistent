@@ -2,7 +2,9 @@
 
 Diese Firmware nimmt Besprechungen auf, speichert sie auf dem Gerät und lädt sie per WLAN an den PC
 oder Server hoch, auf dem die Protokoll-Software (`protokoll_assistent/`) die Aufnahmen transkribiert.
-Sie gehört **nicht** zur Windows-Anwendung und wird weder von der CI geprüft noch ausgeliefert.
+Sie gehört **nicht** zur Windows-Anwendung und wird nicht mit ihr ausgeliefert. Die CI baut alle drei Boards und testet den
+reinen C-Teil der Upload-Komponente auf dem PC (`.github/workflows/firmware.yml`, kein Pflicht-Check); ob die Firmware auf
+den Geräten läuft, prüft nur ein Test auf echter Hardware.
 
 | Ordner | Board | Chip | Bedienung | Aufnahme | Speicher |
 |---|---|---|---|---|---|
@@ -19,7 +21,9 @@ USB-/Ladezustand direkt vom Power-Chip AXP2101 an, statt ihn aus der Akkuspannun
 
 Die Geräte sollen im WLAN der Software die Aufnahme in 15-s-Stücken schon während der Aufnahme an den PC schicken, wo sie
 laufend transkribiert und mit einem vorgegebenen Auftrag ausgewertet wird; das Gerät zeigt am Ende „Transkription erfolgreich“.
-Das Konzept mit Entscheidungen und Phasen steht in [`docs/streaming-konzept.md`](docs/streaming-konzept.md) (noch nicht umgesetzt).
+Das Konzept mit Entscheidungen und Phasen steht in [`docs/streaming-konzept.md`](docs/streaming-konzept.md). Die Übertragung
+selbst ist umgesetzt (wiederaufnehmbarer Upload mit Token, siehe [Gegenstelle](#gegenstelle-die-protokoll-software)); das
+Senden schon **während** der Aufnahme fehlt in der Firmware noch.
 
 ## Lautstärke
 
@@ -67,14 +71,67 @@ idf.py -p COMx build flash
 Vorher die beiden Vorlagen kopieren und ausfüllen (die echten Dateien sind in `.gitignore` und kommen nie ins Repository):
 
 * `main/Wireless/wifi_credentials.h.example` → `wifi_credentials.h` (WLAN-Name und Passwort)
-* `main/Wireless/server_config.h.example` → `server_config.h` (Adresse des Empfängers, siehe unten)
+* `main/Wireless/server_config.h.example` → `server_config.h` (Adresse und Token der Protokoll-Software, siehe unten)
 
-## Gegenstelle
+Fehlt eine der beiden Dateien, bricht der Build mit einem Hinweis ab. Eine `server_config.h` aus der Zeit vor der neuen
+Schnittstelle (ohne `VERMERK_PC_TOKEN`) wird ebenfalls abgelehnt: dann die Vorlage neu kopieren.
 
-Die Geräte laden Aufnahmen per `POST /upload` hoch (Dateiname im Header `X-Filename`) und fragen
-`GET /vermerk-status.txt` ab, um zu prüfen, ob die Gegenstelle erreichbar ist. Die Ordnerüberwachung der
-Protokoll-Software nimmt `.wav`, `.mp3` und `.opus` an. **Achtung:** Jedes Gerät zählt seine Dateien selbst (H5_001, H5_002 …), mehrere Geräte können also dieselbe Nummer erreichen. Der Empfänger muss gleiche Namen unterscheiden und darf nie überschreiben; der Mini-Empfänger unten hängt dann _2, _3 … an. Ein Mini-Empfänger liegt als
-[`tools/vermerk_receiver.py.txt`](tools/vermerk_receiver.py.txt) (zu `.py` umbenennen).
+## Gegenstelle: die Protokoll-Software
+
+Die Geräte laden direkt in die Protokoll-Software hoch, in die Windows-Anwendung oder in den Servermodus. Ablauf, Kopfzeilen
+und Antworten stehen verbindlich in [`protokoll_assistent/GERAETE-SCHNITTSTELLE.md`](../protokoll_assistent/GERAETE-SCHNITTSTELLE.md).
+
+**Einrichten:**
+
+1. Empfang einschalten: in der Anwendung unter Einstellungen, Bereich „Aufnahmegeräte“; im Servermodus mit
+   `PROTOKOLL_EMPFANG=1`. Standardport 8765.
+2. Für **jedes Gerät ein eigenes Token** erzeugen: in der Anwendung im selben Bereich, im Servermodus mit
+   `python -m protokoll_assistent.server --token-erzeugen <Name>`. Der Name wird Teil des Dateinamens
+   (`<Name>_H5_007.opus`). Das Token wird nur einmal angezeigt; die Software speichert nur seinen Hash.
+3. In `main/Wireless/server_config.h` Adresse und Token eintragen: `VERMERK_PC_BASE_URL` und `VERMERK_PC_TOKEN`
+   und/oder `VERMERK_SERVER_BASE_URL` und `VERMERK_SERVER_TOKEN`. Bauen, flashen.
+4. Im Monitor erscheint `VERMERK PC erreichbar (Stuecke bis 256 KB)` (bzw. `SERVER`). `lehnt das Token ab (HTTP 401)`
+   heißt: Token falsch oder in der Software widerrufen.
+
+**So läuft der Upload** (Code: [`components/vermerk_upload/`](components/vermerk_upload/), für alle drei Boards gleich):
+
+* Ein Ziel gilt nur als erreichbar, wenn `GET /api/v1/hallo` mit gültigem Token antwortet und sich als Protokoll-Software
+  ausweist; ein beliebiger Webserver, der `200` liefert, genügt nicht. Sind beide erreichbar, hat der Server Vorrang.
+* Hochgeladen wird in Stücken von 256 KiB mit Byte-Versatz, gestreamt aus einem kleinen Puffer (C6: 4 KB, S3: 16 KB,
+  bei knappem RAM 4 KB). Reißt die Verbindung ab, macht das Gerät beim letzten bestätigten Byte weiter, auch nach einem
+  Neustart. Zum Schluss prüft die Software Größe und SHA-256. **Erst wenn sie „fertig“ meldet, löscht das Gerät seine Kopie.**
+* Scheitert eine Datei, wartet nur diese (5 s, dann jeweils doppelt so lang, höchstens 5 min); die nächste ist trotzdem
+  dran. Die Wartezeiten liegen nur im RAM, nach einem Neustart geht es sofort los.
+* Startet eine Aufnahme, hört der Upload nach dem laufenden Stück auf und macht später an derselben Stelle weiter.
+* Jede Anfrage trägt außerdem `X-Geraete-Id` (Werks-MAC aus dem eFuse) und `X-Firmware` (z. B. `esp32-c6/1.0.0`), nur zur
+  Zuordnung und Fehlersuche. Beim Start steht beides im Monitor: `VERMERK Geraete-Id: 1a2b3c4d5e6f, Firmware: …`.
+* Jedes Gerät zählt seine Dateien selbst (H5_001, H5_002 …), mehrere Geräte erreichen also dieselben Nummern. Die Software
+  legt jede Aufnahme als `<Gerätename>_<Dateiname>` im Eingangsordner ab (Gerätename aus dem Token) und hängt bei gleichem
+  Namen mit anderem Inhalt `_2`, `_3` … an; überschrieben wird nie. Von dort läuft die Aufnahme durch die normale Verarbeitung.
+* Übertragen wird per HTTP im eigenen Netz. Das Token schützt davor, dass Fremde Dateien einliefern oder die Software
+  vortäuschen; mitlesen kann im selben WLAN trotzdem, wer den Datenverkehr abgreift (siehe `SECURITY.md`).
+* Alle Verbindungs-Einstellungen (WLAN, Adressen, Tokens, erste Nummer) liest die Firmware nur über
+  `components/vermerk_upload/include/vermerk_konfig.h`. Heute stehen sie fest im Build; sollen Kunden sie später selbst
+  setzen (z. B. per USB aus der Anwendung), ändert sich nur `vermerk_konfig.c`.
+
+**Nummern:**
+
+* `VERMERK_UPLOAD_ERSTE_NUMMER` (optional in `server_config.h`): Aufnahmen mit kleinerer Nummer werden nicht hochgeladen,
+  Standard 1 (alle). **Das vorhandene S3 mit Bildschirm** hatte bisher fest 29 im Code: dort
+  `#define VERMERK_UPLOAD_ERSTE_NUMMER 29` in die eigene `server_config.h` eintragen, sonst lädt es H5_001 bis H5_028
+  hoch, falls die noch auf der Karte liegen.
+* Ab Nummer 1000 heißen die Dateien `H5_1000.opus` usw. Zählen, Upload und die Suche nach der höchsten Nummer beim Start
+  lesen jetzt die Verzeichnisliste statt jede Nummer von 1 bis 999 einzeln zu öffnen; die alte Grenze 999 gibt es nicht
+  mehr (Obergrenze jetzt 999 999 999). Ein Upload-Durchgang nimmt die 32 kleinsten offenen Nummern, der nächste den Rest.
+
+**Teststand der neuen Übertragung (12.10.2026): nur gebaut und auf dem PC getestet, noch nicht auf einem Gerät.**
+Geprüft: Alle drei Firmwares bauen mit ESP-IDF v5.5.5; der reine C-Teil (Antworten lesen, Dateinamen, Wartezeiten,
+Entscheidung nach jeder Antwort, Geräte-Id) hat Tests mit gcc, AddressSanitizer und UndefinedBehaviorSanitizer
+(`components/vermerk_upload/test/host/`, `make test`). **Nicht geprüft:** Upload gegen die echte Software,
+Wiederaufnahme nach Abbruch und nach Neustart, `409`/`422` im echten Ablauf, Durchsatz mit 256-KiB-Stücken, Abbruch des
+Uploads beim Start einer Aufnahme, RAM und Stack auf dem C6 während Aufnahme und Upload (die Zeile
+`VERMERK Upload-Diagnose` zeigt dafür `Puffer` und `Stack frei`), Geräte-Id aus dem eFuse. Die Upload-Messungen in
+`esp32-s3/README.md` stammen noch vom früheren Upload (`POST /upload`).
 
 ## Fremder Code
 

@@ -10,7 +10,8 @@ Opus-Dateien und schickt sie per WLAN an den PC oder Server, auf dem die Protoko
 | Bedienung | Touchscreen (Start, Pause, Stopp) | 3 Tasten **KEY1–KEY3** und **BOOT** (RESET startet nur neu) |
 | Anzeige | Bildschirm: Zustand, Zeit, Pegel, Verbindung, Akku | 7 RGB-LEDs im Ring |
 | Speicher | SD-Karte | SD-Karte; ohne Karte automatisch der Flash (ca. 13,8 MB = ca. 77 min) |
-| Stand | auf Hardware getestet | auf dem echten Board getestet: Aufnahme per Taste, Speicher, Upload, Pegel; Pause, KEY3 und SD-Karte noch nicht ausdrücklich bestätigt (siehe unten) |
+| Stand | auf Hardware getestet (mit dem früheren Upload) | auf dem echten Board getestet: Aufnahme per Taste, Speicher, Upload (früherer Upload), Pegel; Pause, KEY3 und SD-Karte noch nicht ausdrücklich bestätigt (siehe unten) |
+| Neue Übertragung (Token, Wiederaufnahme) | nur gebaut, nicht auf dem Gerät getestet | nur gebaut, nicht auf dem Gerät getestet |
 
 ## Gemeinsam
 
@@ -24,30 +25,38 @@ Opus-Dateien und schickt sie per WLAN an den PC oder Server, auf dem die Protoko
 * **Dateigröße:** ca. 3 KB pro Sekunde, 10,8 MB pro Stunde. Auf eine 32-GB-Karte passen weit über 1000 Stunden.
   Früher (WAV, Stereo) waren es 115 MB pro Stunde.
 * **Dateinamen:** `H5_001.opus`, `H5_002.opus` … fortlaufend. Der Zähler überlebt Neustarts und wird nie zurückgesetzt.
-* **Upload:** Sobald das Gerät im WLAN ist und der Empfänger antwortet, werden Aufnahmen hochgeladen, **aber nie
-  während einer laufenden Aufnahme**. Nach erfolgreichem Upload löscht das Gerät seine Kopie. Fällt die
-  Verbindung aus, bleibt die Aufnahme auf dem Gerät und wird später nachgeholt.
+* **Upload:** Sobald das Gerät im WLAN ist und die Protokoll-Software antwortet, werden Aufnahmen hochgeladen, **aber nie
+  während einer laufenden Aufnahme** (startet eine, hört der Upload nach dem laufenden Stück auf). Erst wenn die Software
+  meldet, dass die Datei vollständig und unversehrt angekommen ist, löscht das Gerät seine Kopie. Fällt die Verbindung
+  aus, geht es später ab dem letzten bestätigten Byte weiter; eine Datei, die scheitert, hält die anderen nicht auf.
 * **Alte Aufnahmen:** `.wav`-Dateien von der früheren Firmware (S3 mit Bildschirm) werden weiter hochgeladen.
 * **Voller Speicher:** Unter 64 KB frei beendet das Gerät die Aufnahme sauber und speichert sie. Unter 256 KB frei
   startet keine neue Aufnahme.
 * **Stromausfall:** Alle 30 Sekunden wird die Datei gesichert. Es gehen höchstens die letzten Sekunden verloren;
   die Datei bleibt abspielbar.
 
-### Empfänger (Gegenstelle)
+### Gegenstelle: die Protokoll-Software
 
-Das Gerät sendet `POST /upload` (Dateiname im Header `X-Filename`) und fragt `GET /vermerk-status.txt` ab,
-um zu prüfen, ob die Gegenstelle da ist. Ein fertiger Mini-Empfänger liegt als
-[`../tools/vermerk_receiver.py.txt`](../tools/vermerk_receiver.py.txt) (zu `.py` umbenennen und mit `python`
-starten; er liegt als `.txt`, damit die Python-Prüfungen des Repositorys nicht anschlagen). Er speichert nach
-`uploads/`, Port 8765. Die Ordnerüberwachung der Protokoll-Software nimmt `.opus` direkt an.
+Die Geräte laden direkt in die Protokoll-Software hoch (Anwendung oder Servermodus), mit einem eigenen Token je Gerät
+und in Stücken, die nach einem Abbruch dort weitergehen, wo sie aufgehört haben. Einrichten und Ablauf:
+[`../README.md`](../README.md#gegenstelle-die-protokoll-software), die verbindliche Beschreibung der Schnittstelle:
+[`protokoll_assistent/GERAETE-SCHNITTSTELLE.md`](../../protokoll_assistent/GERAETE-SCHNITTSTELLE.md). Kurz:
+
+1. In der Software den Empfang einschalten (Anwendung: Einstellungen, „Aufnahmegeräte“; Servermodus: `PROTOKOLL_EMPFANG=1`).
+2. Für dieses Gerät ein Token erzeugen (Anwendung: derselbe Bereich; Servermodus:
+   `python -m protokoll_assistent.server --token-erzeugen <Name>`).
+3. Adresse und Token in `server_config.h` eintragen (siehe unten).
 
 ### Einrichten (einmalig, beide Boards)
 
 1. ESP-IDF 5.5.x installieren, Eingabeaufforderung/PowerShell mit der ESP-IDF-Umgebung öffnen.
 2. Im Ordner des Boards (`lcd/` oder `audio/`) unter `main/Wireless/` die beiden Vorlagen kopieren und ausfüllen:
    `wifi_credentials.h.example` → `wifi_credentials.h` (WLAN-Name, Passwort) und
-   `server_config.h.example` → `server_config.h` (Adresse des Empfängers, z. B. `http://192.168.0.10:8765`).
-   Diese beiden Dateien stehen in der `.gitignore` und gehören nie ins Repository.
+   `server_config.h.example` → `server_config.h` (Adresse der Protokoll-Software, z. B. `http://192.168.0.10:8765`,
+   und das Token dieses Geräts). Diese beiden Dateien stehen in der `.gitignore` und gehören nie ins Repository.
+   **S3 mit Bildschirm, das schon im Einsatz ist:** zusätzlich `#define VERMERK_UPLOAD_ERSTE_NUMMER 29` eintragen
+   (bisher stand die 29 fest im Code; ohne die Zeile werden ältere Aufnahmen ab H5_001 hochgeladen, falls sie noch
+   auf der Karte liegen).
 3. `idf.py set-target esp32s3`
 4. `idf.py -p COMx build flash` (COM-Port im Geräte-Manager nachsehen; der Chip meldet sich als „USB JTAG/serial debug unit“).
 5. Mitlesen: `idf.py -p COMx monitor` (beenden mit Strg+AltGr+`]`).
@@ -75,7 +84,8 @@ Bedienung ausschließlich über den Touchscreen. Die zwei Tasten am Gehäuse hab
 
 > **Stand (12.10.2026):** Auf dem echten Board geprüft und bestätigt: Aufnahme per Taste starten und durch Halten beenden
 > (mehrere Aufnahmen von Hand), roter Ring während der Aufnahme, Mikrofon, Opus-Aufnahme (Last ca. 25 % eines Kerns,
-> ca. 99 KB RAM frei), Aufnahme im Flash, Upload an den Empfänger (ca. 100 KB in 120 ms), Pegelregelung und
+> ca. 99 KB RAM frei), Aufnahme im Flash, Upload an den Empfänger (ca. 100 KB in 120 ms, noch mit dem früheren
+> `POST /upload`; die neue Übertragung mit Token und Wiederaufnahme ist auf dem Board noch nicht getestet), Pegelregelung und
 > Transkription (Whisper). **Noch nicht ausdrücklich bestätigt:** Pause (KEY2), Speicher-Füllstand (KEY3), die übrigen
 > LED-Farben und die SD-Karte (im Test steckte keine). Im Monitor erscheint bei jeder Tastenänderung eine Zeile
 > `KEYS: Expander-Eingaenge: …` und bei jedem erkannten Druck `VERMERK Taste KEY1 kurz` bzw. `lang`; damit lässt sich die
@@ -133,7 +143,7 @@ im Betrieb wird sie nicht erkannt. Aufnahmen, die im jeweils anderen Speicher li
    `VERMERK REC: Encoder-Last … %, Speicher frei …`.
 5. **KEY2**: Ring blinkt orange, nochmal **KEY2**: weiter.
 6. **KEY1 halten**: Ring füllt sich weiß, dann grün. Nach kurzer Zeit „Upload + Loeschen erfolgreich“ im Monitor und die
-   Datei im Empfängerordner.
+   Datei als `<Gerätename>_H5_….opus` im Eingangsordner der Protokoll-Software.
 7. **KEY3**: Balken mit Füllstand.
 
 ### Wenn etwas nicht geht
@@ -152,8 +162,10 @@ im Betrieb wird sie nicht erkannt. Aufnahmen, die im jeweils anderen Speicher li
 * **Aufnahme zu leise:** Neue Aufnahmen werden automatisch angehoben (AGC, siehe oben); im Monitor zeigt
   `AGC-Gain x7.5`, wie stark. Reicht das nicht, `RECORD_VOLUME` erhöhen (Standard 33 dB, bis 37,5 dB). Zu hohe
   Analogverstärkung kann bei lautem, nahem Sprechen übersteuern.
-* **Aufnahmen kommen nicht an:** Ring türkis statt grün → Empfänger läuft nicht oder falsche Adresse in
-  `server_config.h`; im Monitor stehen `Upload FEHLER`-Zeilen mit dem Grund.
+* **Aufnahmen kommen nicht an:** Ring türkis statt grün → die Software antwortet nicht. Im Monitor steht der Grund:
+  `antwortet nicht` (Empfang aus, falsche Adresse, Firewall), `lehnt das Token ab (HTTP 401)` (Token falsch oder
+  widerrufen) oder `dort antwortet nicht die Protokoll-Software`. Scheitert eine einzelne Datei, steht dort
+  `Upload FEHLER: … naechster Versuch in … s` mit der Antwort der Software.
 
 ### Technische Daten (Pinbelegung)
 
