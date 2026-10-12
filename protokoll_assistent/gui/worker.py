@@ -27,7 +27,7 @@ logger = get_logger()
 
 TranscribeChunkFn = Callable[[Path], list[dict[str, Any]]]
 DiarizeFn = Callable[[Path, int | None, int | None], list[dict[str, Any]]]
-ProtocolGenerateFn = Callable[[str, str], dict[str, Any]]
+ProtocolGenerateFn = Callable[[str, str], str]
 
 
 class TranscriptionWorker(QThread):

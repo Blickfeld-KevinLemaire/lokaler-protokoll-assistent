@@ -1,10 +1,9 @@
 """Systemprompt-Vorlagen fuer die Nachbearbeitung.
 
-Drei einfache und fuenf ausfuehrliche, eingebaute Vorlagen mit festen
-Abschnitten (die einfachen wortgleich mit den bisherigen
-'SYSTEMPROMPT_VORLAGEN' in 'protokoll_assistent_gui.py'; die Idee der
-Abschnittsvorlagen stammt von Meet2Notes, siehe NOTICES.md, die Texte sind
-eigene) plus beliebig viele eigene, vom Anwender gespeicherte Vorlagen (je eine '.txt'-Datei unter
+Eingebaute Vorlagen -- einfache Auftraege und Vorlagen mit festen Abschnitten
+(die Idee der Abschnittsvorlagen stammt von Meet2Notes, siehe NOTICES.md, die
+Texte sind eigene) -- plus beliebig viele eigene, vom Anwender gespeicherte
+Vorlagen (je eine '.txt'-Datei unter
 'get_systemprompt_vorlagen_dir()'). Wird sowohl vom Hauptfenster (Auswahl
 und Bearbeitung fuer den aktuellen Lauf) als auch indirekt von den
 Einstellungen benutzt."""
@@ -19,23 +18,24 @@ STANDARD_SYSTEMPROMPT = (
     "und offene Aufgaben mit Verantwortlichen, falls erkennbar."
 )
 
-# Gemeinsame Regeln aller Abschnittsvorlagen. Die JSON-Struktur selbst haengt
-# 'protocol_service.build_stage3_prompt' an; die Vorlagen sagen nur, WAS in
-# welches Feld gehoert.
+# Gemeinsame Regeln aller Abschnittsvorlagen. Das Modell antwortet in Freitext
+# (Markdown); die Vorlage legt nur fest, WELCHE Abschnitte es gibt und was
+# hineingehoert.
 _ERFINDUNGSVERBOT = (
     "Erfindungsverbot: Nimm ausschliesslich Angaben auf, die im Transkript oder in den "
-    "Teilanalysen stehen. Ergaenze keine Namen, Verantwortlichen, Fristen, Zahlen oder "
-    "Beschluesse. Ist eine Angabe nicht genannt, lasse das Feld leer, statt zu raten. "
-    "Gib die Sprecherbezeichnungen unveraendert wieder und behalte die Zeitstempel als "
-    "Quellenangabe bei. Unklare oder widerspruechliche Stellen gehoeren in "
-    "'unsichere_transkriptstellen'."
+    "Teilergebnissen stehen. Ergaenze keine Namen, Verantwortlichen, Fristen, Zahlen oder "
+    "Beschluesse. Ist eine Angabe nicht genannt, lasse sie weg oder schreibe \"nicht genannt\", "
+    "statt zu raten. Gib die Sprecherbezeichnungen unveraendert wieder und behalte die "
+    "Zeitstempel als Quellenangabe bei. Unklare oder widerspruechliche Stellen kennzeichnest "
+    "du als unsicher."
 )
 
 
 def _abschnittsvorlage(rolle: str, abschnitte: list[str]) -> str:
     return (
         f"{rolle}\n\n"
-        "Das Protokoll hat feste Abschnitte. Sie entsprechen den Feldern der JSON-Struktur:\n"
+        "Antworte auf Deutsch als Markdown mit genau diesen Abschnitten (jeweils als "
+        "Ueberschrift), in dieser Reihenfolge:\n"
         + "\n".join(f"- {abschnitt}" for abschnitt in abschnitte)
         + f"\n\n{_ERFINDUNGSVERBOT}"
     )
@@ -46,41 +46,40 @@ ABSCHNITTSVORLAGEN: dict[str, str] = {
         "Du bist ein genauer deutschsprachiger Protokollfuehrer. Erstelle ein formelles "
         "Ergebnisprotokoll der Besprechung.",
         [
-            "Besprechungsdaten: 'titel' nennt den Anlass; 'kurzzusammenfassung' hat zwei bis vier "
-            "Saetze. Datum, Ort und Uhrzeit nur, wenn sie ausdruecklich genannt wurden.",
-            "Teilnehmende: 'teilnehmende_oder_sprecher' mit allen erkennbaren Personen.",
-            "Tagesordnung und Diskussion: 'themen', je Tagesordnungspunkt ein Eintrag; 'thema' "
-            "beginnt mit der laufenden Nummer ('TOP 1: ...') in der besprochenen Reihenfolge.",
-            "Beschluesse: 'entscheidungen', nur was ausdruecklich beschlossen wurde.",
-            "Aufgaben: 'aufgaben' mit Aufgabe, Verantwortlich und Frist - Verantwortliche und "
-            "Fristen nur, wenn sie genannt wurden.",
-            "Termine und offene Fragen: 'termine' und 'offene_fragen'.",
+            "Besprechungsdaten: Anlass als Titel und eine Kurzzusammenfassung in zwei bis vier "
+            "Saetzen. Datum, Ort und Uhrzeit nur, wenn sie ausdruecklich genannt wurden.",
+            "Teilnehmende: alle erkennbaren Personen.",
+            "Tagesordnung und Diskussion: je Tagesordnungspunkt ein Eintrag, beginnend mit der "
+            "laufenden Nummer ('TOP 1: ...') in der besprochenen Reihenfolge.",
+            "Beschluesse: nur was ausdruecklich beschlossen wurde.",
+            "Aufgaben: mit Aufgabe, Verantwortlichem und Frist - Verantwortliche und Fristen nur, "
+            "wenn sie genannt wurden.",
+            "Termine und offene Fragen.",
         ],
     ),
     "Projektbesprechung": _abschnittsvorlage(
         "Du bist ein deutschsprachiger Projektassistent. Erstelle ein Protokoll einer "
         "Projektbesprechung.",
         [
-            "Kurzueberblick: 'kurzzusammenfassung' nennt Projektstand in zwei bis vier Saetzen.",
-            "Fortschritt: 'themen', je Arbeitspaket oder Thema ein Eintrag; 'kernaussagen' "
-            "beschreiben Stand, Ergebnisse und Abweichungen.",
-            "Risiken und Blockaden: als eigene Eintraege in 'themen' mit 'thema' "
-            "'Risiko: ...' bzw. 'Blockade: ...'.",
-            "Entscheidungen: 'entscheidungen'.",
-            "Naechste Schritte: 'aufgaben' mit Verantwortlich und Frist, wenn genannt.",
-            "Meilensteine und Termine: 'termine'.",
+            "Kurzueberblick: Projektstand in zwei bis vier Saetzen.",
+            "Fortschritt: je Arbeitspaket oder Thema ein Eintrag mit Stand, Ergebnissen und "
+            "Abweichungen.",
+            "Risiken und Blockaden: jeweils als 'Risiko: ...' bzw. 'Blockade: ...'.",
+            "Entscheidungen.",
+            "Naechste Schritte: mit Verantwortlichem und Frist, wenn genannt.",
+            "Meilensteine und Termine.",
         ],
     ),
     "Stand-up": _abschnittsvorlage(
         "Du bist ein deutschsprachiger Assistent fuer kurze Team-Abstimmungen (Stand-up). "
         "Erstelle ein knappes Protokoll je Person.",
         [
-            "Kurzueberblick: 'kurzzusammenfassung' in ein bis zwei Saetzen.",
-            "Je Person: 'themen', ein Eintrag pro Sprecher; 'thema' ist der Name, 'kernaussagen' "
-            "trennen nach 'Gestern/erledigt: ...', 'Heute/geplant: ...' und 'Hindernisse: ...'. "
-            "Nicht genannte Punkte weglassen.",
-            "Aufgaben: 'aufgaben' nur fuer ausdruecklich zugesagte Handlungen.",
-            "Blockaden, die Hilfe brauchen: zusaetzlich in 'offene_fragen'.",
+            "Kurzueberblick in ein bis zwei Saetzen.",
+            "Je Person ein Abschnitt mit dem Namen als Ueberschrift und den Punkten "
+            "'Gestern/erledigt: ...', 'Heute/geplant: ...' und 'Hindernisse: ...'. Nicht genannte "
+            "Punkte weglassen.",
+            "Aufgaben: nur ausdruecklich zugesagte Handlungen.",
+            "Blockaden, die Hilfe brauchen, zusaetzlich als offene Fragen.",
         ],
     ),
     "Technische Besprechung": _abschnittsvorlage(
@@ -88,29 +87,27 @@ ABSCHNITTSVORLAGEN: dict[str, str] = {
         "Fehleranalyse, Entwurf). Erstelle ein Protokoll, das die technischen Aussagen "
         "praezise wiedergibt.",
         [
-            "Kontext und Ziel: 'kurzzusammenfassung'.",
-            "Technische Diskussion: 'themen', je Fragestellung ein Eintrag; 'kernaussagen' nennen "
-            "Optionen, Argumente und Ergebnis. Fachbegriffe, Produktnamen, Versionen und Zahlen "
-            "exakt wie gesprochen uebernehmen.",
-            "Entscheidungen: 'entscheidungen' mit der gewaehlten Loesung.",
-            "Aufgaben: 'aufgaben' mit Verantwortlich und Frist, wenn genannt.",
-            "Offene technische Fragen und Risiken: 'offene_fragen'.",
-            "Wichtige Fakten (Zahlen, Grenzwerte, Bezeichner): 'wichtige_fakten'.",
+            "Kontext und Ziel.",
+            "Technische Diskussion: je Fragestellung ein Eintrag mit Optionen, Argumenten und "
+            "Ergebnis. Fachbegriffe, Produktnamen, Versionen und Zahlen exakt wie gesprochen "
+            "uebernehmen.",
+            "Entscheidungen mit der gewaehlten Loesung.",
+            "Aufgaben mit Verantwortlichem und Frist, wenn genannt.",
+            "Offene technische Fragen und Risiken.",
+            "Wichtige Fakten (Zahlen, Grenzwerte, Bezeichner).",
         ],
     ),
     "Interview": _abschnittsvorlage(
         "Du bist ein deutschsprachiger Assistent fuer Interviews und Einzelgespraeche. Erstelle "
         "eine strukturierte Auswertung des Gespraechs.",
         [
-            "Rahmen: 'titel' und 'kurzzusammenfassung' nennen Anlass und Gespraechspartner, "
-            "soweit genannt.",
-            "Gespraechspartner: 'teilnehmende_oder_sprecher'.",
-            "Themen und Kernaussagen: 'themen', je Fragenkomplex ein Eintrag; 'kernaussagen' "
-            "geben die Position der befragten Person wieder, in ihrem Sinn und ohne Wertung.",
-            "Wichtige Aussagen: woertliche oder sinngemaesse Kernzitate in 'wichtige_fakten', "
-            "mit Zeitstempel als Quelle.",
-            "Zusagen und Folgeschritte: 'aufgaben' und 'termine'.",
-            "Offene Punkte: 'offene_fragen'.",
+            "Rahmen: Anlass und Gespraechspartner, soweit genannt, in wenigen Saetzen.",
+            "Gespraechspartner.",
+            "Themen und Kernaussagen: je Fragenkomplex ein Eintrag; gib die Position der "
+            "befragten Person in ihrem Sinn und ohne Wertung wieder.",
+            "Wichtige Aussagen: woertliche oder sinngemaesse Kernzitate, mit Zeitstempel als Quelle.",
+            "Zusagen und Folgeschritte, einschliesslich Terminen.",
+            "Offene Punkte.",
         ],
     ),
 }
@@ -126,6 +123,15 @@ EINGEBAUTE_VORLAGEN: dict[str, str] = {
         "Erstelle aus dem folgenden Besprechungstranskript eine priorisierte "
         "Aufgabenliste. Sortiere nach Dringlichkeit, nenne wenn moeglich "
         "Verantwortliche und Termine."
+    ),
+    "Besprechungsprotokoll": (
+        "Erstelle aus dem folgenden Besprechungstranskript ein sachliches "
+        "Besprechungsprotokoll auf Deutsch, als Markdown mit den Abschnitten "
+        "Zusammenfassung, Themen, Entscheidungen, Aufgaben (mit Verantwortlichen "
+        "und Fristen, nur wenn ausdruecklich genannt), Termine und Offene Fragen. "
+        "Beruecksichtige ausschliesslich, was im Transkript steht, erfinde keine "
+        "Verantwortlichen oder Fristen, behalte Sprecherbezeichnungen und "
+        "Zeitstempel als Quellenangabe bei und kennzeichne unklare Stellen als unsicher."
     ),
     **ABSCHNITTSVORLAGEN,
 }

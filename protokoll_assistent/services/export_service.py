@@ -1,5 +1,5 @@
-"""Erzeugung aller Ausgabedateien: TXT, JSON, SRT, VTT, Protokoll-JSON/-MD,
-Verarbeitungsbericht und (optional) DOCX.
+"""Erzeugung aller Ausgabedateien: TXT, JSON, SRT, VTT, Ergebnis der
+Nachbearbeitung (JSON/MD), Verarbeitungsbericht und (optional) DOCX.
 
 Segmente tragen intern immer die technische ``sprecher_id`` (z.B.
 ``SPEAKER_00``). Anzeigenamen werden erst beim Export aufgeloest. Dadurch
@@ -431,91 +431,57 @@ def listeneintrag_als_text(eintrag: Any) -> str:
     return str(eintrag)
 
 
-def render_protocol_markdown(protocol: dict[str, Any]) -> str:
-    lines = [f"# {protocol.get('titel') or 'Protokoll'}", "", protocol.get("kurzzusammenfassung", ""), ""]
-
-    def section(title: str, items: list[Any], formatter) -> None:
-        if not items:
-            return
-        lines.append(f"## {title}")
-        for item in items:
-            lines.append(formatter(item))
-        lines.append("")
-
-    section(
-        "Themen",
-        protocol.get("themen", []),
-        lambda t: f"- **{t.get('thema', '')}** ({t.get('zeitraum', '')}): "
-        + "; ".join(t.get("kernaussagen", [])),
-    )
-    section(
-        "Entscheidungen",
-        protocol.get("entscheidungen", []),
-        lambda e: f"- {e.get('entscheidung', '')} "
-        f"(Sprecher: {e.get('sprecher', '') or 'unklar'}, Zeitpunkt: {e.get('zeitpunkt', '') or 'unklar'}, "
-        f"Quelle: {e.get('quelle', '')})",
-    )
-    section(
-        "Aufgaben",
-        protocol.get("aufgaben", []),
-        lambda a: f"- {a.get('aufgabe', '')} "
-        f"(Verantwortlich: {a.get('verantwortlich', '') or 'unklar'}, Frist: {a.get('frist', '') or 'unklar'}, "
-        f"Quelle: {a.get('quelle', '')})",
-    )
-    def eintrag(item: Any) -> str:
-        return f"- {listeneintrag_als_text(item)}"
-
-    section("Termine", protocol.get("termine", []), eintrag)
-    section("Offene Fragen", protocol.get("offene_fragen", []), eintrag)
-    section("Wichtige Fakten", protocol.get("wichtige_fakten", []), eintrag)
-    section("Unsichere Transkriptstellen", protocol.get("unsichere_transkriptstellen", []), eintrag)
-    section("Quellenhinweise", protocol.get("quellenhinweise", []), eintrag)
-    return "\n".join(lines) + "\n"
-
-
 def write_protocol_exports(
-    output_dir: Path, protocol: dict[str, Any], source_stem: str, run_timestamp: str
+    output_dir: Path,
+    protocol: str,
+    source_stem: str,
+    run_timestamp: str,
+    systemprompt: str = "",
 ) -> tuple[Path, Path]:
+    """Schreibt das Ergebnis der Nachbearbeitung.
+
+    Die ``.md``-Datei enthaelt genau den Text des Modells -- ohne Kopf,
+    Gliederung oder Ueberschriften, die der Systemprompt nicht verlangt hat.
+    Die ``.json``-Datei haelt dasselbe Ergebnis zusammen mit dem Auftrag fest,
+    nach dem es entstanden ist.
+    """
     output_dir.mkdir(parents=True, exist_ok=True)
     json_path = output_dir / f"{source_stem}_protokoll_{run_timestamp}.json"
     md_path = output_dir / f"{source_stem}_protokoll_{run_timestamp}.md"
-    json_path.write_text(json.dumps(protocol, ensure_ascii=False, indent=2), encoding="utf-8")
-    md_path.write_text(render_protocol_markdown(protocol), encoding="utf-8")
+    daten = {
+        "quelldatei_stamm": source_stem,
+        "erstellt": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "systemprompt": systemprompt.strip(),
+        "ohne_systemprompt": not systemprompt.strip(),
+        "ergebnis": protocol,
+    }
+    json_path.write_text(json.dumps(daten, ensure_ascii=False, indent=2), encoding="utf-8")
+    md_path.write_text(protocol.rstrip("\n") + "\n", encoding="utf-8")
     return json_path, md_path
 
 
-def write_protocol_docx(protocol: dict[str, Any], output_path: Path) -> bool:
-    """Optionaler DOCX-Export. Liefert ``False``, wenn ``python-docx`` nicht
-    installiert ist (das Paket ist gemaess Auftrag optional)."""
+def write_protocol_docx(protocol: str, output_path: Path) -> bool:
+    """Optionaler DOCX-Export des Ergebnistextes. Liefert ``False``, wenn
+    ``python-docx`` nicht installiert ist (das Paket ist gemaess Auftrag
+    optional). Markdown-Ueberschriften (``#``) und Aufzaehlungen (``-``,
+    ``*``) werden uebernommen; sonst wird der Text unveraendert gesetzt."""
     try:
         import docx  # type: ignore
     except ImportError:
         return False
 
     document = docx.Document()
-    document.add_heading(protocol.get("titel") or "Protokoll", level=1)
-    if protocol.get("kurzzusammenfassung"):
-        document.add_paragraph(protocol["kurzzusammenfassung"])
-
-    def add_section(title: str, items: list[Any], formatter) -> None:
-        if not items:
-            return
-        document.add_heading(title, level=2)
-        for item in items:
-            document.add_paragraph(formatter(item), style="List Bullet")
-
-    add_section(
-        "Entscheidungen",
-        protocol.get("entscheidungen", []),
-        lambda e: f"{e.get('entscheidung', '')} (Verantwortlich: {e.get('sprecher', '') or 'unklar'})",
-    )
-    add_section(
-        "Aufgaben",
-        protocol.get("aufgaben", []),
-        lambda a: f"{a.get('aufgabe', '')} (Verantwortlich: {a.get('verantwortlich', '') or 'unklar'}, "
-        f"Frist: {a.get('frist', '') or 'unklar'})",
-    )
-    add_section("Offene Fragen", protocol.get("offene_fragen", []), str)
+    for zeile in protocol.splitlines():
+        text = zeile.strip()
+        if not text:
+            continue
+        if text.startswith("#"):
+            stufe = min(len(text) - len(text.lstrip("#")), 4)
+            document.add_heading(text.lstrip("#").strip(), level=stufe)
+        elif text[:2] in ("- ", "* "):
+            document.add_paragraph(text[2:].strip(), style="List Bullet")
+        else:
+            document.add_paragraph(text)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     document.save(str(output_path))

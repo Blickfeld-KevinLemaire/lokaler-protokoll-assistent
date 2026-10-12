@@ -128,6 +128,27 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 ### Changed
 
+- Die Nachbearbeitung richtet sich jetzt ausschließlich nach dem
+  Systemprompt. Bisher erzwang das Programm unabhängig davon immer dieselbe
+  Besprechungsstruktur (Titel, Themen, Entscheidungen, Aufgaben, Termine,
+  offene Fragen …) – in den Anfragen an das Modell, in der Prüfung der Antwort
+  und in der Ausgabedatei. Jetzt antwortet das Modell frei nach dem Auftrag,
+  und die Ausgabedatei (`.md`) enthält genau diesen Text.
+- Ohne Systemprompt fasst das Modell so zusammen, wie es am sinnvollsten ist.
+  Ein leeres Feld wird nicht mehr abgelehnt, und der Editor ist nicht mehr mit
+  dem Besprechungs-Prompt vorbelegt. Dieser steht als Vorlage
+  „Besprechungsprotokoll“ weiter zur Auswahl.
+- Die `.json` neben dem Ergebnis enthält jetzt `ergebnis`, `systemprompt` und
+  `ohne_systemprompt` statt der festen Protokollfelder.
+- Die mitgelieferte Prompt-Datei mit fester JSON-Struktur ist leer; der
+  Word-/PDF-Export und die Protokoll-Datei folgen dem Ergebnistext des Modells.
+  Die Vorlagen „Formelles Protokoll“, „Projektbesprechung“, „Stand-up“,
+  „Technische Besprechung“ und „Interview“ nennen ihre Abschnitte jetzt als
+  Überschriften im Freitext statt als JSON-Felder. Protokolle aus früheren
+  Läufen (feste Gliederung) lassen sich weiter exportieren.
+- Die mehrstufige Verdichtung langer Transkripte (mehrere Runden bis zum
+  Kontextlimit) arbeitet jetzt auf dem Ergebnistext.
+
 - **OpenRouter ist nicht mehr voreingestellt.** Endpunkte und Modelle sind ab
   Werk leer, bis ein Anbieter gewählt wird; ohne Auswahl meldet das Programm
   „Kein Anbieter gewählt“, statt Aufnahmen oder Texte irgendwohin zu senden.
@@ -169,6 +190,33 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
   Ollama-Modelle von der Karte bleibt; reicht es nicht für Whisper, nimmt
   Ollama das Modell heraus und lädt es für das Protokoll neu. Auf großen Karten
   bleibt das Modell geladen.
+
+- Zwischenergebnisse der Nachbearbeitung werden je Systemprompt gespeichert.
+  Zuvor galten sie nur je Transkript: Wer denselben Text mit einem anderen
+  Systemprompt erneut auswertete, bekam das gespeicherte Ergebnis zum alten
+  Auftrag zurück.
+- Die Zwischenergebnisse gelten außerdem **je Modell**: Wer das Ollama- oder
+  API-Modell wechselt, bekommt ein neues Ergebnis statt der gespeicherten
+  Teilergebnisse des alten Modells.
+- **Abgeschnittene Antworten werden erkannt:** Hört das Modell an der
+  Längen- oder Kontextgrenze mitten im Text auf, meldet die Nachbearbeitung
+  das als Fehler, statt den halben Text als Protokoll auszugeben oder als
+  Zwischenergebnis zu speichern. „Frag mein Meeting“ ist davon nicht betroffen.
+- **Lange Aufnahmen:** Beim Zusammenführen der Teilergebnisse bekommt das
+  Modell nie mehr Text, als in seinen Kontext passt. Lässt sich ein Ergebnis
+  nicht weiter verdichten, endet die Nachbearbeitung mit einer klaren Meldung,
+  statt eine zu lange Anfrage zu schicken.
+- **Filternde Aufträge („nur ToDos“):** Ein Abschnitt ohne passenden Inhalt
+  bricht die Nachbearbeitung nicht mehr ab, er wird einfach übersprungen. Nur
+  wenn kein einziger Abschnitt etwas liefert, gibt es eine Meldung.
+- **Nach dem Update kein JSON mehr im Protokoll:** Wer den früher
+  mitgelieferten Systemprompt (feste JSON-Struktur) nie verändert hat, bekommt
+  beim Start den neuen Standard. Ein selbst bearbeiteter Prompt bleibt, wie er
+  ist.
+- Unvollständige Denkblöcke (`<think>` ohne Ende oder ein verwaistes
+  `</think>`) landen nicht mehr im Protokoll.
+- Ohne Systemprompt und bei langen Aufnahmen wissen die späteren Stufen jetzt,
+  dass sie Teilergebnisse statt des Transkripts vor sich haben.
 
 - **„Danach direkt das Protokoll erstellen“ wirkte nicht:** Nach der
   Transkription blieb das Fenster bei „Transkription abgeschlossen.“ stehen,

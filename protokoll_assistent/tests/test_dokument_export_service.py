@@ -305,3 +305,52 @@ def test_eindeutiger_pfad(tmp_path):
     (tmp_path / "a.md").write_text("x")
     (tmp_path / "a_2.md").write_text("x")
     assert de.eindeutiger_pfad(tmp_path, "a", ".md").name == "a_3.md"
+
+
+# --------------------------------------------------------------------------
+# Ergebnis als Freitext (Systemprompt bestimmt die Form)
+# --------------------------------------------------------------------------
+def _freitext_protokoll(ordner: Path, ergebnis: str) -> Path:
+    daten = {
+        "quelldatei_stamm": "besprechung",
+        "systemprompt": "Nenne nur die ToDos.",
+        "ohne_systemprompt": False,
+        "ergebnis": ergebnis,
+    }
+    pfad = ordner / "besprechung_protokoll_20261012_090500.json"
+    pfad.write_text(json.dumps(daten), encoding="utf-8")
+    return pfad
+
+
+def test_freitext_ergebnis_wird_ohne_feste_abschnitte_uebernommen(tmp_path):
+    text = "# ToDos\n\n**Anna** versendet den Plan.\n\n- Raum buchen (Ben)\n- Mail an Kunde\n\n## Hinweis\nNichts weiter."
+    dokument = de.protokoll_dokument(de.lade_protokoll(_freitext_protokoll(tmp_path, text)))
+    assert dokument.titel == "ToDos"
+    md = de.als_markdown(dokument)
+    assert "Anna versendet den Plan." in md and "**Anna**" not in md
+    assert "- Raum buchen (Ben)" in md and "- Mail an Kunde" in md
+    assert "## Hinweis" in md
+    for fest in ("Themen", "Entscheidungen", "Aufgaben", "Offene Fragen", "Termine"):
+        assert f"## {fest}" not in md
+
+
+def test_freitext_ohne_ueberschrift_nutzt_quelle_als_titel(tmp_path):
+    dokument = de.protokoll_dokument(de.lade_protokoll(_freitext_protokoll(tmp_path, "Nur ein Satz.")))
+    assert dokument.titel == "Ergebnis: besprechung"
+    assert [a.text for a in dokument.abschnitte] == ["Nur ein Satz."]
+
+
+def test_freitext_leeres_ergebnis_ergibt_leeres_dokument(tmp_path):
+    dokument = de.protokoll_dokument(de.lade_protokoll(_freitext_protokoll(tmp_path, "")))
+    assert dokument.abschnitte == []
+
+
+def test_freitext_word_datei_folgt_dem_ergebnistext(tmp_path):
+    docx = pytest.importorskip("docx")
+    transkript = _transkript(tmp_path)
+    protokoll = _freitext_protokoll(tmp_path, "# ToDos\n\n- Plan versenden")
+    ziel = de.automatisches_word(transkript, protokoll)
+    assert ziel is not None
+    absaetze = [p.text for p in docx.Document(str(ziel)).paragraphs]
+    assert "ToDos" in absaetze and "Plan versenden" in absaetze
+    assert "Themen" not in absaetze and "Entscheidungen" not in absaetze

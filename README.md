@@ -195,12 +195,17 @@ der Schluessel selbst.
    versehen.
 4. **Nachbearbeitung starten** - getrennt und unabhaengig, auch fuer ein
    frueher erzeugtes Transkript. Der Systemprompt laesst sich direkt im Fenster
-   bearbeiten; eigene Vorlagen koennen benannt gespeichert werden.
+   bearbeiten; eigene Vorlagen koennen benannt gespeichert werden. **Der
+   Systemprompt ist der alleinige Auftrag:** Das Modell tut genau das, was
+   dort steht, und gibt kein vorgegebenes Besprechungsschema aus. Bleibt das
+   Feld leer, fasst es so zusammen, wie es fuer den Inhalt am sinnvollsten ist.
 
 ### Ausgabedateien
 
 * `ausgabe/<name>.txt` / `.json` - Volltranskript mit Sprechertrennung.
-* Ergebnis der Nachbearbeitung als TXT und JSON, zusaetzlich als `.docx`.
+* `ausgabe/<name>_protokoll_<zeit>.md` - das Ergebnis der Nachbearbeitung, genau der
+  Text des Modells. Daneben die `.json` mit demselben Ergebnis und dem Systemprompt,
+  nach dem es entstanden ist.
 * `arbeitsdaten/<hash>/` - Zwischenstaende langer Aufnahmen. Bricht ein Lauf
   ab, setzt der naechste dort fort, statt von vorne zu beginnen.
 

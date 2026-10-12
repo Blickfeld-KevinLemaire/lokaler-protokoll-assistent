@@ -1277,7 +1277,8 @@ class MainWindow(QMainWindow):
         self.systemprompt_editor = QPlainTextEdit(self)
         self.systemprompt_editor.setPlaceholderText(
             "Was soll mit dem Transkript geschehen? Eigenen Text eingeben oder oben "
-            "eine Vorlage auswählen."
+            "eine Vorlage auswählen. Bleibt das Feld leer, fasst das Modell so "
+            "zusammen, wie es am sinnvollsten ist."
         )
         prompt_datei = get_system_prompt_file()
         if prompt_datei.is_file():
@@ -1525,17 +1526,16 @@ class MainWindow(QMainWindow):
             show_error(self, "Ausgabeordner ungültig", f"In den Ausgabeordner kann nicht geschrieben werden:\n{error}")
             return
 
+        # Ein leerer Systemprompt ist erlaubt: Dann fasst das Modell so
+        # zusammen, wie es fuer den Inhalt am sinnvollsten ist. Ist einer
+        # eingetragen, bestimmt er allein, was geschieht.
         systemprompt_text = self.systemprompt_editor.toPlainText().strip()
-        if not systemprompt_text:
-            show_error(
-                self,
-                "Kein Systemprompt",
-                "Bitte einen Systemprompt eingeben oder oben eine Vorlage auswählen.",
-            )
-            return
 
         config = app_config.load_config()
         protocol_generate_fn: ProtocolGenerateFn | None = None
+        # Die Zwischenstaende gelten je Modell; ueber die API zaehlen
+        # Endpunkt und API-Modell, lokal das Ollama-Modell (None).
+        modell_kennung: str | None = None
         if self.nachbearbeitung_api_radio.isChecked():
             if not (
                 api_anbieter.adresse_vollstaendig(config["api_nachbearbeitung_endpunkt"])
@@ -1563,7 +1563,7 @@ class MainWindow(QMainWindow):
             api_modell = config["api_nachbearbeitung_modell"]
             api_endpunkt = config["api_nachbearbeitung_endpunkt"]
 
-            def _api_nachbearbeitung(prompt: str, system: str) -> dict[str, Any]:
+            def _api_nachbearbeitung(prompt: str, system: str) -> str:
                 """Uebersetzt 'ApiProtocolError' in 'OllamaError'.
 
                 'pipeline_service.run_protocol' behandelt einen
@@ -1576,7 +1576,7 @@ class MainWindow(QMainWindow):
                 stattdessen bis in den Worker und landet dort als
                 nichtssagender "Unerwarteter Fehler"."""
                 try:
-                    return api_protocol_service.generate_json(
+                    return api_protocol_service.generate_text(
                         prompt,
                         system,
                         model=api_modell,
@@ -1587,6 +1587,7 @@ class MainWindow(QMainWindow):
                     raise ollama_service.OllamaError(str(fehler)) from fehler
 
             protocol_generate_fn = _api_nachbearbeitung
+            modell_kennung = f"api:{api_endpunkt}|{api_modell}"
 
         if not self.nachbearbeitung_api_radio.isChecked():
             lokales_modell = config["ollama_modell"] or ollama_service.DEFAULT_MODEL
@@ -1609,6 +1610,7 @@ class MainWindow(QMainWindow):
             # geschrieben: Was nur fuer einen Lauf gilt, gehoert nicht in
             # die gespeicherte Einstellung.
             system_prompt=systemprompt_text,
+            protokoll_modell_kennung=modell_kennung,
         )
 
         self._set_controls_running(True)
