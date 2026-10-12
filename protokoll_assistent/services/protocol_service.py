@@ -12,9 +12,15 @@ Andernfalls laeuft die Auswertung in drei Stufen:
 
 Stufe 1: der Auftrag wird auf jeden Transkript-Abschnitt einzeln angewendet.
 Stufe 2: benachbarte Teilergebnisse werden gruppenweise zusammengefuehrt.
-         Passt das Ergebnis danach noch nicht in den Kontext der Stufe 3, wird
-         in weiteren Runden erneut verdichtet (hoechstens
-         ``MAX_VERDICHTUNGSRUNDEN`` insgesamt).
+         Eine Gruppe enthaelt hoechstens ``group_size`` Teilergebnisse und
+         zusammen hoechstens ``MAX_KONTEXT_ZEICHEN`` Zeichen -- keine Anfrage
+         bekommt also mehr, als in den Kontext passt. Passt das Ergebnis
+         danach noch nicht in den Kontext der Stufe 3, wird in weiteren
+         Runden erneut verdichtet (hoechstens ``MAX_VERDICHTUNGSRUNDEN``
+         insgesamt). Wird eine Runde nicht kuerzer, ist ein einzelnes
+         Teilergebnis allein schon zu lang oder reichen die Runden nicht,
+         endet die Auswertung mit einem ``ProtocolValidationError`` -- statt
+         eine zu lange Eingabe weiterzugeben.
 Stufe 3: alle zusammengefuehrten Teilergebnisse werden zum Endergebnis
          vereint -- wieder genau so, wie es der Auftrag verlangt.
 
@@ -206,6 +212,26 @@ def run_stage3_final_protocol(
     return _load_or_compute(output_path, compute)
 
 
+def _gruppen_bilden(teilergebnisse: list[str], gruppengroesse: int, max_zeichen: int) -> list[list[str]]:
+    """Teilt benachbarte Teilergebnisse in Gruppen: hoechstens
+    ``gruppengroesse`` je Gruppe und zusammen hoechstens ``max_zeichen``
+    Zeichen. Passt das naechste Teilergebnis nicht mehr dazu, beginnt eine
+    neue Gruppe; eines, das mit keinem Nachbarn zusammen passt, bleibt allein
+    (und wird dann unveraendert uebernommen)."""
+    gruppen: list[list[str]] = []
+    aktuell: list[str] = []
+    zeichen = 0
+    for text in teilergebnisse:
+        if aktuell and (len(aktuell) >= gruppengroesse or zeichen + len(text) > max_zeichen):
+            gruppen.append(aktuell)
+            aktuell, zeichen = [], 0
+        aktuell.append(text)
+        zeichen += len(text)
+    if aktuell:
+        gruppen.append(aktuell)
+    return gruppen
+
+
 def _verdichtungsrunde(
     teilergebnisse: list[str],
     runde: int,
@@ -214,11 +240,17 @@ def _verdichtungsrunde(
     system_prompt: str,
     generate_fn: GenerateFn,
     progress_cb: Callable[[str, int, int], None] | None,
+    max_zeichen: int = MAX_KONTEXT_ZEICHEN,
 ) -> list[str]:
-    """Eine Verdichtungsrunde: fasst je ``gruppengroesse`` benachbarte
-    Teilergebnisse zu einem zusammen. Runde 1 heisst wie bisher Stufe 2, weitere
-    Runden tragen die Rundennummer im Namen der Datei."""
-    gruppen = [teilergebnisse[i : i + gruppengroesse] for i in range(0, len(teilergebnisse), gruppengroesse)]
+    """Eine Verdichtungsrunde: fasst benachbarte Teilergebnisse gruppenweise
+    zu einem zusammen (siehe ``_gruppen_bilden``). Runde 1 heisst wie bisher
+    Stufe 2, weitere Runden tragen die Rundennummer im Namen der Datei.
+
+    Die Dateien heissen wie bisher nach Runde und Gruppennummer. Welche
+    Teilergebnisse eine Gruppe bilden, haengt seit dem Zeichenbudget auch von
+    ihrer Laenge ab; das ist bei gleichen Teilergebnissen stets dasselbe, eine
+    Wiederaufnahme findet also ihre Dateien wieder."""
+    gruppen = _gruppen_bilden(teilergebnisse, gruppengroesse, max_zeichen)
     stufe = "stufe2_zwischenzusammenfuehrung" if runde == 1 else f"stufe2_verdichtung_runde_{runde}"
     ergebnis = []
     for index, gruppe in enumerate(gruppen):
@@ -236,6 +268,18 @@ def _verdichtungsrunde(
         else:
             ergebnis.append(run_stage2_merge(gruppe, system_prompt, generate_fn, pfad))
     return ergebnis
+
+
+def _einzeln_passend_pruefen(teilergebnisse: list[str], max_zeichen: int) -> None:
+    """Ein Teilergebnis, das allein schon laenger als das Budget ist, laesst
+    sich mit nichts zusammenfuehren und passt in keine Anfrage der Stufe 3."""
+    laengstes = max(len(text) for text in teilergebnisse)
+    if laengstes > max_zeichen:
+        raise ProtocolValidationError(
+            f"Ein Teilergebnis ist mit {laengstes} Zeichen allein schon laenger, als in eine Anfrage "
+            f"passt ({max_zeichen} Zeichen), und laesst sich nicht weiter zusammenfuehren. Bitte einen "
+            "knapperen Auftrag (Systemprompt) waehlen."
+        )
 
 
 def run_full_protocol_pipeline(
@@ -304,14 +348,31 @@ def run_full_protocol_pipeline(
         )
     runde = 1
     while True:
+        if len(consolidated) > 1:
+            _einzeln_passend_pruefen(consolidated, max_kontext_zeichen)
         gruppengroesse = group_size if runde == 1 else max(group_size, 2)
+        vorher = sum(len(text) for text in consolidated)
         consolidated = _verdichtungsrunde(
-            consolidated, runde, gruppengroesse, zusammen_dir, auftrag, generate_fn, progress_cb
+            consolidated, runde, gruppengroesse, zusammen_dir, auftrag, generate_fn, progress_cb, max_kontext_zeichen
         )
-        if len(consolidated) <= 1 or runde >= MAX_VERDICHTUNGSRUNDEN:
+        nachher = sum(len(text) for text in consolidated)
+        if len(consolidated) <= 1 or nachher <= max_kontext_zeichen:
             break
-        if sum(len(text) for text in consolidated) <= max_kontext_zeichen:
-            break
+        # Noch zu lang fuer Stufe 3. Eine Runde, die nichts kuerzer macht,
+        # wuerde sich nur wiederholen (eine Runde mit Gruppengroesse 1 fasst
+        # absichtlich nichts zusammen und zaehlt nicht).
+        if nachher >= vorher and gruppengroesse > 1:
+            raise ProtocolValidationError(
+                f"Die Teilergebnisse lassen sich nicht weiter verdichten: Das Zusammenfuehren wurde "
+                f"nicht kuerzer ({nachher} Zeichen, erlaubt sind {max_kontext_zeichen}). Bitte einen "
+                "knapperen Auftrag (Systemprompt) waehlen."
+            )
+        if runde >= MAX_VERDICHTUNGSRUNDEN:
+            raise ProtocolValidationError(
+                f"Die Teilergebnisse sind auch nach {runde} Verdichtungsrunden noch zu lang "
+                f"({nachher} Zeichen, erlaubt sind {max_kontext_zeichen}). Bitte einen knapperen "
+                "Auftrag (Systemprompt) waehlen."
+            )
         runde += 1
 
     if progress_cb:

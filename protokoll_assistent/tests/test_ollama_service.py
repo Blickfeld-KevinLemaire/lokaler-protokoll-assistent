@@ -174,6 +174,20 @@ def test_kontext_reicht_fuer_die_groesste_protokollstufe():
     assert ollama_service.kontext_fuer_protokoll(systemprompt, "a" * 12_000) == ollama_service.PROTOKOLL_KONTEXTSTUFEN[0]
 
 
+def test_volle_anfrage_der_stufen_2_und_3_passt_in_den_kontext():
+    """Nicht nur die Teilergebnisse, die ganze Anfrage zaehlt: Rahmentext und
+    Trenner je Teilergebnis kommen dazu. Bei vollem Zeichenbudget (die
+    Verdichtung laesst nie mehr zu) muss das samt Antwort in den Kontext passen."""
+    from protokoll_assistent.services import protocol_service
+
+    systemprompt = "s" * 2_000
+    for anzahl in (2, 4, 40):
+        teile = ["t" * (protocol_service.MAX_KONTEXT_ZEICHEN // anzahl)] * anzahl
+        for prompt in (protocol_service.build_stage2_prompt(teile), protocol_service.build_stage3_prompt(teile)):
+            bedarf = (len(systemprompt) + len(prompt)) / ollama_service.ZEICHEN_JE_TOKEN
+            assert bedarf + ollama_service.PROTOKOLL_ANTWORT_TOKENS <= ollama_service.PROTOKOLL_NUM_CTX
+
+
 def test_ensure_ollama_or_offer_installer_returns_true_when_already_installed(monkeypatch, tmp_path):
     monkeypatch.setattr(ollama_service, "find_ollama_executable", object)
     download_calls = []
