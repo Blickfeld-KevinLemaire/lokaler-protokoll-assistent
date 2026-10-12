@@ -168,3 +168,55 @@ wachsenden Datei laufend anhängen (alle 15 s die neuen, vollständig
 geschriebenen Ogg-Seiten) und erst am Ende abschließen. In der Software ist
 dafür nichts weiter nötig. Was in der Firmware noch fehlt, steht in
 `firmware/docs/streaming-konzept.md`.
+
+## Einrichtung über USB (Version 1)
+
+Damit Kunden ein Gerät ohne Neukompilieren einrichten können, schreibt die
+Software WLAN, Adresse und Token über das USB-Kabel ins Gerät. Das Gerät legt
+sie im NVS (Flash) ab; sie haben Vorrang vor den einkompilierten Werten aus
+`server_config.h`/`wifi_credentials.h`.
+
+**Verbindung:** die serielle USB-Schnittstelle des Geräts (unter Windows ein
+COM-Port; ESP32-S3/C6 mit eingebautem USB-Serial-JTAG, Hersteller-Kennung
+`0x303A`). Die Software öffnet den Port mit **DTR und RTS aus** – sonst startet
+der Chip neu oder in den Bootloader. Baudrate 115200 (für USB-Serial-JTAG
+ohne Bedeutung).
+
+**Zeilen:** ASCII, eine Anweisung je Zeile, Ende `\n`, höchstens 512 Zeichen.
+Anweisungen der Software und Antworten des Geräts beginnen mit `#VERMERK `;
+alles andere sind Protokollzeilen des Geräts und werden übergangen. Werte
+werden **hexadezimal** übertragen (Bytes, zwei Zeichen je Byte, klein) – so
+stören Leerzeichen, Anführungszeichen oder Umlaute in WLAN-Name und Passwort
+nicht.
+
+| Software → Gerät | Antwort | Bedeutung |
+|---|---|---|
+| `#VERMERK INFO` | `#VERMERK INFO {"geraete_id":"1a2b3c4d5e6f","board":"esp32-s3-audio","firmware":"1.0.0","eingerichtet":true,"wlan_hex":"…","pc_url_hex":"…","server_url_hex":"…","token_pc":true,"token_server":false}` | Wer ist da, was ist eingerichtet? Passwort und Token werden **nie** ausgegeben, nur ob sie gesetzt sind. Kompaktes JSON wie bei HTTP. |
+| `#VERMERK SETZE <Schlüssel> <Hex>` | `#VERMERK OK SETZE <Schlüssel>` oder `#VERMERK FEHLER <Schlüssel> <Text>` | Wert vormerken (noch nicht gespeichert). |
+| `#VERMERK SPEICHERN` | `#VERMERK OK SPEICHERN` oder `#VERMERK FEHLER SPEICHERN <Text>` | Vorgemerkte Werte prüfen und **zusammen** speichern, danach Neustart (ca. 1 s). Läuft eine Aufnahme: Fehler, nichts gespeichert. |
+| `#VERMERK VERWERFEN` | `#VERMERK OK VERWERFEN` | Vorgemerktes vergessen. |
+| `#VERMERK LOESCHEN` | `#VERMERK OK LOESCHEN` | Eingerichtete Werte löschen (zurück zu den einkompilierten), danach Neustart. |
+
+Schlüssel und Grenzen:
+
+| Schlüssel | Inhalt |
+|---|---|
+| `wlan_ssid` | 1–32 Bytes, Pflicht |
+| `wlan_passwort` | leer (offenes WLAN) oder 8–63 Bytes |
+| `pc_url`, `server_url` | `http://…`, höchstens 96 Bytes; leer = Ziel nicht genutzt |
+| `pc_token`, `server_token` | wie bei HTTP (1–128 sichtbare ASCII-Zeichen); Pflicht, wenn die zugehörige Adresse gesetzt ist |
+| `erste_nummer` | Dezimalzahl als Text, z. B. `29`; optional |
+
+Beim `SPEICHERN` muss mindestens ein Ziel vollständig sein (Adresse **und**
+Token). Was nicht gesetzt wurde, wird leer gespeichert – eine Einrichtung
+ersetzt immer die ganze vorherige.
+
+**Ablauf in der Software:** Port öffnen → `INFO` (bis zu dreimal, das Gerät kann
+gerade starten) → Gerätename vergeben, Token erzeugen → alle `SETZE` →
+`SPEICHERN` → nach dem Neustart erneut `INFO` (zeigt `eingerichtet`). Läuft der
+Empfang, meldet sich das Gerät danach mit seiner `X-Geraete-Id` – die Software
+zeigt das als Bestätigung an. Die Geräte-Id, das Board und die Firmware merkt
+sie sich beim Gerät (Grundlage für das Inventar).
+
+Wer das Gerät per USB in der Hand hat, kann es neu einrichten – das ist
+gewollt (physischer Zugriff). Auslesen lassen sich Passwort und Token nicht.
