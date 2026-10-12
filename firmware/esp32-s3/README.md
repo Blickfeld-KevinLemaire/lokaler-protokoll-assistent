@@ -10,7 +10,7 @@ Opus-Dateien und schickt sie per WLAN an den PC oder Server, auf dem die Protoko
 | Bedienung | Touchscreen (Start, Pause, Stopp) | 3 Tasten **KEY1–KEY3** und **BOOT** (RESET startet nur neu) |
 | Anzeige | Bildschirm: Zustand, Zeit, Pegel, Verbindung, Akku | 7 RGB-LEDs im Ring |
 | Speicher | SD-Karte | SD-Karte; ohne Karte automatisch der Flash (ca. 13,8 MB = ca. 77 min) |
-| Stand | auf Hardware getestet | Aufnahme, Speicher und Upload auf dem echten Board getestet; **Tasten und LED-Ring noch nicht von Hand bestätigt** (siehe unten) |
+| Stand | auf Hardware getestet | auf dem echten Board getestet: Aufnahme per Taste, Speicher, Upload, Pegel; Pause, KEY3 und SD-Karte noch nicht ausdrücklich bestätigt (siehe unten) |
 
 ## Gemeinsam
 
@@ -73,11 +73,11 @@ Bedienung ausschließlich über den Touchscreen. Die zwei Tasten am Gehäuse hab
 
 ## S3 ohne Bildschirm (AUDIO-Board)
 
-> **Stand (11.10.2026):** Auf dem echten Board geprüft: Start, Mikrofon (beide werden zu Mono gemischt), Opus-Aufnahme
-> (Last ca. 25 % eines Kerns, ca. 99 KB RAM frei), Aufnahme in den Flash, Upload an den Empfänger (ca. 100 KB in 120 ms),
-> sauberes Speichern und das Erkennen von IO-Expander und LED-Ring. Eine Testaufnahme mit gesprochenem Text wurde von
-> Whisper fehlerfrei transkribiert. **Noch nicht von Hand bestätigt:** die Reaktion der Tasten KEY1–KEY3/BOOT, die
-> Farben des LED-Rings und die SD-Karte (im Test steckte keine). Im Monitor erscheint bei jeder Tastenänderung eine Zeile
+> **Stand (12.10.2026):** Auf dem echten Board geprüft und bestätigt: Aufnahme per Taste starten und durch Halten beenden
+> (mehrere Aufnahmen von Hand), roter Ring während der Aufnahme, Mikrofon, Opus-Aufnahme (Last ca. 25 % eines Kerns,
+> ca. 99 KB RAM frei), Aufnahme im Flash, Upload an den Empfänger (ca. 100 KB in 120 ms), Pegelregelung und
+> Transkription (Whisper). **Noch nicht ausdrücklich bestätigt:** Pause (KEY2), Speicher-Füllstand (KEY3), die übrigen
+> LED-Farben und die SD-Karte (im Test steckte keine). Im Monitor erscheint bei jeder Tastenänderung eine Zeile
 > `KEYS: Expander-Eingaenge: …` und bei jedem erkannten Druck `VERMERK Taste KEY1 kurz` bzw. `lang`; damit lässt sich die
 > Belegung am eigenen Gerät sofort prüfen.
 
