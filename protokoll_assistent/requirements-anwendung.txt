@@ -21,3 +21,8 @@ sounddevice>=0.4.6
 # Nie als Klartext-Datei - das ist der einzige Ort im Projekt, der dieses
 # Paket importiert.
 keyring>=25.0
+
+# Aufnahmegeraete (ESP32) ueber das USB-Kabel einrichten: WLAN, Adresse und
+# Token werden ueber die serielle Schnittstelle ins Geraet geschrieben (siehe
+# 'services/geraete_usb_service.py'). Reines Python, keine DLL.
+pyserial>=3.5

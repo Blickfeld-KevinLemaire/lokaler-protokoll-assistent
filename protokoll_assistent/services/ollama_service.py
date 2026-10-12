@@ -204,6 +204,23 @@ def list_models(base_url: str = OLLAMA_BASE_URL, timeout: float = 5) -> list[str
     return [entry.get("name", "") for entry in models if isinstance(entry, dict)]
 
 
+def belegter_grafikspeicher(base_url: str = OLLAMA_BASE_URL, timeout: float = 5) -> int:
+    """Grafikspeicher in Bytes, den die gerade geladenen Ollama-Modelle belegen
+    (``size_vram`` aus ``/api/ps``). Ist Ollama nicht erreichbar, belegt es nichts."""
+    try:
+        modelle = _get_json(f"{base_url}/api/ps", timeout=timeout).get("models", [])
+    except (urllib.error.URLError, OSError, ValueError, TimeoutError):
+        return 0
+    belegt = 0
+    for eintrag in modelle:
+        if isinstance(eintrag, dict):
+            try:
+                belegt += max(int(eintrag.get("size_vram") or 0), 0)
+            except (TypeError, ValueError):
+                continue
+    return belegt
+
+
 def modelle_entladen(base_url: str = OLLAMA_BASE_URL, opener: OeffneFn | None = None, timeout: float = 30) -> list[str]:
     """Nimmt alle gerade geladenen Modelle aus dem Speicher (``keep_alive: 0``)
     und liefert ihre Namen. Ollama haelt ein Modell sonst noch Minuten nach dem

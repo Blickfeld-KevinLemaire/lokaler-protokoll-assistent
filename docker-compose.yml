@@ -49,6 +49,14 @@ services:
       PROTOKOLL_EXPORT_FORMATE: ${PROTOKOLL_EXPORT_FORMATE:-}
       PROTOKOLL_WEBHOOK_URL: ${PROTOKOLL_WEBHOOK_URL:-}
       PROTOKOLL_WEBHOOK_TOKEN: ${PROTOKOLL_WEBHOOK_TOKEN:-}
+      PROTOKOLL_EMPFANG: ${PROTOKOLL_EMPFANG:-0}
+      PROTOKOLL_EMPFANG_PORT: ${PROTOKOLL_EMPFANG_PORT:-8765}
+      PROTOKOLL_EMPFANG_GERAETE: ${PROTOKOLL_EMPFANG_GERAETE:-}
+    # Empfang fuer die WLAN-Aufnahmegeraete: nur zusammen mit PROTOKOLL_EMPFANG=1
+    # einkommentieren (siehe protokoll_assistent/server/README.md). Ab Werk
+    # bleibt der Port zu.
+    # ports:
+    #   - "8765:8765"
     volumes:
       - ./daten/eingang:/daten/eingang
       - ./daten/ausgang:/daten/ausgang

@@ -277,7 +277,16 @@ def _grafikspeicher_fuer_whisper_freimachen(device: str, callbacks: PipelineCall
     if device != "cuda":
         return
     frei = model_service.freier_grafikspeicher()
-    if frei is None or frei >= model_service.WHISPER_GRAFIKSPEICHER_BYTES:
+    if frei is None:
+        return
+    # torch meldet unter Windows zu viel freien Speicher, solange Ollama ein
+    # Modell haelt (gemessen: 6,9 GB "frei" bei 5,6 GB Ollama auf einer 8-GB-
+    # Karte; Whisper scheiterte dann mit "CUDA out of memory"). Deshalb gilt
+    # hoechstens, was nach Abzug der Ollama-Modelle von der Karte bleibt.
+    gesamt = model_service.gesamter_grafikspeicher()
+    if gesamt is not None:
+        frei = min(frei, gesamt - ollama_service.belegter_grafikspeicher())
+    if frei >= model_service.WHISPER_GRAFIKSPEICHER_BYTES:
         return
     entladen = ollama_service.modelle_entladen()
     if entladen:
