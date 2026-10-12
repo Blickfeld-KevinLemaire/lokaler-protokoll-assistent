@@ -267,3 +267,44 @@ def test_generate_checked_wiederholt_reines_nachdenken():
     generate_fn, calls = _fake_generate_factory(responses_by_call={1: "<think>abgebrochen", 2: "Brauchbar"})
     assert protocol_service.generate_checked("Prompt", "System", generate_fn) == "Brauchbar"
     assert calls["count"] == 2
+
+
+def test_leerer_abschnitt_wird_gespeichert_und_uebersprungen(tmp_path):
+    """Mit einem filternden Auftrag ('nur ToDos') kann ein Abschnitt zu Recht
+    nichts liefern. Das bricht den Lauf nicht ab: Nach einem zweiten Versuch
+    gilt das leere Ergebnis, wird gespeichert und beim Zusammenfuehren
+    uebersprungen."""
+    generate_fn, calls = _fake_generate_factory(responses_by_call={2: "", 3: "  "})
+    ergebnis = protocol_service.run_full_protocol_pipeline(_chunks(3), tmp_path, "Nur ToDos", generate_fn, group_size=4)
+
+    # Abschnitt 1, Abschnitt 2 zweimal (leer), Abschnitt 3, eine Zusammenfuehrung.
+    assert calls["count"] == 5
+    assert ergebnis == "Text aus Aufruf 5"
+    zusammenfuehrung = calls["prompts"][4]
+    assert "Text aus Aufruf 1" in zusammenfuehrung and "Text aus Aufruf 4" in zusammenfuehrung
+    assert "Teilergebnis 3" not in zusammenfuehrung  # nur die zwei nicht leeren
+
+    kennung = protocol_service.prompt_kennung("Nur ToDos")
+    leer = tmp_path / "analysen" / kennung / "chunk_0002.md"
+    assert leer.is_file() and leer.read_text(encoding="utf-8") == ""
+
+    # Wiederaufnahme: der leere Abschnitt wird nicht erneut angefragt.
+    (tmp_path / "zusammengefuehrt" / kennung / "ergebnis.md").unlink()
+    generate_fn2, calls2 = _fake_generate_factory()
+    protocol_service.run_full_protocol_pipeline(_chunks(3), tmp_path, "Nur ToDos", generate_fn2, group_size=4)
+    assert calls2["count"] == 0
+
+
+def test_alle_abschnitte_leer_wird_gemeldet(tmp_path):
+    generate_fn, calls = _fake_generate_factory(responses_by_call={n: "" for n in range(1, 7)})
+    with pytest.raises(protocol_service.ProtocolValidationError, match="keinem der 3 Abschnitte"):
+        protocol_service.run_full_protocol_pipeline(_chunks(3), tmp_path, "Nur ToDos", generate_fn)
+    assert calls["count"] == 6  # je Abschnitt ein zweiter Versuch, keine Zusammenfuehrung
+
+
+def test_leere_zusammenfuehrung_bleibt_ein_fehler(tmp_path):
+    generate_fn, _ = _fake_generate_factory(responses_by_call={3: "", 4: ""})
+    with pytest.raises(protocol_service.ProtocolValidationError):
+        protocol_service.run_full_protocol_pipeline(_chunks(2), tmp_path, "Auftrag", generate_fn, group_size=4)
+    kennung = protocol_service.prompt_kennung("Auftrag")
+    assert not (tmp_path / "zusammengefuehrt" / kennung / "zwischenergebnis_0001.md").is_file()

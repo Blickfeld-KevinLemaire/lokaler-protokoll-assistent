@@ -27,7 +27,11 @@ und nicht das zum alten Auftrag gespeicherte zurueck.
 
 Eine leere Modellantwort wird genau EINMAL erneut angefragt. Bleibt auch
 sie leer, wird ein ``ProtocolValidationError`` ausgeloest, ohne vorhandene
-Zwischenstaende zu ueberschreiben.
+Zwischenstaende zu ueberschreiben. Ausnahme Stufe 1: Ein filternder Auftrag
+("nur ToDos") kann fuer einen Abschnitt zu Recht nichts liefern. Dort gilt
+das leere Ergebnis nach dem zweiten Versuch, wird gespeichert und beim
+Zusammenfuehren uebersprungen; nur wenn ALLE Abschnitte leer bleiben, ist
+das ein Fehler.
 """
 
 from __future__ import annotations
@@ -113,13 +117,15 @@ def _load_or_compute(path: Path, compute: Callable[[], str]) -> str:
     return result
 
 
-def generate_checked(prompt: str, system: str, generate_fn: GenerateFn) -> str:
-    """Fragt das Modell an. Eine leere Antwort wird einmal wiederholt."""
+def generate_checked(prompt: str, system: str, generate_fn: GenerateFn, leer_erlaubt: bool = False) -> str:
+    """Fragt das Modell an. Eine leere Antwort wird einmal wiederholt. Bleibt
+    sie leer, ist das ein Fehler -- ausser mit ``leer_erlaubt`` (Stufe 1),
+    dann ist das Ergebnis ein leerer Text."""
     antwort = antwort_bereinigen(generate_fn(prompt, system))
     if antwort:
         return antwort
     antwort = antwort_bereinigen(generate_fn(prompt, system))
-    if antwort:
+    if antwort or leer_erlaubt:
         return antwort
     raise ProtocolValidationError("Das Modell hat auch nach einem zweiten Versuch keine Antwort geliefert.")
 
@@ -149,7 +155,7 @@ def run_stage1_chunk_analysis(
 ) -> str:
     def compute() -> str:
         prompt = build_stage1_prompt(chunk_index, start_str, end_str, chunk_text)
-        return generate_checked(prompt, system_prompt, generate_fn)
+        return generate_checked(prompt, system_prompt, generate_fn, leer_erlaubt=True)
 
     return _load_or_compute(analysis_path, compute)
 
@@ -288,7 +294,14 @@ def run_full_protocol_pipeline(
             )
         )
 
-    consolidated = stage1_results
+    # Leere Abschnittsergebnisse (nichts Passendes zum Auftrag) bleiben
+    # gespeichert, werden aber nicht zusammengefuehrt.
+    consolidated = [text for text in stage1_results if text.strip()]
+    if not consolidated:
+        raise ProtocolValidationError(
+            f"Das Modell hat in keinem der {len(stage1_results)} Abschnitte etwas zum Auftrag gefunden "
+            "(alle Teilergebnisse sind leer). Bitte den Systemprompt pruefen."
+        )
     runde = 1
     while True:
         gruppengroesse = group_size if runde == 1 else max(group_size, 2)
