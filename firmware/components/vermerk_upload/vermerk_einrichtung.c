@@ -132,8 +132,16 @@ const char *vermerk_wert_pruefen(vermerk_schluessel_t schluessel, const uint8_t 
         return (laenge >= 1 && laenge <= VERMERK_SSID_MAX) ? NULL : "WLAN-Name: 1 bis 32 Bytes";
 
     case VERMERK_SCHLUESSEL_WLAN_PASSWORT:
-        return (laenge == 0 || (laenge >= VERMERK_PASSWORT_MIN && laenge <= VERMERK_PASSWORT_MAX))
-                   ? NULL : "WLAN-Passwort: leer oder 8 bis 63 Bytes";
+        if (laenge != 0 && (laenge < VERMERK_PASSWORT_MIN || laenge > VERMERK_PASSWORT_MAX)) {
+            return "WLAN-Passwort: leer oder 8 bis 63 Bytes";
+        }
+        /* WPA-Passphrase: nur druckbares ASCII (0x20-0x7E), Leerzeichen erlaubt */
+        for (size_t i = 0; i < laenge; i++) {
+            if (wert[i] < 0x20 || wert[i] > 0x7E) {
+                return "WLAN-Passwort: nur druckbare ASCII-Zeichen";
+            }
+        }
+        return NULL;
 
     case VERMERK_SCHLUESSEL_PC_URL:
     case VERMERK_SCHLUESSEL_SERVER_URL:

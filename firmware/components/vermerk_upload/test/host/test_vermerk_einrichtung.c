@@ -134,6 +134,15 @@ static void test_werte(void)
     lang[64] = '\0';
     PRUEFE(pruefe_text(VERMERK_SCHLUESSEL_WLAN_PASSWORT, lang) != NULL);
     PRUEFE(vermerk_wert_pruefen(VERMERK_SCHLUESSEL_WLAN_PASSWORT, (const uint8_t *)"12345678\0", 9) != NULL);
+    /* nur druckbares ASCII 0x20-0x7E (WPA-Passphrase) */
+    PRUEFE(pruefe_text(VERMERK_SCHLUESSEL_WLAN_PASSWORT, "mit Leer zeichen") == NULL);
+    PRUEFE(pruefe_text(VERMERK_SCHLUESSEL_WLAN_PASSWORT, " !\"#$%&'()*+,-./~") == NULL);
+    PRUEFE(pruefe_text(VERMERK_SCHLUESSEL_WLAN_PASSWORT, "geheim\xc3\xa4\xc3\xb6\xc3\xbc") != NULL);   /* Umlaute */
+    PRUEFE(pruefe_text(VERMERK_SCHLUESSEL_WLAN_PASSWORT, "geheim12\x7f") != NULL);
+    PRUEFE(pruefe_text(VERMERK_SCHLUESSEL_WLAN_PASSWORT, "geheim12\t") != NULL);
+    PRUEFE(pruefe_text(VERMERK_SCHLUESSEL_WLAN_PASSWORT, "geheim12\x1f") != NULL);
+    PRUEFE(strcmp(pruefe_text(VERMERK_SCHLUESSEL_WLAN_PASSWORT, "geheim\xc3\xa4\xc3\xb6"),
+                  "WLAN-Passwort: nur druckbare ASCII-Zeichen") == 0);
 
     /* Adressen */
     for (int s = VERMERK_SCHLUESSEL_PC_URL; s <= VERMERK_SCHLUESSEL_SERVER_URL; s += 2) {
