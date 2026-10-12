@@ -3,6 +3,7 @@
  * Kein Test-Framework: PRUEFE zaehlt Fehler und meldet Datei und Zeile. */
 
 #include "vermerk_protokoll.h"
+#include "antworten_software.h"   /* echte Antworten des Empfangs, erzeugt von antworten_erzeugen.py */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -441,6 +442,80 @@ static void test_entscheiden(void)
     }
 }
 
+/* Vertrag mit der Software: ihre echten Antworten (antworten_software.h) muessen genau so gelesen und
+ * entschieden werden. Aendert die Software ihr Format, schlaegt das hier fehl. */
+static void test_vertrag_mit_der_software(void)
+{
+    vermerk_entscheidung_t e;
+    uint32_t teil = 0;
+
+    PRUEFE(SW_HALLO_STATUS == 200);
+    PRUEFE(hallo(SW_HALLO, &teil) && teil == 4194304u);
+    PRUEFE(vermerk_teil_bytes(teil) == VERMERK_TEIL_BYTES);
+    PRUEFE(!hallo(SW_TOKEN_401, &teil));
+
+    e = entscheide(VERMERK_PHASE_STATUS, SW_STATUS_NEU_STATUS, SW_STATUS_NEU, false);
+    PRUEFE(e.aktion == VERMERK_AKTION_WEITER_AB && e.naechstes_byte == 0);
+    e = entscheide(VERMERK_PHASE_STATUS, SW_STATUS_TEILSTAND_STATUS, SW_STATUS_TEILSTAND, false);
+    PRUEFE(e.aktion == VERMERK_AKTION_WEITER_AB && e.naechstes_byte == 10);
+    e = entscheide(VERMERK_PHASE_TEIL, SW_TEIL_ANGEHAENGT_STATUS, SW_TEIL_ANGEHAENGT, false);
+    PRUEFE(e.aktion == VERMERK_AKTION_WEITER_AB && e.naechstes_byte == 10);
+
+    /* 409: beim gemeldeten Byte weiter, egal ob Stueck oder Abschluss */
+    PRUEFE(SW_VERSATZ_409_STATUS == 409);
+    e = entscheide(VERMERK_PHASE_TEIL, SW_VERSATZ_409_STATUS, SW_VERSATZ_409, false);
+    PRUEFE(e.aktion == VERMERK_AKTION_WEITER_AB && e.naechstes_byte == 10);
+    e = entscheide(VERMERK_PHASE_ABSCHLUSS, SW_VERSATZ_409_STATUS, SW_VERSATZ_409, false);
+    PRUEFE(e.aktion == VERMERK_AKTION_WEITER_AB && e.naechstes_byte == 10);
+
+    /* fertig - auch beim zweiten Mal derselben Aufnahme; ohne Abschluss zaehlt "fertig" nie */
+    e = entscheide(VERMERK_PHASE_ABSCHLUSS, SW_ABSCHLUSS_FERTIG_STATUS, SW_ABSCHLUSS_FERTIG, false);
+    PRUEFE(e.aktion == VERMERK_AKTION_FERTIG);
+    e = entscheide(VERMERK_PHASE_ABSCHLUSS, SW_ABSCHLUSS_DOPPELT_STATUS, SW_ABSCHLUSS_DOPPELT, false);
+    PRUEFE(e.aktion == VERMERK_AKTION_FERTIG);
+    e = entscheide(VERMERK_PHASE_TEIL, SW_ABSCHLUSS_FERTIG_STATUS, SW_ABSCHLUSS_FERTIG, false);
+    PRUEFE(e.aktion == VERMERK_AKTION_WEITER_AB && e.naechstes_byte == 10);
+
+    /* 422: einmal von vorn, beim zweiten Mal spaeter */
+    e = entscheide(VERMERK_PHASE_ABSCHLUSS, SW_ABSCHLUSS_GROESSE_422_STATUS, SW_ABSCHLUSS_GROESSE_422, false);
+    PRUEFE(e.aktion == VERMERK_AKTION_VON_VORN);
+    e = entscheide(VERMERK_PHASE_ABSCHLUSS, SW_ABSCHLUSS_PRUEFSUMME_422_STATUS, SW_ABSCHLUSS_PRUEFSUMME_422, false);
+    PRUEFE(e.aktion == VERMERK_AKTION_VON_VORN);
+    e = entscheide(VERMERK_PHASE_ABSCHLUSS, SW_ABSCHLUSS_PRUEFSUMME_422_STATUS, SW_ABSCHLUSS_PRUEFSUMME_422, true);
+    PRUEFE(e.aktion == VERMERK_AKTION_SPAETER);
+
+    /* voruebergehend: spaeter */
+    e = entscheide(VERMERK_PHASE_TEIL, SW_PLATTE_VOLL_507_STATUS, SW_PLATTE_VOLL_507, false);
+    PRUEFE(SW_PLATTE_VOLL_507_STATUS == 507 && e.aktion == VERMERK_AKTION_SPAETER);
+    e = entscheide(VERMERK_PHASE_STATUS, SW_UEBERLAST_503_STATUS, SW_UEBERLAST_503, false);
+    PRUEFE(SW_UEBERLAST_503_STATUS == 503 && e.aktion == VERMERK_AKTION_SPAETER);
+
+    /* dauerhaft: fuer jetzt aufgeben, Datei bleibt */
+    const struct { int status; const char *text; } dauerhaft[] = {
+        {SW_TOKEN_401_STATUS, SW_TOKEN_401},
+        {SW_NAME_400_STATUS, SW_NAME_400},
+        {SW_KOPF_400_STATUS, SW_KOPF_400},
+        {SW_PFAD_404_STATUS, SW_PFAD_404},
+        {SW_CHUNKED_411_STATUS, SW_CHUNKED_411},
+        {SW_ZU_GROSS_413_STATUS, SW_ZU_GROSS_413},
+        /* 400 "Stueck unvollstaendig" sieht das Geraet praktisch nie (die Verbindung ist dann weg) */
+        {SW_STUECK_UNVOLLSTAENDIG_400_STATUS, SW_STUECK_UNVOLLSTAENDIG_400},
+    };
+    for (size_t i = 0; i < sizeof(dauerhaft) / sizeof(dauerhaft[0]); i++) {
+        e = entscheide(VERMERK_PHASE_TEIL, dauerhaft[i].status, dauerhaft[i].text, false);
+        PRUEFE(e.aktion == VERMERK_AKTION_AUFGEBEN);
+        e = entscheide(VERMERK_PHASE_ABSCHLUSS, dauerhaft[i].status, dauerhaft[i].text, false);
+        PRUEFE(e.aktion == VERMERK_AKTION_AUFGEBEN);
+    }
+    PRUEFE(SW_TOKEN_401_STATUS == 401 && SW_ZU_GROSS_413_STATUS == 413 && SW_CHUNKED_411_STATUS == 411);
+
+    /* Jede Antwort mit naechstes_byte liest sich sauber; Fehlertexte stoeren die Suche nicht */
+    uint64_t n = 99;
+    PRUEFE(zahl(SW_STUECK_UNVOLLSTAENDIG_400, "naechstes_byte", &n) && n == 0);
+    PRUEFE(wahr(SW_VERSATZ_409, "fertig") == 0);
+    PRUEFE(wahr(SW_ABSCHLUSS_DOPPELT, "fertig") == 1);
+}
+
 static void test_ergebnis_text(void)
 {
     PRUEFE(strcmp(vermerk_ergebnis_text(VERMERK_ERGEBNIS_FERTIG), "fertig") == 0);
@@ -553,6 +628,7 @@ int main(void)
     test_mac_hex();
     test_entscheiden();
     test_ergebnis_text();
+    test_vertrag_mit_der_software();
     test_wartezeit();
     test_warteliste();
 

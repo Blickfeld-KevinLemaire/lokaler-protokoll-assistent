@@ -14,7 +14,7 @@ BUILD   := build
 test: $(BUILD)/test_vermerk_protokoll
 	./$(BUILD)/test_vermerk_protokoll
 
-$(BUILD)/test_vermerk_protokoll: test_vermerk_protokoll.c $(KOMPONENTE)/vermerk_protokoll.c $(KOMPONENTE)/include/vermerk_protokoll.h
+$(BUILD)/test_vermerk_protokoll: test_vermerk_protokoll.c antworten_software.h $(KOMPONENTE)/vermerk_protokoll.c $(KOMPONENTE)/include/vermerk_protokoll.h
 	mkdir -p $(BUILD)
 	$(CC) $(CFLAGS) -I$(KOMPONENTE)/include -o $@ test_vermerk_protokoll.c $(KOMPONENTE)/vermerk_protokoll.c
 
