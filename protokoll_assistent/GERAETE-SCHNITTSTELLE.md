@@ -36,7 +36,9 @@ Netze ist das nicht gedacht (siehe `SECURITY.md`).
 
 * Adresse: `http://<Rechner>:<Port>`, Standardport **8765**.
 * Jede Anfrage trägt `Authorization: Bearer <Token>`. Fehlt es oder ist es
-  unbekannt: `401`.
+  unbekannt: `401`. Die Software erzeugt Token mit 43 Zeichen aus
+  `A–Z a–z 0–9 - _` (256 Bit Zufall); die Firmware nimmt 1–128 sichtbare
+  ASCII-Zeichen ohne Leerzeichen an.
 * Antworten sind JSON in **kompakter Schreibweise ohne Leerzeichen**
   (`{"naechstes_byte":0,"fertig":false}`), UTF-8,
   `Content-Type: application/json`. Die Firmware darf sich darauf verlassen und
@@ -49,9 +51,10 @@ Netze ist das nicht gedacht (siehe `SECURITY.md`).
   die Software merkt sich, welches Gerät mit welcher Firmware zuletzt von wo
   kam. Angemeldet wird ausschließlich über das Token; fehlen die Kopfzeilen,
   wird die Anfrage trotzdem angenommen.
-* Dateinamen: Buchstaben, Ziffern, `_` und `-`, höchstens 64 Zeichen, dann
-  eine Endung aus `.opus`, `.ogg`, `.wav`, `.mp3` (z. B. `H5_007.opus`).
-  Anderes: `400`.
+* Dateinamen: Buchstaben, Ziffern, `_` und `-` (nur ASCII), höchstens 64
+  Zeichen **vor** der Endung, dann eine Endung aus `.opus`, `.ogg`, `.wav`,
+  `.mp3` (z. B. `H5_007.opus`; die Software nimmt die Endung auch groß
+  geschrieben an). Anderes: `400`.
 
 ## Aufrufe
 
@@ -123,11 +126,20 @@ Anfang des Stücks.
 4. Am Ende `PUT` mit `Content-Length: 0`, `X-Gesamtgroesse` und `X-SHA256`.
 5. `"fertig":true` → lokale Kopie löschen.
 6. `409` → ab dem gemeldeten Byte weiter (Prüfsumme ab Dateianfang neu
-   berechnen). `422` → einmal von vorn; scheitert es erneut, diese Datei
-   später noch einmal versuchen.
-7. Netzwerkfehler, `503`, `507`: **diese** Datei später erneut versuchen
-   (wachsende Wartezeit), mit der nächsten weitermachen – eine einzelne
-   Datei hält die Warteschlange nicht auf.
+   berechnen). Meldet die Software mehr Bytes, als die Datei hat (die lokale
+   Datei ist eine andere als der Teilstand), schickt das Gerät gleich den
+   Abschluss mit seiner Größe – die Software antwortet `422` und verwirft den
+   Teilstand. `422` → einmal von vorn; scheitert es erneut, diese Datei
+   später noch einmal versuchen (bei jedem späteren Versuch wieder höchstens
+   einmal von vorn).
+7. Netzwerkfehler, `503`, `507`, drei Anfragen ohne Fortschritt hintereinander
+   oder ein Abschluss mit `200`, aber ohne `"fertig":true`: **diese** Datei
+   später erneut versuchen (5 s, dann jeweils doppelt so lange, höchstens
+   5 min), mit der nächsten weitermachen – eine einzelne Datei hält die
+   Warteschlange nicht auf.
+8. `400`, `401`, `403`, `404`, `411`, `413`: Die Datei bleibt auf dem Gerät;
+   neuer Versuch erst nach der längsten Wartezeit (5 min). Ein `401` beim
+   `hallo` heißt: Token falsch – das Ziel gilt als nicht erreichbar.
 
 ## Ablage in der Software
 
