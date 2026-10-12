@@ -449,15 +449,38 @@ def test_ohne_content_length_oder_mit_chunked_411(dienst):
     assert chunked.startswith(b"HTTP/1.1 411")
 
 
-def test_abgelehnter_inhalt_schliesst_die_verbindung(dienst):
+def test_abgelehnter_inhalt_wird_abgeholt_und_die_verbindung_bleibt_nutzbar(dienst):
     anfrage(dienst, "PUT", "/api/v1/aufnahmen/H5.opus", b"abc", X_Offset="0")
-    # Zwei Anfragen auf derselben Verbindung; die erste wird mit 409 abgelehnt,
-    # ihr Inhalt bleibt ungelesen. Die Verbindung muss danach zu sein, sonst
-    # wuerde der Inhalt als zweite Anfrage gedeutet.
-    erste = f"PUT /api/v1/aufnahmen/H5.opus HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer {TOKEN}\r\nX-Offset: 9\r\nContent-Length: 5\r\n\r\nGET /"
-    text = roh(dienst, erste.encode())
-    assert text.startswith(b"HTTP/1.1 409") and b"Connection: close" in text
+    # Zwei Anfragen auf derselben Verbindung; die erste wird mit 409 abgelehnt.
+    # Ihr Inhalt wird trotzdem gelesen und verworfen -- sonst saehe das Geraet
+    # bei einem grossen Stueck nur einen Verbindungsabbruch statt der Antwort.
+    inhalt = b"x" * 300_000
+    kopf = (
+        f"PUT /api/v1/aufnahmen/H5.opus HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer {TOKEN}\r\n"
+        f"X-Offset: 9\r\nContent-Length: {len(inhalt)}\r\n\r\n"
+    )
+    zweite = f"GET /api/v1/aufnahmen/H5.opus HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer {TOKEN}\r\nConnection: close\r\n\r\n"
+    text = roh(dienst, kopf.encode() + inhalt + zweite.encode())
+    assert text.startswith(b"HTTP/1.1 409") and b'"naechstes_byte":3' in text
+    assert text.count(b"HTTP/1.1 200") == 1  # die zweite Anfrage wurde beantwortet
+
+
+def test_zu_grosser_ungelesener_inhalt_schliesst_die_verbindung(dienst):
+    # Groesser als teil_max_bytes wird nichts abgeholt: Die Verbindung muss zu,
+    # sonst wuerde der Inhalt als naechste Anfrage gedeutet.
+    kopf = (
+        f"PUT /api/v1/aufnahmen/H5.opus HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer {TOKEN}\r\n"
+        f"X-Offset: 0\r\nContent-Length: {empfang.TEIL_MAX_BYTES + 1}\r\n\r\nGET /"
+    )
+    text = roh(dienst, kopf.encode())
+    assert text.startswith(b"HTTP/1.1 413") and b"Connection: close" in text
     assert text.count(b"HTTP/1.1") == 1
+
+
+def test_unangemeldeter_inhalt_wird_nicht_abgeholt(dienst):
+    kopf = "PUT /api/v1/aufnahmen/H5.opus HTTP/1.1\r\nHost: x\r\nX-Offset: 0\r\nContent-Length: 5\r\n\r\nGET /"
+    text = roh(dienst, kopf.encode())
+    assert text.startswith(b"HTTP/1.1 401") and text.count(b"HTTP/1.1") == 1
 
 
 def test_mehrere_anfragen_auf_einer_verbindung(dienst):

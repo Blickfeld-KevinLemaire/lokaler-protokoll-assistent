@@ -599,8 +599,16 @@ class _Anfrage(BaseHTTPRequestHandler):
         antwort = self.server.empfang.ablage.anhaengen(
             geraet.name, pfad[len(_PFAD_AUFNAHMEN):], offset, laenge, lesen, gesamt, sha256
         )
-        # Wurde der Inhalt nicht (ganz) gelesen, steht er noch im Strom und wuerde
-        # als naechste Anfrage gedeutet: Verbindung schliessen.
+        # Abgelehnt, ohne den Inhalt zu lesen (409, 413, 507 ...): Den Rest eines
+        # angemeldeten Geraets erst abholen und verwerfen. Schloesse der Dienst
+        # sofort, setzte TCP die Verbindung mit ungelesenen Daten zurueck -- das
+        # Geraet saehe dann nur einen Verbindungsfehler statt der Antwort und
+        # wuesste nicht, ab welchem Byte es weitergeht.
+        if 0 < laenge - gelesen <= TEIL_MAX_BYTES:
+            while gelesen < laenge and lesen(min(_LESEBLOCK, laenge - gelesen)):
+                pass
+        # Ist der Inhalt dennoch nicht ganz gelesen, steht er noch im Strom und
+        # wuerde als naechste Anfrage gedeutet: Verbindung schliessen.
         self._senden(antwort, schliessen=gelesen != laenge)
 
     def _nicht_erlaubt(self) -> None:

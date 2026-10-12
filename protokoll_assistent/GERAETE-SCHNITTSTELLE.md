@@ -112,6 +112,12 @@ Antworten:
 | `503` | zu viele gleichzeitige Verbindungen | `{"fehler":"…"}` – später erneut |
 | `507` | zu wenig Platz auf der Platte | `{"fehler":"…"}` – später erneut |
 
+Lehnt die Software ein Stück eines angemeldeten Geräts ab (`409`, `413`,
+`507` …), liest sie seinen Inhalt bis `teil_max_bytes` trotzdem und verwirft
+ihn – so kommt die Antwort beim Gerät an, statt in einem Verbindungsabbruch
+unterzugehen. Größere oder nicht angemeldete Anfragen beantwortet sie und
+schließt die Verbindung.
+
 Kommt ein Stück nur teilweise an (Verbindung weg), verwirft die Software den
 angefangenen Rest dieses Stücks. `naechstes_byte` zeigt danach wieder auf den
 Anfang des Stücks.
