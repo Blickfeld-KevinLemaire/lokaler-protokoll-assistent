@@ -271,11 +271,15 @@ def nach_neustart_verbinden(
     oeffnen: Callable[[str], SerielleVerbindung] = verbindung_oeffnen,
     *,
     zeitlimit: float = NEUSTART_SEKUNDEN,
-    jetzt: Callable[[], float] = time.monotonic,
-    schlafen: Callable[[float], None] = time.sleep,
+    jetzt: Callable[[], float] | None = None,
+    schlafen: Callable[[float], None] | None = None,
 ) -> Geraetesitzung:
     """Nach ``SPEICHERN`` startet das Geraet neu; der COM-Port verschwindet dabei
     kurz (USB meldet sich neu an) und kommt unter demselben Namen wieder."""
+    # Erst hier aufgeloest (nicht als Standardwert der Parameter), damit Tests
+    # time.sleep/time.monotonic ersetzen koennen.
+    jetzt = jetzt or time.monotonic
+    schlafen = schlafen or time.sleep
     ende = jetzt() + zeitlimit
     schlafen(1.5)
     letzter: Exception | None = None

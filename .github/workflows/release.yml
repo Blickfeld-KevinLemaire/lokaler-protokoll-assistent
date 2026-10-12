@@ -63,7 +63,13 @@ jobs:
         # Ein Release soll nie aus einem roten Stand entstehen.
         env:
           QT_QPA_PLATFORM: offscreen
-        run: uv run pytest
+        run: uv run pytest --junitxml=testergebnis.xml
+
+      - name: Testergebnis zusammenfassen
+        # Wie in ci.yml: fehlgeschlagene Tests mit Name und Meldung in der
+        # Zusammenfassung des Laufs und als Annotation.
+        if: always()
+        run: uv run python -m protokoll_assistent.tools.testergebnis_zusammenfassen testergebnis.xml "Tests vor dem Build"
 
       - name: PyInstaller ausfuehren
         run: uv run pyinstaller --noconfirm protokoll_assistent.spec

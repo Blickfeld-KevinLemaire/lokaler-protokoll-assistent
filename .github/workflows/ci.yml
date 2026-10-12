@@ -98,7 +98,14 @@ jobs:
         # Windows-Laeufer von GitHub. Qt laeuft trotzdem unsichtbar.
         env:
           QT_QPA_PLATFORM: offscreen
-        run: uv run pytest --cov --cov-report=xml --cov-report=term-missing
+        run: uv run pytest --cov --cov-report=xml --cov-report=term-missing --junitxml=testergebnis.xml
+
+      - name: Ergebnis zusammenfassen
+        # Fehlgeschlagene Tests stehen danach mit Name und Meldung in der
+        # Zusammenfassung des Laufs und als Fehler-Annotation direkt in der
+        # Pruefliste des Pull Requests -- statt nur tief im Rohprotokoll.
+        if: always()
+        run: uv run python -m protokoll_assistent.tools.testergebnis_zusammenfassen testergebnis.xml "Tests (Windows, Python ${{ matrix.python-version }})"
 
       - name: Abdeckungsbericht hochladen
         if: always()

@@ -26,7 +26,12 @@ ESP = usb.Anschluss("COM7", "USB JTAG/serial debug unit", True)
 @pytest.fixture(autouse=True)
 def _ohne_wartezeiten(monkeypatch):
     monkeypatch.setattr(usb.time, "sleep", lambda _s: None)
-    monkeypatch.setattr(usb, "ANTWORT_SEKUNDEN", 0.01)
+    # Nicht kuerzer als ein paar Ticks der Uhr: Unter Windows springt
+    # time.monotonic nur alle 15,6 ms. Mit 0,01 s endete die Wartezeit je nach
+    # Zufall vor der zweiten Zeile -- obwohl die Attrappe sofort antwortet
+    # (im Release-Build einmal so aufgetreten). Die Attrappe antwortet immer
+    # sofort, laenger dauert der Test dadurch nicht.
+    monkeypatch.setattr(usb, "ANTWORT_SEKUNDEN", 2.0)
 
 
 def direkt(dialog):
