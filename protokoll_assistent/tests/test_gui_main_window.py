@@ -489,7 +489,8 @@ def test_nachbearbeitung_ohne_transkript(fenster, gemeldete_fehler):
     assert gemeldete_fehler == ["Kein Transkript ausgewählt"]
 
 
-def test_nachbearbeitung_ohne_systemprompt_meldet_fehler(fenster, gemeldete_fehler, tmp_path):
+def test_nachbearbeitung_ohne_systemprompt_ist_erlaubt(fenster, gemeldete_fehler, tmp_path):
+    """Kein Systemprompt: Das Modell fasst frei zusammen, es gibt keine Fehlermeldung."""
     transkript = tmp_path / "ergebnis.json"
     transkript.write_text("{}", encoding="utf-8")
     fenster._set_transcript_path(transkript)
@@ -497,7 +498,10 @@ def test_nachbearbeitung_ohne_systemprompt_meldet_fehler(fenster, gemeldete_fehl
 
     fenster._start_protocol()
 
-    assert gemeldete_fehler == ["Kein Systemprompt"]
+    assert gemeldete_fehler == []
+    arbeiter = _WorkerAttrappe.instanzen[-1]
+    assert arbeiter.gestartet is True
+    assert arbeiter.settings.system_prompt == ""
 
 
 def test_nachbearbeitung_lokal_erzeugt_arbeiter_ohne_generate_fn(fenster, tmp_path):
@@ -572,7 +576,7 @@ def test_nachbearbeitung_api_ohne_anbieter_meldet_das(fenster, gemeldete_fehler,
 
 def _benutzter_api_schluessel(generate_fn, monkeypatch) -> str:
     """Welchen Schluessel reicht die uebergebene Funktion tatsaechlich an
-    'api_protocol_service.generate_json' weiter?
+    'api_protocol_service.generate_text' weiter?
 
     Bewusst ueber einen echten Aufruf geprueft und nicht ueber
     'functools.partial.keywords': Die Funktion ist eine Closure, weil sie
@@ -583,9 +587,9 @@ def _benutzter_api_schluessel(generate_fn, monkeypatch) -> str:
 
     def _aufzeichnen(prompt, system, *, model, endpoint_url, api_key):
         notiert["api_key"] = api_key
-        return {}
+        return ""
 
-    monkeypatch.setattr(api_protocol_service, "generate_json", _aufzeichnen)
+    monkeypatch.setattr(api_protocol_service, "generate_text", _aufzeichnen)
     generate_fn("Prompt", "System")
     return notiert["api_key"]
 
@@ -1256,7 +1260,7 @@ def test_api_nachbearbeitungsfehler_wird_zu_ollama_error(fenster, tmp_path, schl
     def _scheitert(prompt, system, *, model, endpoint_url, api_key):
         raise api_protocol_service.ApiProtocolError("HTTP 401: ungueltiger Schluessel")
 
-    monkeypatch.setattr(api_protocol_service, "generate_json", _scheitert)
+    monkeypatch.setattr(api_protocol_service, "generate_text", _scheitert)
 
     with pytest.raises(ollama_service.OllamaError, match="401"):
         generate_fn("Prompt", "System")

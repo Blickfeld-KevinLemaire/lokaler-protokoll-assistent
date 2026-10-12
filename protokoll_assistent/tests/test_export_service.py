@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from protokoll_assistent.services import export_service
 
 
@@ -138,24 +140,33 @@ def test_write_transcript_exports_with_diarization_disabled_omits_speakers(tmp_p
     assert "Sprecher unbekannt" not in txt_content
 
 
-def test_render_protocol_markdown_includes_sections():
-    protocol = {
-        "titel": "Wochenmeeting",
-        "kurzzusammenfassung": "Kurzfassung.",
-        "entscheidungen": [{"entscheidung": "Budget freigegeben", "sprecher": "Sprecher 1", "zeitpunkt": "", "quelle": "00:05:00"}],
-        "aufgaben": [{"aufgabe": "Bericht schreiben", "verantwortlich": "Sprecher 2", "frist": "Freitag", "quelle": "00:10:00"}],
-        "termine": [],
-        "offene_fragen": ["Wer uebernimmt die Praesentation?"],
-        "wichtige_fakten": [],
-        "unsichere_transkriptstellen": [],
-        "quellenhinweise": [],
-        "themen": [],
-    }
-    markdown = export_service.render_protocol_markdown(protocol)
-    assert "# Wochenmeeting" in markdown
-    assert "Budget freigegeben" in markdown
-    assert "Bericht schreiben" in markdown
-    assert "Wer uebernimmt die Praesentation?" in markdown
+def test_protokoll_export_schreibt_genau_den_text_des_modells(tmp_path):
+    text = "- 12.10. Abgabe\n- 15.10. Review"
+    json_pfad, md_pfad = export_service.write_protocol_exports(
+        tmp_path, text, "besprechung", "20261012_100000", systemprompt="Nenne nur die Termine."
+    )
+    # Keine eingefuegte Ueberschrift, keine feste Gliederung.
+    assert md_pfad.read_text(encoding="utf-8") == text + "\n"
+    daten = json.loads(json_pfad.read_text(encoding="utf-8"))
+    assert daten["ergebnis"] == text
+    assert daten["systemprompt"] == "Nenne nur die Termine."
+    assert daten["ohne_systemprompt"] is False
+
+
+def test_protokoll_export_vermerkt_fehlenden_systemprompt(tmp_path):
+    json_pfad, _ = export_service.write_protocol_exports(tmp_path, "Text", "besprechung", "20261012_100000")
+    daten = json.loads(json_pfad.read_text(encoding="utf-8"))
+    assert daten["systemprompt"] == ""
+    assert daten["ohne_systemprompt"] is True
+
+
+def test_protokoll_docx_uebernimmt_ueberschriften_und_aufzaehlungen(tmp_path):
+    docx = pytest.importorskip("docx")
+    ziel = tmp_path / "ergebnis.docx"
+    assert export_service.write_protocol_docx("# Titel\nEin Satz.\n- Punkt", ziel) is True
+    dokument = docx.Document(str(ziel))
+    texte = [absatz.text for absatz in dokument.paragraphs]
+    assert texte == ["Titel", "Ein Satz.", "Punkt"]
 
 
 # ---------------------------------------------------------------------------

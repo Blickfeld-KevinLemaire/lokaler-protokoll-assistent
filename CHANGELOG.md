@@ -108,6 +108,27 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 ### Changed
 
+- Die Nachbearbeitung richtet sich jetzt ausschließlich nach dem
+  Systemprompt. Bisher erzwang das Programm unabhängig davon immer dieselbe
+  Besprechungsstruktur (Titel, Themen, Entscheidungen, Aufgaben, Termine,
+  offene Fragen …) – in den Anfragen an das Modell, in der Prüfung der Antwort
+  und in der Ausgabedatei. Jetzt antwortet das Modell frei nach dem Auftrag,
+  und die Ausgabedatei (`.md`) enthält genau diesen Text.
+- Ohne Systemprompt fasst das Modell so zusammen, wie es am sinnvollsten ist.
+  Ein leeres Feld wird nicht mehr abgelehnt, und der Editor ist nicht mehr mit
+  dem Besprechungs-Prompt vorbelegt. Dieser steht als Vorlage
+  „Besprechungsprotokoll“ weiter zur Auswahl.
+- Die `.json` neben dem Ergebnis enthält jetzt `ergebnis`, `systemprompt` und
+  `ohne_systemprompt` statt der festen Protokollfelder.
+- Die mitgelieferte Prompt-Datei mit fester JSON-Struktur ist leer; der
+  Word-/PDF-Export und die Protokoll-Datei folgen dem Ergebnistext des Modells.
+  Die Vorlagen „Formelles Protokoll“, „Projektbesprechung“, „Stand-up“,
+  „Technische Besprechung“ und „Interview“ nennen ihre Abschnitte jetzt als
+  Überschriften im Freitext statt als JSON-Felder. Protokolle aus früheren
+  Läufen (feste Gliederung) lassen sich weiter exportieren.
+- Die mehrstufige Verdichtung langer Transkripte (mehrere Runden bis zum
+  Kontextlimit) arbeitet jetzt auf dem Ergebnistext.
+
 - **OpenRouter ist nicht mehr voreingestellt.** Endpunkte und Modelle sind ab
   Werk leer, bis ein Anbieter gewählt wird; ohne Auswahl meldet das Programm
   „Kein Anbieter gewählt“, statt Aufnahmen oder Texte irgendwohin zu senden.
@@ -139,6 +160,11 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
   „Aufgaben“ aus. Termine, offene Fragen und Fakten verlangt er als Text.
 
 ### Fixed
+
+- Zwischenergebnisse der Nachbearbeitung werden je Systemprompt gespeichert.
+  Zuvor galten sie nur je Transkript: Wer denselben Text mit einem anderen
+  Systemprompt erneut auswertete, bekam das gespeicherte Ergebnis zum alten
+  Auftrag zurück.
 
 - **„Danach direkt das Protokoll erstellen“ wirkte nicht:** Nach der
   Transkription blieb das Fenster bei „Transkription abgeschlossen.“ stehen,

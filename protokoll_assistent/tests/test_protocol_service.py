@@ -1,156 +1,185 @@
-import json
-
 import pytest
 
 from protokoll_assistent.services import protocol_service
 
-VALID_PROTOCOL = {
-    "titel": "Test",
-    "kurzzusammenfassung": "Zusammenfassung",
-    "teilnehmende_oder_sprecher": [],
-    "themen": [],
-    "entscheidungen": [],
-    "aufgaben": [],
-    "termine": [],
-    "offene_fragen": [],
-    "wichtige_fakten": [],
-    "unsichere_transkriptstellen": [],
-    "quellenhinweise": [],
-}
-
 
 def _fake_generate_factory(responses_by_call=None, raise_on_prompt_containing=None):
     """Erstellt eine generate_fn-Stub-Funktion ohne echtes Ollama."""
-    calls = {"count": 0, "prompts": []}
+    calls = {"count": 0, "prompts": [], "systems": []}
 
-    def generate(prompt: str, system: str):
+    def generate(prompt: str, system: str) -> str:
         calls["count"] += 1
         calls["prompts"].append(prompt)
+        calls["systems"].append(system)
         if raise_on_prompt_containing and raise_on_prompt_containing in prompt:
             raise RuntimeError("Simulierter Verbindungsfehler zu Ollama")
         if responses_by_call and calls["count"] in responses_by_call:
             return responses_by_call[calls["count"]]
-        if "finale strukturierte Protokoll" in prompt:
-            return dict(VALID_PROTOCOL)
-        return {"kernaussagen": [f"Punkt aus Aufruf {calls['count']}"]}
+        if "Endergebnis" in prompt:
+            return "ENDERGEBNIS"
+        return f"Text aus Aufruf {calls['count']}"
 
     return generate, calls
 
 
+def _chunks(anzahl: int) -> list[dict]:
+    return [
+        {"index": i, "start_str": f"00:{i*10:02d}:00", "end_str": f"00:{i*10+10:02d}:00", "text": f"Chunk {i}"}
+        for i in range(anzahl)
+    ]
+
+
 def test_stage1_result_is_cached_and_not_recomputed(tmp_path):
     generate_fn, calls = _fake_generate_factory()
-    path = tmp_path / "chunk_0001_analyse.json"
+    path = tmp_path / "chunk_0001.md"
 
     first = protocol_service.run_stage1_chunk_analysis(
-        0, "Text", "00:00:00", "00:10:00", "System", generate_fn, path, tmp_path / "roh"
+        0, "Text", "00:00:00", "00:10:00", "System", generate_fn, path
     )
     assert calls["count"] == 1
     assert path.is_file()
 
     second = protocol_service.run_stage1_chunk_analysis(
-        0, "Text", "00:00:00", "00:10:00", "System", generate_fn, path, tmp_path / "roh"
+        0, "Text", "00:00:00", "00:10:00", "System", generate_fn, path
     )
     assert calls["count"] == 1  # kein erneuter Aufruf
     assert first == second
 
 
-def test_generate_validated_repairs_once_on_invalid_json(tmp_path):
-    generate_fn, calls = _fake_generate_factory(
-        responses_by_call={1: {"nichts_brauchbares": True}, 2: {"kernaussagen": ["repariert"]}}
-    )
-    result = protocol_service.generate_validated(
-        "Prompt",
-        "System",
-        generate_fn,
-        lambda data: (isinstance(data, dict) and "kernaussagen" in data, ["Feld fehlt"]),
-        tmp_path / "roh",
-        "test",
-    )
+def test_generate_checked_wiederholt_eine_leere_antwort_einmal():
+    generate_fn, calls = _fake_generate_factory(responses_by_call={1: "   ", 2: "Brauchbar"})
+    assert protocol_service.generate_checked("Prompt", "System", generate_fn) == "Brauchbar"
     assert calls["count"] == 2
-    assert result == {"kernaussagen": ["repariert"]}
-    dumps = list((tmp_path / "roh").glob("*ungueltig*"))
-    assert len(dumps) == 1
 
 
-def test_generate_validated_raises_after_failed_repair(tmp_path):
-    generate_fn, calls = _fake_generate_factory(
-        responses_by_call={1: {"falsch": True}, 2: {"immer_noch_falsch": True}}
-    )
+def test_generate_checked_meldet_fehler_nach_zweiter_leerer_antwort():
+    generate_fn, calls = _fake_generate_factory(responses_by_call={1: "", 2: "\n"})
     with pytest.raises(protocol_service.ProtocolValidationError):
-        protocol_service.generate_validated(
-            "Prompt",
-            "System",
-            generate_fn,
-            lambda data: (isinstance(data, dict) and "kernaussagen" in data, ["Feld fehlt"]),
-            tmp_path / "roh",
-            "test",
-        )
+        protocol_service.generate_checked("Prompt", "System", generate_fn)
     assert calls["count"] == 2
 
 
-def test_full_pipeline_hierarchical_stages_produce_valid_protocol(tmp_path):
+def test_antwort_bereinigen_entfernt_denkbloecke():
+    roh = "<think>ueberlege ich\nmehrzeilig</think>\n\nDas Ergebnis.\n"
+    assert protocol_service.antwort_bereinigen(roh) == "Das Ergebnis."
+
+
+def test_ein_abschnitt_braucht_nur_einen_aufruf_und_keine_zwischenstufen(tmp_path):
+    generate_fn, calls = _fake_generate_factory(responses_by_call={1: "Nur dieses Ergebnis"})
+    result = protocol_service.run_full_protocol_pipeline(_chunks(1), tmp_path, "Mein Auftrag", generate_fn)
+    assert result == "Nur dieses Ergebnis"
+    assert calls["count"] == 1
+    assert calls["systems"] == ["Mein Auftrag"]
+
+
+def test_full_pipeline_hierarchical_stages_produce_text_result(tmp_path):
     generate_fn, calls = _fake_generate_factory()
-    chunk_texts = [
-        {"index": i, "start_str": f"00:{i*10:02d}:00", "end_str": f"00:{i*10+10:02d}:00", "text": f"Chunk {i}"}
-        for i in range(4)
-    ]
     stage_progress = []
     result = protocol_service.run_full_protocol_pipeline(
-        chunk_texts,
+        _chunks(4),
         tmp_path,
-        "System",
+        "Mein Auftrag",
         generate_fn,
         group_size=2,
         progress_cb=lambda stage, current, total: stage_progress.append(stage),
     )
-    assert result["titel"] == "Test"
-    # 4 Chunk-Analysen + 2 Gruppen-Zusammenfuehrungen + 1 finales Protokoll = 7 Aufrufe.
+    assert result == "ENDERGEBNIS"
+    # 4 Abschnitts-Auswertungen + 2 Gruppen-Zusammenfuehrungen + 1 Endergebnis = 7 Aufrufe.
     assert calls["count"] == 7
-    assert (tmp_path / "analysen" / "chunk_0001_analyse.json").is_file()
-    assert (tmp_path / "zusammengefuehrt" / "protokoll.json").is_file()
+    kennung = protocol_service.prompt_kennung("Mein Auftrag")
+    assert (tmp_path / "analysen" / kennung / "chunk_0001.md").is_file()
+    assert (tmp_path / "zusammengefuehrt" / kennung / "ergebnis.md").is_file()
     assert "stufe1_chunk_analyse" in stage_progress
     assert "stufe3_gesamtprotokoll" in stage_progress
 
 
+def test_nur_ein_zusammengefuehrtes_teilergebnis_wird_nicht_nochmal_umformuliert(tmp_path):
+    generate_fn, calls = _fake_generate_factory()
+    result = protocol_service.run_full_protocol_pipeline(_chunks(2), tmp_path, "Auftrag", generate_fn, group_size=4)
+    # 2 Abschnitte + 1 Zusammenfuehrung, kein drittes "Endergebnis".
+    assert calls["count"] == 3
+    assert result == "Text aus Aufruf 3"
+
+
+def test_der_systemprompt_ist_in_jeder_stufe_der_alleinige_auftrag(tmp_path):
+    generate_fn, calls = _fake_generate_factory()
+    protocol_service.run_full_protocol_pipeline(_chunks(4), tmp_path, "Liste nur die Termine auf.", generate_fn, group_size=2)
+    assert set(calls["systems"]) == {"Liste nur die Termine auf."}
+
+
+def test_die_stufenanfragen_geben_keine_gliederung_vor(tmp_path):
+    """Keine der Anfragen darf eine feste Besprechungsstruktur vorgeben --
+    sonst setzt sich diese gegen den Systemprompt durch."""
+    generate_fn, calls = _fake_generate_factory()
+    protocol_service.run_full_protocol_pipeline(_chunks(4), tmp_path, "Liste nur die Termine auf.", generate_fn, group_size=2)
+    for prompt in calls["prompts"]:
+        for verboten in ("entscheidungen", "aufgaben", "offene_fragen", "kernaussagen", "JSON", "kurzzusammenfassung"):
+            assert verboten not in prompt
+
+
+def test_ohne_systemprompt_fasst_das_modell_frei_zusammen(tmp_path):
+    generate_fn, calls = _fake_generate_factory()
+    protocol_service.run_full_protocol_pipeline(_chunks(1), tmp_path, "   ", generate_fn)
+    assert calls["systems"] == [protocol_service.OHNE_VORGABE_SYSTEMPROMPT]
+    for verboten in ("Entscheidung", "Aufgabe", "Meeting", "JSON"):
+        assert verboten not in protocol_service.OHNE_VORGABE_SYSTEMPROMPT
+
+
+def test_anderer_systemprompt_verwendet_kein_altes_ergebnis_wieder(tmp_path):
+    """Gleiches Transkript, anderer Auftrag: Das Ergebnis zum alten Auftrag
+    darf nicht zurueckkommen."""
+    erstes, _ = _fake_generate_factory(responses_by_call={1: "ERGEBNIS ZUM ALTEN AUFTRAG"})
+    alt = protocol_service.run_full_protocol_pipeline(_chunks(1), tmp_path, "Alter Auftrag", erstes)
+    assert alt == "ERGEBNIS ZUM ALTEN AUFTRAG"
+
+    zweites, calls = _fake_generate_factory(responses_by_call={1: "ERGEBNIS ZUM NEUEN AUFTRAG"})
+    neu = protocol_service.run_full_protocol_pipeline(_chunks(1), tmp_path, "Neuer Auftrag", zweites)
+    assert neu == "ERGEBNIS ZUM NEUEN AUFTRAG"
+    assert calls["count"] == 1
+
+    # Derselbe Auftrag noch einmal: das gespeicherte Ergebnis wird wiederverwendet.
+    drittes, calls3 = _fake_generate_factory()
+    wieder = protocol_service.run_full_protocol_pipeline(_chunks(1), tmp_path, "Neuer Auftrag", drittes)
+    assert wieder == "ERGEBNIS ZUM NEUEN AUFTRAG"
+    assert calls3["count"] == 0
+
+
+def test_leeres_transkript_wird_gemeldet(tmp_path):
+    generate_fn, calls = _fake_generate_factory()
+    with pytest.raises(protocol_service.ProtocolValidationError):
+        protocol_service.run_full_protocol_pipeline([], tmp_path, "Auftrag", generate_fn)
+    assert calls["count"] == 0
+
+
 def test_faulty_single_chunk_does_not_lose_previous_progress(tmp_path):
-    generate_fn, calls = _fake_generate_factory(raise_on_prompt_containing="Abschnitt 2,")
-    chunk_texts = [
-        {"index": 0, "start_str": "00:00:00", "end_str": "00:10:00", "text": "Erster Abschnitt"},
-        {"index": 1, "start_str": "00:10:00", "end_str": "00:20:00", "text": "Zweiter Abschnitt (fehlerhaft)"},
-    ]
+    generate_fn, calls = _fake_generate_factory(raise_on_prompt_containing="Abschnitt 2 ")
+    chunk_texts = _chunks(2)
+    kennung = protocol_service.prompt_kennung("System")
 
     with pytest.raises(RuntimeError):
         protocol_service.run_full_protocol_pipeline(chunk_texts, tmp_path, "System", generate_fn, group_size=2)
 
-    # Chunk 0 wurde bereits erfolgreich analysiert und gespeichert.
-    chunk0_path = tmp_path / "analysen" / "chunk_0001_analyse.json"
+    # Abschnitt 1 wurde bereits erfolgreich ausgewertet und gespeichert.
+    chunk0_path = tmp_path / "analysen" / kennung / "chunk_0001.md"
     assert chunk0_path.is_file()
-    chunk1_path = tmp_path / "analysen" / "chunk_0002_analyse.json"
-    assert not chunk1_path.is_file()
+    assert not (tmp_path / "analysen" / kennung / "chunk_0002.md").is_file()
 
     calls_before_retry = calls["count"]
 
-    # Ein erneuter Lauf (z.B. nach Behebung des Fehlers) darf Chunk 0 NICHT
-    # erneut anfragen -- nur der fehlgeschlagene Chunk 1 wird nachgeholt.
+    # Ein erneuter Lauf (z.B. nach Behebung des Fehlers) darf Abschnitt 1 NICHT
+    # erneut anfragen -- nur der fehlgeschlagene Abschnitt 2 wird nachgeholt.
     generate_fn2, calls2 = _fake_generate_factory()
-    chunk0_before = json.loads(chunk0_path.read_text(encoding="utf-8"))
-    result = protocol_service.run_full_protocol_pipeline(chunk_texts, tmp_path, "System", generate_fn2, group_size=2)
-    assert calls2["count"] < calls_before_retry + 3  # nur Chunk 1 + Gruppe + Protokoll, nicht Chunk 0 erneut
-    assert json.loads(chunk0_path.read_text(encoding="utf-8")) == chunk0_before
-    assert result["titel"] == "Test"
-
-
-def _chunks(anzahl):
-    return [
-        {"index": i, "start_str": "00:00:00", "end_str": "00:10:00", "text": f"Chunk {i}"} for i in range(anzahl)
-    ]
+    chunk0_before = chunk0_path.read_text(encoding="utf-8")
+    protocol_service.run_full_protocol_pipeline(chunk_texts, tmp_path, "System", generate_fn2, group_size=2)
+    assert calls2["count"] < calls_before_retry + 3  # nur Abschnitt 2 + Zusammenfuehrung, nicht Abschnitt 1 erneut
+    assert chunk0_path.read_text(encoding="utf-8") == chunk0_before
 
 
 def test_verdichtung_laeuft_in_runden_bis_es_passt(tmp_path):
     generate_fn, calls = _fake_generate_factory()
     stufen = []
-    # Winziges Budget: jede Runde ist "zu gross", bis nur noch eine Analyse uebrig ist.
-    result = protocol_service.run_full_protocol_pipeline(
+    # Winziges Budget: jede Runde ist "zu gross", bis nur noch ein Teilergebnis uebrig ist.
+    ergebnis = protocol_service.run_full_protocol_pipeline(
         _chunks(8),
         tmp_path,
         "System",
@@ -159,21 +188,24 @@ def test_verdichtung_laeuft_in_runden_bis_es_passt(tmp_path):
         progress_cb=lambda stage, current, total: stufen.append(stage),
         max_kontext_zeichen=1,
     )
-    assert result["titel"] == "Test"
-    # 8 Analysen + (4 + 2 + 1) Verdichtungen + 1 Protokoll
-    assert calls["count"] == 8 + 7 + 1
+    # 8 Abschnitte + (4 + 2 + 1) Verdichtungen; das eine Teilergebnis ist das Endergebnis
+    assert calls["count"] == 8 + 7
+    assert ergebnis.startswith("Text aus Aufruf")
     assert "stufe2_zwischenzusammenfuehrung" in stufen
     assert "stufe2_verdichtung_runde_2" in stufen
     assert "stufe2_verdichtung_runde_3" in stufen
-    assert (tmp_path / "zusammengefuehrt" / "zwischenanalyse_r02_0001.json").is_file()
+    kennung = protocol_service.prompt_kennung("System")
+    assert (tmp_path / "zusammengefuehrt" / kennung / "zwischenergebnis_r02_0001.md").is_file()
 
 
 def test_verdichtung_stoppt_wenn_es_passt(tmp_path):
     generate_fn, calls = _fake_generate_factory()
-    protocol_service.run_full_protocol_pipeline(_chunks(8), tmp_path, "System", generate_fn, group_size=2)
-    # Standardbudget ist gross genug: 8 + 4 (eine Runde) + 1
+    ergebnis = protocol_service.run_full_protocol_pipeline(_chunks(8), tmp_path, "System", generate_fn, group_size=2)
+    # Standardbudget ist gross genug: 8 + 4 (eine Runde) + 1 Endergebnis
     assert calls["count"] == 13
-    assert not list((tmp_path / "zusammengefuehrt").glob("zwischenanalyse_r*"))
+    assert ergebnis == "ENDERGEBNIS"
+    kennung = protocol_service.prompt_kennung("System")
+    assert not list((tmp_path / "zusammengefuehrt" / kennung).glob("zwischenergebnis_r*"))
 
 
 def test_verdichtung_hoechstens_acht_runden(tmp_path):
@@ -182,48 +214,16 @@ def test_verdichtung_hoechstens_acht_runden(tmp_path):
     protocol_service.run_full_protocol_pipeline(
         _chunks(3), tmp_path, "System", generate_fn, group_size=1, max_kontext_zeichen=1
     )
-    runden = {p.name.split("_")[1] for p in (tmp_path / "zusammengefuehrt").glob("zwischenanalyse_r*")}
+    kennung = protocol_service.prompt_kennung("System")
+    runden = {p.name.split("_")[1] for p in (tmp_path / "zusammengefuehrt" / kennung).glob("zwischenergebnis_r*")}
     assert len(runden) <= protocol_service.MAX_VERDICHTUNGSRUNDEN
-    assert (tmp_path / "zusammengefuehrt" / "protokoll.json").is_file()
 
 
 def test_verdichtung_wiederaufnahme_fragt_fertige_runden_nicht_erneut(tmp_path):
     generate_fn, _ = _fake_generate_factory()
-    protocol_service.run_full_protocol_pipeline(
-        _chunks(4), tmp_path, "System", generate_fn, group_size=2, max_kontext_zeichen=1
-    )
-    (tmp_path / "zusammengefuehrt" / "protokoll.json").unlink()
+    protocol_service.run_full_protocol_pipeline(_chunks(4), tmp_path, "System", generate_fn, group_size=2)
+    kennung = protocol_service.prompt_kennung("System")
+    (tmp_path / "zusammengefuehrt" / kennung / "ergebnis.md").unlink()
     generate_fn2, calls2 = _fake_generate_factory()
-    protocol_service.run_full_protocol_pipeline(
-        _chunks(4), tmp_path, "System", generate_fn2, group_size=2, max_kontext_zeichen=1
-    )
-    assert calls2["count"] == 1  # nur das finale Protokoll
-
-
-def test_stufe3_prompt_enthaelt_die_json_struktur_auch_ohne_systemprompt_struktur():
-    prompt = protocol_service.build_stage3_prompt([{"kernaussagen": ["a"]}])
-    assert '"unsichere_transkriptstellen": []' in prompt
-    assert "finale strukturierte Protokoll" in prompt
-
-
-def test_vorlagenwechsel_erzeugt_nur_das_gesamtprotokoll_neu(tmp_path):
-    generate_fn, calls = _fake_generate_factory()
-    protocol_service.run_full_protocol_pipeline(_chunks(2), tmp_path, "Vorlage A", generate_fn, group_size=2)
-    nach_erstem_lauf = calls["count"]
-
-    # Gleiche Vorlage: alles kommt aus dem Zwischenspeicher.
-    protocol_service.run_full_protocol_pipeline(_chunks(2), tmp_path, "Vorlage A", generate_fn, group_size=2)
-    assert calls["count"] == nach_erstem_lauf
-
-    # Andere Vorlage: nur Stufe 3 laeuft erneut.
-    protocol_service.run_full_protocol_pipeline(_chunks(2), tmp_path, "Vorlage B", generate_fn, group_size=2)
-    assert calls["count"] == nach_erstem_lauf + 1
-
-
-def test_altes_protokoll_ohne_prompt_hash_wird_einmal_neu_erzeugt(tmp_path):
-    generate_fn, calls = _fake_generate_factory()
-    protocol_service.run_full_protocol_pipeline(_chunks(1), tmp_path, "System", generate_fn, group_size=2)
-    (tmp_path / "zusammengefuehrt" / "protokoll.prompt.sha256").unlink()
-    vorher = calls["count"]
-    protocol_service.run_full_protocol_pipeline(_chunks(1), tmp_path, "System", generate_fn, group_size=2)
-    assert calls["count"] == vorher + 1
+    protocol_service.run_full_protocol_pipeline(_chunks(4), tmp_path, "System", generate_fn2, group_size=2)
+    assert calls2["count"] == 1  # nur das Endergebnis

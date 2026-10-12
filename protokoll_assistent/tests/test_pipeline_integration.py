@@ -197,30 +197,17 @@ def test_api_nachbearbeitung_end_zu_ende_durch_die_echte_pipeline(monkeypatch, t
         diarize_fn=api_transcription_service.diarize_via_api_speakers,
     )
 
-    protokoll_antwort = {
-        "titel": "Projektstart",
-        "kurzzusammenfassung": "Alles begonnen.",
-        "teilnehmende_oder_sprecher": [],
-        "themen": [],
-        "entscheidungen": [],
-        "aufgaben": [],
-        "termine": [],
-        "offene_fragen": [],
-        "wichtige_fakten": [],
-        "unsichere_transkriptstellen": [],
-        "quellenhinweise": [],
-        "kernaussagen": ["Das Projekt ist gestartet."],
-    }
+    protokoll_antwort = "Das Projekt ist gestartet."
 
     def fake_protocol_urlopen(request, timeout=None):
         return _FakeResponse(
-            {"choices": [{"message": {"content": json.dumps(protokoll_antwort)}}]}
+            {"choices": [{"message": {"content": protokoll_antwort}}]}
         )
 
     monkeypatch.setattr(api_protocol_service.urllib.request, "urlopen", fake_protocol_urlopen)
 
     protocol_generate_fn = functools.partial(
-        api_protocol_service.generate_json,
+        api_protocol_service.generate_text,
         model="modell-nachbearbeitung",
         endpoint_url="https://example.test/chat/completions",
         api_key="geheim",
@@ -236,7 +223,7 @@ def test_api_nachbearbeitung_end_zu_ende_durch_die_echte_pipeline(monkeypatch, t
     assert ergebnis.protokoll_fehler is None
     assert ergebnis.protocol_paths is not None
     gespeichertes_protokoll = json.loads(ergebnis.protocol_paths[0].read_text(encoding="utf-8"))
-    assert gespeichertes_protokoll["titel"] == "Projektstart"
+    assert gespeichertes_protokoll["ergebnis"] == "Das Projekt ist gestartet."
     # Die Nachbearbeitung ist eigenstaendig fortsetzbar, unabhaengig vom
     # Arbeitsordner der Transkription (siehe 'run_protocol'-Docstring).
     assert ergebnis.work_dir != transkript.work_dir

@@ -588,7 +588,7 @@ def load_transcript_for_protocol(
 def run_protocol(
     settings: ProtocolSettings,
     callbacks: PipelineCallbacks | None = None,
-    protocol_generate_fn: Callable[[str, str], dict[str, Any]] | None = None,
+    protocol_generate_fn: Callable[[str, str], str] | None = None,
 ) -> ProtocolResult:
     """Eigenstaendiger zweiter Schritt: Ollama-Protokollauswertung eines
     bereits vorliegenden Transkripts (siehe 'load_transcript_for_protocol').
@@ -627,8 +627,8 @@ def run_protocol(
         system_prompt = settings.system_prompt
     chunk_texts = _build_protocol_chunk_texts(chunk_plans, segments, speaker_names, diarization_enabled)
 
-    def default_ollama_generate(prompt: str, system: str) -> dict[str, Any]:
-        return ollama_service.generate_json(prompt, system, model=settings.ollama_model)
+    def default_ollama_generate(prompt: str, system: str) -> str:
+        return ollama_service.generate_text(prompt, system, model=settings.ollama_model)
 
     generate_fn = protocol_generate_fn or default_ollama_generate
 
@@ -650,7 +650,7 @@ def run_protocol(
         protokoll_status = manifest_service.STATUS_ABGESCHLOSSEN
         callbacks.on_stage("export_protokoll", STAGE_LABELS["export_protokoll"])
         protocol_paths = export_service.write_protocol_exports(
-            settings.output_dir, protocol, source_stem, run_timestamp
+            settings.output_dir, protocol, source_stem, run_timestamp, system_prompt
         )
     except (protocol_service.ProtocolValidationError, ollama_service.OllamaError) as error:
         # Das Transkript bleibt in jedem Fall erhalten -- nur die
@@ -698,7 +698,7 @@ def run_pipeline(
     callbacks: PipelineCallbacks | None = None,
     transcribe_chunk_fn: Callable[[Path], list[dict[str, Any]]] | None = None,
     diarize_fn: Callable[[Path, int | None, int | None], list[dict[str, Any]]] | None = None,
-    protocol_generate_fn: Callable[[str, str], dict[str, Any]] | None = None,
+    protocol_generate_fn: Callable[[str, str], str] | None = None,
 ) -> PipelineResult:
     """Kombinierter Einschritt-Ablauf: Transkription direkt gefolgt von der
     Protokollauswertung desselben Laufs, im selben Arbeitsordner. Bleibt
@@ -728,8 +728,8 @@ def run_pipeline(
             chunk_plans, merged_segments, speaker_names, settings.enable_diarization
         )
 
-        def default_ollama_generate(prompt: str, system: str) -> dict[str, Any]:
-            return ollama_service.generate_json(prompt, system, model=settings.ollama_model)
+        def default_ollama_generate(prompt: str, system: str) -> str:
+            return ollama_service.generate_text(prompt, system, model=settings.ollama_model)
 
         generate_fn = protocol_generate_fn or default_ollama_generate
         try:
@@ -747,7 +747,7 @@ def run_pipeline(
             manifest["protokoll_status"] = manifest_service.STATUS_ABGESCHLOSSEN
             callbacks.on_stage("export_protokoll", STAGE_LABELS["export_protokoll"])
             protocol_paths = export_service.write_protocol_exports(
-                settings.output_dir, protocol, settings.source_path.stem, run_timestamp
+                settings.output_dir, protocol, settings.source_path.stem, run_timestamp, system_prompt
             )
         except (protocol_service.ProtocolValidationError, ollama_service.OllamaError) as error:
             # Das Transkript ist fertig und bleibt erhalten -- nur die

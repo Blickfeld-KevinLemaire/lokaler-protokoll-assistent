@@ -269,21 +269,9 @@ def test_pipeline_can_be_cancelled_between_chunks(monkeypatch, tmp_path, source_
 # Protokollauswertung: Ueberlappung, Neubeginn und Fehlerbehandlung
 # ---------------------------------------------------------------------------
 
-def _vollstaendiges_protokoll(titel: str = "Protokoll") -> dict:
-    return {
-        "titel": titel,
-        "kurzzusammenfassung": "",
-        "teilnehmende_oder_sprecher": [],
-        "themen": [],
-        "entscheidungen": [],
-        "aufgaben": [],
-        "termine": [],
-        "offene_fragen": [],
-        "wichtige_fakten": [],
-        "unsichere_transkriptstellen": [],
-        "quellenhinweise": [],
-        "kernaussagen": [],
-    }
+def _vollstaendiges_protokoll(titel: str = "Protokoll") -> str:
+    """Antwort des Modells: reiner Text, ohne vorgegebene Struktur."""
+    return titel
 
 
 def _systemprompt_bereitstellen(monkeypatch, tmp_path):
@@ -350,7 +338,7 @@ def test_neu_beginnen_erzeugt_das_protokoll_wirklich_neu(monkeypatch, tmp_path, 
         diarize_fn=_fake_diarize,
         protocol_generate_fn=lambda prompt, system: _vollstaendiges_protokoll("ALT"),
     )
-    assert json.loads(erster.protocol_paths[0].read_text(encoding="utf-8"))["titel"] == "ALT"
+    assert json.loads(erster.protocol_paths[0].read_text(encoding="utf-8"))["ergebnis"] == "ALT"
 
     aufrufe = []
 
@@ -366,7 +354,7 @@ def test_neu_beginnen_erzeugt_das_protokoll_wirklich_neu(monkeypatch, tmp_path, 
     )
 
     assert aufrufe, "Bei 'neu beginnen' wurde das Modell gar nicht gefragt."
-    assert json.loads(zweiter.protocol_paths[0].read_text(encoding="utf-8"))["titel"] == "NEU"
+    assert json.loads(zweiter.protocol_paths[0].read_text(encoding="utf-8"))["ergebnis"] == "NEU"
 
 
 def test_neu_beginnen_transkribiert_alle_chunks_erneut(monkeypatch, tmp_path, source_file):
@@ -431,9 +419,9 @@ def test_gescheiterte_protokollauswertung_wird_gemeldet(monkeypatch, tmp_path, s
         callbacks,
         transcribe_chunk_fn=_einfaches_segment,
         diarize_fn=_fake_diarize,
-        # Ein Fehlerobjekt statt der geforderten Struktur - so antwortet ein
+        # Eine leere Antwort, auch beim zweiten Versuch - so antwortet ein
         # Modell, das die Anfrage nicht beantworten konnte.
-        protocol_generate_fn=lambda prompt, system: {"error": "Modell nicht geladen"},
+        protocol_generate_fn=lambda prompt, system: "",
     )
 
     assert "protokoll_fehlgeschlagen" in stufen
@@ -535,7 +523,7 @@ def test_run_protocol_liest_export_und_erzeugt_protokoll(monkeypatch, tmp_path, 
 
     assert ergebnis.protokoll_fehler is None
     assert ergebnis.protocol_paths is not None
-    assert json.loads(ergebnis.protocol_paths[0].read_text(encoding="utf-8"))["titel"] == "NEU"
+    assert json.loads(ergebnis.protocol_paths[0].read_text(encoding="utf-8"))["ergebnis"] == "NEU"
     assert ergebnis.report_paths[0].is_file()
 
 
@@ -729,6 +717,102 @@ def test_run_protocol_liest_ohne_mitgegebenen_systemprompt_weiter_die_datei(monk
     )
 
     assert set(benutzte_systemprompts) == {"Du bist ein Protokollassistent."}
+
+
+def test_run_protocol_ohne_systemprompt_laesst_das_modell_frei_zusammenfassen(monkeypatch, tmp_path, source_file):
+    """Leerer Systemprompt: Das Modell bekommt die neutrale Vorgabe -- und
+    keinerlei feste Besprechungsstruktur."""
+    from protokoll_assistent.services import protocol_service
+
+    monkeypatch.setattr(utils_paths, "get_work_dir", lambda: tmp_path / "arbeitsdaten")
+    _systemprompt_bereitstellen(monkeypatch, tmp_path)
+    _patch_ffmpeg(monkeypatch, total_duration=300.0)
+
+    transkript = pipeline_service.run_transcription(
+        _make_settings(source_file, tmp_path),
+        transcribe_chunk_fn=_einfaches_segment,
+        diarize_fn=_fake_diarize,
+    )
+
+    benutzte_systemprompts = []
+
+    def protokoll_generieren(prompt, system):
+        benutzte_systemprompts.append(system)
+        return "Frei zusammengefasst."
+
+    ergebnis = pipeline_service.run_protocol(
+        pipeline_service.ProtocolSettings(
+            transcript_json_path=transkript.export_paths.json,
+            output_dir=tmp_path / "ausgabe",
+            system_prompt="",
+        ),
+        protocol_generate_fn=protokoll_generieren,
+    )
+
+    assert ergebnis.protokoll_fehler is None
+    assert set(benutzte_systemprompts) == {protocol_service.OHNE_VORGABE_SYSTEMPROMPT}
+    daten = json.loads(ergebnis.protocol_paths[0].read_text(encoding="utf-8"))
+    assert daten["ohne_systemprompt"] is True
+
+
+def test_run_protocol_schreibt_genau_den_text_des_modells(monkeypatch, tmp_path, source_file):
+    """Die Ausgabedatei enthaelt nur, was das Modell nach dem Systemprompt
+    geliefert hat -- keine zusaetzlich eingefuegte Gliederung."""
+    monkeypatch.setattr(utils_paths, "get_work_dir", lambda: tmp_path / "arbeitsdaten")
+    _systemprompt_bereitstellen(monkeypatch, tmp_path)
+    _patch_ffmpeg(monkeypatch, total_duration=300.0)
+
+    transkript = pipeline_service.run_transcription(
+        _make_settings(source_file, tmp_path),
+        transcribe_chunk_fn=_einfaches_segment,
+        diarize_fn=_fake_diarize,
+    )
+
+    ergebnis = pipeline_service.run_protocol(
+        pipeline_service.ProtocolSettings(
+            transcript_json_path=transkript.export_paths.json,
+            output_dir=tmp_path / "ausgabe",
+            system_prompt="Nenne nur die Termine.",
+        ),
+        protocol_generate_fn=lambda prompt, system: "- 12.10. Abgabe",
+    )
+
+    json_pfad, md_pfad = ergebnis.protocol_paths
+    assert md_pfad.read_text(encoding="utf-8") == "- 12.10. Abgabe\n"
+    daten = json.loads(json_pfad.read_text(encoding="utf-8"))
+    assert daten["systemprompt"] == "Nenne nur die Termine."
+    assert daten["ohne_systemprompt"] is False
+    assert daten["ergebnis"] == "- 12.10. Abgabe"
+
+
+def test_run_protocol_mit_anderem_systemprompt_liefert_neues_ergebnis(monkeypatch, tmp_path, source_file):
+    """Gleiches Transkript, anderer Auftrag: kein Ergebnis zum alten Auftrag."""
+    monkeypatch.setattr(utils_paths, "get_work_dir", lambda: tmp_path / "arbeitsdaten")
+    _systemprompt_bereitstellen(monkeypatch, tmp_path)
+    _patch_ffmpeg(monkeypatch, total_duration=300.0)
+
+    transkript = pipeline_service.run_transcription(
+        _make_settings(source_file, tmp_path),
+        transcribe_chunk_fn=_einfaches_segment,
+        diarize_fn=_fake_diarize,
+    )
+
+    def lauf(prompt_text, antwort):
+        return pipeline_service.run_protocol(
+            pipeline_service.ProtocolSettings(
+                transcript_json_path=transkript.export_paths.json,
+                output_dir=tmp_path / "ausgabe",
+                system_prompt=prompt_text,
+            ),
+            protocol_generate_fn=lambda prompt, system: antwort,
+        )
+
+    # Direkt nach jedem Lauf lesen: Die Ausgabedatei traegt einen Zeitstempel
+    # auf die Sekunde genau, zwei Laeufe in einer Sekunde teilen sich den Namen.
+    erster = lauf("Erstelle eine Agenda.", "AGENDA")
+    assert json.loads(erster.protocol_paths[0].read_text(encoding="utf-8"))["ergebnis"] == "AGENDA"
+    zweiter = lauf("Erstelle eine Prioritaetenliste.", "PRIORITAETEN")
+    assert json.loads(zweiter.protocol_paths[0].read_text(encoding="utf-8"))["ergebnis"] == "PRIORITAETEN"
 
 
 # --------------------------------------------------------------------------
