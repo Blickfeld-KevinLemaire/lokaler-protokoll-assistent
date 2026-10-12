@@ -106,6 +106,9 @@ und Antworten stehen verbindlich in [`protokoll_assistent/GERAETE-SCHNITTSTELLE.
 * Startet eine Aufnahme, hört der Upload nach dem laufenden Stück auf und macht später an derselben Stelle weiter.
 * Jede Anfrage trägt außerdem `X-Geraete-Id` (Werks-MAC aus dem eFuse) und `X-Firmware` (z. B. `esp32-c6/1.0.0`), nur zur
   Zuordnung und Fehlersuche. Beim Start steht beides im Monitor: `VERMERK Geraete-Id: 1a2b3c4d5e6f, Firmware: …`.
+  Welches Gerät (Id) mit welcher Firmware wo im Einsatz ist, steht im **privaten** Repository
+  [`Blickfeld-KevinLemaire/aufnahmegeraete-inventar`](https://github.com/Blickfeld-KevinLemaire/aufnahmegeraete-inventar)
+  (nur für Berechtigte) – Kundendaten gehören nicht in dieses öffentliche Repository. Jedes neue Gerät dort eintragen.
 * Jedes Gerät zählt seine Dateien selbst (H5_001, H5_002 …), mehrere Geräte erreichen also dieselben Nummern. Die Software
   legt jede Aufnahme als `<Gerätename>_<Dateiname>` im Eingangsordner ab (Gerätename aus dem Token) und hängt bei gleichem
   Namen mit anderem Inhalt `_2`, `_3` … an; überschrieben wird nie. Von dort läuft die Aufnahme durch die normale Verarbeitung.
