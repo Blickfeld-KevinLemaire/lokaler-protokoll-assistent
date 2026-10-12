@@ -12,6 +12,7 @@ Opus-Dateien und schickt sie per WLAN an den PC oder Server, auf dem die Protoko
 | Speicher | SD-Karte | SD-Karte; ohne Karte automatisch der Flash (ca. 13,8 MB = ca. 77 min) |
 | Stand | auf Hardware getestet (mit dem früheren Upload) | auf dem echten Board getestet: Aufnahme per Taste, Speicher, Upload (früherer Upload), Pegel; Pause, KEY3 und SD-Karte noch nicht ausdrücklich bestätigt (siehe unten) |
 | Neue Übertragung (Token, Wiederaufnahme) | gebaut; Upload-Code in QEMU gegen die echte Software getestet, nicht auf dem Gerät | gebaut; Upload-Code in QEMU gegen die echte Software getestet, nicht auf dem Gerät |
+| Einrichtung über USB | gebaut; Ablauf in QEMU (über UART) getestet, über USB-Serial-JTAG noch nicht | gebaut; Ablauf in QEMU (über UART) getestet, über USB-Serial-JTAG noch nicht |
 
 ## Gemeinsam
 
@@ -43,9 +44,11 @@ und in Stücken, die nach einem Abbruch dort weitergehen, wo sie aufgehört habe
 [`protokoll_assistent/GERAETE-SCHNITTSTELLE.md`](../../protokoll_assistent/GERAETE-SCHNITTSTELLE.md). Kurz:
 
 1. In der Software den Empfang einschalten (Anwendung: Einstellungen, „Aufnahmegeräte“; Servermodus: `PROTOKOLL_EMPFANG=1`).
-2. Für dieses Gerät ein Token erzeugen (Anwendung: derselbe Bereich; Servermodus:
-   `python -m protokoll_assistent.server --token-erzeugen <Name>`).
-3. Adresse und Token in `server_config.h` eintragen (siehe unten).
+2. **Über USB einrichten** (ohne Neukompilieren): Gerät mit Datenkabel an den PC, in der Anwendung „Gerät einrichten“.
+   Sie schreibt WLAN, Adresse und ein eigenes Token ins Gerät; es startet neu. Im Monitor steht danach
+   `VERMERK Einstellungen: ueber USB eingerichtet`; `#VERMERK INFO` + Enter im Monitor zeigt, was eingerichtet ist.
+3. Oder beim Bauen: Token erzeugen (Servermodus: `python -m protokoll_assistent.server --token-erzeugen <Name>`) und
+   Adresse und Token in `server_config.h` eintragen (siehe unten). Eine Einrichtung über USB hat Vorrang.
 
 ### Einrichten (einmalig, beide Boards)
 
