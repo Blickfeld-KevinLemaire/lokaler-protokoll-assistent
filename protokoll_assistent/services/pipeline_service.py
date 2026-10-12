@@ -171,6 +171,11 @@ class ProtocolSettings:
     # erst in die gemeinsame Einstellungsdatei schreiben und damit den
     # gespeicherten Systemprompt der lokalen Anwendung ueberschreiben.
     system_prompt: str | None = None
+    # Kennung des Modells, das die Nachbearbeitung rechnet. Die
+    # Zwischenstaende gelten je Modell; ohne Angabe zaehlt 'ollama_model'.
+    # Wer ein anderes Modell ueber 'protocol_generate_fn' anbindet (API),
+    # setzt hier dessen Kennung.
+    protokoll_modell_kennung: str | None = None
 
 
 @dataclass
@@ -272,7 +277,16 @@ def _grafikspeicher_fuer_whisper_freimachen(device: str, callbacks: PipelineCall
     if device != "cuda":
         return
     frei = model_service.freier_grafikspeicher()
-    if frei is None or frei >= model_service.WHISPER_GRAFIKSPEICHER_BYTES:
+    if frei is None:
+        return
+    # torch meldet unter Windows zu viel freien Speicher, solange Ollama ein
+    # Modell haelt (gemessen: 6,9 GB "frei" bei 5,6 GB Ollama auf einer 8-GB-
+    # Karte; Whisper scheiterte dann mit "CUDA out of memory"). Deshalb gilt
+    # hoechstens, was nach Abzug der Ollama-Modelle von der Karte bleibt.
+    gesamt = model_service.gesamter_grafikspeicher()
+    if gesamt is not None:
+        frei = min(frei, gesamt - ollama_service.belegter_grafikspeicher())
+    if frei >= model_service.WHISPER_GRAFIKSPEICHER_BYTES:
         return
     entladen = ollama_service.modelle_entladen()
     if entladen:
@@ -588,7 +602,7 @@ def load_transcript_for_protocol(
 def run_protocol(
     settings: ProtocolSettings,
     callbacks: PipelineCallbacks | None = None,
-    protocol_generate_fn: Callable[[str, str], dict[str, Any]] | None = None,
+    protocol_generate_fn: Callable[[str, str], str] | None = None,
 ) -> ProtocolResult:
     """Eigenstaendiger zweiter Schritt: Ollama-Protokollauswertung eines
     bereits vorliegenden Transkripts (siehe 'load_transcript_for_protocol').
@@ -627,8 +641,8 @@ def run_protocol(
         system_prompt = settings.system_prompt
     chunk_texts = _build_protocol_chunk_texts(chunk_plans, segments, speaker_names, diarization_enabled)
 
-    def default_ollama_generate(prompt: str, system: str) -> dict[str, Any]:
-        return ollama_service.generate_json(prompt, system, model=settings.ollama_model)
+    def default_ollama_generate(prompt: str, system: str) -> str:
+        return ollama_service.generate_text(prompt, system, model=settings.ollama_model)
 
     generate_fn = protocol_generate_fn or default_ollama_generate
 
@@ -646,11 +660,12 @@ def run_protocol(
                 "protokoll_auswertung",
                 f"{STAGE_LABELS['protokoll_auswertung']} ({stage}: {current + 1}/{max(total, 1)})",
             ),
+            modell=settings.protokoll_modell_kennung or settings.ollama_model,
         )
         protokoll_status = manifest_service.STATUS_ABGESCHLOSSEN
         callbacks.on_stage("export_protokoll", STAGE_LABELS["export_protokoll"])
         protocol_paths = export_service.write_protocol_exports(
-            settings.output_dir, protocol, source_stem, run_timestamp
+            settings.output_dir, protocol, source_stem, run_timestamp, system_prompt
         )
     except (protocol_service.ProtocolValidationError, ollama_service.OllamaError) as error:
         # Das Transkript bleibt in jedem Fall erhalten -- nur die
@@ -698,7 +713,7 @@ def run_pipeline(
     callbacks: PipelineCallbacks | None = None,
     transcribe_chunk_fn: Callable[[Path], list[dict[str, Any]]] | None = None,
     diarize_fn: Callable[[Path, int | None, int | None], list[dict[str, Any]]] | None = None,
-    protocol_generate_fn: Callable[[str, str], dict[str, Any]] | None = None,
+    protocol_generate_fn: Callable[[str, str], str] | None = None,
 ) -> PipelineResult:
     """Kombinierter Einschritt-Ablauf: Transkription direkt gefolgt von der
     Protokollauswertung desselben Laufs, im selben Arbeitsordner. Bleibt
@@ -728,8 +743,8 @@ def run_pipeline(
             chunk_plans, merged_segments, speaker_names, settings.enable_diarization
         )
 
-        def default_ollama_generate(prompt: str, system: str) -> dict[str, Any]:
-            return ollama_service.generate_json(prompt, system, model=settings.ollama_model)
+        def default_ollama_generate(prompt: str, system: str) -> str:
+            return ollama_service.generate_text(prompt, system, model=settings.ollama_model)
 
         generate_fn = protocol_generate_fn or default_ollama_generate
         try:
@@ -743,11 +758,13 @@ def run_pipeline(
                     "protokoll_auswertung",
                     f"{STAGE_LABELS['protokoll_auswertung']} ({stage}: {current + 1}/{max(total, 1)})",
                 ),
+                # Der kombinierte Ablauf (Servermodus) rechnet nur mit Ollama.
+                modell=settings.ollama_model,
             )
             manifest["protokoll_status"] = manifest_service.STATUS_ABGESCHLOSSEN
             callbacks.on_stage("export_protokoll", STAGE_LABELS["export_protokoll"])
             protocol_paths = export_service.write_protocol_exports(
-                settings.output_dir, protocol, settings.source_path.stem, run_timestamp
+                settings.output_dir, protocol, settings.source_path.stem, run_timestamp, system_prompt
             )
         except (protocol_service.ProtocolValidationError, ollama_service.OllamaError) as error:
             # Das Transkript ist fertig und bleibt erhalten -- nur die

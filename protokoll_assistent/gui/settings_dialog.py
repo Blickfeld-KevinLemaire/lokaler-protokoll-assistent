@@ -49,6 +49,7 @@ from protokoll_assistent.gui.api_anbieterwahl import (
     ApiAnbieterWahl,
     voreinstellung_ermitteln,
 )
+from protokoll_assistent.gui.geraete_empfang import GeraeteSeite
 from protokoll_assistent.gui.ollama_modellwahl import OllamaModellWahl
 from protokoll_assistent.services import ollama_service, secret_store
 from protokoll_assistent.utils import app_config
@@ -83,6 +84,11 @@ class SettingsDialog(QDialog):
         tabs.addTab(self._build_transkription_tab(), "Transkription")
         tabs.addTab(self._build_nachbearbeitung_tab(), "Nachbearbeitung")
         tabs.addTab(self._build_chatbot_tab(), "Chatbot")
+        # Wer zuletzt angefragt hat, weiss nur der laufende Empfang im Hauptfenster.
+        kontakte_abfragen = getattr(parent, "geraete_kontakte", None)
+        kontakte = kontakte_abfragen() if callable(kontakte_abfragen) else {}
+        self.geraete_seite = GeraeteSeite(self._config, self, kontakte)
+        tabs.addTab(self.geraete_seite, "Aufnahmegeräte")
 
         buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel, self)
         buttons.accepted.connect(self._speichern_und_schliessen)
@@ -560,6 +566,7 @@ class SettingsDialog(QDialog):
             "chatbot_api_embedding_modell": self.chatbot_api_embedding_modell_edit.text().strip(),
             "chatbot_api_eigener_schluessel": self.chatbot_api_eigener_schluessel_checkbox.isChecked(),
             "chatbot_api_schluessel_merken": self.chatbot_api_merken_checkbox.isChecked(),
+            **self.geraete_seite.aenderungen(),
         }
         if aenderungen["transkription_modus"] == "lokal" and self._config["transkription_modus"] != "lokal":
             # Ausdruecklich auf "Lokal" umgeschaltet: Die zurueckgestellte

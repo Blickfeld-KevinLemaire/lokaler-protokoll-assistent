@@ -10,6 +10,26 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 ### Added
 
+- **Aufnahmegeräte im WLAN laden selbst hoch:** Ist der Empfang eingeschaltet
+  (Einstellungen → „Aufnahmegeräte“, im Servermodus `PROTOKOLL_EMPFANG=1`),
+  landen die Aufnahmen der eigenen ESP32-Geräte ohne Umweg im Eingabeordner und
+  erscheinen sofort in der Dateiliste. Jedes Gerät meldet sich mit einem eigenen
+  Token an, das die Anwendung erzeugt und einmal anzeigt. Bricht die Verbindung
+  ab, geht es beim letzten bestätigten Stück weiter statt von vorn; eine Datei
+  erscheint erst, wenn ihre Prüfsumme stimmt, und eine doppelt gesendete
+  Aufnahme wird nicht zweimal abgelegt. Die Einstellungen zeigen je Gerät, wann
+  es sich zuletzt gemeldet hat – mit Werks-Id und Firmware. Ab Werk ist der
+  Empfang aus; die Übertragung ist nicht verschlüsselt und nur für das eigene
+  Netz gedacht (siehe `SECURITY.md`).
+- **Aufnahmegeräte per USB einrichten:** Gerät per USB-Kabel anschließen,
+  unter *Einstellungen → Aufnahmegeräte → Gerät per USB einrichten* WLAN-Name
+  und Passwort eingeben – die Anwendung erkennt das Gerät (Board, Werks-Id,
+  Firmware), erzeugt das Token und schreibt WLAN, eigene Adresse und Token in
+  einem Zug ins Gerät. Niemand muss mehr Firmware kompilieren oder Token
+  abtippen. Danach steht das Gerät mit seiner Id in der Liste, und eine Zeile
+  für das Geräte-Inventar lässt sich kopieren. Meldet sich unter dem Namen
+  eines Geräts plötzlich andere Hardware, zeigt die Liste eine Warnung.
+
 - **Neue Ersteinrichtung:** Beim ersten Start erklärt ein Assistent in
   einfachen Worten, was das Programm macht, zeigt für **diesen** Computer je
   Arbeitsschritt (Mitschrift, Sprechererkennung, Protokoll, Frag mein Meeting),
@@ -108,6 +128,27 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 ### Changed
 
+- Die Nachbearbeitung richtet sich jetzt ausschließlich nach dem
+  Systemprompt. Bisher erzwang das Programm unabhängig davon immer dieselbe
+  Besprechungsstruktur (Titel, Themen, Entscheidungen, Aufgaben, Termine,
+  offene Fragen …) – in den Anfragen an das Modell, in der Prüfung der Antwort
+  und in der Ausgabedatei. Jetzt antwortet das Modell frei nach dem Auftrag,
+  und die Ausgabedatei (`.md`) enthält genau diesen Text.
+- Ohne Systemprompt fasst das Modell so zusammen, wie es am sinnvollsten ist.
+  Ein leeres Feld wird nicht mehr abgelehnt, und der Editor ist nicht mehr mit
+  dem Besprechungs-Prompt vorbelegt. Dieser steht als Vorlage
+  „Besprechungsprotokoll“ weiter zur Auswahl.
+- Die `.json` neben dem Ergebnis enthält jetzt `ergebnis`, `systemprompt` und
+  `ohne_systemprompt` statt der festen Protokollfelder.
+- Die mitgelieferte Prompt-Datei mit fester JSON-Struktur ist leer; der
+  Word-/PDF-Export und die Protokoll-Datei folgen dem Ergebnistext des Modells.
+  Die Vorlagen „Formelles Protokoll“, „Projektbesprechung“, „Stand-up“,
+  „Technische Besprechung“ und „Interview“ nennen ihre Abschnitte jetzt als
+  Überschriften im Freitext statt als JSON-Felder. Protokolle aus früheren
+  Läufen (feste Gliederung) lassen sich weiter exportieren.
+- Die mehrstufige Verdichtung langer Transkripte (mehrere Runden bis zum
+  Kontextlimit) arbeitet jetzt auf dem Ergebnistext.
+
 - **OpenRouter ist nicht mehr voreingestellt.** Endpunkte und Modelle sind ab
   Werk leer, bis ein Anbieter gewählt wird; ohne Auswahl meldet das Programm
   „Kein Anbieter gewählt“, statt Aufnahmen oder Texte irgendwohin zu senden.
@@ -139,6 +180,43 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
   „Aufgaben“ aus. Termine, offene Fragen und Fakten verlangt er als Text.
 
 ### Fixed
+
+- **„CUDA out of memory“ bei der zweiten Transkription hintereinander:** Hielt
+  Ollama noch das Sprachmodell der vorigen Auswertung (standardmäßig fünf
+  Minuten), scheiterte Whisper auf Grafikkarten mit 8 GB. Die Prüfung, ob noch
+  Platz ist, verließ sich auf den freien Speicher, den torch meldet – unter
+  Windows ist der zu hoch (gemessen: 6,9 GB „frei“ bei 5,6 GB, die Ollama
+  belegte), also wurde nie entladen. Jetzt zählt, was nach Abzug der
+  Ollama-Modelle von der Karte bleibt; reicht es nicht für Whisper, nimmt
+  Ollama das Modell heraus und lädt es für das Protokoll neu. Auf großen Karten
+  bleibt das Modell geladen.
+
+- Zwischenergebnisse der Nachbearbeitung werden je Systemprompt gespeichert.
+  Zuvor galten sie nur je Transkript: Wer denselben Text mit einem anderen
+  Systemprompt erneut auswertete, bekam das gespeicherte Ergebnis zum alten
+  Auftrag zurück.
+- Die Zwischenergebnisse gelten außerdem **je Modell**: Wer das Ollama- oder
+  API-Modell wechselt, bekommt ein neues Ergebnis statt der gespeicherten
+  Teilergebnisse des alten Modells.
+- **Abgeschnittene Antworten werden erkannt:** Hört das Modell an der
+  Längen- oder Kontextgrenze mitten im Text auf, meldet die Nachbearbeitung
+  das als Fehler, statt den halben Text als Protokoll auszugeben oder als
+  Zwischenergebnis zu speichern. „Frag mein Meeting“ ist davon nicht betroffen.
+- **Lange Aufnahmen:** Beim Zusammenführen der Teilergebnisse bekommt das
+  Modell nie mehr Text, als in seinen Kontext passt. Lässt sich ein Ergebnis
+  nicht weiter verdichten, endet die Nachbearbeitung mit einer klaren Meldung,
+  statt eine zu lange Anfrage zu schicken.
+- **Filternde Aufträge („nur ToDos“):** Ein Abschnitt ohne passenden Inhalt
+  bricht die Nachbearbeitung nicht mehr ab, er wird einfach übersprungen. Nur
+  wenn kein einziger Abschnitt etwas liefert, gibt es eine Meldung.
+- **Nach dem Update kein JSON mehr im Protokoll:** Wer den früher
+  mitgelieferten Systemprompt (feste JSON-Struktur) nie verändert hat, bekommt
+  beim Start den neuen Standard. Ein selbst bearbeiteter Prompt bleibt, wie er
+  ist.
+- Unvollständige Denkblöcke (`<think>` ohne Ende oder ein verwaistes
+  `</think>`) landen nicht mehr im Protokoll.
+- Ohne Systemprompt und bei langen Aufnahmen wissen die späteren Stufen jetzt,
+  dass sie Teilergebnisse statt des Transkripts vor sich haben.
 
 - **„Danach direkt das Protokoll erstellen“ wirkte nicht:** Nach der
   Transkription blieb das Fenster bei „Transkription abgeschlossen.“ stehen,

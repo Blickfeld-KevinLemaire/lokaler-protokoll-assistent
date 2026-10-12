@@ -156,8 +156,62 @@ def transkript_dokument(daten: dict[str, Any]) -> Dokument:
     return dokument
 
 
+def _ohne_hervorhebung(text: str) -> str:
+    """Markdown-Fettdruck (``**``) wuerde in Word und PDF als Sternchen stehen bleiben."""
+    return text.replace("**", "").replace("__", "")
+
+
+def freitext_dokument(ergebnis: str, quelle: str = "") -> Dokument:
+    """Das Ergebnis der Nachbearbeitung als Dokument -- Absatz fuer Absatz so,
+    wie das Modell es nach dem Systemprompt geschrieben hat. Markdown-
+    Ueberschriften (``#``) und Aufzaehlungen (``-``, ``*``) werden uebernommen;
+    eine erste ``#``-Zeile wird zum Titel. Es kommen keine Abschnitte hinzu,
+    die der Systemprompt nicht verlangt hat."""
+    titel = f"Ergebnis: {quelle}" if quelle else "Ergebnis"
+    dokument = Dokument(titel)
+    punkte: list[str] = []
+
+    def liste_abschliessen() -> None:
+        if punkte:
+            dokument.abschnitte.append(Abschnitt(LISTE, punkte=tuple(punkte)))
+            punkte.clear()
+
+    erste = True
+    for zeile in ergebnis.splitlines():
+        text = zeile.strip()
+        if not text:
+            liste_abschliessen()
+            continue
+        if text.startswith("#"):
+            liste_abschliessen()
+            ebene = len(text) - len(text.lstrip("#"))
+            ueberschrift = _ohne_hervorhebung(text.lstrip("#").strip())
+            if erste and ebene == 1:
+                dokument.titel = ueberschrift
+            else:
+                dokument.abschnitte.append(Abschnitt(UEBERSCHRIFT, ueberschrift, stufe=min(max(ebene, 2), 4)))
+        elif text[:2] in ("- ", "* "):
+            punkte.append(_ohne_hervorhebung(text[2:].strip()))
+        else:
+            liste_abschliessen()
+            dokument.abschnitte.append(Abschnitt(ABSATZ, _ohne_hervorhebung(text)))
+        erste = False
+    liste_abschliessen()
+    return dokument
+
+
 def protokoll_dokument(protokoll: dict[str, Any]) -> Dokument:
-    """Dieselben Abschnitte wie ``export_service.render_protocol_markdown``."""
+    """Das Dokument zu einer Protokoll-JSON. Neue Dateien tragen das Ergebnis als
+    Text unter ``ergebnis`` (Freitext nach dem Systemprompt). Aeltere Dateien mit
+    fester Gliederung (``titel``, ``themen`` ...) werden weiter wie frueher
+    dargestellt."""
+    if isinstance(protokoll.get("ergebnis"), str):
+        return freitext_dokument(protokoll["ergebnis"], str(protokoll.get("quelldatei_stamm") or ""))
+    return _gegliedertes_protokoll_dokument(protokoll)
+
+
+def _gegliedertes_protokoll_dokument(protokoll: dict[str, Any]) -> Dokument:
+    """Protokolle aus der Zeit mit fester Gliederung (Themen, Entscheidungen, Aufgaben ...)."""
     dokument = Dokument(str(protokoll.get("titel") or "Protokoll"))
     zusammenfassung = str(protokoll.get("kurzzusammenfassung") or "").strip()
     if zusammenfassung:

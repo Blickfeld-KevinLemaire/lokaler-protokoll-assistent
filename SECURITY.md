@@ -77,10 +77,44 @@ zugestimmt haben. Entsprechend gelten hier ein paar Punkte besonders:
   nicht versioniert, nicht ausgeliefert und nie uebertragen.
 * **Der Servermodus (Container) speichert Aufnahmen und Ergebnisse im Klartext**
   in den eingebundenen Ordnern (`daten/`, nicht versioniert). Zugriffsschutz,
-  Plattenverschluesselung und ein Loeschkonzept sind Sache des Betreibers. Der
-  Dienst oeffnet keinen Port. Der optionale Webhook uebertraegt nur Dateiname,
+  Plattenverschluesselung und ein Loeschkonzept sind Sache des Betreibers. Ohne
+  `PROTOKOLL_EMPFANG=1` oeffnet der Dienst keinen Port (siehe naechster Punkt).
+  Der optionale Webhook uebertraegt nur Dateiname,
   Status und Ordnerpfade, nie Inhalte; sein Token und `HF_TOKEN` kommen aus der
   Umgebung (nie ins Image, nie ins Repository, nie ins Log).
+* **Empfang fuer die WLAN-Aufnahmegeraete oeffnet einen Port – nur auf Wunsch.**
+  In der Anwendung (Einstellungen → „Aufnahmegeräte“) und im Servermodus
+  (`PROTOKOLL_EMPFANG=1`) ist er ab Werk **aus**. Eingeschaltet lauscht ein
+  HTTP-Dienst (Standardport 8765) im lokalen Netz und nimmt Aufnahmen der
+  eingetragenen Geraete an
+  (`protokoll_assistent/services/geraete_empfang_service.py`, Schnittstelle in
+  `protokoll_assistent/GERAETE-SCHNITTSTELLE.md`):
+  * Jede Anfrage braucht das Token des Geraets (256 Bit). Gespeichert wird nur
+    dessen SHA-256 (`konfiguration.json` bzw. `PROTOKOLL_EMPFANG_GERAETE`); das
+    Token selbst wird beim Anlegen einmal angezeigt und nie protokolliert. Das
+    Token bestimmt den Geraetenamen – ein Geraet kann sich nicht als ein
+    anderes ausgeben.
+  * Angenommen werden nur Audiodateien mit einfachem Namen (keine Pfade), in
+    Stuecken von hoechstens 4 MB, Dateien bis 2 GB und nur bei genug freiem
+    Platz; hoechstens acht Verbindungen gleichzeitig, 30 s Zeitlimit.
+  * Eine Datei erscheint im Eingangsordner erst, wenn Groesse und SHA-256 der
+    ganzen Datei stimmen. Teilstaende liegen im versteckten Ordner `.empfang/`
+    und werden nach sieben Tagen ohne Fortschritt geloescht.
+  * **Die Uebertragung ist nicht verschluesselt.** Wer im selben WLAN den
+    Datenverkehr mitschneidet, kann die Aufnahme mithoeren. Der Empfang ist
+    deshalb nur fuer das eigene, vertrauenswuerdige Netz gedacht; fuer fremde
+    oder offene Netze braeuchte es TLS (noch nicht umgesetzt).
+  * `X-Geraete-Id` (Werks-MAC) und `X-Firmware` dienen nur der Zuordnung und
+    Fehlersuche, nie der Anmeldung.
+  * **Einrichtung ueber USB** (`services/geraete_usb_service.py`): Die Anwendung
+    schreibt WLAN-Name, WLAN-Passwort, eigene Adresse und ein frisch erzeugtes
+    Token ueber das USB-Kabel ins Geraet (NVS). Das Passwort wird nirgends
+    gespeichert oder protokolliert, vom Token nur der Hash. Das Geraet gibt
+    Passwort und Token nie wieder aus. Wer ein Geraet per USB in der Hand hat,
+    kann es neu einrichten – das ist gewollt (physischer Zugriff). Das NVS des
+    ESP32 ist ohne Flash-Verschluesselung auslesbar: Wer ein Geraet mitnimmt,
+    kommt an WLAN-Passwort und Token. Ein verlorenes Geraet deshalb in der
+    Anwendung entfernen (Token ungueltig) und das WLAN-Passwort aendern.
 * **Kein API-Anbieter ist voreingestellt.** Endpunkte und Modelle sind ab Werk
   leer; erst wenn der Anwender in den Einstellungen einen Anbieter waehlt (oder
   einen eigenen Endpunkt eintraegt), geht etwas dorthin. Ohne Auswahl bricht die

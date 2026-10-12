@@ -15,7 +15,8 @@ Aufnahmegerät ──►  daten/eingang/  ──►  Verarbeitung (Container)  �
 
 Es ist dieselbe Verarbeitungskette wie in der Windows-Anwendung – nur ohne
 Fenster. Transkription und Protokoll laufen vollständig lokal (Whisper,
-pyannote, Ollama). Es gibt keinen offenen Port und keine Weboberfläche.
+pyannote, Ollama). Es gibt keine Weboberfläche und – solange der Empfang für
+die Aufnahmegeräte nicht eingeschaltet ist – keinen offenen Port.
 
 ## Schnellstart
 
@@ -59,12 +60,18 @@ Alles über Umgebungsvariablen (in der `.env`, siehe `.env.beispiel`):
 | `PROTOKOLL_ABFRAGE_SEKUNDEN` | `10` | Wie oft der Eingang angesehen wird |
 | `PROTOKOLL_EXPORT_FORMATE` | – | Zusätzliche Formate: `docx, md, txt, html, srt, vtt, json` (PDF gibt es nur in der Windows-Anwendung) |
 | `PROTOKOLL_WEBHOOK_URL`, `PROTOKOLL_WEBHOOK_TOKEN` | – | Rückmeldung an ein anderes System |
+| `PROTOKOLL_EMPFANG` | `0` | Empfang für die WLAN-Aufnahmegeräte (öffnet einen Port, siehe unten) |
+| `PROTOKOLL_EMPFANG_PORT` | `8765` | Port des Empfangs |
+| `PROTOKOLL_EMPFANG_GERAETE` | – | `Name:SHA256` je Gerät, mit Komma getrennt |
 | `HF_TOKEN` | – | Hugging-Face-Token für die Sprechertrennung |
 
 ## Kopplung mit dem Aufnahmegerät
 
-Der Dienst beobachtet nur einen **Ordner**. Wie die Aufnahme dorthin kommt,
+Der Dienst beobachtet einen **Ordner**. Wie die Aufnahme dorthin kommt,
 hängt vom Gerät ab:
+
+* **Die eigenen WLAN-Aufnahmegeräte** (Firmware unter `firmware/`) laden selbst
+  hoch, sobald der Empfang eingeschaltet ist – siehe nächster Abschnitt.
 
 * **Das Gerät legt Dateien selbst ab** (Netzwerkfreigabe SMB/NFS, FTP/SFTP):
   `./daten/eingang` als Freigabe bzw. FTP-Ziel einrichten.
@@ -84,6 +91,35 @@ Ob und wie das Gerät sie von dort abholt, bestimmt das Gerät:
 Das Gerät braucht dafür eine Möglichkeit, Dateien abzulegen und/oder Meldungen
 zu empfangen. Eine gerätespezifische Anbindung (herstellereigene Schnittstelle)
 ist nicht enthalten.
+
+## Empfang für die WLAN-Aufnahmegeräte
+
+Die Aufnahmegeräte laden ihre Aufnahmen in Stücken per HTTP hoch; abgebrochene
+Übertragungen setzen beim letzten bestätigten Byte wieder an, und eine Datei
+erscheint im Eingang erst, wenn ihre Prüfsumme stimmt. Die Schnittstelle steht
+in [`../GERAETE-SCHNITTSTELLE.md`](../GERAETE-SCHNITTSTELLE.md).
+
+1. Je Gerät ein Token erzeugen:
+
+   ```bash
+   docker compose run --rm protokoll python3 -m protokoll_assistent.server --token-erzeugen S3-Audio
+   ```
+
+   Das Token steht nur in dieser Ausgabe – in die `server_config.h` des Geräts
+   eintragen (`VERMERK_SERVER_TOKEN`, Adresse `VERMERK_SERVER_BASE_URL`).
+2. Die ausgegebene Zeile `S3-Audio:<Hash>` in der `.env` unter
+   `PROTOKOLL_EMPFANG_GERAETE` eintragen (mehrere Geräte mit Komma),
+   `PROTOKOLL_EMPFANG=1` setzen.
+3. In der `docker-compose.yml` den Abschnitt `ports` beim Dienst `protokoll`
+   einkommentieren und den Container neu starten.
+
+Die fertigen Aufnahmen heißen `<Gerät>_<Dateiname>` (z. B.
+`S3-Audio_H5_007.opus`) und laufen danach ganz normal durch die Verarbeitung.
+Das Protokoll des Dienstes nennt bei jedem neuen Kontakt Gerät, Werks-Id,
+Firmware und Adresse – praktisch für die Fehlersuche.
+
+**Die Übertragung ist nicht verschlüsselt** – nur im eigenen Netz einschalten
+(siehe `SECURITY.md`).
 
 ## Was bei den Dateien passiert
 
@@ -116,7 +152,8 @@ ist nicht enthalten.
   Löschkonzept für alte Aufnahmen festlegen – das ist Sache des Server-Betriebs.
 * Der Webhook überträgt **keine Inhalte**, nur Dateiname, Status und Ordnerpfade.
   Das Token kommt aus der Umgebung und wird nicht geloggt.
-* Es werden keine Ports geöffnet; die Anwendung nimmt keine Verbindungen an.
+* Ohne `PROTOKOLL_EMPFANG=1` werden keine Ports geöffnet und keine Verbindungen
+  angenommen. Mit Empfang nur Anfragen mit gültigem Geräte-Token.
 
 ## Grenzen
 

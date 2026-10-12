@@ -2,7 +2,9 @@
 
 Im Container gibt es keinen Einstellungsdialog; alles steht in der
 ``docker-compose.yml``. Geheimnisse (``HF_TOKEN``, ``PROTOKOLL_WEBHOOK_TOKEN``)
-kommen ebenfalls aus der Umgebung und werden nie geloggt.
+kommen ebenfalls aus der Umgebung und werden nie geloggt. Fuer die
+Aufnahmegeraete stehen dort nur die SHA-256-Hashes ihrer Token
+(``PROTOKOLL_EMPFANG_GERAETE``), nie die Token selbst.
 """
 
 from __future__ import annotations
@@ -11,7 +13,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
-from protokoll_assistent.services import dokument_export_service, model_service, ollama_service
+from protokoll_assistent.services import dokument_export_service, geraete_empfang_service, model_service, ollama_service
 
 # Formate, die ohne Oberflaeche geschrieben werden koennen (PDF und OpenDocument
 # braucht Qt und gibt es im Container deshalb nicht).
@@ -71,6 +73,12 @@ class ServerEinstellungen:
     export_formate: tuple[str, ...] = ()
     webhook_url: str = ""
     webhook_token: str = ""
+    # Empfang fuer die WLAN-Aufnahmegeraete (GERAETE-SCHNITTSTELLE.md). Aus,
+    # bis er ausdruecklich eingeschaltet wird -- erst dann oeffnet der Dienst
+    # einen Port.
+    empfang: bool = False
+    empfang_port: int = geraete_empfang_service.STANDARD_PORT
+    empfang_geraete: tuple[geraete_empfang_service.Geraet, ...] = ()
 
     @classmethod
     def aus_umgebung(cls, umgebung: Mapping[str, str]) -> ServerEinstellungen:
@@ -89,6 +97,19 @@ class ServerEinstellungen:
                     f"(erlaubt: {', '.join(SERVER_FORMATE)})."
                 )
         webhook = (lies("WEBHOOK_URL") or "").strip()
+        empfang = _wahrheitswert(lies("EMPFANG"), False, "PROTOKOLL_EMPFANG")
+        try:
+            empfang_geraete = geraete_empfang_service.geraete_aus_text(lies("EMPFANG_GERAETE") or "")
+        except ValueError as fehler:
+            raise EinstellungsFehler(f"PROTOKOLL_EMPFANG_GERAETE: {fehler}") from fehler
+        if empfang and not empfang_geraete:
+            raise EinstellungsFehler(
+                "PROTOKOLL_EMPFANG ist an, aber PROTOKOLL_EMPFANG_GERAETE ist leer. Ein Token pro Geraet "
+                "erzeugt 'python -m protokoll_assistent.server --token-erzeugen <Name>'."
+            )
+        empfang_port = int(_zahl(lies("EMPFANG_PORT"), geraete_empfang_service.STANDARD_PORT, "PROTOKOLL_EMPFANG_PORT", 1))
+        if empfang_port > 65535:
+            raise EinstellungsFehler("PROTOKOLL_EMPFANG_PORT: hoechstens 65535.")
         if webhook and not webhook.lower().startswith(("http://", "https://")):
             raise EinstellungsFehler("PROTOKOLL_WEBHOOK_URL muss mit http:// oder https:// beginnen.")
         return cls(
@@ -108,4 +129,7 @@ class ServerEinstellungen:
             export_formate=formate,
             webhook_url=webhook,
             webhook_token=(lies("WEBHOOK_TOKEN") or "").strip(),
+            empfang=empfang,
+            empfang_port=empfang_port,
+            empfang_geraete=empfang_geraete,
         )

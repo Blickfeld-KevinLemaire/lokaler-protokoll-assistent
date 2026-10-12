@@ -489,7 +489,8 @@ def test_nachbearbeitung_ohne_transkript(fenster, gemeldete_fehler):
     assert gemeldete_fehler == ["Kein Transkript ausgewählt"]
 
 
-def test_nachbearbeitung_ohne_systemprompt_meldet_fehler(fenster, gemeldete_fehler, tmp_path):
+def test_nachbearbeitung_ohne_systemprompt_ist_erlaubt(fenster, gemeldete_fehler, tmp_path):
+    """Kein Systemprompt: Das Modell fasst frei zusammen, es gibt keine Fehlermeldung."""
     transkript = tmp_path / "ergebnis.json"
     transkript.write_text("{}", encoding="utf-8")
     fenster._set_transcript_path(transkript)
@@ -497,7 +498,10 @@ def test_nachbearbeitung_ohne_systemprompt_meldet_fehler(fenster, gemeldete_fehl
 
     fenster._start_protocol()
 
-    assert gemeldete_fehler == ["Kein Systemprompt"]
+    assert gemeldete_fehler == []
+    arbeiter = _WorkerAttrappe.instanzen[-1]
+    assert arbeiter.gestartet is True
+    assert arbeiter.settings.system_prompt == ""
 
 
 def test_nachbearbeitung_lokal_erzeugt_arbeiter_ohne_generate_fn(fenster, tmp_path):
@@ -572,7 +576,7 @@ def test_nachbearbeitung_api_ohne_anbieter_meldet_das(fenster, gemeldete_fehler,
 
 def _benutzter_api_schluessel(generate_fn, monkeypatch) -> str:
     """Welchen Schluessel reicht die uebergebene Funktion tatsaechlich an
-    'api_protocol_service.generate_json' weiter?
+    'api_protocol_service.generate_text' weiter?
 
     Bewusst ueber einen echten Aufruf geprueft und nicht ueber
     'functools.partial.keywords': Die Funktion ist eine Closure, weil sie
@@ -583,9 +587,9 @@ def _benutzter_api_schluessel(generate_fn, monkeypatch) -> str:
 
     def _aufzeichnen(prompt, system, *, model, endpoint_url, api_key):
         notiert["api_key"] = api_key
-        return {}
+        return ""
 
-    monkeypatch.setattr(api_protocol_service, "generate_json", _aufzeichnen)
+    monkeypatch.setattr(api_protocol_service, "generate_text", _aufzeichnen)
     generate_fn("Prompt", "System")
     return notiert["api_key"]
 
@@ -1256,7 +1260,7 @@ def test_api_nachbearbeitungsfehler_wird_zu_ollama_error(fenster, tmp_path, schl
     def _scheitert(prompt, system, *, model, endpoint_url, api_key):
         raise api_protocol_service.ApiProtocolError("HTTP 401: ungueltiger Schluessel")
 
-    monkeypatch.setattr(api_protocol_service, "generate_json", _scheitert)
+    monkeypatch.setattr(api_protocol_service, "generate_text", _scheitert)
 
     with pytest.raises(ollama_service.OllamaError, match="401"):
         generate_fn("Prompt", "System")
@@ -1957,3 +1961,132 @@ def test_word_fehler_stoert_nicht(fenster, tmp_path, monkeypatch):
 
     monkeypatch.setattr(mw.dokument_export_service, "automatisches_word", werfen)
     fenster._word_neu_erzeugen(tmp_path / "t.json")  # darf nicht werfen
+
+
+def test_nachbearbeitung_kennt_das_modell_fuer_die_zwischenstaende(fenster, tmp_path, schluessel_speicher):
+    """Die Zwischenstaende gelten je Modell. Ueber die API muss deshalb das
+    API-Modell (samt Endpunkt) in die Kennung, nicht das lokale Ollama-Modell."""
+    schluessel_speicher["transkription"] = "schluessel"
+    transkript = tmp_path / "ergebnis.json"
+    transkript.write_text("{}", encoding="utf-8")
+    fenster._set_transcript_path(transkript)
+    fenster.systemprompt_editor.setPlainText("Fasse zusammen.")
+    fenster.nachbearbeitung_api_radio.setChecked(True)
+
+    fenster._start_protocol()
+
+    kennung = _WorkerAttrappe.instanzen[-1].settings.protokoll_modell_kennung
+    assert "modell-n" in kennung and "https://api.test/v1/chat/completions" in kennung
+
+
+# --------------------------------------------------------------------------
+# Aufnahmegeraete im WLAN
+# --------------------------------------------------------------------------
+class _EmpfangAttrappe:
+    """Steht fuer den HTTP-Dienst; der echte wird in test_geraete_empfang_service.py geprueft."""
+
+    instanzen: ClassVar[list] = []
+
+    def __init__(self, ziel, geraete, *, port, bei_neuer_aufnahme):
+        self.ziel, self.port, self.melden = ziel, port, bei_neuer_aufnahme
+        self.gestartet = self.gestoppt = False
+        _EmpfangAttrappe.instanzen.append(self)
+
+    def starten(self):
+        self.gestartet = True
+
+    def stoppen(self):
+        self.gestoppt = True
+
+    def kontakte(self):
+        from protokoll_assistent.services.geraete_empfang_service import Kontakt
+
+        return {"S3": Kontakt("1a2b3c4d5e6f", "esp32-s3-audio/1.0.0", "192.168.0.20", 0.0)}
+
+
+@pytest.fixture
+def empfang_an(isolierte_konfiguration, monkeypatch):
+    from protokoll_assistent.services import geraete_empfang_service
+
+    _EmpfangAttrappe.instanzen.clear()
+    monkeypatch.setattr(geraete_empfang_service, "GeraeteEmpfang", _EmpfangAttrappe)
+    app_config.update_config(
+        geraete_empfang_aktiv=True,
+        geraete_empfang_port=9123,
+        geraete_empfang_geraete=[{"name": "S3", "token_sha256": geraete_empfang_service.token_hash("t")}],
+    )
+    return _EmpfangAttrappe.instanzen
+
+
+def test_empfang_ist_ab_werk_aus(fenster):
+    assert not fenster._geraete_empfang.laeuft
+    assert fenster.empfang_label.isHidden() and fenster.geraete_kontakte() == {}
+
+
+def test_empfang_startet_mit_dem_fenster_in_den_aufnahmeordner(empfang_an, qt_widgets, isolierte_konfiguration, schluessel_speicher):
+    fenster = qt_widgets(mw.MainWindow())
+    [dienst] = empfang_an
+    assert dienst.gestartet and dienst.port == 9123 and dienst.ziel == isolierte_konfiguration["aufnahmen"]
+    assert not fenster.empfang_label.isHidden()
+    assert "Empfang an (Port 9123, 1 Gerät)" in fenster.empfang_label.text()
+    assert fenster.geraete_kontakte()["S3"].geraete_id == "1a2b3c4d5e6f"
+
+    fenster.close()
+    assert dienst.gestoppt
+
+
+def test_neue_aufnahme_erscheint_in_der_dateiliste(empfang_an, qt_widgets, audio_datei, schluessel_speicher):
+    fenster = qt_widgets(mw.MainWindow())
+    fenster._set_input_folder(audio_datei.parent)
+    assert empfang_an[-1].ziel == audio_datei.parent  # mit dem Eingabeordner neu gestartet
+    fenster._select_file_in_list(audio_datei.name)
+
+    neu = audio_datei.parent / "S3_H5_007.opus"
+    neu.write_bytes(b"OggS")
+    fenster._neue_geraete_aufnahme(str(neu), "S3")
+
+    eintraege = [fenster.file_list.item(i).text() for i in range(fenster.file_list.count())]
+    assert "S3_H5_007.opus" in eintraege
+    assert fenster.file_list.currentItem().text() == audio_datei.name  # Auswahl bleibt
+    assert "Zuletzt angekommen: S3_H5_007.opus von S3" in fenster.empfang_label.text()
+
+
+def test_neue_aufnahme_ausserhalb_des_eingabeordners(empfang_an, qt_widgets, isolierte_konfiguration, schluessel_speicher):
+    fenster = qt_widgets(mw.MainWindow())
+    fenster._neue_geraete_aufnahme(str(isolierte_konfiguration["aufnahmen"] / "S3_H5.opus"), "S3")
+    assert fenster.file_list.count() == 0
+    assert "S3_H5.opus von S3" in fenster.empfang_label.text()
+
+
+def test_einstellungen_schalten_den_empfang_ein(fenster, monkeypatch):
+    from protokoll_assistent.services import geraete_empfang_service
+
+    _EmpfangAttrappe.instanzen.clear()
+    monkeypatch.setattr(geraete_empfang_service, "GeraeteEmpfang", _EmpfangAttrappe)
+
+    class _Dialog:
+        def __init__(self, parent=None):
+            self.eingegebene_schluessel = {}
+
+        def exec(self):
+            app_config.update_config(
+                geraete_empfang_aktiv=True,
+                geraete_empfang_geraete=[{"name": "C6", "token_sha256": geraete_empfang_service.token_hash("x")}],
+            )
+            return True
+
+    monkeypatch.setattr(mw, "SettingsDialog", _Dialog)
+    assert not fenster._geraete_empfang.laeuft
+    fenster._open_settings()
+    assert fenster._geraete_empfang.laeuft and _EmpfangAttrappe.instanzen[0].gestartet
+
+
+def test_einstellungsdialog_zeigt_die_kontakte_des_fensters(empfang_an, qt_widgets, isolierte_konfiguration, schluessel_speicher, monkeypatch):
+    from protokoll_assistent.gui.settings_dialog import SettingsDialog
+    from protokoll_assistent.services import geraete_empfang_service
+
+    monkeypatch.setattr(geraete_empfang_service, "lokale_adressen", list)
+    monkeypatch.setattr(ollama_service, "list_models", lambda *a, **k: [])
+    fenster = qt_widgets(mw.MainWindow())
+    dialog = qt_widgets(SettingsDialog(fenster))
+    assert "Id 1a2b3c4d5e6f" in dialog.geraete_seite.tabelle.item(0, 2).text()

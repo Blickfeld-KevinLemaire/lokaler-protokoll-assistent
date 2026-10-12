@@ -1,11 +1,11 @@
 """Nachbearbeitung (Protokollauswertung) ueber ein OpenAI-kompatibles
 Chat-Completions-Modell, als Ersatz fuer ein lokales Ollama-Modell.
 
-'generate_json' hat bewusst dieselbe Signaturform wie
-'services.ollama_service.generate_json' -
-'(prompt, system, model=...) -> dict' - und liefert wie dieses ein bereits
-als JSON geparstes Protokoll-Objekt zurueck. Dadurch passt sie unveraendert
-als 'protocol_generate_fn' in 'services.pipeline_service.run_protocol'
+'generate_text' hat bewusst dieselbe Signaturform wie
+'services.ollama_service.generate_text' -
+'(prompt, system, model=...) -> str' - und liefert wie dieses die Antwort
+des Modells als Freitext. Dadurch passt sie unveraendert als
+'protocol_generate_fn' in 'services.pipeline_service.run_protocol'
 (ueber ein kleines Closure fuer Endpunkt/Schluessel, genau wie
 'default_ollama_generate' es dort heute fuer 'model' tut) - die komplette
 mehrstufige Protokollauswertung ('services.protocol_service') bleibt
@@ -27,31 +27,28 @@ class ApiProtocolError(RuntimeError):
     pass
 
 
-def generate_json(
+def _chat_completion(
     prompt: str,
     system: str,
     model: str,
     *,
     endpoint_url: str,
     api_key: str,
-    timeout: float = DEFAULT_TIMEOUT_SECONDS,
-) -> dict[str, Any]:
-    """Ruft '/chat/completions' auf und liefert das aus der Antwort
-    geparste JSON-Objekt. Funktioniert mit jedem Anbieter, der die
-    verbreitete OpenAI-kompatible Schnittstelle anbietet (OpenRouter,
-    OpenAI, IONOS AI Model Hub, u. v. a.)."""
-    # Spaeter Import, um Zirkelbezuege beim Modulladen zu vermeiden
-    # (siehe 'api_transcription_service' fuer dasselbe Muster).
-    from protokoll_assistent.utils.json_validation import extract_json_object
-
-    payload = {
+    timeout: float,
+    json_modus: bool,
+) -> str:
+    """Ruft '/chat/completions' auf und liefert den Text der Modellantwort.
+    Mit 'json_modus' wird das Modell zusaetzlich auf ein JSON-Objekt
+    festgelegt."""
+    payload: dict[str, Any] = {
         "model": model,
         "messages": [
             {"role": "system", "content": system},
             {"role": "user", "content": prompt},
         ],
-        "response_format": {"type": "json_object"},
     }
+    if json_modus:
+        payload["response_format"] = {"type": "json_object"}
     body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     request = urllib.request.Request(
         endpoint_url,
@@ -79,10 +76,71 @@ def generate_json(
     if result.get("error"):
         raise ApiProtocolError(f"Der Endpunkt meldet einen Fehler: {result['error']}")
     try:
-        raw_text = str(result["choices"][0]["message"]["content"])
+        wahl = result["choices"][0]
+        inhalt = str(wahl["message"]["content"])
     except (KeyError, IndexError, TypeError) as error:
         raise ApiProtocolError(f"Unerwartete Antwort von {endpoint_url}: {result}") from error
+    # 'finish_reason: length': Das Modell hat die Laengengrenze erreicht und
+    # mitten im Text aufgehoert. Ein solches Ergebnis darf nicht als fertig
+    # durchgehen (und nicht als Zwischenstand gespeichert werden).
+    if isinstance(wahl, dict) and wahl.get("finish_reason") == "length":
+        raise ApiProtocolError(
+            "Die Antwort des API-Modells wurde abgeschnitten: Es hat die Laengengrenze erreicht. "
+            "Das unvollstaendige Ergebnis wird nicht verwendet. Bitte den Auftrag (Systemprompt) "
+            "knapper fassen oder ein Modell mit groesserem Kontext waehlen."
+        )
+    return inhalt
 
+
+def generate_text(
+    prompt: str,
+    system: str,
+    model: str,
+    *,
+    endpoint_url: str,
+    api_key: str,
+    timeout: float = DEFAULT_TIMEOUT_SECONDS,
+) -> str:
+    """Ruft '/chat/completions' auf und liefert die Antwort als Freitext --
+    ohne JSON-Vorgabe. Aufbau und Form der Antwort bestimmt allein der
+    Systemprompt. Funktioniert mit jedem Anbieter, der die verbreitete
+    OpenAI-kompatible Schnittstelle anbietet (OpenRouter, OpenAI, IONOS AI
+    Model Hub, u. v. a.)."""
+    return _chat_completion(
+        prompt,
+        system,
+        model,
+        endpoint_url=endpoint_url,
+        api_key=api_key,
+        timeout=timeout,
+        json_modus=False,
+    )
+
+
+def generate_json(
+    prompt: str,
+    system: str,
+    model: str,
+    *,
+    endpoint_url: str,
+    api_key: str,
+    timeout: float = DEFAULT_TIMEOUT_SECONDS,
+) -> dict[str, Any]:
+    """Wie 'generate_text', verlangt aber ein JSON-Objekt und liefert das
+    aus der Antwort geparste Objekt."""
+    # Spaeter Import, um Zirkelbezuege beim Modulladen zu vermeiden
+    # (siehe 'api_transcription_service' fuer dasselbe Muster).
+    from protokoll_assistent.utils.json_validation import extract_json_object
+
+    raw_text = _chat_completion(
+        prompt,
+        system,
+        model,
+        endpoint_url=endpoint_url,
+        api_key=api_key,
+        timeout=timeout,
+        json_modus=True,
+    )
     parsed = extract_json_object(raw_text)
     if parsed is None:
         raise ApiProtocolError("Die Antwort des API-Modells konnte nicht als JSON gelesen werden.")

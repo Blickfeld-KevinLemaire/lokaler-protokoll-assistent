@@ -71,6 +71,13 @@ DEFAULTS: dict[str, Any] = {
     "chatbot_api_embedding_modell": "",
     "chatbot_api_eigener_schluessel": False,
     "chatbot_api_schluessel_merken": False,
+    # Empfang fuer die WLAN-Aufnahmegeraete (GERAETE-SCHNITTSTELLE.md). Aus,
+    # bis der Anwender ihn einschaltet. Je Geraet steht hier nur der
+    # SHA-256 seines Tokens (Liste von {"name", "token_sha256", "angelegt"}) --
+    # das Token selbst wird nur beim Anlegen einmal angezeigt.
+    "geraete_empfang_aktiv": False,
+    "geraete_empfang_port": 8765,
+    "geraete_empfang_geraete": [],
 }
 
 

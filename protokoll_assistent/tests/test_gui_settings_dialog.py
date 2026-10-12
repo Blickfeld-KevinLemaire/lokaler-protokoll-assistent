@@ -483,7 +483,7 @@ def test_chatbot_reiter_ist_vorhanden_und_vorbelegt(dialog):
     from PySide6.QtWidgets import QTabWidget
 
     tabs = dialog.findChild(QTabWidget)
-    assert [tabs.tabText(i) for i in range(tabs.count())] == ["Transkription", "Nachbearbeitung", "Chatbot"]
+    assert [tabs.tabText(i) for i in range(tabs.count())] == ["Transkription", "Nachbearbeitung", "Chatbot", "Aufnahmegeräte"]
     assert dialog.chatbot_lokal_radio.isChecked()
     assert dialog.chatbot_chat_wahl.modell() == ollama_service.DEFAULT_MODEL
     assert dialog.chatbot_embedding_wahl.modell() == "bge-m3"

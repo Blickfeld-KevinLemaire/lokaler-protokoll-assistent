@@ -12,6 +12,7 @@ from collections.abc import Mapping, Sequence
 
 from protokoll_assistent.server.dienst import Dienst
 from protokoll_assistent.server.einstellungen import EinstellungsFehler, ServerEinstellungen
+from protokoll_assistent.services import geraete_empfang_service
 from protokoll_assistent.utils.hf_env import has_hf_token
 from protokoll_assistent.utils.paths import _daten_ordner, ensure_system_prompt_file_exists, get_work_dir
 
@@ -43,14 +44,39 @@ def pruefe_umgebung(einstellungen: ServerEinstellungen) -> list[tuple[bool, str]
     if einstellungen.protokoll:
         laeuft = ollama_service.is_service_running()
         ergebnisse.append((laeuft, f"Ollama erreichbar unter {ollama_service.OLLAMA_BASE_URL}"))
+    if einstellungen.empfang:
+        namen = ", ".join(g.name for g in einstellungen.empfang_geraete)
+        ergebnisse.append((True, f"Empfang fuer Aufnahmegeraete auf Port {einstellungen.empfang_port}: {namen}"))
     return ergebnisse
+
+
+def token_ausgeben(name: str) -> int:
+    """``--token-erzeugen``: neues Token fuer ein Aufnahmegeraet. Das Token wird
+    nur hier einmal angezeigt; in die Einstellungen gehoert nur sein Hash."""
+    if not geraete_empfang_service.geraetename_gueltig(name):
+        print(
+            f"'{name}' ist kein gueltiger Geraetename (Buchstaben, Ziffern, _ und -, hoechstens 32 Zeichen).",
+            file=sys.stderr,
+        )
+        return 2
+    token = geraete_empfang_service.token_erzeugen()
+    print(f"Token fuer '{name}' -- in die server_config.h des Geraets eintragen, es wird nur jetzt angezeigt:")
+    print(f"  {token}")
+    print("Eintrag fuer PROTOKOLL_EMPFANG_GERAETE (mehrere Geraete mit Komma trennen):")
+    print(f"  {name}:{geraete_empfang_service.token_hash(token)}")
+    return 0
 
 
 def main(argv: Sequence[str] | None = None, umgebung: Mapping[str, str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="protokoll_assistent.server", description="Automatische Verarbeitung ohne Oberflaeche.")
     parser.add_argument("--einmal", action="store_true", help="Den Eingang einmal abarbeiten und beenden.")
     parser.add_argument("--pruefen", action="store_true", help="Umgebung pruefen und beenden.")
+    parser.add_argument(
+        "--token-erzeugen", metavar="NAME", help="Token fuer ein Aufnahmegeraet erzeugen, anzeigen und beenden."
+    )
     argumente = parser.parse_args(argv)
+    if argumente.token_erzeugen is not None:
+        return token_ausgeben(argumente.token_erzeugen)
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-7s %(message)s", stream=sys.stdout)
     try:
@@ -80,7 +106,21 @@ def main(argv: Sequence[str] | None = None, umgebung: Mapping[str, str] | None =
         dienst.einmal()
         dienst.einmal()
         return 0
-    dienst.lauf()
+    empfang = None
+    if einstellungen.empfang:
+        empfang = geraete_empfang_service.GeraeteEmpfang(
+            einstellungen.eingang, einstellungen.empfang_geraete, port=einstellungen.empfang_port
+        )
+        try:
+            empfang.starten()
+        except OSError as fehler:
+            print(f"Empfang fuer Aufnahmegeraete: Port {einstellungen.empfang_port} nicht nutzbar ({fehler}).", file=sys.stderr)
+            return 2
+    try:
+        dienst.lauf()
+    finally:
+        if empfang is not None:
+            empfang.stoppen()
     return 0
 
 

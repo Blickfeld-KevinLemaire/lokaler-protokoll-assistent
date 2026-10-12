@@ -67,6 +67,12 @@ dieses Programm wird ausdruecklich die **LGPL-3.0** gewaehlt.
   Klartext-Datei. Optional: Der Anwender kann Schluessel stattdessen nur fuer
   die laufende Sitzung eingeben, dann wird `keyring` gar nicht angesprochen.
 
+### pyserial (3.5)
+
+* Lizenz: BSD-3-Clause — Copyright (c) 2001-2020 Chris Liechti
+* Wird benutzt, um die WLAN-Aufnahmegeraete ueber das USB-Kabel einzurichten
+  (`services/geraete_usb_service.py`). Reines Python, ohne eigene DLL.
+
 ### lxml (6.1.3)
 
 * Lizenz: BSD-3-Clause — Copyright (c) Infrae und Mitwirkende
