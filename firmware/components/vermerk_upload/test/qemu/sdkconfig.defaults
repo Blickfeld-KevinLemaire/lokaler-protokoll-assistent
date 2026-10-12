@@ -1,0 +1,22 @@
+# Ende-zu-Ende-Test in QEMU: klassischer ESP32 (QEMU emuliert dort Ethernet ueber OpenCores/open_eth)
+CONFIG_IDF_TARGET="esp32"
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+
+# Netz: Ethernet statt WLAN
+CONFIG_EXAMPLE_CONNECT_ETHERNET=y
+CONFIG_EXAMPLE_CONNECT_WIFI=n
+CONFIG_EXAMPLE_USE_OPENETH=y
+CONFIG_ETH_USE_OPENETH=y
+CONFIG_EXAMPLE_CONNECT_IPV6=n
+
+# Adresse und Token setzt der Test zur Laufzeit (vermerk_konfig_test.c), nie auf den Geraeten
+CONFIG_VERMERK_KONFIG_TEST=y
+
+# lange Dateinamen (E2E_A.opus)
+CONFIG_FATFS_LFN_HEAP=y
+CONFIG_FATFS_MAX_LFN=64
+
+# wie auf den Geraeten
+CONFIG_LWIP_TCP_SND_BUF_DEFAULT=11520
