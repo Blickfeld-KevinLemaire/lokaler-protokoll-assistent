@@ -7,6 +7,8 @@
 #include "Gain_Control.h"
 #include "BAT_Driver.h"
 #include "Wireless.h"
+#include "vermerk_konfig.h"
+#include "vermerk_protokoll.h"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -31,7 +33,7 @@
 
 #define RECORD_SAMPLE_RATE   REC_SAMPLE_RATE   /* Aufnahme: Mono, 16 kHz, Opus oder MP3 (siehe Rec_Codec.h) */
 
-#define UPLOAD_FIRST_ID      1      /* Das C6-Geraet startet leer: alle Aufnahmen hochladen */
+#define UPLOAD_IDS_PER_PASS  32     /* Aufnahmen je Upload-Durchgang; ab welcher Nummer: VERMERK_UPLOAD_ERSTE_NUMMER */
 #define WAVE_BARS            29
 #define AUDIO_TASK_STACK     28672   /* der Opus-Encoder rechnet auf dem Stack dieser Task */
 #define STORAGE_MIN_FREE_START    (256 * 1024)   /* darunter keine neue Aufnahme */
@@ -150,15 +152,24 @@ static bool find_recording(uint32_t id, const char *ext, char *path, size_t path
     return false;
 }
 
+/* Naechste freie Nummer nach der hoechsten Aufnahme in allen Speichern (Verzeichnisliste, ohne Obergrenze) */
 static uint32_t find_next_sd_record_id(void)
 {
     uint32_t highest = 0;
-    char path[96];
 
-    for (uint32_t i = 1; i <= 999; i++) {
-        if (find_recording(i, REC_EXT, path, sizeof(path))) {
-            highest = i;
+    for (int d = 0; d < Storage_Dir_Count(); d++) {
+        DIR *dir = opendir(Storage_Dir_At(d));
+        if (dir == NULL) {
+            continue;
         }
+        struct dirent *entry;
+        while ((entry = readdir(dir)) != NULL) {
+            uint32_t id = 0;
+            if (vermerk_aufnahme_nummer(entry->d_name, REC_EXT, &id) && id > highest) {
+                highest = id;
+            }
+        }
+        closedir(dir);
     }
 
     return highest + 1;
@@ -880,11 +891,29 @@ static void vermerk_h3_ui_create(void)
     lv_obj_add_flag(pending_label, LV_OBJ_FLAG_HIDDEN);
 }
 
-/* Zaehlt die Aufnahmen (H5_xxx) im Flash-Speicher, die der Upload-Manager noch senden wuerde
- * (gleicher ID-Bereich wie dort). Hochgeladene Dateien werden geloescht. */
+/* Upload: Wartezeit je Datei, nur im RAM. Eine Datei, die scheitert, wartet (5 s, doppelt so lang
+ * bis 5 min); die anderen gehen weiter. */
+static vermerk_warteliste_t upload_warteliste;
+static bool upload_fast_mode = false;
+
+static uint64_t upload_now_ms(void)
+{
+    return (uint64_t)(esp_timer_get_time() / 1000);
+}
+
+/* Neue Aufnahme hat Vorrang: der Upload hoert zwischen zwei Stuecken auf und macht spaeter dort weiter */
+static bool recording_has_priority(void)
+{
+    rec_state_t s = rec_state;
+    return s != REC_IDLE && s != REC_DONE && s != REC_ERROR;
+}
+
+/* Zaehlt die Aufnahmen (H5_xxx) in allen Speichern, die der Upload-Manager noch senden wuerde
+ * (gleicher Nummernbereich wie dort). Hochgeladene Dateien werden geloescht. */
 static uint32_t count_pending_recordings(void)
 {
     uint32_t count = 0;
+    uint32_t first = vermerk_konfig_erste_nummer();
     uint32_t limit = next_record_id;
 
     for (int d = 0; d < Storage_Dir_Count(); d++) {
@@ -895,11 +924,9 @@ static uint32_t count_pending_recordings(void)
 
         struct dirent *entry;
         while ((entry = readdir(dir)) != NULL) {
-            unsigned id = 0;
-            char ext[4] = {0};
-            if (sscanf(entry->d_name, "%*1[Hh]5_%3u.%3s", &id, ext) == 2 &&
-                strcasecmp(ext, REC_EXT) == 0 &&
-                id >= UPLOAD_FIRST_ID && id < limit) {
+            uint32_t id = 0;
+            if (vermerk_aufnahme_nummer(entry->d_name, REC_EXT, &id) &&
+                id >= first && id < limit) {
                 count++;
             }
         }
@@ -908,7 +935,36 @@ static uint32_t count_pending_recordings(void)
     return count;
 }
 
-/* Eine Aufnahme aus einem Speicher hochladen. 0 = nichts zu tun, 1 = erledigt, -1 = Fehler (abbrechen) */
+/* Die kleinsten Nummern (hoechstens max) mit Aufnahme oder uebrig gebliebenem .sent-Marker sammeln,
+ * aufsteigend. Kostet eine Verzeichnisliste je Speicher, egal wie hoch die Nummern sind. */
+static int collect_upload_ids(uint32_t *ids, int max)
+{
+    int count = 0;
+    uint32_t first = vermerk_konfig_erste_nummer();
+    uint32_t limit = next_record_id;
+
+    for (int d = 0; d < Storage_Dir_Count(); d++) {
+        DIR *dir = opendir(Storage_Dir_At(d));
+        if (dir == NULL) {
+            continue;
+        }
+
+        struct dirent *entry;
+        while ((entry = readdir(dir)) != NULL) {
+            uint32_t id = 0;
+            if ((vermerk_aufnahme_nummer(entry->d_name, REC_EXT, &id) ||
+                 vermerk_aufnahme_nummer(entry->d_name, "sent", &id)) &&
+                id >= first && id < limit) {
+                vermerk_nummer_einfuegen(ids, &count, max, id);
+            }
+        }
+        closedir(dir);
+    }
+    return count;
+}
+
+/* Eine Aufnahme aus einem Speicher hochladen.
+ * 0 = nichts zu tun oder diese Datei spaeter, 1 = erledigt, -1 = Durchgang beenden (kein Ziel, neue Aufnahme) */
 static int upload_one(uint32_t i, const char *dir)
 {
     char path[96];
@@ -939,8 +995,7 @@ static int upload_one(uint32_t i, const char *dir)
     if (wav == NULL) {
         return 0;
     }
-    /* Leere Datei (Reset oder Stromverlust waehrend der Aufnahme): nie hochladbar und wuerde die
-     * Warteschlange fuer alle spaeteren Aufnahmen blockieren, also entfernen. */
+    /* Leere Datei (Reset oder Stromverlust waehrend der Aufnahme): nie hochladbar, also entfernen. */
     if (fseek(wav, 0, SEEK_END) == 0 && ftell(wav) <= 0) {
         fclose(wav);
         remove(path);
@@ -949,20 +1004,40 @@ static int upload_one(uint32_t i, const char *dir)
     }
     fclose(wav);
 
+    if (!vermerk_warteliste_bereit(&upload_warteliste, i, 0, upload_now_ms())) {
+        return 0;   /* diese Datei wartet noch, die naechste ist dran */
+    }
+
+    /* WLAN-Energiesparen erst abschalten, wenn wirklich gesendet wird */
+    if (!upload_fast_mode) {
+        VERMERK_Wifi_Fast_Mode(true);
+        upload_fast_mode = true;
+    }
+
     snprintf(filename, sizeof(filename), "H5_%03u." REC_EXT, (unsigned)i);
     printf("VERMERK Upload: %s (%s)\n", filename, dir);
 
     upload_active = true;
     int64_t upload_start_us = esp_timer_get_time();
-    esp_err_t err = VERMERK_Upload_File(path, filename);
+    vermerk_ergebnis_t result = VERMERK_Upload_File(path, filename, recording_has_priority);
     upload_active = false;
     printf("VERMERK Upload-Dauer: %s %lld ms\n", filename,
            (long long)((esp_timer_get_time() - upload_start_us) / 1000));
-    if (err != ESP_OK) {
-        printf("VERMERK Upload FEHLER: %s (%s)\n", filename, esp_err_to_name(err));
+    if (result == VERMERK_ERGEBNIS_KEIN_ZIEL || result == VERMERK_ERGEBNIS_UNTERBROCHEN) {
+        printf("VERMERK Upload angehalten: %s (%s)\n", filename, vermerk_ergebnis_text(result));
         return -1;
     }
+    if (result != VERMERK_ERGEBNIS_FERTIG) {
+        vermerk_warteliste_fehler(&upload_warteliste, i, 0, result, upload_now_ms());
+        printf("VERMERK Upload FEHLER: %s (%s), naechster Versuch in %u s\n", filename,
+               vermerk_ergebnis_text(result),
+               (unsigned)(vermerk_warteliste_rest_ms(&upload_warteliste, i, 0, upload_now_ms()) / 1000));
+        return 0;
+    }
+    vermerk_warteliste_erfolg(&upload_warteliste, i, 0);
 
+    /* Die Software hat die Datei geprueft ("fertig"). Marker zuerst: stirbt das Geraet beim Loeschen,
+     * raeumt der naechste Durchgang auf, statt die Datei noch einmal zu senden. */
     FILE *marker = fopen(sent_path, "wb");
     if (marker == NULL) {
         printf("VERMERK Marker FEHLER: %s\n", filename);
@@ -988,6 +1063,10 @@ static int upload_one(uint32_t i, const char *dir)
 
 static void upload_manager_task(void *arg)
 {
+    uint32_t ids[UPLOAD_IDS_PER_PASS];
+
+    vermerk_warteliste_leeren(&upload_warteliste);
+
     while (1) {
         rec_state_t s = rec_state;
         bool recording_busy = (s == REC_REQUESTED ||
@@ -1009,30 +1088,25 @@ static void upload_manager_task(void *arg)
             continue;
         }
 
-        uint32_t current_limit = next_record_id;
-
-        /* WLAN-Energiesparen nur abschalten, wenn wirklich etwas zu senden ist */
-        bool fast_mode = pending_uploads > 0;
-        if (fast_mode) {
-            VERMERK_Wifi_Fast_Mode(true);
-        }
-
-        bool failed = false;
-        for (uint32_t i = UPLOAD_FIRST_ID; i < current_limit && !failed; i++) {
-            if (rec_state != REC_IDLE && rec_state != REC_DONE && rec_state != REC_ERROR) {
+        /* Aelteste zuerst. Eine Datei, die scheitert, wartet; die naechste ist trotzdem dran. */
+        int count = collect_upload_ids(ids, UPLOAD_IDS_PER_PASS);
+        bool stop = false;
+        for (int k = 0; k < count && !stop; k++) {
+            if (recording_has_priority()) {
                 break;  /* Neue Aufnahme hat Vorrang vor dem Upload */
             }
 
             for (int d = 0; d < Storage_Dir_Count(); d++) {
-                if (upload_one(i, Storage_Dir_At(d)) < 0) {
-                    failed = true;
+                if (upload_one(ids[k], Storage_Dir_At(d)) < 0) {
+                    stop = true;
                     break;
                 }
             }
         }
 
-        if (fast_mode) {
+        if (upload_fast_mode) {
             VERMERK_Wifi_Fast_Mode(false);
+            upload_fast_mode = false;
         }
 
         vTaskDelay(pdMS_TO_TICKS(2000));

@@ -44,4 +44,5 @@ idf_component_register(
         shine
         espressif__esp_audio_codec
         nvs_flash
+        vermerk_upload
 )
