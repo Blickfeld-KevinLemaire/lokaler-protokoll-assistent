@@ -2,9 +2,10 @@
 
 Diese Firmware nimmt Besprechungen auf, speichert sie auf dem Gerät und lädt sie per WLAN an den PC
 oder Server hoch, auf dem die Protokoll-Software (`protokoll_assistent/`) die Aufnahmen transkribiert.
-Sie gehört **nicht** zur Windows-Anwendung und wird nicht mit ihr ausgeliefert. Die CI baut alle drei Boards und testet den
-reinen C-Teil der Upload-Komponente auf dem PC (`.github/workflows/firmware.yml`, kein Pflicht-Check); ob die Firmware auf
-den Geräten läuft, prüft nur ein Test auf echter Hardware.
+Sie gehört **nicht** zur Windows-Anwendung und wird nicht mit ihr ausgeliefert. Die CI baut alle drei Boards, testet den
+reinen C-Teil der Upload-Komponente auf dem PC und den Upload in QEMU gegen den echten Empfang
+(`.github/workflows/firmware.yml`, kein Pflicht-Check); ob die Firmware auf den Geräten läuft, prüft nur ein Test auf
+echter Hardware.
 
 | Ordner | Board | Chip | Bedienung | Aufnahme | Speicher |
 |---|---|---|---|---|---|
@@ -124,14 +125,30 @@ und Antworten stehen verbindlich in [`protokoll_assistent/GERAETE-SCHNITTSTELLE.
   lesen jetzt die Verzeichnisliste statt jede Nummer von 1 bis 999 einzeln zu öffnen; die alte Grenze 999 gibt es nicht
   mehr (Obergrenze jetzt 999 999 999). Ein Upload-Durchgang nimmt die 32 kleinsten offenen Nummern, der nächste den Rest.
 
-**Teststand der neuen Übertragung (12.10.2026): nur gebaut und auf dem PC getestet, noch nicht auf einem Gerät.**
-Geprüft: Alle drei Firmwares bauen mit ESP-IDF v5.5.5; der reine C-Teil (Antworten lesen, Dateinamen, Wartezeiten,
-Entscheidung nach jeder Antwort, Geräte-Id) hat Tests mit gcc, AddressSanitizer und UndefinedBehaviorSanitizer
-(`components/vermerk_upload/test/host/`, `make test`). **Nicht geprüft:** Upload gegen die echte Software,
-Wiederaufnahme nach Abbruch und nach Neustart, `409`/`422` im echten Ablauf, Durchsatz mit 256-KiB-Stücken, Abbruch des
-Uploads beim Start einer Aufnahme, RAM und Stack auf dem C6 während Aufnahme und Upload (die Zeile
-`VERMERK Upload-Diagnose` zeigt dafür `Puffer` und `Stack frei`), Geräte-Id aus dem eFuse. Die Upload-Messungen in
-`esp32-s3/README.md` stammen noch vom früheren Upload (`POST /upload`).
+**Teststand der neuen Übertragung (12.10.2026): in QEMU gegen die echte Software getestet, noch nicht auf einem Gerät.**
+
+* **Build:** Alle drei Firmwares bauen mit ESP-IDF v5.5.5.
+* **Tests auf dem PC** (`components/vermerk_upload/test/host/`, `make test`, gcc mit AddressSanitizer und
+  UndefinedBehaviorSanitizer): der reine C-Teil (Antworten lesen, Dateinamen, Wartezeiten, Entscheidung nach jeder Antwort,
+  Geräte-Id). Dazu ein **Vertrag mit der Software**: `antworten_software.h` enthält echte Antworten des Empfangs (erzeugt
+  von `antworten_erzeugen.py`), die die Firmware genau so lesen muss. Die CI erzeugt sie neu und bricht ab, wenn sich das
+  Format ändert.
+* **Ende-zu-Ende in QEMU** (`components/vermerk_upload/test/qemu/run_e2e.sh`): Der echte Upload-Code (esp_http_client,
+  mbedtls, `vermerk_upload`) läuft auf einem emulierten ESP32 mit Ethernet gegen den echten Empfang
+  (`services/geraete_empfang_service.py`), alles in einem Container. Geprüft: Hallo mit Token; Upload in drei Stücken;
+  Wiederaufnahme bei einem Teilstand der Software; falsches Token (401, Datei bleibt); dieselbe Aufnahme zweimal (eine
+  Datei, beide Male „fertig“); Verbindung mitten im Stück gekappt, danach Fortsetzung; Abbruch zwischen zwei Stücken
+  (neue Aufnahme), danach Fortsetzung; `409` auf ein volles Stück, Fortsetzung beim gemeldeten Byte; `422` (falscher
+  Teilstand und Teilstand größer als die Datei), einmal von vorn; `X-Geraete-Id` und `X-Firmware` kommen an. Jede Datei
+  liegt danach Byte für Byte gleich im Eingangsordner.
+
+**Nicht geprüft** (nur auf echter Hardware zu klären): WLAN statt Ethernet, die Chips S3 und C6 (QEMU emuliert den
+klassischen ESP32; die Komponente ist chipunabhängig), Durchsatz und Dauer auf den Geräten, Upload von SD-Karte,
+Wiederaufnahme nach einem echten Neustart des Geräts (in QEMU nur über einen neuen Aufruf), der Upload-Manager in
+`main.c` (Warteliste, `.sent`-Marker, Löschen nach „fertig“), RAM und Stack auf dem C6 während Aufnahme und Upload (die
+Zeile `VERMERK Upload-Diagnose` zeigt dafür `Puffer` und `Stack frei`; in QEMU blieben von 8 KB Stack ca. 5,5 KB frei),
+die Werks-MAC aus dem eFuse (QEMU liefert `000000000000`). Die Upload-Messungen in `esp32-s3/README.md` stammen noch vom
+früheren Upload (`POST /upload`).
 
 ## Fremder Code
 

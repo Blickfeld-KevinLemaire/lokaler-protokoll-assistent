@@ -11,7 +11,7 @@ Opus-Dateien und schickt sie per WLAN an den PC oder Server, auf dem die Protoko
 | Anzeige | Bildschirm: Zustand, Zeit, Pegel, Verbindung, Akku | 7 RGB-LEDs im Ring |
 | Speicher | SD-Karte | SD-Karte; ohne Karte automatisch der Flash (ca. 13,8 MB = ca. 77 min) |
 | Stand | auf Hardware getestet (mit dem früheren Upload) | auf dem echten Board getestet: Aufnahme per Taste, Speicher, Upload (früherer Upload), Pegel; Pause, KEY3 und SD-Karte noch nicht ausdrücklich bestätigt (siehe unten) |
-| Neue Übertragung (Token, Wiederaufnahme) | nur gebaut, nicht auf dem Gerät getestet | nur gebaut, nicht auf dem Gerät getestet |
+| Neue Übertragung (Token, Wiederaufnahme) | gebaut; Upload-Code in QEMU gegen die echte Software getestet, nicht auf dem Gerät | gebaut; Upload-Code in QEMU gegen die echte Software getestet, nicht auf dem Gerät |
 
 ## Gemeinsam
 
