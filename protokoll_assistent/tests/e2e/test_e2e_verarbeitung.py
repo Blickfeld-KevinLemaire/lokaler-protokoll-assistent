@@ -119,8 +119,8 @@ def _plausibel(ordner: Path, mindestens_woerter: int, mindestens_sprecher: int) 
     assert woerter >= mindestens_woerter, f"Nur {woerter} Woerter erkannt."
     _sprecher_getrennt(ordner, mindestens=mindestens_sprecher)
     protokoll = _protokoll(ordner)
-    assert (protokoll.get("kurzzusammenfassung") or "").strip(), protokoll
-    assert protokoll.get("themen"), protokoll
+    # Die Nachbearbeitung folgt nur dem Systemprompt und liefert Freitext.
+    assert (protokoll.get("ergebnis") or "").strip(), protokoll
 
 
 def test_ausschnitt_einer_echten_aufnahme_laeuft_durch(aufnahme_ausschnitt, laufzeit_python, sprachmodell, tmp_path):
