@@ -64,6 +64,10 @@ und in Stücken, die nach einem Abbruch dort weitergehen, wo sie aufgehört habe
 4. `idf.py -p COMx build flash` (COM-Port im Geräte-Manager nachsehen; der Chip meldet sich als „USB JTAG/serial debug unit“).
 5. Mitlesen: `idf.py -p COMx monitor` (beenden mit Strg+AltGr+`]`).
 
+**Schon einmal gebaut?** `sdkconfig.defaults` gilt nur, solange im Board-Ordner noch keine `sdkconfig` liegt. Neue Einträge
+dort (z. B. `CONFIG_LV_FONT_MONTSERRAT_28=y` für das Häkchen des S3 mit Bildschirm) kommen erst an, wenn man die `sdkconfig`
+löscht und `idf.py fullclean` ausführt – sonst bricht der Build ab (`lv_font_montserrat_28` fehlt).
+
 Die Aufnahme-Bitrate ändert man in `…/main/Opus_Encoder/Opus_Encoder.h` (`OPUS_BITRATE_BPS`:
 16000 / 24000 / 32000). Unterhalb von 24 kbit/s wird die Erkennung bei schlechtem Material (Rauschen, großer
 Abstand zum Mikrofon) spürbar schlechter, bei sauberer Sprache nicht.

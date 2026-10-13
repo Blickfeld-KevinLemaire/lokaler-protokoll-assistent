@@ -152,20 +152,22 @@ das Sprachmodell, Export. Maßnahmen, geordnet nach erwartetem Nutzen:
     Reserve 512 oder 256 KB, wenn weniger frei ist). Der Haken kopiert nur. Der Puffer ist lock-frei (ein Erzeuger, ein
     Verbraucher) und überschreibt nie Unbestätigtes; die Logik ist auf dem PC getestet (`test/host/`).
   * Der Upload-Manager, der während der Aufnahme sonst ruht, sendet alle 15 s die neuen Bytes (`PUT` mit `X-Offset`, höchstens
-    64 KB je Anfrage; bei Rückstand sofort weiter). Vor dem ersten Stück fragt er den Stand ab; ist er nicht 0, wird nicht live
+    64 KB je Anfrage; bei Rückstand sofort weiter, nach einem Fehlversuch erst wieder nach 15 s). Vor dem ersten Stück fragt er den Stand ab; ist er nicht 0, wird nicht live
     gesendet. Nach dem Stopp macht der normale Upload dort weiter, wo die Software steht, und schließt ab (Größe, SHA-256).
   * Das Live-Senden endet still bei Ringpuffer-Überlauf (Ziel lange weg), bei einer Lücke (die Software kennt weniger, als
     schon verworfen ist) und bei dauerhafter Ablehnung (Token, Name). **Nichts geht verloren**, die Aufnahme liegt immer ganz
     auf der SD-Karte.
   * Nach „fertig“ fragt das Gerät alle 3 s `GET …/aufnahmen/<Name>/status` ab und zeigt „TRANSKRIPTION WIRD VERARBEITET“, am Ende
     ca. 4 s ein grünes Häkchen über den ganzen Bildschirm, danach dauerhaft „✓ TRANSKRIPTION ERFOLGREICH“ (grün) bis zur nächsten
-    Aufnahme bzw. „VERARBEITUNG FEHLGESCHLAGEN“ (rot).
+    Aufnahme bzw. „VERARBEITUNG FEHLGESCHLAGEN“ (rot). Es hört auf nach dreimal `unbekannt`, nach 3 Stunden und sofort bei
+    `4xx` (ältere Software ohne `…/status`, Token widerrufen); nur Netzfehler und `5xx` gelten als vorübergehend.
   * Geprüft: Host-Tests (Status-Leser gegen die **echten** Antworten der Software, Entscheidung für Live-Stücke, Ringpuffer inkl.
     Zähler-Überlauf), Bau für S3 mit Bildschirm und S3-AUDIO. Auf dem Gerät ist die Aufnahme mit Live-Senden noch zu prüfen.
   * Offen: S3-AUDIO (LED-Ring statt Display: grüner Ring bei „fertig“) und C6 (kein PSRAM: kleiner Ringpuffer im internen RAM
     oder Lesen der Datei); Auswahl des Auftrags am Gerät.
 * **Stand der Umsetzung:** Phase 1 und die PC-Seite von Phase 2/3 sind in der Anwendung; das S3 mit Bildschirm sendet während der
-  Aufnahme und fragt den Status ab (siehe oben). Die PC-Seite ist mit echtem Whisper (CPU) und einer echten Geräteaufnahme geprüft,
+  Aufnahme und fragt den Status ab (siehe oben). Die Regeln dafür stehen verbindlich in
+  [`GERAETE-SCHNITTSTELLE.md`](../../protokoll_assistent/GERAETE-SCHNITTSTELLE.md) („Senden während der Aufnahme“ und `…/status`). Die PC-Seite ist mit echtem Whisper (CPU) und einer echten Geräteaufnahme geprüft,
   die Firmware mit Host-Tests und im Bau; der Ablauf Gerät – Netz – PC noch nicht auf einem Gerät. Der Rest dieser Datei ist ein
   Konzept und ändert weder die Anwendung noch die Firmware.
 * **Wirkung der Live-Transkription:** Sie arbeitet mit einem gleitenden Fenster (`services/live_service.py`): ab 20 s neuem Audio wird vom

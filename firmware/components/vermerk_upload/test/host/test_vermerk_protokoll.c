@@ -641,6 +641,53 @@ static void test_status(void)
     PRUEFE(strcmp(vermerk_verarbeitung_text(VERMERK_VERARB_UNBEKANNT), "unbekannt") == 0);
 }
 
+static vermerk_statusabfrage_t status_e(int http_status, const char *text, vermerk_status_t *s)
+{
+    if (text == NULL) {
+        return vermerk_status_entscheiden(http_status, NULL, 0, s);
+    }
+    size_t n;
+    char *t = ohne_null(text, &n);
+    vermerk_statusabfrage_t a = vermerk_status_entscheiden(http_status, t, n, s);
+    free(t);
+    return a;
+}
+
+static void test_status_entscheiden(void)
+{
+    vermerk_status_t s;
+
+    /* 200 mit Zustand: anzeigen (auch "unbekannt" - wie oft das hingenommen wird, entscheidet der Aufrufer) */
+    PRUEFE(status_e(SW_STATUS_FERTIG_STATUS, SW_STATUS_FERTIG, &s) == VERMERK_STATUSABFRAGE_ZUSTAND &&
+           s.zustand == VERMERK_VERARB_FERTIG && s.fortschritt_prozent == 100);
+    PRUEFE(status_e(SW_STATUS_TRANSKRIPTION_STATUS, SW_STATUS_TRANSKRIPTION, &s) == VERMERK_STATUSABFRAGE_ZUSTAND &&
+           s.zustand == VERMERK_VERARB_TRANSKRIPTION && s.fortschritt_prozent == 46);
+    PRUEFE(status_e(SW_STATUS_UNBEKANNT_STATUS, SW_STATUS_UNBEKANNT, &s) == VERMERK_STATUSABFRAGE_ZUSTAND &&
+           s.zustand == VERMERK_VERARB_UNBEKANNT);
+
+    /* voruebergehend: weiter fragen */
+    PRUEFE(status_e(0, NULL, &s) == VERMERK_STATUSABFRAGE_SPAETER && s.zustand == VERMERK_VERARB_UNBEKANNT &&
+           s.fortschritt_prozent == -1);
+    PRUEFE(status_e(SW_UEBERLAST_503_STATUS, SW_UEBERLAST_503, &s) == VERMERK_STATUSABFRAGE_SPAETER);
+    PRUEFE(status_e(SW_PLATTE_VOLL_507_STATUS, SW_PLATTE_VOLL_507, &s) == VERMERK_STATUSABFRAGE_SPAETER);
+    PRUEFE(status_e(500, "", &s) == VERMERK_STATUSABFRAGE_SPAETER);
+    PRUEFE(status_e(408, NULL, &s) == VERMERK_STATUSABFRAGE_SPAETER);
+    PRUEFE(status_e(429, NULL, &s) == VERMERK_STATUSABFRAGE_SPAETER);
+    PRUEFE(status_e(200, "{}", &s) == VERMERK_STATUSABFRAGE_SPAETER);           /* 200 ohne Zustand */
+    PRUEFE(status_e(200, SW_STATUS_NEU, &s) == VERMERK_STATUSABFRAGE_SPAETER);  /* Upload-Stand statt Verarbeitung */
+
+    /* dauerhaft: fuer diese Aufnahme nicht mehr fragen */
+    PRUEFE(status_e(SW_PFAD_404_STATUS, SW_PFAD_404, &s) == VERMERK_STATUSABFRAGE_ENDE);   /* Software ohne .../status */
+    PRUEFE(status_e(SW_TOKEN_401_STATUS, SW_TOKEN_401, &s) == VERMERK_STATUSABFRAGE_ENDE); /* Token widerrufen */
+    PRUEFE(status_e(SW_NAME_400_STATUS, SW_NAME_400, &s) == VERMERK_STATUSABFRAGE_ENDE);
+    PRUEFE(status_e(403, NULL, &s) == VERMERK_STATUSABFRAGE_ENDE);
+    PRUEFE(status_e(302, NULL, &s) == VERMERK_STATUSABFRAGE_ENDE);
+    PRUEFE(status_e(-1, NULL, &s) == VERMERK_STATUSABFRAGE_ENDE);   /* Name oder Ziel ungueltig */
+    /* Ein Zustand im Text einer Fehlerantwort zaehlt nicht */
+    PRUEFE(status_e(404, "{\"zustand\":\"fertig\"}", &s) == VERMERK_STATUSABFRAGE_ENDE &&
+           s.zustand == VERMERK_VERARB_UNBEKANNT);
+}
+
 static vermerk_live_entscheidung_t live_e(int status, const char *text, uint64_t bestaetigt, uint64_t geschrieben)
 {
     return vermerk_live_entscheiden(status, text, text != NULL ? strlen(text) : 0, bestaetigt, geschrieben);
@@ -802,6 +849,7 @@ int main(void)
     test_vertrag_mit_der_software();
     test_json_text_und_promille();
     test_status();
+    test_status_entscheiden();
     test_live_entscheiden();
     test_wartezeit();
     test_warteliste();

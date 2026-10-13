@@ -130,6 +130,8 @@ static bool stand_pruefen(vermerk_ziel_t ziel)
     }
     if (e.aktion == VERMERK_AKTION_AUFGEBEN) {
         aufgeben("die Software lehnt die Abfrage ab");
+    } else {
+        s_fehlversuche++;   /* zaehlt wie ein gescheitertes Stueck: naechster Versuch im normalen Abstand */
     }
     return false;   /* vorruebergehend: beim naechsten Mal */
 }
@@ -190,7 +192,10 @@ void vermerk_live_schritt(vermerk_ziel_t ziel, uint32_t teil_max_bytes)
             aufgeben("Ringpuffer voll");
         } else if (s_zustand == LIVE_AKTIV && vermerk_ring_unbestaetigt(&s_ring) > 0) {
             const uint64_t jetzt = jetzt_ms();
-            const bool rueckstand = vermerk_ring_unbestaetigt(&s_ring) >= VERMERK_LIVE_STUECK_MAX;
+            /* Rueckstand sofort nachholen, aber nicht nach einem Fehlversuch: Ein ueberlastetes Ziel (503, 507,
+             * Zeitueberschreitung) bekommt den normalen Abstand, statt alle 2 s angefragt zu werden. */
+            const bool rueckstand = s_fehlversuche == 0 &&
+                                    vermerk_ring_unbestaetigt(&s_ring) >= VERMERK_LIVE_STUECK_MAX;
             if (rueckstand || s_letzter_versuch_ms == 0 || jetzt - s_letzter_versuch_ms >= VERMERK_LIVE_INTERVALL_MS) {
                 s_letzter_versuch_ms = jetzt;
                 if (s_stand_geprueft || stand_pruefen(ziel)) {

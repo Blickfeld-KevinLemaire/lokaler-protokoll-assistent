@@ -32,7 +32,8 @@ Das Konzept mit Entscheidungen und Phasen steht in [`docs/streaming-konzept.md`]
   **Ringpuffer im PSRAM** (1 MB, ca. 5,7 Minuten bei 24 kbit/s; `vermerk_ring.c`, auf dem PC getestet). Der Haken kopiert
   nur; die Aufnahme wird nicht aufgehalten.
 * Der Upload-Manager, der während der Aufnahme sonst ruht, sendet alle 15 s die neuen Bytes mit `PUT` und `X-Offset`
-  (`vermerk_live_schritt`). Die Software hängt sie an die wachsende Datei an und transkribiert sie blockweise.
+  (`vermerk_live_schritt`), höchstens 64 KB je Anfrage; bei Rückstand gleich das nächste Stück, nach einem Fehlversuch
+  (Netz, `503`, `507`) erst wieder nach 15 s. Die Software hängt sie an die wachsende Datei an und transkribiert sie blockweise.
   Vor dem ersten Stück fragt das Gerät `GET …/aufnahmen/<Name>`: Kennt die Software unter dem Namen schon Bytes, wird nicht
   live gesendet.
 * **Es geht nie etwas verloren.** Die Aufnahme liegt ohnehin ganz auf der SD-Karte. Nach dem Stopp lädt der normale Upload
@@ -41,7 +42,8 @@ Das Konzept mit Entscheidungen und Phasen steht in [`docs/streaming-konzept.md`]
   der Grund (`VERMERK Live H5_007.opus: beendet (…)`).
 * Nach „fertig“ fragt das Gerät alle 3 s `GET …/aufnahmen/<Name>/status` ab, bis die Software `fertig` oder `fehler` meldet
   (höchstens 3 Stunden). Kennt sie die Aufnahme nicht (dreimal `unbekannt`, etwa Neustart der Software, Live-Verarbeitung aus,
-  Server statt PC), bleibt die Anzeige aus. „Fertig“ erscheint ca. 4 s als grünes Häkchen über den ganzen Bildschirm und bleibt danach in der Statuszeile bis zur nächsten Aufnahme.
+  Server statt PC) oder lehnt sie die Abfrage mit `4xx` ab (etwa eine ältere Software ohne `…/status`, Token widerrufen),
+  hört das Gerät auf zu fragen und die Anzeige bleibt aus; nur bei Netzfehlern und `5xx` fragt es weiter. „Fertig“ erscheint ca. 4 s als grünes Häkchen über den ganzen Bildschirm und bleibt danach in der Statuszeile bis zur nächsten Aufnahme.
 * Ohne PSRAM (C6) oder bei einem Fehler beim Anlegen des Ringpuffers wird nicht live gesendet; sonst ändert sich nichts.
 
 ## Lautstärke

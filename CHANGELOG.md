@@ -41,9 +41,11 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
   „TRANSKRIPTION WIRD VERARBEITET“, am Ende ca. 4 s ein grünes Häkchen mit „TRANSKRIPTION ERFOLGREICH“ über den ganzen
   Bildschirm und danach dauerhaft die Statuszeile „✓ TRANSKRIPTION ERFOLGREICH“ (bei Fehlern rot). Es geht nichts verloren: Die
   Aufnahme liegt immer ganz auf der SD-Karte, und der normale Upload macht dort weiter, wo die Software steht. Die zuletzt
-  aufgenommene Aufnahme wird jetzt zuerst hochgeladen (vor älteren Dateien), und das Prüfsummen-Lesen einer langen
-  angefangenen Datei lässt sich abbrechen, sobald eine Aufnahme beginnt (vorher hielt es die SD-Karte minutenlang besetzt).
-  Siehe `firmware/README.md`.
+  aufgenommene Aufnahme wird jetzt zuerst hochgeladen (vor älteren Dateien, auch wenn mehr als 32 davon warten), und das
+  Prüfsummen-Lesen einer langen angefangenen Datei lässt sich abbrechen, sobald eine Aufnahme beginnt (vorher hielt es die
+  SD-Karte minutenlang besetzt). Lehnt die Software die Statusabfrage ab (`4xx`, etwa eine ältere Version ohne `…/status`
+  oder ein widerrufenes Token), fragt das Gerät nicht weiter nach, statt es bis zu 3 Stunden alle 3 s zu versuchen; nach
+  einem gescheiterten Live-Stück wartet es den normalen Abstand von 15 s ab. Siehe `firmware/README.md`.
 
 - **Aufnahmegeräte im WLAN laden selbst hoch:** Ist der Empfang eingeschaltet
   (Einstellungen → „Aufnahmegeräte“, im Servermodus `PROTOKOLL_EMPFANG=1`),

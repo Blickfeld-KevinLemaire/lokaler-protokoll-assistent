@@ -415,6 +415,26 @@ const char *vermerk_verarbeitung_text(vermerk_verarbeitung_t zustand)
     }
 }
 
+vermerk_statusabfrage_t vermerk_status_entscheiden(int http_status, const char *text, size_t laenge,
+                                                   vermerk_status_t *status)
+{
+    if (status != NULL) {
+        status->zustand = VERMERK_VERARB_UNBEKANNT;
+        status->fortschritt_prozent = -1;
+    }
+    if (http_status == 200) {
+        return vermerk_status_pruefen(text, laenge, status) ? VERMERK_STATUSABFRAGE_ZUSTAND
+                                                              : VERMERK_STATUSABFRAGE_SPAETER;
+    }
+    if (http_status == 0 || http_status == 408 || http_status == 429 ||
+        (http_status >= 500 && http_status <= 599)) {
+        return VERMERK_STATUSABFRAGE_SPAETER;   /* Netz weg, Software ueberlastet: in ein paar Sekunden wieder */
+    }
+    /* 400, 401, 403, 404, Umleitungen, alles Unbekannte: Wiederholen aendert nichts (aeltere Software ohne
+     * .../status, Token widerrufen). Sonst fragte das Geraet bis zur Hoechstdauer alle paar Sekunden. */
+    return VERMERK_STATUSABFRAGE_ENDE;
+}
+
 /* ---- Senden waehrend der Aufnahme ---- */
 
 vermerk_live_entscheidung_t vermerk_live_entscheiden(int http_status, const char *text, size_t laenge,

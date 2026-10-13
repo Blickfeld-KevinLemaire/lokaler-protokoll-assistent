@@ -148,6 +148,19 @@ Transkription **und** Auswertung (erste Hälfte Transkription, zweite Auswertung
 eigene Uhr dafür und fragt alle paar Sekunden ab (2 bis 5 s genügen). Die
 Antwort ist immer `200`, solange das Token gilt (ein ungültiger Dateiname: `400`).
 
+Regeln für das Gerät (die Firmware des S3 mit Bildschirm hält sich daran):
+
+* Abfragen alle **3 s**, beginnend mit dem `"fertig":true` des Abschlusses,
+  bis `fertig` oder `fehler` kommt.
+* **Dreimal hintereinander `unbekannt`:** aufhören, nichts anzeigen (oder
+  „angekommen").
+* **`4xx`** (außer `408` und `429`) – etwa `404` von einer älteren Software
+  ohne `…/status` oder `401`, weil das Token widerrufen ist: sofort aufhören,
+  wie bei `unbekannt`. Wiederholen hilft hier nicht. Nur keine Antwort, `408`,
+  `429` und `5xx` gelten als vorübergehend: in 3 s erneut fragen.
+* Nach **3 Stunden** ohne `fertig` oder `fehler` aufhören.
+* Beginnt eine neue Aufnahme, endet die Abfrage der vorigen.
+
 Der Stand liegt nur im Speicher der Software. Nach einem Neustart der Software
 meldet sie `unbekannt`; die Aufnahme selbst ist dann trotzdem sicher abgelegt.
 Lädt ein Gerät eine schon abgelegte Aufnahme noch einmal hoch (die Bestätigung
@@ -232,8 +245,30 @@ Software nutzt die Zeit bis dahin (`services/live_service.py`):
 Ob das geschieht, steht in den Einstellungen: *Aufnahmegeräte → Während der
 Aufnahme transkribieren und nach dem Ende automatisch auswerten* (Standard: an).
 Ist es aus, legt die Software die Aufnahme nur ab, und `…/status` meldet
-`unbekannt`. Was in der Firmware noch fehlt (Senden während der Aufnahme,
-Status abfragen und anzeigen), steht in `firmware/docs/streaming-konzept.md`.
+`unbekannt`.
+
+**Im Gerät** (umgesetzt am S3 mit Bildschirm,
+`firmware/components/vermerk_upload/vermerk_live.c`; S3-AUDIO und C6 laden die
+fertige Aufnahme wie bisher nach dem Ende hoch):
+
+1. Vor dem ersten Stück `GET /api/v1/aufnahmen/<Name>`. Jeder Wert ungleich
+   `0` heißt: Unter diesem Namen liegt schon ein Teilstand – für diese Datei
+   **nicht** live senden. Sie wird nach dem Ende normal hochgeladen.
+2. Alle **15 s** die neuen Bytes per `PUT` mit `X-Offset`, höchstens **64 KB**
+   je Anfrage und **ohne** `X-Gesamtgroesse`/`X-SHA256`. Liegen 64 KB oder mehr
+   unbestätigt vor, folgt das nächste Stück gleich – nach einem Fehlversuch
+   aber erst wieder nach 15 s, damit eine überlastete Software nicht alle
+   paar Sekunden angefragt wird.
+3. `200` und `409` → ab `naechstes_byte` weiter; passt der Stand nicht zu dem,
+   was das Gerät noch im Speicher hat (Lücke), endet das Live-Senden. Keine
+   Antwort, `503`, `507` → beim nächsten Mal dieselben Bytes noch einmal.
+   `400`, `401`, `403`, `404`, `411`, `413` … → Live-Senden für diese Aufnahme
+   beenden.
+4. Abgeschlossen wird erst nach dem Ende der Aufnahme, mit dem normalen Upload
+   (Ablauf oben) ab dem Stand der Software. Endet das Live-Senden vorher (auch,
+   weil der Zwischenspeicher im Gerät überläuft), geht nichts verloren: Die
+   Aufnahme liegt ganz auf dem Gerät.
+5. Danach den Verarbeitungsstand abfragen (Regeln unter `…/status`).
 
 ## Einrichtung über USB (Version 1)
 

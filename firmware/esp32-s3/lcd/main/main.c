@@ -1139,7 +1139,8 @@ static int collect_upload_ids(uint32_t *ids, int max)
 
 /* Verarbeitungsstand beobachten: Nach einem erfolgreichen Upload fragt der Manager alle paar Sekunden
  * GET .../status ab, bis die Software "fertig" oder "fehler" meldet. Kennt sie die Aufnahme nicht (dreimal
- * "unbekannt": Neustart der Software, Live-Verarbeitung aus, Server statt PC), bleibt die Anzeige aus. */
+ * "unbekannt": Neustart der Software, Live-Verarbeitung aus, Server statt PC) oder lehnt sie die Abfrage ab
+ * (4xx, z. B. eine aeltere Software ohne .../status), bleibt die Anzeige aus. */
 #define STATUS_ABFRAGE_MS     3000u
 #define STATUS_MAX_DAUER_MS   (3ULL * 60ULL * 60ULL * 1000ULL)   /* laenger wird nicht gewartet */
 #define STATUS_UNBEKANNT_MAX  3
@@ -1182,8 +1183,15 @@ static void status_schritt(void)
     }
 
     vermerk_status_t st;
-    if (!VERMERK_Status_Abfragen(status_name, &st)) {
+    vermerk_statusabfrage_t abfrage = VERMERK_Status_Abfragen(status_name, &st);
+    if (abfrage == VERMERK_STATUSABFRAGE_SPAETER) {
         return;   /* Netz oder Software gerade nicht erreichbar: weiter versuchen */
+    }
+    if (abfrage == VERMERK_STATUSABFRAGE_ENDE) {
+        /* 4xx (aeltere Software ohne .../status, Token widerrufen ...): wie "unbekannt", nicht weiter fragen */
+        printf("VERMERK Verarbeitung %s: die Software lehnt die Abfrage ab, keine Anzeige\n", status_name);
+        status_beenden();
+        return;
     }
     if (st.zustand == VERMERK_VERARB_UNBEKANNT) {
         if (++status_unbekannt >= STATUS_UNBEKANNT_MAX) {
@@ -1370,8 +1378,10 @@ static void upload_manager_task(void *arg)
                     pos = k;
                 }
             }
-            if (pos < 0 && count < UPLOAD_IDS_PER_PASS) {
-                pos = count++;
+            if (pos < 0) {
+                /* Nicht unter den kleinsten Nummern (viele aeltere Dateien warten): Ist die Liste voll, macht die
+                 * groesste der aelteren Platz - sie kommt im naechsten Durchgang dran. */
+                pos = (count < UPLOAD_IDS_PER_PASS) ? count++ : count - 1;
             }
             if (pos > 0) {
                 memmove(&ids[1], &ids[0], (size_t)pos * sizeof(ids[0]));

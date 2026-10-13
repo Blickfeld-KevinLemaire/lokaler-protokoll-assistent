@@ -181,15 +181,15 @@ void VERMERK_Live_Schritt(void)
     }
 }
 
-bool VERMERK_Status_Abfragen(const char *dateiname, vermerk_status_t *status)
+vermerk_statusabfrage_t VERMERK_Status_Abfragen(const char *dateiname, vermerk_status_t *status)
 {
     vermerk_ziel_t ziel;
     if (!ziel_waehlen(&ziel)) {
-        return false;
+        return VERMERK_STATUSABFRAGE_SPAETER;   /* gerade kein Ziel erreichbar: spaeter wieder */
     }
     char antwort[200];
     int http = vermerk_aufnahme_abfragen(ziel, dateiname, "/status", antwort, sizeof(antwort));
-    return http == 200 && vermerk_status_pruefen(antwort, strlen(antwort), status);
+    return vermerk_status_entscheiden(http, antwort, strlen(antwort), status);
 }
 
 /* Eine Aufnahme hochladen (wiederaufnehmbar, siehe components/vermerk_upload). Ziel: Server hat Vorrang, sonst PC. */

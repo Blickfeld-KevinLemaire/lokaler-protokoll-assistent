@@ -28,5 +28,6 @@ void VERMERK_Wifi_Fast_Mode(bool on);
 void VERMERK_Live_Schritt(void);
 
 /* Verarbeitungsstand einer hochgeladenen Aufnahme bei der Software abfragen (GET .../status).
- * true, wenn die Software geantwortet hat (auch mit "unbekannt"). */
-bool VERMERK_Status_Abfragen(const char *dateiname, vermerk_status_t *status);
+ * VERMERK_STATUSABFRAGE_ZUSTAND: status ist gefuellt (auch "unbekannt"); _SPAETER: kein Ziel, Netz, 5xx;
+ * _ENDE: die Software lehnt die Abfrage dauerhaft ab (4xx, z. B. eine aeltere Software ohne .../status). */
+vermerk_statusabfrage_t VERMERK_Status_Abfragen(const char *dateiname, vermerk_status_t *status);

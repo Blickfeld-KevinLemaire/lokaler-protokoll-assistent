@@ -134,6 +134,19 @@ bool vermerk_verarbeitung_beendet(vermerk_verarbeitung_t zustand);
 
 const char *vermerk_verarbeitung_text(vermerk_verarbeitung_t zustand);
 
+/* Was eine Antwort auf GET .../status fuer die Abfrage bedeutet */
+typedef enum {
+    VERMERK_STATUSABFRAGE_ZUSTAND = 0,  /* 200 mit "zustand": status ist gefuellt (auch VERMERK_VERARB_UNBEKANNT) */
+    VERMERK_STATUSABFRAGE_SPAETER,      /* voruebergehend (keine Antwort, 408, 429, 5xx, 200 ohne Zustand): weiter fragen */
+    VERMERK_STATUSABFRAGE_ENDE          /* hilft so nicht (400, 401, 404 ... - etwa eine aeltere Software ohne
+                                         * .../status oder ein widerrufenes Token): fuer diese Aufnahme nicht mehr fragen */
+} vermerk_statusabfrage_t;
+
+/* Antwort von GET .../status bewerten. http_status 0 = keine Antwort, -1 = Name oder Ziel ungueltig (wie
+ * vermerk_aufnahme_abfragen). status bekommt den Stand bei VERMERK_STATUSABFRAGE_ZUSTAND, sonst "unbekannt". */
+vermerk_statusabfrage_t vermerk_status_entscheiden(int http_status, const char *text, size_t laenge,
+                                                   vermerk_status_t *status);
+
 /* ---- Senden waehrend der Aufnahme ----
  * Die Software haengt die Stuecke einer wachsenden Datei an (PUT mit X-Offset, ohne Abschluss).
  * Nach jeder Antwort entscheidet diese Funktion, wie es weitergeht. bestaetigt = so viele Bytes hat die
