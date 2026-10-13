@@ -102,8 +102,15 @@ def dialog(qt_widgets, konfig, monkeypatch):
     return fenster
 
 
-def _bis_zur_arbeitsweise(dialog, profil=LAPTOP, vorhanden=None):
+def _zum_rechner(dialog):
+    """Willkommen -> Vermerk Raum (ohne Geraet: ueberspringen) -> Ihr Computer."""
     dialog.los_button.click()
+    assert dialog.stack.currentIndex() == dialog.S_RAUM
+    dialog.raum_seite.ueberspringen_button.click()
+
+
+def _bis_zur_arbeitsweise(dialog, profil=LAPTOP, vorhanden=None):
+    _zum_rechner(dialog)
     assert dialog.stack.currentIndex() == dialog.S_RECHNER
     _Ermittlung.instanzen[-1].fertig.emit(rechner_analyse_service.analysiere(profil), vorhanden or {})
     dialog.rechner_weiter_button.click()
@@ -119,7 +126,7 @@ def test_beginnt_mit_der_erklaerung_und_laedt_nichts(dialog):
 
 
 def test_rechner_seite_zeigt_je_schritt_eine_einschaetzung(dialog):
-    dialog.los_button.click()
+    _zum_rechner(dialog)
     assert not dialog.rechner_weiter_button.isEnabled()  # erst nach der Analyse
     _Ermittlung.instanzen[-1].fertig.emit(rechner_analyse_service.analysiere(LAPTOP), {})
     texte = {schritt: bewertung.text() for schritt, (_n, bewertung) in dialog.schritt_zeilen.items()}
@@ -132,7 +139,7 @@ def test_rechner_seite_zeigt_je_schritt_eine_einschaetzung(dialog):
     assert dialog.rechner_weiter_button.isEnabled()
     # Zurueck und wieder vor: keine zweite Analyse
     dialog._gehe_zu(dialog.S_WILLKOMMEN)
-    dialog.los_button.click()
+    _zum_rechner(dialog)
     assert len(_Ermittlung.instanzen) == 1
 
 
