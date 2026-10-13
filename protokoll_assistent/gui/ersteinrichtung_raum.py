@@ -276,6 +276,15 @@ class VermerkRaumSeite(QWidget):
     def _laeuft(self) -> bool:
         return self._aufgabe is not None and self._aufgabe.isRunning()
 
+    def muss_warten(self) -> bool:
+        """Fuer den Assistenten vor dem Schliessen: Laeuft die serielle
+        Verbindung noch, darf er (und mit ihm der Faden) nicht verschwinden --
+        das Geraet waere halb beschrieben. Wie ``UsbEinrichtungDialog.reject``."""
+        if not self._laeuft():
+            return False
+        self.status_label.setText("Bitte warten, das Gerät wird gerade beschrieben …")
+        return True
+
     def _beschaeftigt(self, an: bool, text: str | None = None) -> None:
         for knopf in (self.suchen_button, self.erkennen_button, self.zurueck_button, self.ueberspringen_button):
             knopf.setEnabled(not an)
@@ -354,10 +363,10 @@ class VermerkRaumSeite(QWidget):
         eintraege = app_config.load_config().get("geraete_empfang_geraete") or []
         return [dict(e) for e in eintraege if isinstance(e, dict)]
 
-    def _basis_url(self) -> str:
+    def _basis_urls(self) -> list[str]:
         adressen = geraete_empfang_service.lokale_adressen()
         port = app_config.load_config().get("geraete_empfang_port") or geraete_empfang_service.STANDARD_PORT
-        return f"http://{adressen[0]}:{port}" if adressen else ""
+        return [f"http://{adresse}:{port}" for adresse in adressen]
 
     def _wlan_vorbereiten(self) -> None:
         info = self._info
@@ -366,15 +375,23 @@ class VermerkRaumSeite(QWidget):
                 self.name_edit.setText(namensvorschlag(info))
             if info.wlan and not self.wlan_edit.text():
                 self.wlan_edit.setText(info.wlan)
-        basis = self._basis_url()
-        self._adresse_bekannt = bool(basis)
-        if basis and not self.adresse_edit.text():
-            self.adresse_edit.setText(basis)
-        # Ist die Adresse ermittelt, braucht der Anwender das Feld nicht zu sehen.
-        self.adresse_edit.setVisible(not self._adresse_bekannt)
-        self.adresse_zeile_label.setVisible(not self._adresse_bekannt)
-        if self._adresse_bekannt:
-            self.adresse_hinweis.setText(f"Das Gerät schickt seine Aufnahmen an diesen Computer ({basis}).")
+        urls = self._basis_urls()
+        self._adresse_bekannt = bool(urls)
+        if urls and not self.adresse_edit.text():
+            self.adresse_edit.setText(urls[0])
+        # Das Feld bleibt sichtbar und editierbar (wie im Einstellungsdialog):
+        # Die erste ermittelte Adresse kann zu einem VPN-, Hyper-V- oder
+        # WSL-Adapter gehoeren, den das Geraet im WLAN nie erreicht.
+        if len(urls) > 1:
+            self.adresse_hinweis.setText(
+                "Dieser Computer hat mehrere Adressen: " + ", ".join(urls) + ". Bitte die aus dem WLAN "
+                "eintragen, in dem auch das Gerät ist – VPN- und virtuelle Adapter erreicht es nicht."
+            )
+        elif urls:
+            self.adresse_hinweis.setText(
+                "An diese Adresse schickt das Gerät seine Aufnahmen. Nur ändern, wenn es diesen Computer "
+                "im WLAN unter einer anderen erreicht."
+            )
         else:
             self.adresse_hinweis.setText(
                 "Die Adresse dieses Computers im Netz ließ sich nicht ermitteln. Bitte eintragen "

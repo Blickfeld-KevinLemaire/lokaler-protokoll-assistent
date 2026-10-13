@@ -3,7 +3,9 @@
 
 Das Geraet ist die Attrappe aus 'test_geraete_usb_service.py'. Die Arbeit, die
 in der Anwendung in einem eigenen Faden laeuft, wird hier direkt ausgefuehrt --
-keine Nebenfaeden in Tests mit Fenstern.
+keine Nebenfaeden in Tests mit Fenstern. Die Arbeiter des Assistenten (allen
+voran die Ermittlung der Hardware nach dem Ueberspringen) sind die Attrappen aus
+'test_gui_ersteinrichtung.py'.
 """
 
 from __future__ import annotations
@@ -17,6 +19,11 @@ from protokoll_assistent.gui import ersteinrichtung_raum as er  # noqa: E402
 from protokoll_assistent.services import geraete_empfang_service as empfang  # noqa: E402
 from protokoll_assistent.services import geraete_usb_service as usb  # noqa: E402
 from protokoll_assistent.tests.test_geraete_usb_service import GeraetAttrappe  # noqa: E402
+from protokoll_assistent.tests.test_gui_ersteinrichtung import (  # noqa: E402
+    _Einrichtung,
+    _Ermittlung,
+    _Mitschrift,
+)
 from protokoll_assistent.utils import app_config  # noqa: E402
 
 ESP = usb.Anschluss("COM7", "USB JTAG/serial debug unit", True)
@@ -29,6 +36,18 @@ def _ohne_wartezeiten(monkeypatch):
     monkeypatch.setattr(usb, "ANTWORT_SEKUNDEN", 2.0)
     # Keine echte Netzwerkabfrage im Test.
     monkeypatch.setattr(empfang, "lokale_adressen", lambda: ["192.168.0.10"])
+
+
+@pytest.fixture(autouse=True)
+def _keine_echten_arbeiter(monkeypatch):
+    """Nach dem Schritt kommt "Ihr Computer" und startet die Ermittlung --
+    echt waere das ein Faden mit PowerShell, nvidia-smi und HTTP an Ollama, der
+    den Prozess beim Abbau des Dialogs abstuerzen laesst."""
+    for klasse in (_Ermittlung, _Einrichtung, _Mitschrift):
+        klasse.instanzen = []
+    monkeypatch.setattr(ee, "ErmittlungsWorker", _Ermittlung)
+    monkeypatch.setattr(ee, "EinrichtungsWorker", _Einrichtung)
+    monkeypatch.setattr(ee, "MitschriftWorker", _Mitschrift)
 
 
 @pytest.fixture
@@ -130,7 +149,9 @@ def test_einrichten_schreibt_ins_geraet_und_speichert_die_konfiguration(qt_widge
     seite.eingerichtet.connect(lambda: gemeldet.append(True))
     bis_zum_wlan(seite)
     assert seite.name_edit.text() == "S3-Audio-5e6f"
-    assert seite.adresse_edit.isHidden()  # Adresse ermittelt: das Feld bleibt weg
+    # Adresse ermittelt: vorausgefuellt, aber sichtbar und aenderbar.
+    assert not seite.adresse_edit.isHidden() and not seite.adresse_edit.isReadOnly()
+    assert seite.adresse_edit.text() == "http://192.168.0.10:8765"
     seite.wlan_edit.setText("Buero")
     seite.passwort_edit.setText("geheim123")
     seite.primaer_button.click()
@@ -167,6 +188,21 @@ def test_ohne_ermittelbare_adresse_wird_sie_abgefragt(qt_widgets, konfig, geraet
     seite.adresse_edit.setText("http://10.0.0.5:8765")
     seite.primaer_button.click()
     assert geraet.gespeichert["pc_url"] == "http://10.0.0.5:8765"
+
+
+def test_bei_mehreren_adressen_laesst_sich_die_richtige_eintragen(qt_widgets, konfig, geraet, monkeypatch):
+    # Die erste Adresse gehoert oft zu einem VPN-, Hyper-V- oder WSL-Adapter.
+    monkeypatch.setattr(empfang, "lokale_adressen", lambda: ["172.20.0.1", "192.168.0.10"])
+    seite = seite_bauen(qt_widgets, geraet)
+    bis_zum_wlan(seite)
+    assert seite.adresse_edit.text() == "http://172.20.0.1:8765"
+    assert "http://172.20.0.1:8765" in seite.adresse_hinweis.text()
+    assert "http://192.168.0.10:8765" in seite.adresse_hinweis.text()
+    seite.adresse_edit.setText("http://192.168.0.10:8765")
+    seite.wlan_edit.setText("Buero")
+    seite.passwort_edit.setText("geheim123")
+    seite.primaer_button.click()
+    assert geraet.gespeichert["pc_url"] == "http://192.168.0.10:8765"
 
 
 @pytest.mark.parametrize(
@@ -242,6 +278,7 @@ def test_ueberspringen_fuehrt_zum_naechsten_schritt_und_zurueck_zum_willkommen(a
     assistent.los_button.click()
     assistent.raum_seite.ueberspringen_button.click()
     assert assistent.stack.currentIndex() == assistent.S_RECHNER
+    assert [e.gestartet for e in _Ermittlung.instanzen] == [True]  # die Attrappe, kein Faden
     assistent._gehe_zu(assistent.S_RAUM)
     assistent.raum_seite.zurueck_button.click()
     assert assistent.stack.currentIndex() == assistent.S_WILLKOMMEN
@@ -254,6 +291,7 @@ def test_ohne_raum_springt_der_assistent_ueber_den_schritt(qt_widgets, konfig, m
     assert "Vermerk Raum" not in " ".join(texte) and texte[0] == "1. Willkommen" and texte[1] == "2. Ihr Computer"
     dialog.los_button.click()
     assert dialog.stack.currentIndex() == dialog.S_RECHNER
+    assert [e.gestartet for e in _Ermittlung.instanzen] == [True]
 
 
 def test_beim_schliessen_startet_der_empfang_wenn_ein_geraet_eingerichtet_wurde(qt_widgets, konfig, monkeypatch):
@@ -277,3 +315,31 @@ def test_beim_schliessen_startet_der_empfang_wenn_ein_geraet_eingerichtet_wurde(
     dialog.raum_seite.eingerichtet.emit()
     dialog.reject()  # "Spaeter einrichten" nach dem Geraet: Empfang trotzdem starten
     assert Eltern.angewendet == 1
+
+
+class _LaufendeAufgabe:
+    def __init__(self):
+        self.laeuft = True
+
+    def isRunning(self):
+        return self.laeuft
+
+
+def test_waehrend_ins_geraet_geschrieben_wird_bleibt_der_assistent_offen(assistent):
+    assistent.show()
+    assistent.los_button.click()
+    aufgabe = _LaufendeAufgabe()
+    assistent.raum_seite._aufgabe = aufgabe  # "Schreibe ins Gerät …"
+    assistent.nicht_mehr_fragen.setChecked(True)
+
+    assistent.reject()  # Esc oder "Später einrichten"
+    assert assistent.isVisible()
+    assert "Bitte warten" in assistent.raum_seite.status_label.text()
+    assert not assistent.close()  # Schliessen ueber das Fensterkreuz
+    assert assistent.isVisible()
+    assert app_config.load_config()["einrichtung_abgeschlossen"] is False  # noch nichts gespeichert
+
+    aufgabe.laeuft = False  # fertig geschrieben: jetzt darf er zu
+    assert assistent.close()
+    assert not assistent.isVisible()
+    assert app_config.load_config()["einrichtung_abgeschlossen"] is True

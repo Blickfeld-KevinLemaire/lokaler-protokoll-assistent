@@ -36,6 +36,7 @@ from pathlib import Path
 from typing import Any
 
 from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
@@ -423,6 +424,11 @@ class ErsteinrichtungDialog(QDialog):
     def reject(self) -> None:
         """Schliessen ohne Abschluss: Der Dialog kommt beim naechsten Start
         wieder -- ausser mit "Nicht mehr fragen"."""
+        # Schreibt der Schritt "Vermerk Raum" gerade ins Geraet, bleibt der
+        # Dialog offen (Esc, "Später einrichten"): halb beschrieben waere das
+        # Geraet unbrauchbar, und der Faden wuerde mit dem Dialog zerstoert.
+        if self.raum_seite.muss_warten():
+            return
         if self._einrichtung is not None and self._einrichtung.isRunning():
             self._einrichtung.abbrechen()
         if self.nicht_mehr_fragen.isChecked():
@@ -432,6 +438,12 @@ class ErsteinrichtungDialog(QDialog):
                 aenderungen["lokale_einrichtung_zurueckgestellt"] = True
             app_config.update_config(**aenderungen)
         super().reject()
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        if self.raum_seite.muss_warten():
+            event.ignore()
+            return
+        super().closeEvent(event)
 
     # ------------------------------------------------------------------
     # 1. Willkommen
