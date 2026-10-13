@@ -24,6 +24,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from protokoll_assistent.utils.paths import get_tools_ffmpeg_dir
+from protokoll_assistent.utils.prozess import KEIN_FENSTER
 
 # Stabiler "latest"-Redirect-Link (aendert sich inhaltlich, aber nicht in
 # der URL selbst) auf einen offiziellen, statisch gelinkten Windows-Build.
@@ -213,6 +214,7 @@ def get_tool_version(executable: Path) -> str:
             text=True,
             check=False,
             timeout=15,
+            creationflags=KEIN_FENSTER,
         )
         first_line = (completed.stdout or completed.stderr or "").splitlines()
         return first_line[0].strip() if first_line else "unbekannte Version"
@@ -231,7 +233,7 @@ def probe_duration_seconds(source: Path, ffprobe_path: Path | None = None) -> fl
         "-show_format",
         str(source),
     ]
-    completed = subprocess.run(command, capture_output=True, text=True, check=False, timeout=120)
+    completed = subprocess.run(command, capture_output=True, text=True, check=False, timeout=120, creationflags=KEIN_FENSTER)
     if completed.returncode != 0:
         raise RuntimeError(f"ffprobe konnte die Datei nicht lesen: {completed.stderr.strip()[-800:]}")
     try:
@@ -266,7 +268,7 @@ def normalize_audio(
         "-c:a", "pcm_s16le",
         str(unfertig),
     ]
-    completed = subprocess.run(command, capture_output=True, text=True, check=False, timeout=3600)
+    completed = subprocess.run(command, capture_output=True, text=True, check=False, timeout=3600, creationflags=KEIN_FENSTER)
     if completed.returncode != 0 or not unfertig.exists():
         _unfertige_reste_entfernen(unfertig)
         raise RuntimeError(f"FFmpeg konnte die Datei nicht normalisieren: {completed.stderr.strip()[-1000:]}")
@@ -309,7 +311,7 @@ def extract_chunk_wav(
         "-c:a", "pcm_s16le",
         str(unfertig),
     ]
-    completed = subprocess.run(command, capture_output=True, text=True, check=False, timeout=600)
+    completed = subprocess.run(command, capture_output=True, text=True, check=False, timeout=600, creationflags=KEIN_FENSTER)
     if completed.returncode != 0 or not unfertig.exists():
         _unfertige_reste_entfernen(unfertig)
         raise RuntimeError(f"FFmpeg konnte den Chunk nicht erstellen: {completed.stderr.strip()[-1000:]}")
@@ -364,7 +366,7 @@ def extract_speaker_audio(
             "-c:a", "pcm_s16le",
             str(unfertig),
         ]
-        completed = subprocess.run(command, capture_output=True, text=True, check=False, timeout=600)
+        completed = subprocess.run(command, capture_output=True, text=True, check=False, timeout=600, creationflags=KEIN_FENSTER)
     finally:
         skript.unlink(missing_ok=True)
     if completed.returncode != 0 or not unfertig.exists():
