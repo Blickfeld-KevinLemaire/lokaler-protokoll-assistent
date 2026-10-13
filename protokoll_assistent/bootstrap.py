@@ -33,12 +33,15 @@ CPU weiter (deutlich langsamer), aber lauffaehig.
 
 from __future__ import annotations
 
+import ctypes
 import os
 import subprocess
 import sys
 import venv
 from pathlib import Path
 from typing import Any
+
+from protokoll_assistent.utils.prozess import KEIN_FENSTER
 
 MARKER_ENV_VAR = "PROTOKOLL_ASSISTENT_LOKAL_VENV"
 
@@ -128,7 +131,12 @@ def _try_create_splash():
 def _run_logged(command: list[str], splash) -> None:
     splash.log("> " + " ".join(command))
     process = subprocess.Popen(
-        command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+        creationflags=KEIN_FENSTER,
     )
     assert process.stdout is not None  # noqa: S101 - nur Typ-Einengung,
     # 'stdout' ist durch 'stdout=subprocess.PIPE' oben garantiert gesetzt.
@@ -154,6 +162,7 @@ def _create_venv(venv_dir: Path, base_python: Path | None = None) -> None:
         [str(base_python), "-m", "venv", str(venv_dir)],
         capture_output=True,
         text=True,
+        creationflags=KEIN_FENSTER,
     )
     if completed.returncode != 0:
         raise RuntimeError(f"Anlegen der Umgebung mit {base_python} fehlgeschlagen: {completed.stderr.strip()}")
@@ -193,6 +202,16 @@ def _report_python_diagnosis_and_exit() -> None:
 ANWENDUNGSMODUL = "protokoll_assistent.app"
 
 
+def _hat_konsole() -> bool:
+    """Haengt dieser Prozess an einer Konsole (Entwickler-Terminal,
+    ``Start-Protokoll-Assistent.ps1``)? Die gebaute EXE ist eine
+    Fensteranwendung und hat keine. Ohne Windows gibt es die Frage nicht."""
+    windll = getattr(ctypes, "windll", None)
+    if windll is None:
+        return True
+    return bool(windll.kernel32.GetConsoleWindow())
+
+
 def _relaunch(python_exe: Path) -> None:
     from protokoll_assistent.utils.paths import get_app_dir
 
@@ -207,10 +226,18 @@ def _relaunch(python_exe: Path) -> None:
     # bleiben, nicht eine Ebene hoeher gehen.
     app_dir = get_app_dir()
     cwd = app_dir if getattr(sys, "frozen", False) else app_dir.parent
+    # Ohne Konsolenfenster: Dieses 'python.exe' ist die Oberflaeche. Ein
+    # sichtbares Konsolenfenster bliebe so lange offen, wie das Programm
+    # laeuft, und schloesse der Anwender es, endete auch das Programm.
+    # Das Fenster bleibt trotzdem als (unsichtbare) Konsole des Prozesses
+    # bestehen, so oeffnen dessen Hilfsprozesse (ffmpeg, ...) auch keine eigenen.
+    # Hat dieser Prozess selbst schon eine Konsole (Start aus dem Terminal),
+    # erbt das Kind sie ohne neues Fenster -- dort bleibt die Ausgabe sichtbar.
     completed = subprocess.run(
         [str(python_exe), "-m", ANWENDUNGSMODUL],
         env=child_env,
         cwd=str(cwd),
+        creationflags=0 if _hat_konsole() else KEIN_FENSTER,
     )
     sys.exit(completed.returncode)
 

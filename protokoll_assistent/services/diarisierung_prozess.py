@@ -27,6 +27,8 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
+from protokoll_assistent.utils.prozess import KEIN_FENSTER
+
 # Eine Stunde Material braucht auf der GPU ein bis zwei Minuten, auf der CPU
 # rund 25. Die Grenze faengt nur einen haengenden Prozess ab.
 ZEITLIMIT_SEKUNDEN = 3 * 60 * 60
@@ -67,6 +69,7 @@ def diarisiere_in_eigenem_prozess(
                 errors="replace",
                 timeout=ZEITLIMIT_SEKUNDEN,
                 check=False,
+                creationflags=KEIN_FENSTER,
             )
         except (OSError, subprocess.TimeoutExpired) as fehler:
             raise DiarisierungsprozessFehler(f"Der Prozess fuer die Sprechertrennung lief nicht: {fehler}") from fehler

@@ -24,6 +24,7 @@ from protokoll_assistent.services import (  # noqa: E402
 )
 from protokoll_assistent.services.rechner_analyse_service import RechnerProfil  # noqa: E402
 from protokoll_assistent.utils import app_config, hf_env  # noqa: E402
+from protokoll_assistent.utils.prozess import KEIN_FENSTER  # noqa: E402
 
 LAPTOP = RechnerProfil(ram_gb=32, cpu_kerne=16, gpu_name="NVIDIA GeForce RTX 4060", vram_gb=8.0, freier_platz_gb=300)
 OHNE_GRAFIK = RechnerProfil(ram_gb=16, cpu_kerne=8, freier_platz_gb=300)
@@ -101,8 +102,15 @@ def dialog(qt_widgets, konfig, monkeypatch):
     return fenster
 
 
-def _bis_zur_arbeitsweise(dialog, profil=LAPTOP, vorhanden=None):
+def _zum_rechner(dialog):
+    """Willkommen -> Vermerk Raum (ohne Geraet: ueberspringen) -> Ihr Computer."""
     dialog.los_button.click()
+    assert dialog.stack.currentIndex() == dialog.S_RAUM
+    dialog.raum_seite.ueberspringen_button.click()
+
+
+def _bis_zur_arbeitsweise(dialog, profil=LAPTOP, vorhanden=None):
+    _zum_rechner(dialog)
     assert dialog.stack.currentIndex() == dialog.S_RECHNER
     _Ermittlung.instanzen[-1].fertig.emit(rechner_analyse_service.analysiere(profil), vorhanden or {})
     dialog.rechner_weiter_button.click()
@@ -118,7 +126,7 @@ def test_beginnt_mit_der_erklaerung_und_laedt_nichts(dialog):
 
 
 def test_rechner_seite_zeigt_je_schritt_eine_einschaetzung(dialog):
-    dialog.los_button.click()
+    _zum_rechner(dialog)
     assert not dialog.rechner_weiter_button.isEnabled()  # erst nach der Analyse
     _Ermittlung.instanzen[-1].fertig.emit(rechner_analyse_service.analysiere(LAPTOP), {})
     texte = {schritt: bewertung.text() for schritt, (_n, bewertung) in dialog.schritt_zeilen.items()}
@@ -131,7 +139,7 @@ def test_rechner_seite_zeigt_je_schritt_eine_einschaetzung(dialog):
     assert dialog.rechner_weiter_button.isEnabled()
     # Zurueck und wieder vor: keine zweite Analyse
     dialog._gehe_zu(dialog.S_WILLKOMMEN)
-    dialog.los_button.click()
+    _zum_rechner(dialog)
     assert len(_Ermittlung.instanzen) == 1
 
 
@@ -619,3 +627,8 @@ def test_prozessstart_ist_losgeloest(monkeypatch, tmp_path):
     ee._starte_prozess(["app.exe"], tmp_path, {"A": "1"})
     befehl, kwargs = gestartet[0]
     assert befehl == ["app.exe"] and kwargs["cwd"] == str(tmp_path) and kwargs["env"] == {"A": "1"}
+    # Eigener Prozess, der weiterlaeuft, wenn dieser endet -- aber ohne sichtbares Konsolenfenster
+    # und ohne 'DETACHED_PROCESS' (sonst oeffnete jedes seiner Hilfsprogramme ein eigenes Fenster).
+    flags = kwargs["creationflags"]
+    assert flags & KEIN_FENSTER == KEIN_FENSTER
+    assert not flags & getattr(subprocess, "DETACHED_PROCESS", 0)

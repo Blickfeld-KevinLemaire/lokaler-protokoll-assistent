@@ -10,6 +10,7 @@ import pytest
 
 from protokoll_assistent import bootstrap
 from protokoll_assistent.services import environment_service
+from protokoll_assistent.utils.prozess import KEIN_FENSTER
 
 
 class _FakeSplash:
@@ -101,17 +102,21 @@ def test_frozen_mit_mitgelieferter_laufzeit_richtet_ein_und_startet_neu(monkeypa
     assert relaunch_calls == [paths.venv_python_path(runtime_venv_dir)]
 
 
-def _relaunch_cwd_testen(monkeypatch, tmp_path, *, app_dir: Path) -> Path:
+def _relaunch_cwd_testen(monkeypatch, tmp_path, *, app_dir: Path, hat_konsole: bool = False) -> Path:
     from protokoll_assistent.utils import paths
 
     monkeypatch.setattr(paths, "get_app_dir", lambda: app_dir)
+    monkeypatch.setattr(bootstrap, "_hat_konsole", lambda: hat_konsole)
 
     calls = []
 
     class _FakeCompleted:
         returncode = 0
 
-    def _fake_run(befehl, env, cwd):
+    def _fake_run(befehl, env, cwd, creationflags):
+        # Die Oberflaeche darf kein sichtbares Konsolenfenster bekommen --
+        # ausser sie erbt die Konsole, aus der sie gestartet wurde.
+        assert creationflags == (0 if hat_konsole else KEIN_FENSTER)
         calls.append((befehl, cwd))
         return _FakeCompleted()
 
@@ -144,6 +149,27 @@ def test_relaunch_bleibt_in_app_dir_wenn_gebaut(monkeypatch, tmp_path):
     monkeypatch.setattr(bootstrap.sys, "frozen", True, raising=False)
     cwd = _relaunch_cwd_testen(monkeypatch, tmp_path, app_dir=tmp_path)
     assert cwd == tmp_path
+
+
+def test_relaunch_aus_dem_terminal_behaelt_die_konsole(monkeypatch, tmp_path):
+    # Aus einem Terminal gestartet erbt die Oberflaeche dessen Konsole, ohne
+    # ein neues Fenster -- die Ausgabe bleibt dort fuer Entwickler sichtbar.
+    cwd = _relaunch_cwd_testen(monkeypatch, tmp_path, app_dir=tmp_path / "protokoll_assistent", hat_konsole=True)
+    assert cwd == tmp_path
+
+
+def test_hat_konsole_fragt_windows(monkeypatch):
+    import types
+
+    for fenster, erwartet in ((0, False), (4711, True)):
+        kernel32 = types.SimpleNamespace(GetConsoleWindow=lambda fenster=fenster: fenster)
+        monkeypatch.setattr(bootstrap.ctypes, "windll", types.SimpleNamespace(kernel32=kernel32), raising=False)
+        assert bootstrap._hat_konsole() is erwartet
+
+
+def test_hat_konsole_ohne_windows(monkeypatch):
+    monkeypatch.delattr(bootstrap.ctypes, "windll", raising=False)
+    assert bootstrap._hat_konsole() is True
 
 
 def test_uses_existing_legacy_venv_without_installing(monkeypatch, tmp_path):
@@ -322,7 +348,8 @@ def test_create_venv_with_base_python_calls_subprocess(monkeypatch, tmp_path):
         returncode = 0
         stderr = ""
 
-    def fake_run(command, capture_output, text):
+    def fake_run(command, capture_output, text, creationflags):
+        assert creationflags == KEIN_FENSTER
         calls.append(command)
         return _FakeResult()
 
@@ -386,3 +413,25 @@ def test_neustart_der_gebauten_exe(monkeypatch, tmp_path):
     monkeypatch.setattr(bootstrap.sys, "frozen", True, raising=False)
     befehl, ordner, _umgebung = bootstrap.neustart_kommando()
     assert befehl == [bootstrap.sys.executable] and ordner == tmp_path
+
+
+def test_pip_aufrufe_der_einrichtung_oeffnen_kein_konsolenfenster(monkeypatch):
+    gesehen = {}
+
+    class _Prozess:
+        stdout: list[str] = []  # noqa: RUF012
+
+        def wait(self):
+            return 0
+
+    def fake_popen(command, **kwargs):
+        gesehen.update(kwargs)
+        return _Prozess()
+
+    class _Splash:
+        def log(self, _text):
+            pass
+
+    monkeypatch.setattr(bootstrap.subprocess, "Popen", fake_popen)
+    bootstrap._run_logged(["python.exe", "-m", "pip", "list"], _Splash())
+    assert gesehen["creationflags"] == KEIN_FENSTER
