@@ -175,7 +175,8 @@ und stimmt dabei den jeweiligen Bedingungen zu.
 | `pyannote/speaker-diarization-community-1` | Zugang ueber Hugging Face, Zustimmung zu den dortigen Nutzungsbedingungen erforderlich (Token). |
 | Whisper-Modelle (faster-whisper/CTranslate2) | MIT (Modell von OpenAI unter MIT) |
 | `bge-m3` (Suchmodell fuer „Frag mein Meeting“, ueber Ollama) | MIT (BAAI) |
-| Ollama-Modelle | Je Modell unterschiedlich. Qwen3.5, Qwen3.8 und Gemma 4 aus der Auswahl stehen unter Apache 2.0. Von Hand eingetragene Modelle (z. B. Llama oder Gemma 3) haben eigene Lizenzen mit eigenen Auflagen. Vor einer kommerziellen Nutzung bitte je Modell pruefen. |
+| `hf.co/LiquidAI/LFM2.5-2.6B-GGUF:Q4_K_M` (LFM2.5-2.6B, Liquid AI, ueber Ollama) | **LFM Open License v1.0** — kommerzielle Nutzung bis 10 Mio. USD Jahresumsatz kostenlos, darueber ist eine Vereinbarung mit Liquid AI noetig. Wird wie die uebrigen Ollama-Modelle **nicht** mitgeliefert, sondern auf Wunsch des Anwenders zur Laufzeit ueber Ollama geladen (Modell-Id `hf.co/LiquidAI/LFM2.5-2.6B-GGUF:Q4_K_M`). |
+| Ollama-Modelle | Je Modell unterschiedlich. Qwen3.5, Qwen3.8 und Gemma 4 aus der Auswahl stehen unter Apache 2.0, LFM2.5 unter der LFM Open License (eigene Zeile oben). Von Hand eingetragene Modelle (z. B. Llama oder Gemma 3) haben eigene Lizenzen mit eigenen Auflagen. Vor einer kommerziellen Nutzung bitte je Modell pruefen. |
 
 ---
 
