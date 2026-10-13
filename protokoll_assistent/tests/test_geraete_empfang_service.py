@@ -639,3 +639,101 @@ def test_sanft_schliessen_bei_schon_geschlossener_verbindung():
     verbindung = _Verbindung([], fehler_bei_shutdown=True)
     empfang._sanft_schliessen(verbindung)
     assert verbindung.ablauf == []
+
+
+# --------------------------------------------------------------------------
+# Live-Verarbeitung: Rueckrufe und Status
+# --------------------------------------------------------------------------
+def test_rueckrufe_melden_stuecke_und_abschluss_mit_dem_namen_des_geraets(tmp_path):
+    ereignisse: list[tuple] = []
+    ablage = Ablage(
+        tmp_path / "eingang",
+        freier_platz=lambda _p: 10**12,
+        bei_teil=lambda geraet, datei, pfad: ereignisse.append(("teil", geraet, datei, pfad.read_bytes())),
+        bei_abschluss=lambda geraet, datei, ziel: ereignisse.append(("ende", geraet, datei, ziel.name)),
+    )
+    assert ablage.anhaengen("S3", "H5_7.opus", 0, 3, leser(b"abc")).status == 200
+    assert ablage.anhaengen("S3", "H5_7.opus", 3, 3, leser(b"def")).status == 200
+    assert ablage.anhaengen("S3", "H5_7.opus", 6, 0, leser(b""), 6, sha(b"abcdef")).daten["fertig"] is True
+    # Das Stueck wird gemeldet, nachdem es geschrieben wurde; 'datei' ist der Name des Geraets,
+    # der Abschluss nennt zusaetzlich den Dateinamen am PC.
+    assert ereignisse == [
+        ("teil", "S3", "H5_7.opus", b"abc"),
+        ("teil", "S3", "H5_7.opus", b"abcdef"),
+        ("ende", "S3", "H5_7.opus", "S3_H5_7.opus"),
+    ]
+
+
+def test_leeres_stueck_und_abgelehnte_stuecke_melden_nichts(tmp_path):
+    ereignisse = []
+    ablage = Ablage(
+        tmp_path / "eingang",
+        freier_platz=lambda _p: 10**12,
+        bei_teil=lambda *a: ereignisse.append(a),
+    )
+    ablage.anhaengen("S3", "H5.opus", 0, 0, leser(b""))  # leer
+    assert ablage.anhaengen("S3", "H5.opus", 5, 1, nie_lesen).status == 409  # falscher Offset
+    assert ereignisse == []
+
+
+def test_wiederholte_aufnahme_meldet_den_abschluss_nicht_noch_einmal(tmp_path):
+    abschluesse = []
+    ablage = Ablage(
+        tmp_path / "eingang",
+        freier_platz=lambda _p: 10**12,
+        bei_abschluss=lambda *a: abschluesse.append(a),
+    )
+    hochladen(ablage, "S3", "H5.opus", b"abc")
+    hochladen(ablage, "S3", "H5.opus", b"abc")
+    assert len(abschluesse) == 1
+
+
+def test_fehler_in_den_rueckrufen_stoeren_den_empfang_nicht(tmp_path):
+    def kaputt(*_a):
+        raise RuntimeError("Live-Verarbeitung weg")
+
+    ablage = Ablage(tmp_path / "eingang", freier_platz=lambda _p: 10**12, bei_teil=kaputt, bei_abschluss=kaputt)
+    assert hochladen(ablage, "S3", "H5.opus", b"abcdef", stueck=2).daten["fertig"] is True
+
+
+def test_status_ueber_http(tmp_path):
+    zustaende = {("S3-Audio", "H5_007.opus"): {"zustand": "auswertung", "fortschritt": 0.8}}
+    geraete = (Geraet("S3-Audio", empfang.token_hash(TOKEN)),)
+    dienst = GeraeteEmpfang(
+        tmp_path / "eingang", geraete, port=0, adresse="127.0.0.1", status_fn=lambda g, d: zustaende.get((g, d))
+    )
+    dienst.starten()
+    try:
+        pfad = "/api/v1/aufnahmen/H5_007.opus/status"
+        assert anfrage(dienst, "GET", pfad)[:2] == (200, {"zustand": "auswertung", "fortschritt": 0.8})
+        # Unbekannt: nichts zu melden (Neustart der Software), kein Fehler.
+        assert anfrage(dienst, "GET", "/api/v1/aufnahmen/H5_008.opus/status")[:2] == (200, {"zustand": "unbekannt"})
+        assert anfrage(dienst, "GET", "/api/v1/aufnahmen/mit%20leerzeichen.opus/status")[0] == 400
+        assert anfrage(dienst, "GET", pfad, token=None)[0] == 401
+        assert anfrage(dienst, "PUT", pfad, b"", X_Offset="0")[0] == 400  # kein Upload-Ziel
+        # Der Stand fuer die Wiederaufnahme bleibt, wie er war.
+        assert anfrage(dienst, "GET", "/api/v1/aufnahmen/H5_007.opus")[1] == {"naechstes_byte": 0, "fertig": False}
+    finally:
+        dienst.stoppen()
+
+
+def test_status_ohne_live_verarbeitung_ist_unbekannt(dienst):
+    assert anfrage(dienst, "GET", "/api/v1/aufnahmen/H5_007.opus/status")[:2] == (200, {"zustand": "unbekannt"})
+
+
+def test_neubeginn_verwerfen_und_wiederholung_werden_gemeldet(tmp_path):
+    """Was bisher unter einem Namen ankam, gilt nicht mehr: ein Upload ab Byte 0, ein verworfener Teilstand (422),
+    die Wiederholung einer schon abgelegten Aufnahme. Die Live-Verarbeitung verwirft dann ihren Stand -- sonst
+    geriete das Transkript der vorigen Aufnahme in die naechste unter demselben Namen."""
+    verworfen: list[tuple] = []
+    ablage = Ablage(tmp_path / "eingang", freier_platz=lambda _p: 10**12, bei_verworfen=lambda *a: verworfen.append(a))
+    assert ablage.anhaengen("S3", "H5.opus", 0, 3, leser(b"abc")).status == 200
+    assert verworfen == [("S3", "H5.opus")]  # beginnt bei Byte 0
+    assert ablage.anhaengen("S3", "H5.opus", 3, 3, leser(b"def")).status == 200
+    assert len(verworfen) == 1  # ein Folgestueck verwirft nichts
+    assert ablage.anhaengen("S3", "H5.opus", 6, 0, leser(b""), 6, sha(b"anders")).status == 422
+    assert len(verworfen) == 2
+    hochladen(ablage, "S3", "H5.opus", b"abc", stueck=3)  # von vorn: Byte 0
+    assert len(verworfen) == 3
+    hochladen(ablage, "S3", "H5.opus", b"abc", stueck=3)  # Bestaetigung verloren: Byte 0 und Wiederholung
+    assert verworfen == [("S3", "H5.opus")] * 5

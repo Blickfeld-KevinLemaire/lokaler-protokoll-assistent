@@ -78,6 +78,17 @@ DEFAULTS: dict[str, Any] = {
     "geraete_empfang_aktiv": False,
     "geraete_empfang_port": 8765,
     "geraete_empfang_geraete": [],
+    # Aufnahmegeraete: waehrend der Aufnahme schon transkribieren und nach dem Ende
+    # automatisch auswerten. 'geraete_live_auftrag' ist der Name einer
+    # Systemprompt-Vorlage (leer: das Modell fasst so zusammen, wie es sinnvoll ist).
+    "geraete_live_aktiv": True,
+    "geraete_live_auftrag": "",
+    # Die Auswertung (Stufe 1 und 2) schon waehrend der Aufnahme vorberechnen; der Auswertungstext enthaelt
+    # dann keine Sprecherangaben (die Sprechertrennung entsteht erst am Ende).
+    "geraete_live_auswertung_vorab": True,
+    # Laenge der Abschnitte (Sekunden), die das Sprachmodell einzeln auswertet. Kuerzere Abschnitte
+    # verkuerzen die Wartezeit nach dem Ende: Es bleibt hoechstens der letzte offen.
+    "geraete_live_abschnitt_sekunden": 180,
 }
 
 

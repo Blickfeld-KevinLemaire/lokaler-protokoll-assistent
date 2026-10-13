@@ -18,6 +18,21 @@ from dataclasses import dataclass
 
 DEFAULT_CHUNK_LENGTH_SECONDS = 600.0
 DEFAULT_OVERLAP_SECONDS = 10.0
+# Grenzen fuer die Abschnitte der Auswertung (nicht der Transkription): kuerzer lohnt nicht (zu viele
+# Anfragen), laenger als der Standard braucht es nicht.
+MIN_AUSWERTUNG_SECONDS = 60.0
+
+
+def auswertungs_abschnitt(sekunden: object) -> float:
+    """Die Abschnittslaenge fuer die Auswertung aus einer Einstellung: ungueltige Werte ergeben den
+    Standard, alles andere wird auf den erlaubten Bereich begrenzt."""
+    try:
+        wert = float(sekunden)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return DEFAULT_CHUNK_LENGTH_SECONDS
+    if wert != wert:  # NaN
+        return DEFAULT_CHUNK_LENGTH_SECONDS
+    return min(max(wert, MIN_AUSWERTUNG_SECONDS), DEFAULT_CHUNK_LENGTH_SECONDS)
 
 
 @dataclass(frozen=True)
