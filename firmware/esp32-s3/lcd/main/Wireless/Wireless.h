@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <string.h>  // For memcpy
 #include "esp_system.h"
+#include "vermerk_live.h"
 #include "vermerk_upload.h"
 
 
@@ -21,3 +22,12 @@ void Wireless_Init(void);
 void WIFI_Init(void *arg);
 vermerk_ergebnis_t VERMERK_Upload_File(const char *path, const char *filename, vermerk_abbrechen_t abbrechen);
 void VERMERK_Wifi_Fast_Mode(bool on);
+
+/* Senden waehrend der Aufnahme: vom Upload-Manager waehrend einer Aufnahme regelmaessig aufrufen.
+ * Tut nichts, wenn kein Ziel erreichbar ist. */
+void VERMERK_Live_Schritt(void);
+
+/* Verarbeitungsstand einer hochgeladenen Aufnahme bei der Software abfragen (GET .../status).
+ * VERMERK_STATUSABFRAGE_ZUSTAND: status ist gefuellt (auch "unbekannt"); _SPAETER: kein Ziel, Netz, 5xx;
+ * _ENDE: die Software lehnt die Abfrage dauerhaft ab (4xx, z. B. eine aeltere Software ohne .../status). */
+vermerk_statusabfrage_t VERMERK_Status_Abfragen(const char *dateiname, vermerk_status_t *status);

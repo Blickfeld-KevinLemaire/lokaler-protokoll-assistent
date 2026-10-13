@@ -19,6 +19,7 @@ static const char *TAG = "OPUS";
 
 static void *s_enc = NULL;
 static FILE *s_file = NULL;
+static opus_seiten_haken_t s_haken = NULL;
 
 static int16_t *s_pcm = NULL;          /* ein Frame Eingangsdaten */
 static int s_pcm_fill = 0;
@@ -79,6 +80,9 @@ static bool write_page(uint8_t header_type, uint64_t granule)
     put_le32(s_page + 22, ogg_crc(s_page, hdr + s_data_len));
 
     bool ok = fwrite(s_page, 1, hdr + s_data_len, s_file) == (size_t)(hdr + s_data_len);
+    if (ok && s_haken != NULL) {
+        s_haken(s_page, (size_t)(hdr + s_data_len));
+    }
     s_nseg = 0;
     s_data_len = 0;
     return ok;
@@ -143,6 +147,11 @@ static bool encode_frame(void)
 
     s_granule += FRAME_GRANULE;
     return out.encoded_bytes == 0 || add_packet(s_pkt, (int)out.encoded_bytes);
+}
+
+void opus_enc_seiten_haken(opus_seiten_haken_t haken)
+{
+    s_haken = haken;
 }
 
 bool opus_enc_init(void)

@@ -40,11 +40,22 @@ def main() -> int:
     wurzel = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).resolve().parents[5]
     sys.path.insert(0, str(wurzel))
     g = importlib.import_module("protokoll_assistent.services.geraete_empfang_service")
+    live = importlib.import_module("protokoll_assistent.services.live_service")
 
     faelle: list[tuple[str, int, bytes]] = []
 
     with tempfile.TemporaryDirectory() as tmp:
-        empfang = g.GeraeteEmpfang(Path(tmp), [g.Geraet("Vertrag", g.token_hash(TOKEN))], port=0, adresse="127.0.0.1")
+        # Stand der Verarbeitung (live_service): feste Uhr, damit die Datei bei jedem Lauf gleich ist
+        stand = live.StatusRegister(jetzt=lambda: 1760000000)
+        stand.setze("Vertrag", "H5_010.opus", live.EMPFANG, meldung="2 Bloecke schon transkribiert")
+        stand.setze("Vertrag", "H5_011.opus", live.WARTET, meldung="Aufnahme angekommen")
+        stand.setze("Vertrag", "H5_012.opus", live.TRANSKRIPTION, 0.457, "Transkription läuft")
+        stand.setze("Vertrag", "H5_013.opus", live.AUSWERTUNG, 0.8)
+        stand.setze("Vertrag", "H5_014.opus", live.FERTIG, 1.0, "Transkription erfolgreich")
+        stand.setze("Vertrag", "H5_015.opus", live.FEHLER, None, "Die Auswertung ist fehlgeschlagen.")
+        empfang = g.GeraeteEmpfang(
+            Path(tmp), [g.Geraet("Vertrag", g.token_hash(TOKEN))], port=0, adresse="127.0.0.1", status_fn=stand.hole
+        )
         empfang.starten()
         port = empfang.port
 
@@ -93,6 +104,16 @@ def main() -> int:
                 *anfrage("PUT", a, b"", X_Offset="10", X_Gesamtgroesse="10", X_SHA256="0" * 64),
             )
         )
+        for name, nummer in (
+            ("STATUS_EMPFANG", 10),
+            ("STATUS_WARTET", 11),
+            ("STATUS_TRANSKRIPTION", 12),
+            ("STATUS_AUSWERTUNG", 13),
+            ("STATUS_FERTIG", 14),
+            ("STATUS_FEHLER", 15),
+            ("STATUS_UNBEKANNT", 99),
+        ):
+            faelle.append((name, *anfrage("GET", f"/api/v1/aufnahmen/H5_{nummer:03d}.opus/status")))
         faelle.append(("NAME_400", *anfrage("GET", "/api/v1/aufnahmen/H5%20007.flac")))
         faelle.append(("KOPF_400", *anfrage("PUT", a, inhalt, X_Offset="abc")))
         faelle.append(("PFAD_404", *anfrage("GET", "/api/v1/unbekannt")))

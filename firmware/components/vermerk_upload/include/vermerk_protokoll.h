@@ -62,6 +62,15 @@ int vermerk_json_wahrheitswert(const char *text, size_t laenge, const char *schl
  * teil_max_bytes (darf NULL sein) bekommt den gemeldeten Wert oder 0, wenn er fehlt/ungueltig ist. */
 bool vermerk_hallo_pruefen(const char *text, size_t laenge, uint32_t *teil_max_bytes);
 
+/* Text-Wert ("schluessel":"wert") in ziel kopieren, mit Nullbyte. Nur Buchstaben, Ziffern, '_' und '-'
+ * (die Werte der Schnittstelle sind Kennwoerter, kein freier Text); alles andere, ein zu langer Wert oder
+ * ein fehlender Schluessel: false. Gelesen wird nur innerhalb von text[0..laenge). */
+bool vermerk_json_text(const char *text, size_t laenge, const char *schluessel, char *ziel, size_t ziel_groesse);
+
+/* Dezimalzahl 0 bis 1 als Promille (0 bis 1000): "0.457" -> 457, "1" -> 1000, "0.5" -> 500. Hoechstens drei
+ * Nachkommastellen, kein Vorzeichen, kein Exponent; danach muss ',' oder '}' folgen. */
+bool vermerk_json_promille(const char *text, size_t laenge, const char *schluessel, uint32_t *promille);
+
 /* Stueckgroesse: VERMERK_TEIL_BYTES, oder weniger, wenn die Software weniger annimmt (0 = unbekannt) */
 uint32_t vermerk_teil_bytes(uint32_t teil_max_server);
 
@@ -97,6 +106,65 @@ typedef struct {
  * "fertig":true zaehlt nur beim Abschluss - nur dann hat die Software Groesse und Pruefsumme geprueft. */
 vermerk_entscheidung_t vermerk_entscheiden(vermerk_phase_t phase, int http_status,
                                            const char *text, size_t laenge, bool von_vorn_versucht);
+
+/* ---- Verarbeitungsstand: GET /api/v1/aufnahmen/<Name>/status ----
+ * Wie weit die Software mit der Aufnahme ist. Das Geraet fragt das nach dem Abschluss ab und zeigt es an. */
+
+typedef enum {
+    VERMERK_VERARB_UNBEKANNT = 0,  /* der Software ist nichts bekannt (oder ein unbekannter Zustand) */
+    VERMERK_VERARB_EMPFANG,        /* Aufnahme laeuft noch oder das Ende steht aus */
+    VERMERK_VERARB_WARTET,         /* angekommen, Verarbeitung eingereiht */
+    VERMERK_VERARB_TRANSKRIPTION,
+    VERMERK_VERARB_AUSWERTUNG,
+    VERMERK_VERARB_FERTIG,         /* "Transkription erfolgreich" */
+    VERMERK_VERARB_FEHLER
+} vermerk_verarbeitung_t;
+
+typedef struct {
+    vermerk_verarbeitung_t zustand;
+    int fortschritt_prozent;       /* 0 bis 100, -1 = nicht gemeldet */
+} vermerk_status_t;
+
+/* Antwort von GET .../status lesen. true, wenn ein "zustand" da ist (auch ein unbekannter: dann
+ * VERMERK_VERARB_UNBEKANNT). Der Fortschritt ist optional. */
+bool vermerk_status_pruefen(const char *text, size_t laenge, vermerk_status_t *status);
+
+/* Gibt es nichts mehr abzuwarten? (fertig oder Fehler) */
+bool vermerk_verarbeitung_beendet(vermerk_verarbeitung_t zustand);
+
+const char *vermerk_verarbeitung_text(vermerk_verarbeitung_t zustand);
+
+/* Was eine Antwort auf GET .../status fuer die Abfrage bedeutet */
+typedef enum {
+    VERMERK_STATUSABFRAGE_ZUSTAND = 0,  /* 200 mit "zustand": status ist gefuellt (auch VERMERK_VERARB_UNBEKANNT) */
+    VERMERK_STATUSABFRAGE_SPAETER,      /* voruebergehend (keine Antwort, 408, 429, 5xx, 200 ohne Zustand): weiter fragen */
+    VERMERK_STATUSABFRAGE_ENDE          /* hilft so nicht (400, 401, 404 ... - etwa eine aeltere Software ohne
+                                         * .../status oder ein widerrufenes Token): fuer diese Aufnahme nicht mehr fragen */
+} vermerk_statusabfrage_t;
+
+/* Antwort von GET .../status bewerten. http_status 0 = keine Antwort, -1 = Name oder Ziel ungueltig (wie
+ * vermerk_aufnahme_abfragen). status bekommt den Stand bei VERMERK_STATUSABFRAGE_ZUSTAND, sonst "unbekannt". */
+vermerk_statusabfrage_t vermerk_status_entscheiden(int http_status, const char *text, size_t laenge,
+                                                   vermerk_status_t *status);
+
+/* ---- Senden waehrend der Aufnahme ----
+ * Die Software haengt die Stuecke einer wachsenden Datei an (PUT mit X-Offset, ohne Abschluss).
+ * Nach jeder Antwort entscheidet diese Funktion, wie es weitergeht. bestaetigt = so viele Bytes hat die
+ * Software sicher (und der Ringpuffer hat sie noch), geschrieben = so viele sind insgesamt entstanden. */
+
+typedef enum {
+    VERMERK_LIVE_WEITER = 0,   /* neuer Stand in naechstes_byte (kann gleich bleiben: nichts angekommen) */
+    VERMERK_LIVE_SPAETER,      /* vorruebergehend: beim naechsten Mal dieselben Bytes noch einmal */
+    VERMERK_LIVE_AUFGEBEN      /* hilft so nicht: Live-Senden fuer diese Aufnahme beenden */
+} vermerk_live_aktion_t;
+
+typedef struct {
+    vermerk_live_aktion_t aktion;
+    uint64_t naechstes_byte;   /* nur bei VERMERK_LIVE_WEITER */
+} vermerk_live_entscheidung_t;
+
+vermerk_live_entscheidung_t vermerk_live_entscheiden(int http_status, const char *text, size_t laenge,
+                                                     uint64_t bestaetigt, uint64_t geschrieben);
 
 /* Ergebnis eines Upload-Versuchs fuer den Upload-Manager */
 typedef enum {

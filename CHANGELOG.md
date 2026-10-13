@@ -24,8 +24,9 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
   `GET /api/v1/aufnahmen/<Name>/status` ab (Zustände `empfang`, `wartet`,
   `transkription`, `auswertung`, `fertig` mit „Transkription erfolgreich",
   `fehler`). Einstellungen → Aufnahmegeräte: Schalter und Auftrag (eine
-  Systemprompt-Vorlage); ab Werk an. Die Firmware sendet noch nicht während der
-  Aufnahme (siehe `firmware/docs/streaming-konzept.md`).
+  Systemprompt-Vorlage); ab Werk an. Von den Geräten sendet bisher das S3 mit
+  Bildschirm während der Aufnahme und zeigt den Stand an (siehe unten); S3-AUDIO
+  und C6 noch nicht (siehe `firmware/docs/streaming-konzept.md`).
 - **Auswertung schon während der Aufnahme vorbereiten:** Das Sprachmodell wertet jeden fertigen
   Abschnitt der laufenden Aufnahme (Standard 180 s, einstellbar 60–600 s; von Hand gestartete Auswertungen bleiben bei 600 s) sofort aus (Stufe 1) und führt feststehende Gruppen
   zusammen (Stufe 2), während Whisper auf dem Prozessor weiter transkribiert. Nach dem Ende fehlen
@@ -34,6 +35,18 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
   genau zur fertigen Auswertung passt. Dafür enthält der Auswertungstext der automatischen
   Verarbeitung keine Sprecherangaben (im Transkript stehen sie weiterhin). Einstellungen →
   Aufnahmegeräte: „Auswertung schon während der Aufnahme vorbereiten“ (ab Werk an).
+- **Firmware (S3 mit Bildschirm): Senden während der Aufnahme und Anzeige „Transkription erfolgreich“:**
+  Das Gerät schickt die Aufnahme alle 15 s in Stücken an die Protokoll-Software (Ringpuffer im PSRAM, `PUT` mit `X-Offset`),
+  während die Aufnahme läuft. Nach dem Stopp lädt es den Rest hoch und fragt den Verarbeitungsstand ab; das Display zeigt
+  „TRANSKRIPTION WIRD VERARBEITET“, am Ende ca. 4 s ein grünes Häkchen mit „TRANSKRIPTION ERFOLGREICH“ über den ganzen
+  Bildschirm und danach dauerhaft die Statuszeile „✓ TRANSKRIPTION ERFOLGREICH“ (bei Fehlern rot). Es geht nichts verloren: Die
+  Aufnahme liegt immer ganz auf der SD-Karte, und der normale Upload macht dort weiter, wo die Software steht. Die zuletzt
+  aufgenommene Aufnahme wird jetzt zuerst hochgeladen (vor älteren Dateien, auch wenn mehr als 32 davon warten), und das
+  Prüfsummen-Lesen einer langen angefangenen Datei lässt sich abbrechen, sobald eine Aufnahme beginnt (vorher hielt es die
+  SD-Karte minutenlang besetzt). Lehnt die Software die Statusabfrage ab (`4xx`, etwa eine ältere Version ohne `…/status`
+  oder ein widerrufenes Token), fragt das Gerät nicht weiter nach, statt es bis zu 3 Stunden alle 3 s zu versuchen; nach
+  einem gescheiterten Live-Stück wartet es den normalen Abstand von 15 s ab. Siehe `firmware/README.md`.
+
 - **Aufnahmegeräte im WLAN laden selbst hoch:** Ist der Empfang eingeschaltet
   (Einstellungen → „Aufnahmegeräte“, im Servermodus `PROTOKOLL_EMPFANG=1`),
   landen die Aufnahmen der eigenen ESP32-Geräte ohne Umweg im Eingabeordner und
@@ -224,6 +237,11 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 ### Fixed
 
+- **Empfang: Stand nach einem Verbindungsabbruch stimmt:** Fragte ein Aufnahmegerät
+  nach einem Abbruch mitten in einem Stück schon nach, während die Software noch auf
+  den Rest dieses Stücks wartete, zählte der gemeldete Stand den halben Rest mit. Das
+  Gerät setzte dort an und musste nach einer Ablehnung (409) zurück. Gemeldet wird
+  jetzt nur noch, was vollständig angekommen ist.
 - **Kein schwarzes Konsolenfenster mehr:** Im lokalen Modus stand neben der
   Oberfläche dauerhaft ein schwarzes Fenster offen – wer es schloss, beendete
   das ganze Programm. Die Oberfläche und alle Hilfsprogramme (ffmpeg,

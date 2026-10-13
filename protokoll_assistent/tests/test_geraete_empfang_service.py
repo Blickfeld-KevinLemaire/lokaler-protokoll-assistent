@@ -737,3 +737,32 @@ def test_neubeginn_verwerfen_und_wiederholung_werden_gemeldet(tmp_path):
     assert len(verworfen) == 3
     hochladen(ablage, "S3", "H5.opus", b"abc", stueck=3)  # Bestaetigung verloren: Byte 0 und Wiederholung
     assert verworfen == [("S3", "H5.opus")] * 5
+
+
+def test_stand_nennt_kein_halb_angekommenes_stueck(tmp_path):
+    """Bricht die Verbindung mitten in einem Stueck ab, wartet die Software womoeglich noch auf dessen Rest, waehrend
+    das Geraet schon neu verbunden nachfragt. Die Datei enthaelt dann schon einen Teil des Stuecks -- der Stand darf
+    ihn nicht mitzaehlen, denn das Stueck wird danach verworfen (gefunden im QEMU-Abbruch-Fall: das Geraet setzte
+    bei Byte 362144 statt 262144 an)."""
+    ablage = Ablage(tmp_path / "eingang", freier_platz=lambda _p: 10**12)
+    assert ablage.anhaengen("S3", "H5.opus", 0, 4, leser(b"abcd")).status == 200
+    teil = ablage._teil_pfad(ablage._schluessel("S3", "H5.opus"))
+    erster_block = b"x" * 20000  # groesser als der Schreibpuffer: steht sofort in der Datei
+    beobachtet: list[tuple[int, int]] = []
+    aufrufe = 0
+
+    def lesen(_anzahl: int) -> bytes:
+        nonlocal aufrufe
+        aufrufe += 1
+        if aufrufe == 1:
+            return erster_block
+        # Der Rest des Stuecks fehlt noch; das Geraet fragt inzwischen nach dem Stand ...
+        beobachtet.append((teil.stat().st_size, ablage.stand("S3", "H5.opus").daten["naechstes_byte"]))
+        return b""  # ... und die Verbindung ist weg
+
+    assert ablage.anhaengen("S3", "H5.opus", 4, 30000, lesen).status == 400
+    datei_groesse, gemeldet = beobachtet[0]
+    assert datei_groesse > 4  # der halbe Rest stand wirklich schon in der Datei
+    assert gemeldet == 4  # gemeldet wird nur, was vollstaendig angekommen ist
+    assert ablage.stand("S3", "H5.opus").daten["naechstes_byte"] == 4
+    assert ablage.anhaengen("S3", "H5.opus", 4, 2, leser(b"ef")).status == 200  # dort geht es weiter

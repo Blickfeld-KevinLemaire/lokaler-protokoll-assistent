@@ -1,8 +1,9 @@
 # Konzept: Live-Übertragung und laufende Transkription
 
-Stand: 13.10.2026. Das ist ein **Konzept**; umgesetzt sind die Übertragung (Phase 1, noch nicht auf einem Gerät getestet)
-und auf der **PC-Seite** die blockweise Live-Transkription, die automatische Auswertung und der Status fürs Gerät
-(Phase 2 und 3, siehe unten). **Offen ist die Firmware:** Senden während der Aufnahme, Status abfragen, Häkchen anzeigen. Es beschreibt, wie die Aufnahmegeräte
+Stand: 13.10.2026. Das ist ein **Konzept**; umgesetzt sind die Übertragung (Phase 1, noch nicht auf einem Gerät getestet),
+auf der **PC-Seite** die blockweise Live-Transkription, die automatische Auswertung und der Status fürs Gerät
+(Phase 2 und 3, siehe unten) und für das **S3 mit Bildschirm** das Senden während der Aufnahme mit Statusanzeige
+(siehe „Umsetzung am S3“ unten); S3-AUDIO und C6 sind noch offen. Es beschreibt, wie die Aufnahmegeräte
 (`esp32-s3/lcd`, `esp32-s3/audio`, später auch `esp32-c6`) und die Protokoll-Software zusammenarbeiten sollen.
 
 ## Ziel
@@ -37,7 +38,7 @@ Dort wird sofort transkribiert. Wenn die Aufnahme zu Ende ist, soll das Ergebnis
 2. Gerät fragt mit `GET /api/v1/aufnahmen/<Name>` das nächste erwartete Byte ab (umgesetzt; eine eigene Sitzung braucht es dafür nicht).
 3. Das Gerät schreibt weiter wie bisher in seine lokale Datei (Ogg-Opus) und schickt alle 15 s die **neuen Bytes** dieser Datei
    (`PUT` mit `X-Offset`). Der PC hängt sie an. So entsteht dort die lückenlose, jederzeit abspielbare Aufnahme, ohne Nähte
-   zwischen den Stücken. Die Software kann das schon; in der Firmware fehlt das Senden während der Aufnahme noch.
+   zwischen den Stücken. Die Software kann das; das S3 mit Bildschirm sendet so (S3-AUDIO und C6 noch nicht).
 4. Jede Übertragung wird bestätigt. Fehlt eine, sendet das Gerät beim nächsten Mal ab dem letzten bestätigten Byte (**Wiederaufnahme**, umgesetzt).
 5. Am Ende meldet das Gerät „Ende“ mit Gesamtgröße und SHA-256 (leeres `PUT` mit `X-Gesamtgroesse` und `X-SHA256`, umgesetzt).
    Erst wenn der PC „fertig“ meldet, darf das Gerät seine Kopie löschen.
@@ -77,7 +78,7 @@ eine Skizze.
 | `GET /api/v1/hallo` | Erreichbar? Gilt das Token? Liefert Version und größte Stückgröße; später auch die Liste der Aufträge | umgesetzt (ohne Aufträge) |
 | `GET /api/v1/aufnahmen/<Name>` | nächstes erwartetes Byte | umgesetzt |
 | `PUT /api/v1/aufnahmen/<Name>` | Bytes ab `X-Offset` anhängen; mit `X-Gesamtgroesse` und `X-SHA256` abschließen. Für die ganze Datei wie für das Anhängen während der Aufnahme | umgesetzt |
-| `GET …/status` | `läuft`, `transkription`, `sprecher`, `auswertung`, `fertig`, `fehler` + Fortschritt | Skizze (Phase 3) |
+| `GET …/status` | `empfang`, `wartet`, `transkription`, `auswertung`, `fertig`, `fehler`, `unbekannt` | umgesetzt (Software und S3 mit Bildschirm) |
 | `GET …/ergebnis` | Kurzfassung des Auftragsergebnisses für das Display | Skizze (Phase 4) |
 | `POST …/frage` | „Frag mein Meeting“, später auch als Sprache | Skizze (Phase 4/5) |
 
@@ -128,14 +129,14 @@ das Sprachmodell, Export. Maßnahmen, geordnet nach erwartetem Nutzen:
 |---|---|---|
 | **0 – Messen** (erledigt, [`messung-phase0.md`](messung-phase0.md)) | Zeit je Schritt der vorhandenen Verarbeitung auf diesem PC bei 8 und 73 Minuten | Das Sprachmodell ist der Engpass; Whisper und das 8B-Modell passen nicht zusammen auf die Karte; Fehler „CUDA out of memory“ bei zwei Aufnahmen kurz nacheinander gefunden |
 | **1 – Übertragung** (umgesetzt; Upload-Code in QEMU gegen den echten Empfang getestet, noch nicht auf einem Gerät) | Dienst in der Software (Opt-in, Token je Gerät, Token-Verwaltung), wiederaufnehmbarer Upload nach [`GERAETE-SCHNITTSTELLE.md`](../../protokoll_assistent/GERAETE-SCHNITTSTELLE.md); Firmware (`components/vermerk_upload/`): 256-KiB-Stücke mit Byte-Versatz, SHA-256 beim Abschluss, Wiederaufnahme auch nach Neustart, lokale Kopie bleibt bis „fertig“, wachsende Wartezeit je Datei, danach vorhandene Verarbeitung | Ganze Aufnahmen kommen sicher an, nichts geht verloren. Dasselbe Protokoll trägt später das Anhängen während der Aufnahme |
-| **2 – Blockweise Verarbeitung während des Meetings** (PC-Seite umgesetzt: `services/live_service.py`; Firmware offen) | Die vorhandenen 600-s-Chunks (`services/chunking_service.py`, 10 s Überlappung) verarbeiten, sobald ein Block angekommen ist: Transkription und Stufe 1 der Auswertung je Block (gemessen im Mittel 73 s je Block) laufen während des Meetings. Whisper auf dem Prozessor oder kleineres Sprachmodell, Sprachmodell nach Gebrauch entladen. **Kein** eigenes Schnittschema mit 5–30-s-Stücken: nach Phase 0 sind 84 % der Zeit Sprachmodell, die Transkription nur ca. 79 s von 25 min. Firmware: Anhängen während der Aufnahme (nächster Schritt, siehe Risiken) | spart Transkription und Stufe 1 nach dem Ende (bei 73 min ca. 590 s Stufe 1 + 79 s Transkription); vermeidet den Speicherfehler |
-| **3 – Auftrag und schnelle Auswertung** (PC-Seite umgesetzt, mit einem festen Auftrag in den Einstellungen; Auswahl am Gerät und Firmware offen) | Aufträge (Dropdown am PC/Gerät), knappes Auftragsergebnis statt vollem Protokoll, früher Status, „Transkription erfolgreich ✓“ | Der beschriebene Ablauf; Wartezeit grob 2–5 min statt ca. 25 min (zu bestätigen) |
+| **2 – Blockweise Verarbeitung während des Meetings** (PC-Seite umgesetzt: `services/live_service.py`; Firmware am S3 mit Bildschirm umgesetzt, S3-AUDIO und C6 offen) | Die vorhandenen 600-s-Chunks (`services/chunking_service.py`, 10 s Überlappung) verarbeiten, sobald ein Block angekommen ist: Transkription und Stufe 1 der Auswertung je Block (gemessen im Mittel 73 s je Block) laufen während des Meetings. Whisper auf dem Prozessor oder kleineres Sprachmodell, Sprachmodell nach Gebrauch entladen. **Kein** eigenes Schnittschema mit 5–30-s-Stücken: nach Phase 0 sind 84 % der Zeit Sprachmodell, die Transkription nur ca. 79 s von 25 min. Firmware: Anhängen während der Aufnahme (am S3 mit Bildschirm umgesetzt, siehe Risiken) | spart Transkription und Stufe 1 nach dem Ende (bei 73 min ca. 590 s Stufe 1 + 79 s Transkription); vermeidet den Speicherfehler |
+| **3 – Auftrag und schnelle Auswertung** (PC-Seite umgesetzt, mit einem festen Auftrag in den Einstellungen; Statusanzeige am S3 mit Bildschirm umgesetzt; Auswahl am Gerät, S3-AUDIO und C6 offen) | Aufträge (Dropdown am PC/Gerät), knappes Auftragsergebnis statt vollem Protokoll, früher Status, „Transkription erfolgreich ✓“ | Der beschriebene Ablauf; Wartezeit grob 2–5 min statt ca. 25 min (zu bestätigen) |
 | **4 – Ergebnis aufs Gerät** | Kurzfassung/ToDos auf dem Display, „Frag mein Meeting“ als Text | Rückmeldung am Gerät |
 | **5 – Sprache** | Frage per Mikrofon, KI-Sprachausgabe der Antwort | später |
 
 ## Technische Risiken und offene Punkte
 
-* **Lesen während des Schreibens** (offen, nächster Firmware-Schritt): Liest das Gerät seine Datei für die Übertragung, während der Encoder noch schreibt,
+* **Lesen während des Schreibens** (gelöst am S3 mit Bildschirm mit dem RAM-Ringpuffer, siehe unten; die Einschätzung blieb): Liest das Gerät seine Datei für die Übertragung, während der Encoder noch schreibt,
   müssen die Ogg-Seiten (ca. 1 s) vollständig geschrieben und gesichert sein, bevor sie gesendet werden; FAT und der Puffer von `fwrite` machen das
   unzuverlässig. Besser: Der Encoder gibt jede fertige Ogg-Seite zusätzlich über einen kleinen RAM-Ringpuffer an den Sender, der sie mit
   `PUT` (`X-Offset`) anhängt. Läuft der Ring über (WLAN weg), fällt der Sender auf das Lesen der Datei ab dem letzten bestätigten Byte zurück,
@@ -146,9 +147,29 @@ das Sprachmodell, Export. Maßnahmen, geordnet nach erwartetem Nutzen:
 * **Zeit:** Die Sitzungsordner brauchen die Uhrzeit. Der PC vergibt sie; die Geräte müssen keine Uhr stellen.
 * **Sicherheit:** HTTP im eigenen Netz mit Token je Gerät ist umgesetzt; `SECURITY.md` ist im Pull Request der Anwendung nachgezogen (Port nur auf Wunsch).
   Mitlesen im selben WLAN verhindert das Token nicht. Für fremde Netze ist TLS nötig (auf dem ESP32 machbar, kostet RAM, auf dem C6 knapp).
-* **Stand der Umsetzung:** Phase 1 und die PC-Seite von Phase 2/3 sind in der Anwendung. Die Firmware sendet während der Aufnahme
-  noch nicht und fragt den Status noch nicht ab. Die PC-Seite ist mit echtem Whisper (CPU) und einer echten Geräteaufnahme geprüft,
-  der Ablauf Gerät – Netz – PC noch nicht auf einem Gerät.
+* **Umsetzung am S3 mit Bildschirm** (`components/vermerk_upload/vermerk_live.c`, `vermerk_ring.c`):
+  * Der Encoder gibt jede fertige Ogg-Seite über einen Haken in einen **Ringpuffer im PSRAM** (1 MB, ca. 5,7 min bei 24 kbit/s;
+    Reserve 512 oder 256 KB, wenn weniger frei ist). Der Haken kopiert nur. Der Puffer ist lock-frei (ein Erzeuger, ein
+    Verbraucher) und überschreibt nie Unbestätigtes; die Logik ist auf dem PC getestet (`test/host/`).
+  * Der Upload-Manager, der während der Aufnahme sonst ruht, sendet alle 15 s die neuen Bytes (`PUT` mit `X-Offset`, höchstens
+    64 KB je Anfrage; bei Rückstand sofort weiter, nach einem Fehlversuch erst wieder nach 15 s). Vor dem ersten Stück fragt er den Stand ab; ist er nicht 0, wird nicht live
+    gesendet. Nach dem Stopp macht der normale Upload dort weiter, wo die Software steht, und schließt ab (Größe, SHA-256).
+  * Das Live-Senden endet still bei Ringpuffer-Überlauf (Ziel lange weg), bei einer Lücke (die Software kennt weniger, als
+    schon verworfen ist) und bei dauerhafter Ablehnung (Token, Name). **Nichts geht verloren**, die Aufnahme liegt immer ganz
+    auf der SD-Karte.
+  * Nach „fertig“ fragt das Gerät alle 3 s `GET …/aufnahmen/<Name>/status` ab und zeigt „TRANSKRIPTION WIRD VERARBEITET“, am Ende
+    ca. 4 s ein grünes Häkchen über den ganzen Bildschirm, danach dauerhaft „✓ TRANSKRIPTION ERFOLGREICH“ (grün) bis zur nächsten
+    Aufnahme bzw. „VERARBEITUNG FEHLGESCHLAGEN“ (rot). Es hört auf nach dreimal `unbekannt`, nach 3 Stunden und sofort bei
+    `4xx` (ältere Software ohne `…/status`, Token widerrufen); nur Netzfehler und `5xx` gelten als vorübergehend.
+  * Geprüft: Host-Tests (Status-Leser gegen die **echten** Antworten der Software, Entscheidung für Live-Stücke, Ringpuffer inkl.
+    Zähler-Überlauf), Bau für S3 mit Bildschirm und S3-AUDIO. Auf dem Gerät ist die Aufnahme mit Live-Senden noch zu prüfen.
+  * Offen: S3-AUDIO (LED-Ring statt Display: grüner Ring bei „fertig“) und C6 (kein PSRAM: kleiner Ringpuffer im internen RAM
+    oder Lesen der Datei); Auswahl des Auftrags am Gerät.
+* **Stand der Umsetzung:** Phase 1 und die PC-Seite von Phase 2/3 sind in der Anwendung; das S3 mit Bildschirm sendet während der
+  Aufnahme und fragt den Status ab (siehe oben). Die Regeln dafür stehen verbindlich in
+  [`GERAETE-SCHNITTSTELLE.md`](../../protokoll_assistent/GERAETE-SCHNITTSTELLE.md) („Senden während der Aufnahme“ und `…/status`). Die PC-Seite ist mit echtem Whisper (CPU) und einer echten Geräteaufnahme geprüft,
+  die Firmware mit Host-Tests und im Bau; der Ablauf Gerät – Netz – PC noch nicht auf einem Gerät. Der Rest dieser Datei ist ein
+  Konzept und ändert weder die Anwendung noch die Firmware.
 * **Wirkung der Live-Transkription:** Sie arbeitet mit einem gleitenden Fenster (`services/live_service.py`): ab 20 s neuem Audio wird vom
   letzten sicheren Punkt bis jetzt transkribiert (höchstens 45 s), fertige Sätze gelten als bestätigt, das abgeschnittene Ende wird beim
   nächsten Mal neu mitgerechnet. Das Transkript steht so mit etwa 20 bis 40 s Verzögerung bereit. Die Verarbeitung der fertigen Datei
