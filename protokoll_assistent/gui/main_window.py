@@ -26,11 +26,12 @@ import functools
 import importlib.util
 import json
 import time
+from collections.abc import Callable
 from pathlib import Path
 from types import ModuleType
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from PySide6.QtCore import Qt, QTimer, QUrl
+from PySide6.QtCore import Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QCloseEvent, QDesktopServices, QDragEnterEvent, QDropEvent
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -88,8 +89,11 @@ from protokoll_assistent.services import (
     api_anbieter,
     api_protocol_service,
     api_transcription_service,
+    chunking_service,
     dokument_export_service,
     export_service,
+    live_auswertung_service,
+    live_service,
     manifest_service,
     model_service,
     ollama_service,
@@ -130,6 +134,27 @@ def lade_recording_service() -> ModuleType:
     return modul
 
 
+def api_auswertung_funktion(endpunkt: str, modell: str, api_key: str) -> Callable[[str, str], str]:
+    """Die Anfrage an ein API-Modell fuer die Auswertung -- ``(Prompt, Systemprompt) -> Antwort``.
+
+    Uebersetzt 'ApiProtocolError' in 'OllamaError': 'pipeline_service.run_protocol' behandelt einen
+    fehlgeschlagenen Protokolllauf gnaedig -- aber nur fuer '(ProtocolValidationError,
+    ollama_service.OllamaError)': dann wird der Fehler als 'protokoll_fehler' gemeldet, der Bericht trotzdem
+    geschrieben und das fertige Transkript bleibt erhalten. Ein durchgereichter 'ApiProtocolError' (HTTP 401,
+    Endpunkt nicht erreichbar, Zeitlimit) faellt stattdessen bis in den Worker und landet dort als
+    nichtssagender "Unerwarteter Fehler"."""
+
+    def anfrage(prompt: str, system: str) -> str:
+        try:
+            return api_protocol_service.generate_text(
+                prompt, system, model=modell, endpoint_url=endpunkt, api_key=api_key
+            )
+        except api_protocol_service.ApiProtocolError as fehler:
+            raise ollama_service.OllamaError(str(fehler)) from fehler
+
+    return anfrage
+
+
 def ermittle_whisper_modell(konfiguration: dict[str, Any]) -> str:
     """Welches Whisper-Modell gilt fuer den lokalen Modus?
 
@@ -150,6 +175,10 @@ def ermittle_whisper_modell(konfiguration: dict[str, Any]) -> str:
     return model_service.WHISPER_MODEL_NAME
 
 
+# So lange wartet die automatische Auswertung hoechstens auf eine noch laufende Teilauswertung der Aufnahme
+# (eine Anfrage ans Sprachmodell dauert Sekunden bis wenige Minuten).
+VORAB_AUSWERTUNG_WARTEN = 300.0
+
 SUPPORTED_EXTENSION_NAMES = [
     "mp3", "mp4", "m4a", "wav", "aac", "flac", "ogg", "opus", "mov", "mkv", "webm",
 ]
@@ -158,6 +187,10 @@ SUPPORTED_SUFFIXES = {f".{name}" for name in SUPPORTED_EXTENSION_NAMES}
 
 
 class MainWindow(QMainWindow):
+    # Neues Live-Transkript einer Geraeteaufnahme (aus dem Arbeitsfaden der Live-Transkription, von Qt in den
+    # Oberflaechenfaden gestellt): Geraet, Datei des Geraets, Text bisher, sicher transkribiert bis (Sekunden)
+    live_transkript_geaendert = Signal(str, str, str, float)
+
     def __init__(self, initial_folder: Path | None = None, initial_file: str | None = None) -> None:
         super().__init__()
         self.setWindowTitle("Protokoll-Assistent")
@@ -195,6 +228,12 @@ class MainWindow(QMainWindow):
         # Gesetzt, wenn im Dialog 'Verarbeitung waehlen' das Protokoll direkt im
         # Anschluss verlangt wurde.
         self._protokoll_nach_transkription = False
+        # Automatische Verarbeitung einer Geraeteaufnahme: (Geraet, Dateiname des Geraets, Datei).
+        # Dazu der Auftrag fuer diesen Lauf (statt des Textes im Editor) und die Warteschlange.
+        self._automatik: tuple[str, str, Path] | None = None
+        self._automatik_phase = ""
+        self._systemprompt_automatik: str | None = None
+        self._geraete_warteschlange: list[tuple[Path, str, str]] = []
         self._last_protocol_result: pipeline_service.ProtocolResult | None = None
         self._selected_transcript_path: Path | None = None
         # Das Transkript, aus dem die laufende bzw. letzte Nachbearbeitung
@@ -225,8 +264,26 @@ class MainWindow(QMainWindow):
         # Empfang fuer die WLAN-Aufnahmegeraete -- aus, bis er in den
         # Einstellungen eingeschaltet wird (siehe 'gui/geraete_empfang.py').
         self._empfang_zuletzt = ""
-        self._geraete_empfang = EmpfangsSteuerung(self)
+        self._geraete_status = live_service.StatusRegister()
+        # Die Live-Transkription rechnet auf dem Prozessor und liest ihre Einstellungen aus
+        # dem Arbeitsfaden heraus -- deshalb kein Zugriff auf Widgets, sondern dieser Merker.
+        self._live_einstellungen: tuple[str, str | None, bool] = self._live_einstellungen_lesen()
+        # Teilauswertung waehrend der Aufnahme (Sprachmodell auf der Grafikkarte, neben Whisper auf dem Prozessor);
+        # sie liest ihre Einstellungen ebenfalls aus einem Merker, den die Oberflaeche pflegt.
+        self._live_auswertung_stand: live_auswertung_service.AuswertungsEinstellungen | None = (
+            self._live_auswertung_lesen()
+        )
+        self._live = live_service.LiveTranskription(
+            get_work_dir(),
+            self._live_transkribierer,
+            status=self._geraete_status,
+            bei_aenderung=self.live_transkript_geaendert.emit,
+            auswertung=live_auswertung_service.LiveAuswertung(lambda: self._live_auswertung_stand),
+        )
+        self.live_transkript_geaendert.connect(self._live_transkript_anzeigen)
+        self._geraete_empfang = EmpfangsSteuerung(self, live=self._live, status=self._geraete_status)
         self._geraete_empfang.neue_aufnahme.connect(self._neue_geraete_aufnahme)
+        self._geraete_empfang.aufnahme_bereit.connect(self._geraete_aufnahme_bereit)
         self._geraete_empfang_anwenden()
 
         if self._source_path is not None:
@@ -1098,15 +1155,49 @@ class MainWindow(QMainWindow):
             with contextlib.suppress(Exception):
                 self._recording.stop()
         self._geraete_empfang.stoppen()
+        self._live.stoppen()
         super().closeEvent(event)
 
     # ------------------------------------------------------------------
     # Aufnahmegeraete im WLAN
     # ------------------------------------------------------------------
+    def _live_auswertung_lesen(self) -> live_auswertung_service.AuswertungsEinstellungen | None:
+        """Womit die Teilauswertung waehrend der Aufnahme rechnet: derselbe Auftrag und dasselbe Modell wie die
+        automatische Auswertung nach dem Ende (nur dann passen ihre Ergebnisse dazu). ``None``: aus oder nicht
+        moeglich (kein Anbieter, kein Schluessel) -- dann rechnet erst die Auswertung nach dem Ende."""
+        config = app_config.load_config()
+        if not (config.get("geraete_live_aktiv", True) and config.get("geraete_live_auswertung_vorab", True)):
+            return None
+        auftrag = alle_vorlagen().get(str(config.get("geraete_live_auftrag") or ""), "")
+        abschnitt = chunking_service.auswertungs_abschnitt(config.get("geraete_live_abschnitt_sekunden"))
+        if self.nachbearbeitung_api_radio.isChecked():
+            endpunkt, modell = config["api_nachbearbeitung_endpunkt"], config["api_nachbearbeitung_modell"]
+            if not (api_anbieter.adresse_vollstaendig(endpunkt) and modell):
+                return None
+            eigener = config["api_nachbearbeitung_eigener_schluessel"]
+            schluessel = self._verwendbarer_api_schluessel("nachbearbeitung" if eigener else "transkription")
+            if not schluessel:
+                return None
+            return live_auswertung_service.AuswertungsEinstellungen(
+                auftrag,
+                f"api:{endpunkt}|{modell}",
+                api_auswertung_funktion(endpunkt, modell, schluessel),
+                abschnitt_sekunden=abschnitt,
+            )
+        lokal = config["ollama_modell"] or ollama_service.DEFAULT_MODEL
+        return live_auswertung_service.AuswertungsEinstellungen(
+            auftrag,
+            lokal,
+            lambda prompt, system: ollama_service.generate_text(prompt, system, model=lokal),
+            abschnitt_sekunden=abschnitt,
+        )
+
     def _geraete_empfang_anwenden(self) -> None:
         """Empfang passend zu den Einstellungen starten oder stoppen. Die Geraete
         liefern in den Eingabeordner -- ohne einen in den Aufnahmeordner, damit
         eine Aufnahme immer irgendwo landen kann."""
+        self._live_einstellungen = self._live_einstellungen_lesen()
+        self._live_auswertung_stand = self._live_auswertung_lesen()
         ziel = self._input_folder if self._input_folder is not None else get_recordings_dir()
         self._geraete_empfang.anwenden(ziel)
         self._empfang_anzeigen()
@@ -1131,6 +1222,103 @@ class MainWindow(QMainWindow):
                 self._select_file_in_list(ausgewaehlt.name)
         self._empfang_zuletzt = f"Zuletzt angekommen: {datei.name} von {geraet} ({time.strftime('%H:%M')})"
         self._empfang_anzeigen()
+
+    # ------------------------------------------------------------------
+    # Live-Transkription und automatische Auswertung von Geraeteaufnahmen
+    # ------------------------------------------------------------------
+    def _live_einstellungen_lesen(self) -> tuple[str, str | None, bool]:
+        """(Whisper-Modell, Sprache, Download erlaubt) fuer die Live-Transkription."""
+        return (
+            ermittle_whisper_modell(app_config.load_config()),
+            self.language_combo.currentData(),
+            not self.offline_checkbox.isChecked(),
+        )
+
+    def _live_transkribierer(self) -> Any:
+        """Fabrik fuer den Live-Arbeiter (laeuft in dessen Faden)."""
+        modell, sprache, download = self._live_einstellungen
+        return live_service.cpu_transkribierer_fabrik(modell, sprache, download)()
+
+    def _live_transkript_anzeigen(self, geraet: str, datei: str, text: str, bis: float) -> None:
+        """Waehrend eine Geraeteaufnahme laeuft, waechst ihr Transkript: in der Vorschau zeigen (solange keine eigene
+        Verarbeitung dort etwas anderes anzeigt) und im Empfangshinweis nennen, wie weit es ist."""
+        self._empfang_zuletzt = f"Live: {datei} von {geraet} – bis {live_service.minuten_sekunden(bis)} transkribiert"
+        self._empfang_anzeigen()
+        if not self._arbeit_laeuft() and self._automatik is None:
+            self.preview_edit.setPlainText(text)
+
+    def _geraete_aufnahme_bereit(self, pfad: str, geraet: str, datei: str) -> None:
+        """Eine Aufnahme ist vollstaendig angekommen: automatisch verarbeiten."""
+        self._geraete_warteschlange.append((Path(pfad), geraet, datei))
+        self._naechste_geraete_aufnahme()
+
+    def _arbeit_laeuft(self) -> bool:
+        return any(
+            worker is not None and worker.isRunning() for worker in (self._transcription_worker, self._protocol_worker)
+        )
+
+    def _naechste_geraete_aufnahme(self) -> None:
+        if not self._geraete_warteschlange or self._automatik is not None or self._arbeit_laeuft():
+            return
+        pfad, geraet, datei = self._geraete_warteschlange.pop(0)
+        self._geraete_aufnahme_verarbeiten(pfad, geraet, datei)
+
+    def _geraete_aufnahme_verarbeiten(self, pfad: Path, geraet: str, datei: str) -> None:
+        """Transkription der fertigen Datei (nur der Rest nach der Live-Transkription), danach
+        die Auswertung nach dem Auftrag aus den Einstellungen."""
+        config = app_config.load_config()
+        auftrag = str(config.get("geraete_live_auftrag") or "")
+        self._automatik = (geraet, datei, pfad)
+        self._automatik_phase = live_service.TRANSKRIPTION
+        self._systemprompt_automatik = alle_vorlagen().get(auftrag, "")
+        self._set_source_file(pfad)
+        self._select_file_in_list(pfad.name)
+        self.resume_combo.setCurrentIndex(max(self.resume_combo.findData("fortsetzen"), 0))
+        self._geraete_status.setze(geraet, datei, live_service.TRANSKRIPTION, 0.0, "Transkription beginnt")
+        self._empfang_zuletzt = f"Automatische Verarbeitung: {pfad.name} von {geraet}"
+        self._empfang_anzeigen()
+        self._protokoll_nach_transkription = True
+        vorher = self._transcription_worker
+        self._start_transcription()
+        if self._transcription_worker is vorher:
+            # Der Start ist gescheitert (Fehlermeldung wurde schon gezeigt).
+            self._protokoll_nach_transkription = False
+            self._automatik_beenden(live_service.FEHLER, "Die Verarbeitung konnte nicht gestartet werden.")
+
+    def _automatik_status(self, zustand: str, *, fortschritt: float | None = None, detail: str = "") -> None:
+        if self._automatik is None:
+            return
+        if zustand == live_service.AUSWERTUNG:
+            self._automatik_phase = live_service.AUSWERTUNG
+        geraet, datei, _pfad = self._automatik
+        self._geraete_status.setze(geraet, datei, zustand, fortschritt, detail)
+
+    def _protokoll_start_scheitert(self, titel: str, text: str) -> None:
+        """Die Auswertung kann nicht beginnen. Von Hand gestartet: Fehlerfenster. In der automatischen Verarbeitung
+        einer Geraeteaufnahme sitzt niemand davor -- dort kein Fenster, sondern Abschluss mit 'fehler' fuers Geraet.
+        Sonst bliebe die Automatik fuer immer belegt: kein Status mehr, und keine weitere Aufnahme kaeme dran."""
+        if self._automatik is None:
+            show_error(self, titel, text)
+            return
+        self._on_log_message(text)
+        self.status_label.setText(f"Automatische Auswertung nicht möglich: {titel}")
+        self._automatik_beenden(live_service.FEHLER, f"Auswertung nicht möglich: {titel}")
+
+    def _automatik_beenden(self, zustand: str, meldung: str) -> None:
+        """Schliesst die automatische Verarbeitung ab und meldet das Ergebnis dem Geraet."""
+        if self._automatik is None:
+            return
+        geraet, datei, pfad = self._automatik
+        self._automatik = None
+        self._automatik_phase = ""
+        self._systemprompt_automatik = None
+        self._geraete_status.setze(geraet, datei, zustand, 1.0 if zustand == live_service.FERTIG else None, meldung)
+        if zustand == live_service.FERTIG:
+            self._live.freigeben(pfad)
+        self._empfang_zuletzt = f"{meldung}: {pfad.name} von {geraet} ({time.strftime('%H:%M')})"
+        self._empfang_anzeigen()
+        if self._geraete_warteschlange:
+            QTimer.singleShot(0, self._naechste_geraete_aufnahme)
 
     def _choose_output_dir(self) -> None:
         directory = QFileDialog.getExistingDirectory(self, "Ausgabeordner wählen", str(self._output_dir))
@@ -1566,6 +1754,14 @@ class MainWindow(QMainWindow):
             resume_mode=self.resume_combo.currentData(),
             whisper_model=ermittle_whisper_modell(config),
             enable_diarization=self.diarization_checkbox.isChecked(),
+            # Bei einer Geraeteaufnahme sind die ersten Bloecke schon waehrend der Aufnahme
+            # transkribiert worden (leer fuer jede andere Datei). Nicht ueber die API (dort liefert der
+            # Endpunkt auch die Sprecher; lokale Live-Segmente haetten keine) und nicht bei "neu beginnen".
+            vorab_live=(
+                self._live.vorab_fuer(self._source_path)
+                if self.transkription_lokal_radio.isChecked() and self.resume_combo.currentData() != "neu_beginnen"
+                else None
+            ),
         )
 
         self._set_controls_running(True)
@@ -1651,15 +1847,14 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     def _start_protocol(self) -> None:
         if self._selected_transcript_path is None:
-            show_error(
-                self,
+            self._protokoll_start_scheitert(
                 "Kein Transkript ausgewählt",
                 "Bitte zuerst eine Transkription durchführen oder ein vorhandenes Transkript auswählen.",
             )
             return
         if not self._selected_transcript_path.is_file():
-            show_error(
-                self, "Transkript nicht gefunden", f"Die Datei wurde nicht gefunden:\n{self._selected_transcript_path}"
+            self._protokoll_start_scheitert(
+                "Transkript nicht gefunden", f"Die Datei wurde nicht gefunden:\n{self._selected_transcript_path}"
             )
             return
         try:
@@ -1668,16 +1863,22 @@ class MainWindow(QMainWindow):
             probe_file.write_text("test", encoding="utf-8")
             probe_file.unlink()
         except OSError as error:
-            show_error(self, "Ausgabeordner ungültig", f"In den Ausgabeordner kann nicht geschrieben werden:\n{error}")
+            self._protokoll_start_scheitert("Ausgabeordner ungültig", f"In den Ausgabeordner kann nicht geschrieben werden:\n{error}")
             return
 
-        if not self._ungespeicherte_aenderungen_geklaert("ein neues Ergebnis erzeugt wird"):
+        # Die automatische Verarbeitung einer Geraeteaufnahme fragt nicht: Niemand sitzt davor, und ihr Ergebnis
+        # ersetzt die Anzeige nicht (siehe '_on_protocol_finished_ok') -- die Bearbeitung bleibt erhalten.
+        if self._automatik is None and not self._ungespeicherte_aenderungen_geklaert("ein neues Ergebnis erzeugt wird"):
             return
 
         # Ein leerer Systemprompt ist erlaubt: Dann fasst das Modell so
         # zusammen, wie es fuer den Inhalt am sinnvollsten ist. Ist einer
         # eingetragen, bestimmt er allein, was geschieht.
-        systemprompt_text = self.systemprompt_editor.toPlainText().strip()
+        systemprompt_text = (
+            self._systemprompt_automatik
+            if self._systemprompt_automatik is not None
+            else self.systemprompt_editor.toPlainText()
+        ).strip()
 
         config = app_config.load_config()
         protocol_generate_fn: ProtocolGenerateFn | None = None
@@ -1689,8 +1890,7 @@ class MainWindow(QMainWindow):
                 api_anbieter.adresse_vollstaendig(config["api_nachbearbeitung_endpunkt"])
                 and config["api_nachbearbeitung_modell"]
             ):
-                show_error(
-                    self,
+                self._protokoll_start_scheitert(
                     "Kein Anbieter gewählt",
                     "Für die Nachbearbeitung über eine API ist noch kein Anbieter gewählt oder die Adresse "
                     "unvollständig.\n\nBitte in den Einstellungen im Reiter „Nachbearbeitung“ einen Anbieter "
@@ -1702,8 +1902,7 @@ class MainWindow(QMainWindow):
             schluessel_name = "nachbearbeitung" if eigener_schluessel else "transkription"
             api_key = self._verwendbarer_api_schluessel(schluessel_name)
             if not api_key:
-                show_error(
-                    self,
+                self._protokoll_start_scheitert(
                     "Kein API-Schlüssel",
                     "Bitte zuerst in den Einstellungen einen API-Schlüssel für die Nachbearbeitung hinterlegen.",
                 )
@@ -1711,37 +1910,13 @@ class MainWindow(QMainWindow):
             api_modell = config["api_nachbearbeitung_modell"]
             api_endpunkt = config["api_nachbearbeitung_endpunkt"]
 
-            def _api_nachbearbeitung(prompt: str, system: str) -> str:
-                """Uebersetzt 'ApiProtocolError' in 'OllamaError'.
-
-                'pipeline_service.run_protocol' behandelt einen
-                fehlgeschlagenen Protokolllauf gnaedig -- aber nur fuer
-                '(ProtocolValidationError, ollama_service.OllamaError)':
-                dann wird der Fehler als 'protokoll_fehler' gemeldet, der
-                Bericht trotzdem geschrieben und das fertige Transkript
-                bleibt erhalten. Ein durchgereichter 'ApiProtocolError'
-                (HTTP 401, Endpunkt nicht erreichbar, Zeitlimit) faellt
-                stattdessen bis in den Worker und landet dort als
-                nichtssagender "Unerwarteter Fehler"."""
-                try:
-                    return api_protocol_service.generate_text(
-                        prompt,
-                        system,
-                        model=api_modell,
-                        endpoint_url=api_endpunkt,
-                        api_key=api_key,
-                    )
-                except api_protocol_service.ApiProtocolError as fehler:
-                    raise ollama_service.OllamaError(str(fehler)) from fehler
-
-            protocol_generate_fn = _api_nachbearbeitung
+            protocol_generate_fn = api_auswertung_funktion(api_endpunkt, api_modell, api_key)
             modell_kennung = f"api:{api_endpunkt}|{api_modell}"
 
         if not self.nachbearbeitung_api_radio.isChecked():
             lokales_modell = config["ollama_modell"] or ollama_service.DEFAULT_MODEL
             if ollama_service.modell_fehlt(lokales_modell):
-                show_error(
-                    self,
+                self._protokoll_start_scheitert(
                     "Ollama-Modell fehlt",
                     f"Das Modell '{lokales_modell}' ist bei Ollama nicht installiert.\n\n"
                     "Bitte in den Einstellungen unter „Nachbearbeitung“ auf „Jetzt herunterladen“ klicken "
@@ -1760,6 +1935,18 @@ class MainWindow(QMainWindow):
             system_prompt=systemprompt_text,
             protokoll_modell_kennung=modell_kennung,
         )
+        if self._automatik is not None:
+            # Kurze Abschnitte: nach dem Ende bleibt hoechstens der letzte offen.
+            settings.abschnitt_sekunden = chunking_service.auswertungs_abschnitt(
+                app_config.load_config().get("geraete_live_abschnitt_sekunden")
+            )
+        if self._automatik is not None and app_config.load_config().get("geraete_live_auswertung_vorab", True):
+            # Automatische Auswertung einer Geraeteaufnahme: Schon waehrend der Aufnahme berechnete Teilergebnisse
+            # uebernehmen. Dazu bekommt das Modell hier wie dort den Text ohne Sprecherangaben (die Sprechertrennung
+            # entsteht erst am Ende); sonst passten die Eingaben nicht zusammen.
+            aufnahme = self._automatik[2]
+            settings.ohne_sprecher = True
+            settings.vorab_auswertung = lambda: self._live.auswertung_fuer(aufnahme, warten=VORAB_AUSWERTUNG_WARTEN)
 
         # Das Ergebnis gehoert zu diesem Transkript, auch wenn danach ein
         # anderes ausgewaehlt wird.
@@ -1801,6 +1988,8 @@ class MainWindow(QMainWindow):
             self._elapsed_timer.stop()
             # Transkription und Nachbearbeitung laufen nie gleichzeitig.
             self._nachbearbeitung_laeuft = False
+            if self._geraete_warteschlange and self._automatik is None:
+                QTimer.singleShot(0, self._naechste_geraete_aufnahme)
         self._protocol_result_sperre_anwenden()
 
     def _update_elapsed_label(self) -> None:
@@ -1822,10 +2011,12 @@ class MainWindow(QMainWindow):
     def _on_transcription_stage_changed(self, key: str, detail: str) -> None:
         self.status_label.setText(detail)
         self.transcription_status_label.setText(detail)
+        self._automatik_status(live_service.TRANSKRIPTION, detail=detail)
 
     def _on_protocol_stage_changed(self, key: str, detail: str) -> None:
         self.status_label.setText(detail)
         self.protocol_status_label.setText(detail)
+        self._automatik_status(live_service.AUSWERTUNG, detail=detail)
         if key == "protokoll_fehlgeschlagen":
             self.protocol_status_label.setToolTip(detail)
 
@@ -1837,6 +2028,11 @@ class MainWindow(QMainWindow):
 
     def _on_overall_progress(self, fraction: float) -> None:
         self.overall_progress_bar.setValue(round(fraction * 100))
+        # Das Geraet sieht einen Balken fuer beide Schritte: erst die Transkription, dann die Auswertung.
+        if self._automatik_phase == live_service.AUSWERTUNG:
+            self._automatik_status(live_service.AUSWERTUNG, fortschritt=0.5 + 0.5 * fraction)
+        else:
+            self._automatik_status(live_service.TRANSKRIPTION, fortschritt=0.5 * fraction)
 
     def _on_log_message(self, message: str) -> None:
         self.status_label.setToolTip(message)
@@ -1846,7 +2042,8 @@ class MainWindow(QMainWindow):
         self._populate_speaker_table(result)
         self._set_transcript_path(result.export_paths.json)
         self.status_label.setText("Transkription abgeschlossen.")
-        self._show_page(self.SEITE_ERGEBNIS)
+        if self._automatik is None:  # eine Geraeteaufnahme im Hintergrund holt niemanden von seiner Seite weg
+            self._show_page(self.SEITE_ERGEBNIS)
         if self._protokoll_nach_transkription and self._transcription_worker is not None:
             # Erst starten, wenn der Transkriptions-Thread beendet ist: Dessen
             # 'finished' schaltet die Bedienelemente wieder frei und stoppt den
@@ -1915,16 +2112,22 @@ class MainWindow(QMainWindow):
 
     def _on_transcription_failed(self, message: str) -> None:
         self._protokoll_nach_transkription = False
+        self._automatik_beenden(live_service.FEHLER, "Die Transkription ist fehlgeschlagen.")
         self.status_label.setText("Fehler bei der Transkription.")
         show_error(self, "Transkription fehlgeschlagen", message)
 
     def _on_transcription_cancelled(self) -> None:
         self._protokoll_nach_transkription = False
+        self._automatik_beenden(live_service.FEHLER, "Die Transkription wurde abgebrochen.")
         self.status_label.setText("Transkription abgebrochen.")
 
     def _on_protocol_finished_ok(self, result: pipeline_service.ProtocolResult) -> None:
         self._last_protocol_result = result
         if result.protokoll_fehler:
+            if self._automatik is not None:
+                self._automatik_beenden(live_service.FEHLER, "Die Auswertung ist fehlgeschlagen.")
+                self.status_label.setText(f"Automatische Auswertung fehlgeschlagen: {result.protokoll_fehler}")
+                return
             self.status_label.setText("Nachbearbeitung fehlgeschlagen.")
             QMessageBox.warning(
                 self,
@@ -1937,6 +2140,10 @@ class MainWindow(QMainWindow):
             return
         self.status_label.setText("Nachbearbeitung abgeschlossen.")
         protocol_paths = result.protocol_paths
+        if self._automatik is not None:
+            # Ohne Rueckfrage-Fenster: Niemand sitzt davor, das Geraet bekommt die Meldung.
+            self._automatik_beenden(live_service.FERTIG, "Transkription erfolgreich")
+            return
         if protocol_paths is None:
             return
         try:
@@ -1953,10 +2160,12 @@ class MainWindow(QMainWindow):
         )
 
     def _on_protocol_failed(self, message: str) -> None:
+        self._automatik_beenden(live_service.FEHLER, "Die Auswertung ist fehlgeschlagen.")
         self.status_label.setText("Fehler bei der Nachbearbeitung.")
         show_error(self, "Nachbearbeitung fehlgeschlagen", message)
 
     def _on_protocol_cancelled(self) -> None:
+        self._automatik_beenden(live_service.FEHLER, "Die Auswertung wurde abgebrochen.")
         self.status_label.setText("Nachbearbeitung abgebrochen.")
 
     # ------------------------------------------------------------------

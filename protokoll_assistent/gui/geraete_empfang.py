@@ -25,6 +25,7 @@ from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
+    QComboBox,
     QDialog,
     QDialogButtonBox,
     QHBoxLayout,
@@ -41,8 +42,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from protokoll_assistent.services import geraete_empfang_service
+from protokoll_assistent.services import chunking_service, geraete_empfang_service, live_service
 from protokoll_assistent.utils import app_config
+from protokoll_assistent.utils.systemprompt_vorlagen import alle_vorlagen
 
 SICHERHEITS_HINWEIS = (
     "Ist der Empfang eingeschaltet, nimmt die Anwendung im lokalen Netz Aufnahmen von den "
@@ -62,14 +64,22 @@ class EmpfangsSteuerung(QObject):
     dem Hauptfenster ueber dessen Ereignisschleife zu."""
 
     neue_aufnahme = Signal(str, str)  # Pfad der Datei, Geraetename
+    # Aufnahme vollstaendig und die Live-Transkription ist mit ihrem letzten Block
+    # durch: Die Verarbeitung der fertigen Datei darf beginnen.
+    # Pfad der Datei, Geraetename, Dateiname, den das Geraet benutzt hat.
+    aufnahme_bereit = Signal(str, str, str)
 
     def __init__(
         self,
         parent: QObject | None = None,
         *,
         dienst_fabrik: Callable[..., geraete_empfang_service.GeraeteEmpfang] | None = None,
+        live: live_service.LiveTranskription | None = None,
+        status: live_service.StatusRegister | None = None,
     ):
         super().__init__(parent)
+        self._live = live
+        self._status = status
         # Erst beim Start aufgeloest, nicht hier: So laesst sich der Dienst in
         # Tests auch nach dem Bau des Fensters noch ersetzen.
         self._fabrik = dienst_fabrik
@@ -87,7 +97,8 @@ class EmpfangsSteuerung(QObject):
         geraete = geraete_empfang_service.geraete_aus_konfiguration(config.get("geraete_empfang_geraete") or [])
         aktiv = bool(config.get("geraete_empfang_aktiv")) and bool(geraete)
         port = _port(config.get("geraete_empfang_port"))
-        stand = (aktiv, port, geraete, ziel)
+        live_aktiv = bool(config.get("geraete_live_aktiv", True)) and self._live is not None
+        stand = (aktiv, port, geraete, ziel, live_aktiv)
         if stand == self._stand and (self._dienst is not None or not aktiv):
             return
         self.stoppen()
@@ -96,7 +107,14 @@ class EmpfangsSteuerung(QObject):
         if not aktiv:
             return
         fabrik = self._fabrik or geraete_empfang_service.GeraeteEmpfang
-        dienst = fabrik(ziel, geraete, port=port, bei_neuer_aufnahme=self._melden)
+        zusaetze: dict[str, Any] = {}
+        if self._status is not None:
+            zusaetze["status_fn"] = self._status.hole
+        if live_aktiv:
+            zusaetze["bei_teil"] = self._teil
+            zusaetze["bei_abschluss"] = self._abschluss
+            zusaetze["bei_verworfen"] = self._verworfen
+        dienst = fabrik(ziel, geraete, port=port, bei_neuer_aufnahme=self._melden, **zusaetze)
         try:
             dienst.starten()
         except OSError as fehler:
@@ -120,12 +138,27 @@ class EmpfangsSteuerung(QObject):
             return f"Aufnahmegeräte: {self.fehler}"
         if self._dienst is None or self._stand is None:
             return ""
-        _aktiv, port, geraete, ziel = self._stand
+        _aktiv, port, geraete, ziel, _live = self._stand
         anzahl = len(geraete)
         return f"Aufnahmegeräte: Empfang an (Port {port}, {anzahl} {'Gerät' if anzahl == 1 else 'Geräte'}) → {ziel}"
 
     def _melden(self, pfad: Path, geraet: str) -> None:
         self.neue_aufnahme.emit(str(pfad), geraet)
+
+    def _teil(self, geraet: str, datei: str, pfad: Path) -> None:
+        assert self._live is not None  # noqa: S101 -- nur mit Live-Verarbeitung verbunden
+        self._live.teil_gewachsen(geraet, datei, pfad)
+
+    def _verworfen(self, geraet: str, datei: str) -> None:
+        assert self._live is not None  # noqa: S101 -- siehe oben
+        self._live.verwerfen(geraet, datei)
+
+    def _abschluss(self, geraet: str, datei: str, ziel: Path) -> None:
+        assert self._live is not None and self._status is not None  # noqa: S101 -- siehe oben
+        self._status.setze(geraet, datei, live_service.WARTET, meldung="Aufnahme angekommen")
+        self._live.abgeschlossen(
+            geraet, datei, ziel, lambda: self.aufnahme_bereit.emit(str(ziel), geraet, datei)
+        )
 
 
 def _port(wert: Any) -> int:
@@ -218,6 +251,60 @@ class GeraeteSeite(QWidget):
         self.aktiv_checkbox.setChecked(bool(config.get("geraete_empfang_aktiv")))
         layout.addWidget(self.aktiv_checkbox)
 
+        self.live_checkbox = QCheckBox(
+            "Während der Aufnahme transkribieren und nach dem Ende automatisch auswerten", self
+        )
+        self.live_checkbox.setToolTip(
+            "Die Aufnahme wird schon während des Meetings blockweise transkribiert (auf dem Prozessor). "
+            "Nach dem Ende entsteht von selbst die Auswertung, und das Gerät zeigt "
+            "„Transkription erfolgreich“."
+        )
+        self.live_checkbox.setChecked(bool(config.get("geraete_live_aktiv", True)))
+        layout.addWidget(self.live_checkbox)
+
+        self.auswertung_vorab_checkbox = QCheckBox(
+            "Auswertung schon während der Aufnahme vorbereiten (ohne Sprecherangaben im Auswertungstext)", self
+        )
+        self.auswertung_vorab_checkbox.setToolTip(
+            "Das Sprachmodell wertet fertige Abschnitte der Aufnahme schon während des Meetings aus. Nach dem Ende "
+            "dauert es dann deutlich kürzer, bis das Ergebnis da ist. Die Sprecher stehen im Transkript, fließen aber "
+            "nicht in den Text ein, den das Sprachmodell zusammenfasst (sie sind erst am Ende bekannt)."
+        )
+        self.auswertung_vorab_checkbox.setChecked(bool(config.get("geraete_live_auswertung_vorab", True)))
+        layout.addWidget(self.auswertung_vorab_checkbox)
+
+        abschnitt_zeile = QHBoxLayout()
+        abschnitt_zeile.addWidget(QLabel("Länge der Auswertungsabschnitte:", self))
+        self.abschnitt_spin = QSpinBox(self)
+        self.abschnitt_spin.setRange(60, 600)
+        self.abschnitt_spin.setSingleStep(30)
+        self.abschnitt_spin.setSuffix(" s")
+        self.abschnitt_spin.setToolTip(
+            "Das Sprachmodell wertet die Aufnahme in Abschnitten dieser Länge aus. Kürzere Abschnitte "
+            "verkürzen die Wartezeit nach dem Ende (es bleibt nur der letzte offen), brauchen aber mehr "
+            "Anfragen ans Sprachmodell."
+        )
+        self.abschnitt_spin.setValue(
+            int(chunking_service.auswertungs_abschnitt(config.get("geraete_live_abschnitt_sekunden", 180)))
+        )
+        abschnitt_zeile.addWidget(self.abschnitt_spin)
+        abschnitt_zeile.addStretch(1)
+        layout.addLayout(abschnitt_zeile)
+
+        auftrag_zeile = QHBoxLayout()
+        auftrag_zeile.addWidget(QLabel("Auftrag für die Auswertung:", self))
+        self.auftrag_combo = QComboBox(self)
+        self.auftrag_combo.addItem("(normale Zusammenfassung)", "")
+        for name in alle_vorlagen():
+            self.auftrag_combo.addItem(name, name)
+        gewaehlt = str(config.get("geraete_live_auftrag") or "")
+        if gewaehlt and self.auftrag_combo.findData(gewaehlt) == -1:
+            # Die Vorlage gibt es nicht mehr: sichtbar lassen statt stillschweigend zu ersetzen.
+            self.auftrag_combo.addItem(f"{gewaehlt} (nicht mehr vorhanden)", gewaehlt)
+        self.auftrag_combo.setCurrentIndex(max(self.auftrag_combo.findData(gewaehlt), 0))
+        auftrag_zeile.addWidget(self.auftrag_combo, stretch=1)
+        layout.addLayout(auftrag_zeile)
+
         port_zeile = QHBoxLayout()
         port_zeile.addWidget(QLabel("Port:", self))
         self.port_spin = QSpinBox(self)
@@ -268,6 +355,10 @@ class GeraeteSeite(QWidget):
             "geraete_empfang_aktiv": self.aktiv_checkbox.isChecked(),
             "geraete_empfang_port": self.port_spin.value(),
             "geraete_empfang_geraete": [dict(eintrag) for eintrag in self._geraete],
+            "geraete_live_aktiv": self.live_checkbox.isChecked(),
+            "geraete_live_auswertung_vorab": self.auswertung_vorab_checkbox.isChecked(),
+            "geraete_live_abschnitt_sekunden": self.abschnitt_spin.value(),
+            "geraete_live_auftrag": str(self.auftrag_combo.currentData() or ""),
         }
 
     def basis_url(self) -> str:

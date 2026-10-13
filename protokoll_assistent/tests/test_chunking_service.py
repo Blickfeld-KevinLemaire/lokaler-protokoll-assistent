@@ -59,3 +59,13 @@ def test_overlap_must_be_smaller_than_chunk_length():
 def test_zero_duration_rejected():
     with pytest.raises(ValueError):
         plan_chunks(0.0)
+
+
+def test_auswertungsabschnitt_wird_begrenzt_und_ungueltiges_ergibt_den_standard():
+    from protokoll_assistent.services import chunking_service as cs
+
+    assert cs.auswertungs_abschnitt(180) == 180.0
+    assert cs.auswertungs_abschnitt(10) == cs.MIN_AUSWERTUNG_SECONDS
+    assert cs.auswertungs_abschnitt(5000) == cs.DEFAULT_CHUNK_LENGTH_SECONDS
+    for ungueltig in (None, "abc", float("nan")):
+        assert cs.auswertungs_abschnitt(ungueltig) == cs.DEFAULT_CHUNK_LENGTH_SECONDS
