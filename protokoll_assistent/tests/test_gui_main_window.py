@@ -1987,8 +1987,8 @@ class _EmpfangAttrappe:
 
     instanzen: ClassVar[list] = []
 
-    def __init__(self, ziel, geraete, *, port, bei_neuer_aufnahme):
-        self.ziel, self.port, self.melden = ziel, port, bei_neuer_aufnahme
+    def __init__(self, ziel, geraete, *, port, bei_neuer_aufnahme, **weitere):
+        self.ziel, self.port, self.melden, self.weitere = ziel, port, bei_neuer_aufnahme, weitere
         self.gestartet = self.gestoppt = False
         _EmpfangAttrappe.instanzen.append(self)
 
@@ -2090,3 +2090,316 @@ def test_einstellungsdialog_zeigt_die_kontakte_des_fensters(empfang_an, qt_widge
     fenster = qt_widgets(mw.MainWindow())
     dialog = qt_widgets(SettingsDialog(fenster))
     assert "Id 1a2b3c4d5e6f" in dialog.geraete_seite.tabelle.item(0, 2).text()
+
+
+# --------------------------------------------------------------------------
+# Live-Transkription und automatische Auswertung von Geraeteaufnahmen
+# --------------------------------------------------------------------------
+@pytest.fixture
+def geraeteaufnahme(fenster, tmp_path, monkeypatch):
+    """Eine angekommene Aufnahme und ein Auftrag in den Einstellungen."""
+    monkeypatch.setattr(mw, "alle_vorlagen", lambda: {"ToDos": "Liste die ToDos auf."})
+    app_config.update_config(geraete_live_auftrag="ToDos")
+    datei = tmp_path / "S3_H5_007.opus"
+    datei.write_bytes(b"OggS-fertige-aufnahme")
+    return datei
+
+
+def _status(fenster, datei="H5_007.opus"):
+    return fenster._geraete_status.hole("S3", datei)
+
+
+def test_angekommene_geraeteaufnahme_startet_die_transkription_von_selbst(fenster, geraeteaufnahme):
+    vorher = len(_WorkerAttrappe.instanzen)
+    fenster._geraete_aufnahme_bereit(str(geraeteaufnahme), "S3", "H5_007.opus")
+
+    assert len(_WorkerAttrappe.instanzen) == vorher + 1
+    arbeiter = _WorkerAttrappe.instanzen[-1]
+    assert arbeiter.gestartet and arbeiter.settings.source_path == geraeteaufnahme
+    assert arbeiter.settings.vorab_live is None  # ohne Live-Zwischenstand
+    assert fenster._source_path == geraeteaufnahme
+    assert fenster._protokoll_nach_transkription is True
+    assert fenster._systemprompt_automatik == "Liste die ToDos auf."
+    assert _status(fenster)["zustand"] == "transkription"
+
+
+def test_live_transkribierte_segmente_gehen_an_die_pipeline(fenster, geraeteaufnahme, monkeypatch):
+    live = {"bestaetigt_bis": 125.0, "segmente": [{"start": 1.0, "end": 4.0, "text": "a"}]}
+    monkeypatch.setattr(fenster._live, "vorab_fuer", lambda pfad: live if pfad == geraeteaufnahme else None)
+    fenster._geraete_aufnahme_bereit(str(geraeteaufnahme), "S3", "H5_007.opus")
+    assert _WorkerAttrappe.instanzen[-1].settings.vorab_live == live
+
+
+def test_waehrend_der_aufnahme_waechst_das_transkript_in_der_vorschau(fenster):
+    fenster.live_transkript_geaendert.emit("S3", "H5_007.opus", "[00:00] Guten Morgen", 19.0)
+    assert fenster.preview_edit.toPlainText() == "[00:00] Guten Morgen"
+    assert "H5_007.opus" in fenster.empfang_label.text() or "bis 00:19" in fenster._empfang_zuletzt
+    assert "bis 00:19 transkribiert" in fenster._empfang_zuletzt
+
+
+def test_laeuft_eine_eigene_verarbeitung_bleibt_deren_vorschau_stehen(fenster, monkeypatch):
+    fenster.preview_edit.setPlainText("Vorschau der laufenden Transkription")
+    monkeypatch.setattr(fenster, "_arbeit_laeuft", lambda: True)
+    fenster.live_transkript_geaendert.emit("S3", "H5_007.opus", "[00:00] anderer Text", 19.0)
+    assert fenster.preview_edit.toPlainText() == "Vorschau der laufenden Transkription"
+
+
+def test_auswertung_nimmt_den_auftrag_aus_den_einstellungen_nicht_den_editor(fenster, geraeteaufnahme, tmp_path):
+    fenster.systemprompt_editor.setPlainText("Text, den der Anwender gerade tippt.")
+    fenster._geraete_aufnahme_bereit(str(geraeteaufnahme), "S3", "H5_007.opus")
+    transkript = tmp_path / "ergebnis.json"
+    transkript.write_text("{}", encoding="utf-8")
+    fenster._set_transcript_path(transkript)
+
+    fenster._start_protocol()
+
+    assert _WorkerAttrappe.instanzen[-1].settings.system_prompt == "Liste die ToDos auf."
+    assert fenster.systemprompt_editor.toPlainText() == "Text, den der Anwender gerade tippt."
+
+
+def test_ohne_auftrag_fasst_das_modell_frei_zusammen(fenster, geraeteaufnahme):
+    app_config.update_config(geraete_live_auftrag="")
+    fenster._geraete_aufnahme_bereit(str(geraeteaufnahme), "S3", "H5_007.opus")
+    assert fenster._systemprompt_automatik == ""
+
+
+def test_fortschritt_laeuft_ueber_beide_schritte(fenster, geraeteaufnahme):
+    fenster._geraete_aufnahme_bereit(str(geraeteaufnahme), "S3", "H5_007.opus")
+    fenster._on_transcription_stage_changed("transkription", "Transkription läuft")
+    fenster._on_overall_progress(0.5)
+    assert _status(fenster)["zustand"] == "transkription" and _status(fenster)["fortschritt"] == 0.25
+    fenster._on_protocol_stage_changed("protokoll_auswertung", "Auswertung läuft")
+    fenster._on_overall_progress(0.5)
+    assert _status(fenster)["zustand"] == "auswertung" and _status(fenster)["fortschritt"] == 0.75
+
+
+def test_fertige_auswertung_meldet_dem_geraet_erfolg_ohne_dialog(fenster, geraeteaufnahme, tmp_path, monkeypatch):
+    def keine_dialoge(*_a, **_k):
+        raise AssertionError("Niemand sitzt davor: kein Dialog bei der automatischen Verarbeitung.")
+
+    monkeypatch.setattr(QMessageBox, "information", staticmethod(keine_dialoge))
+    freigegeben = []
+    monkeypatch.setattr(fenster._live, "freigeben", lambda pfad: freigegeben.append(pfad))
+    fenster._geraete_aufnahme_bereit(str(geraeteaufnahme), "S3", "H5_007.opus")
+
+    fenster._on_protocol_finished_ok(_protokoll_ergebnis_bauen(tmp_path))
+
+    assert _status(fenster)["zustand"] == "fertig" and _status(fenster)["fortschritt"] == 1.0
+    assert _status(fenster)["meldung"] == "Transkription erfolgreich"
+    assert fenster._automatik is None and fenster._systemprompt_automatik is None
+    assert freigegeben == [geraeteaufnahme]  # der Live-Zwischenstand wird aufgeraeumt
+
+
+def test_fehlgeschlagene_auswertung_meldet_dem_geraet_fehler(fenster, geraeteaufnahme, tmp_path, monkeypatch):
+    monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a: pytest.fail("kein Dialog")))
+    fenster._geraete_aufnahme_bereit(str(geraeteaufnahme), "S3", "H5_007.opus")
+    fenster._on_protocol_finished_ok(_protokoll_ergebnis_bauen(tmp_path, protokoll_fehler="Ollama nicht erreichbar"))
+    assert _status(fenster)["zustand"] == "fehler" and "Auswertung" in _status(fenster)["meldung"]
+    assert fenster._automatik is None
+    assert "Ollama nicht erreichbar" in fenster.status_label.text()
+
+
+@pytest.mark.parametrize(
+    "ereignis",
+    [
+        lambda f: f._on_transcription_failed("kaputt"),
+        lambda f: f._on_transcription_cancelled(),
+        lambda f: f._on_protocol_failed("kaputt"),
+        lambda f: f._on_protocol_cancelled(),
+    ],
+)
+def test_fehler_und_abbruch_melden_dem_geraet_fehler(fenster, geraeteaufnahme, gemeldete_fehler, ereignis):
+    fenster._geraete_aufnahme_bereit(str(geraeteaufnahme), "S3", "H5_007.opus")
+    ereignis(fenster)
+    assert _status(fenster)["zustand"] == "fehler" and fenster._automatik is None
+
+
+def test_zweite_aufnahme_wartet_bis_die_erste_fertig_ist(fenster, geraeteaufnahme, tmp_path, monkeypatch):
+    monkeypatch.setattr(QMessageBox, "information", staticmethod(lambda *a: None))
+    zweite = tmp_path / "S3_H5_008.opus"
+    zweite.write_bytes(b"OggS-zweite")
+    fenster._geraete_aufnahme_bereit(str(geraeteaufnahme), "S3", "H5_007.opus")
+    anzahl = len(_WorkerAttrappe.instanzen)
+
+    fenster._geraete_aufnahme_bereit(str(zweite), "S3", "H5_008.opus")
+    assert len(_WorkerAttrappe.instanzen) == anzahl  # noch beschaeftigt
+    assert fenster._geraete_warteschlange == [(zweite, "S3", "H5_008.opus")]
+
+    monkeypatch.setattr(fenster, "_arbeit_laeuft", lambda: False)  # die Arbeiter-Attrappen laufen "ewig"
+    fenster._on_protocol_finished_ok(_protokoll_ergebnis_bauen(tmp_path))
+    fenster._naechste_geraete_aufnahme()  # sonst durch den Zeitgeber ausgeloest
+    assert _WorkerAttrappe.instanzen[-1].settings.source_path == zweite
+    assert fenster._automatik == ("S3", "H5_008.opus", zweite)
+
+
+def test_laeuft_gerade_eine_andere_verarbeitung_wird_nicht_dazwischengefunkt(fenster, geraeteaufnahme, monkeypatch):
+    monkeypatch.setattr(fenster, "_arbeit_laeuft", lambda: True)
+    anzahl = len(_WorkerAttrappe.instanzen)
+    fenster._geraete_aufnahme_bereit(str(geraeteaufnahme), "S3", "H5_007.opus")
+    assert len(_WorkerAttrappe.instanzen) == anzahl and len(fenster._geraete_warteschlange) == 1
+    assert fenster._automatik is None
+
+
+def test_gescheiterter_start_meldet_dem_geraet_fehler(fenster, geraeteaufnahme, gemeldete_fehler):
+    geraeteaufnahme.write_bytes(b"")  # leere Datei: der Start lehnt sie ab
+    fenster._geraete_aufnahme_bereit(str(geraeteaufnahme), "S3", "H5_007.opus")
+    assert gemeldete_fehler == ["Datei ist leer"]
+    assert _status(fenster)["zustand"] == "fehler" and fenster._automatik is None
+    assert fenster._protokoll_nach_transkription is False
+
+
+def test_manuelle_verarbeitung_bleibt_unberuehrt(fenster, audio_datei, tmp_path):
+    fenster._source_path = audio_datei
+    fenster._start_transcription()
+    assert fenster._automatik is None
+    assert _WorkerAttrappe.instanzen[-1].settings.vorab_live is None
+    transkript = tmp_path / "ergebnis.json"
+    transkript.write_text("{}", encoding="utf-8")
+    fenster._set_transcript_path(transkript)
+    fenster.systemprompt_editor.setPlainText("Mein Text.")
+    fenster._start_protocol()
+    assert _WorkerAttrappe.instanzen[-1].settings.system_prompt == "Mein Text."
+
+
+def test_fenster_gibt_die_live_arbeiter_beim_schliessen_frei(fenster, monkeypatch):
+    gestoppt = []
+    monkeypatch.setattr(fenster._live, "stoppen", lambda: gestoppt.append(True))
+    fenster.close()
+    assert gestoppt == [True]
+
+
+# --------------------------------------------------------------------------
+# Teilauswertung waehrend der Aufnahme
+# --------------------------------------------------------------------------
+def test_teilauswertung_lokal_nutzt_dasselbe_modell_wie_die_auswertung_nach_dem_ende(fenster, monkeypatch):
+    monkeypatch.setattr(mw, "alle_vorlagen", lambda: {"ToDos": "Liste die ToDos auf."})
+    app_config.update_config(geraete_live_auftrag="ToDos", ollama_modell="mein-modell:8b")
+    fenster.nachbearbeitung_lokal_radio.setChecked(True)
+    einstellungen = fenster._live_auswertung_lesen()
+    assert einstellungen is not None
+    assert einstellungen.auftrag == "Liste die ToDos auf." and einstellungen.modell == "mein-modell:8b"
+    aufrufe = []
+    monkeypatch.setattr(
+        mw.ollama_service, "generate_text", lambda prompt, system, model: aufrufe.append((prompt, system, model)) or "ok"
+    )
+    assert einstellungen.generate_fn("P", "S") == "ok" and aufrufe == [("P", "S", "mein-modell:8b")]
+
+
+def test_teilauswertung_ueber_api_braucht_anbieter_und_schluessel(fenster, schluessel_speicher):
+    fenster.nachbearbeitung_api_radio.setChecked(True)
+    assert fenster._live_auswertung_lesen() is None  # kein Schluessel hinterlegt
+    schluessel_speicher["transkription"] = "geheim"
+    einstellungen = fenster._live_auswertung_lesen()
+    assert einstellungen is not None and einstellungen.modell == "api:https://api.test/v1/chat/completions|modell-n"
+    app_config.update_config(api_nachbearbeitung_modell="")
+    assert fenster._live_auswertung_lesen() is None  # ohne Modell ist kein Anbieter gewaehlt
+
+
+@pytest.mark.parametrize("aus", ["geraete_live_aktiv", "geraete_live_auswertung_vorab"])
+def test_teilauswertung_laesst_sich_ausschalten(fenster, aus):
+    assert fenster._live_auswertung_lesen() is not None
+    app_config.update_config(**{aus: False})
+    assert fenster._live_auswertung_lesen() is None
+
+
+def test_einstellungen_werden_beim_anwenden_nachgefuehrt(fenster):
+    app_config.update_config(geraete_live_auswertung_vorab=False)
+    fenster._geraete_empfang_anwenden()
+    assert fenster._live_auswertung_stand is None
+    app_config.update_config(geraete_live_auswertung_vorab=True)
+    fenster._geraete_empfang_anwenden()
+    assert fenster._live_auswertung_stand is not None
+
+
+def test_automatische_auswertung_uebernimmt_die_teilauswertung_und_nutzt_den_text_ohne_sprecher(
+    fenster, geraeteaufnahme, tmp_path, monkeypatch
+):
+    anfragen = []
+    monkeypatch.setattr(
+        fenster._live, "auswertung_fuer", lambda ziel, warten=0.0: anfragen.append((ziel, warten)) or {"stufe1": {}}
+    )
+    fenster._geraete_aufnahme_bereit(str(geraeteaufnahme), "S3", "H5_007.opus")
+    transkript = tmp_path / "ergebnis.json"
+    transkript.write_text("{}", encoding="utf-8")
+    fenster._set_transcript_path(transkript)
+
+    fenster._start_protocol()
+
+    einstellungen = _WorkerAttrappe.instanzen[-1].settings
+    assert einstellungen.ohne_sprecher is True and einstellungen.vorab_auswertung is not None
+    assert einstellungen.abschnitt_sekunden == 180.0  # kurze Abschnitte: die Wartezeit nach dem Ende sinkt
+    # Erst in der Auswertung selbst abgefragt, mit Geduld fuer eine noch laufende Teilauswertung
+    assert anfragen == []
+    assert einstellungen.vorab_auswertung() == {"stufe1": {}}
+    assert anfragen == [(geraeteaufnahme, mw.VORAB_AUSWERTUNG_WARTEN)]
+
+
+def test_ist_die_vorab_auswertung_aus_bleibt_der_text_mit_sprechern(fenster, geraeteaufnahme, tmp_path):
+    app_config.update_config(geraete_live_auswertung_vorab=False)
+    fenster._geraete_aufnahme_bereit(str(geraeteaufnahme), "S3", "H5_007.opus")
+    transkript = tmp_path / "ergebnis.json"
+    transkript.write_text("{}", encoding="utf-8")
+    fenster._set_transcript_path(transkript)
+    fenster._start_protocol()
+    einstellungen = _WorkerAttrappe.instanzen[-1].settings
+    assert einstellungen.ohne_sprecher is False and einstellungen.vorab_auswertung is None
+    assert einstellungen.abschnitt_sekunden == 180.0  # auch ohne Vorab-Auswertung: kurze Abschnitte
+
+
+def test_manuelle_auswertung_bleibt_unveraendert_mit_sprechern(fenster, tmp_path):
+    transkript = tmp_path / "ergebnis.json"
+    transkript.write_text("{}", encoding="utf-8")
+    fenster._set_transcript_path(transkript)
+    fenster.systemprompt_editor.setPlainText("Mein Text.")
+    fenster._start_protocol()
+    einstellungen = _WorkerAttrappe.instanzen[-1].settings
+    assert einstellungen.ohne_sprecher is False and einstellungen.vorab_auswertung is None
+    assert einstellungen.abschnitt_sekunden is None  # von Hand: Standard
+
+
+def test_api_funktion_uebersetzt_fehler_in_ollama_fehler(monkeypatch):
+    def kaputt(prompt, system, **kwargs):
+        raise mw.api_protocol_service.ApiProtocolError("HTTP 401")
+
+    monkeypatch.setattr(mw.api_protocol_service, "generate_text", kaputt)
+    anfrage = mw.api_auswertung_funktion("https://api.test", "modell", "schluessel")
+    with pytest.raises(mw.ollama_service.OllamaError, match="HTTP 401"):
+        anfrage("Prompt", "System")
+    monkeypatch.setattr(
+        mw.api_protocol_service,
+        "generate_text",
+        lambda prompt, system, **kw: f"{prompt}|{system}|{kw['model']}|{kw['endpoint_url']}|{kw['api_key']}",
+    )
+    assert anfrage("P", "S") == "P|S|modell|https://api.test|schluessel"
+
+
+def test_kann_die_automatische_auswertung_nicht_beginnen_bekommt_das_geraet_fehler_ohne_dialog(
+    fenster, geraeteaufnahme, gemeldete_fehler, tmp_path, monkeypatch
+):
+    """Fehlt das Sprachmodell (oder Anbieter/Schluessel), sitzt bei der automatischen Verarbeitung niemand vor einem
+    Fehlerfenster. Vorher blieb die Automatik danach fuer immer belegt: Status ewig "transkription", keine weitere
+    Aufnahme kam dran, und eine spaetere Auswertung von Hand lief mit dem Auftrag der Automatik."""
+    monkeypatch.setattr(ollama_service, "modell_fehlt", lambda *a, **k: True)
+    fenster._geraete_aufnahme_bereit(str(geraeteaufnahme), "S3", "H5_007.opus")
+    transkript = tmp_path / "ergebnis.json"
+    transkript.write_text("{}", encoding="utf-8")
+    fenster._set_transcript_path(transkript)
+
+    fenster._start_protocol()
+
+    assert gemeldete_fehler == []
+    assert _status(fenster)["zustand"] == "fehler" and "Ollama-Modell fehlt" in _status(fenster)["meldung"]
+    assert fenster._automatik is None and fenster._systemprompt_automatik is None
+    # Von Hand gestartet bleibt es beim Fehlerfenster
+    fenster._start_protocol()
+    assert gemeldete_fehler == ["Ollama-Modell fehlt"]
+
+
+@pytest.mark.parametrize(("modus", "mit_live"), [("fortsetzen", True), ("neu_beginnen", False)])
+def test_live_segmente_nur_wenn_nicht_neu_begonnen_wird(fenster, audio_datei, monkeypatch, modus, mit_live):
+    live = {"bestaetigt_bis": 125.0, "segmente": [{"start": 1.0, "end": 4.0, "text": "a"}]}
+    monkeypatch.setattr(fenster._live, "vorab_fuer", lambda pfad: live)
+    fenster._source_path = audio_datei
+    fenster.resume_combo.setCurrentIndex(fenster.resume_combo.findData(modus))
+    fenster._start_transcription()
+    assert _WorkerAttrappe.instanzen[-1].settings.vorab_live == (live if mit_live else None)

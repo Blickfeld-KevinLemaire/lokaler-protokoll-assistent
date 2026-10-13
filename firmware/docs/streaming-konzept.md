@@ -1,7 +1,9 @@
 # Konzept: Live-Übertragung und laufende Transkription
 
-Stand: 13.10.2026. Das ist ein **Konzept**; umgesetzt sind die Übertragung (Phase 1) und für das **S3 mit Bildschirm** das
-Senden während der Aufnahme mit Statusanzeige (siehe „Umsetzung am S3“ unten); S3-AUDIO und C6 sind noch offen. Es beschreibt, wie die Aufnahmegeräte
+Stand: 13.10.2026. Das ist ein **Konzept**; umgesetzt sind die Übertragung (Phase 1, noch nicht auf einem Gerät getestet),
+auf der **PC-Seite** die blockweise Live-Transkription, die automatische Auswertung und der Status fürs Gerät
+(Phase 2 und 3, siehe unten) und für das **S3 mit Bildschirm** das Senden während der Aufnahme mit Statusanzeige
+(siehe „Umsetzung am S3“ unten); S3-AUDIO und C6 sind noch offen. Es beschreibt, wie die Aufnahmegeräte
 (`esp32-s3/lcd`, `esp32-s3/audio`, später auch `esp32-c6`) und die Protokoll-Software zusammenarbeiten sollen.
 
 ## Ziel
@@ -76,7 +78,7 @@ eine Skizze.
 | `GET /api/v1/hallo` | Erreichbar? Gilt das Token? Liefert Version und größte Stückgröße; später auch die Liste der Aufträge | umgesetzt (ohne Aufträge) |
 | `GET /api/v1/aufnahmen/<Name>` | nächstes erwartetes Byte | umgesetzt |
 | `PUT /api/v1/aufnahmen/<Name>` | Bytes ab `X-Offset` anhängen; mit `X-Gesamtgroesse` und `X-SHA256` abschließen. Für die ganze Datei wie für das Anhängen während der Aufnahme | umgesetzt |
-| `GET …/status` | `läuft`, `transkription`, `sprecher`, `auswertung`, `fertig`, `fehler` + Fortschritt | Skizze (Phase 3) |
+| `GET …/status` | `empfang`, `wartet`, `transkription`, `auswertung`, `fertig`, `fehler`, `unbekannt` | umgesetzt (Software und S3 mit Bildschirm) |
 | `GET …/ergebnis` | Kurzfassung des Auftragsergebnisses für das Display | Skizze (Phase 4) |
 | `POST …/frage` | „Frag mein Meeting“, später auch als Sprache | Skizze (Phase 4/5) |
 
@@ -127,8 +129,8 @@ das Sprachmodell, Export. Maßnahmen, geordnet nach erwartetem Nutzen:
 |---|---|---|
 | **0 – Messen** (erledigt, [`messung-phase0.md`](messung-phase0.md)) | Zeit je Schritt der vorhandenen Verarbeitung auf diesem PC bei 8 und 73 Minuten | Das Sprachmodell ist der Engpass; Whisper und das 8B-Modell passen nicht zusammen auf die Karte; Fehler „CUDA out of memory“ bei zwei Aufnahmen kurz nacheinander gefunden |
 | **1 – Übertragung** (umgesetzt; Upload-Code in QEMU gegen den echten Empfang getestet, noch nicht auf einem Gerät) | Dienst in der Software (Opt-in, Token je Gerät, Token-Verwaltung), wiederaufnehmbarer Upload nach [`GERAETE-SCHNITTSTELLE.md`](../../protokoll_assistent/GERAETE-SCHNITTSTELLE.md); Firmware (`components/vermerk_upload/`): 256-KiB-Stücke mit Byte-Versatz, SHA-256 beim Abschluss, Wiederaufnahme auch nach Neustart, lokale Kopie bleibt bis „fertig“, wachsende Wartezeit je Datei, danach vorhandene Verarbeitung | Ganze Aufnahmen kommen sicher an, nichts geht verloren. Dasselbe Protokoll trägt später das Anhängen während der Aufnahme |
-| **2 – Blockweise Verarbeitung während des Meetings** | Die vorhandenen 600-s-Chunks (`services/chunking_service.py`, 10 s Überlappung) verarbeiten, sobald ein Block angekommen ist: Transkription und Stufe 1 der Auswertung je Block (gemessen im Mittel 73 s je Block) laufen während des Meetings. Whisper auf dem Prozessor oder kleineres Sprachmodell, Sprachmodell nach Gebrauch entladen. **Kein** eigenes Schnittschema mit 5–30-s-Stücken: nach Phase 0 sind 84 % der Zeit Sprachmodell, die Transkription nur ca. 79 s von 25 min. Firmware: Anhängen während der Aufnahme (nächster Schritt, siehe Risiken) | spart Transkription und Stufe 1 nach dem Ende (bei 73 min ca. 590 s Stufe 1 + 79 s Transkription); vermeidet den Speicherfehler |
-| **3 – Auftrag und schnelle Auswertung** | Aufträge (Dropdown am PC/Gerät), knappes Auftragsergebnis statt vollem Protokoll, früher Status, „Transkription erfolgreich ✓“ | Der beschriebene Ablauf; Wartezeit grob 2–5 min statt ca. 25 min (zu bestätigen) |
+| **2 – Blockweise Verarbeitung während des Meetings** (PC-Seite umgesetzt: `services/live_service.py`; Firmware am S3 mit Bildschirm umgesetzt, S3-AUDIO und C6 offen) | Die vorhandenen 600-s-Chunks (`services/chunking_service.py`, 10 s Überlappung) verarbeiten, sobald ein Block angekommen ist: Transkription und Stufe 1 der Auswertung je Block (gemessen im Mittel 73 s je Block) laufen während des Meetings. Whisper auf dem Prozessor oder kleineres Sprachmodell, Sprachmodell nach Gebrauch entladen. **Kein** eigenes Schnittschema mit 5–30-s-Stücken: nach Phase 0 sind 84 % der Zeit Sprachmodell, die Transkription nur ca. 79 s von 25 min. Firmware: Anhängen während der Aufnahme (am S3 mit Bildschirm umgesetzt, siehe Risiken) | spart Transkription und Stufe 1 nach dem Ende (bei 73 min ca. 590 s Stufe 1 + 79 s Transkription); vermeidet den Speicherfehler |
+| **3 – Auftrag und schnelle Auswertung** (PC-Seite umgesetzt, mit einem festen Auftrag in den Einstellungen; Statusanzeige am S3 mit Bildschirm umgesetzt; Auswahl am Gerät, S3-AUDIO und C6 offen) | Aufträge (Dropdown am PC/Gerät), knappes Auftragsergebnis statt vollem Protokoll, früher Status, „Transkription erfolgreich ✓“ | Der beschriebene Ablauf; Wartezeit grob 2–5 min statt ca. 25 min (zu bestätigen) |
 | **4 – Ergebnis aufs Gerät** | Kurzfassung/ToDos auf dem Display, „Frag mein Meeting“ als Text | Rückmeldung am Gerät |
 | **5 – Sprache** | Frage per Mikrofon, KI-Sprachausgabe der Antwort | später |
 
@@ -162,5 +164,15 @@ das Sprachmodell, Export. Maßnahmen, geordnet nach erwartetem Nutzen:
     Zähler-Überlauf), Bau für S3 mit Bildschirm und S3-AUDIO. Auf dem Gerät ist die Aufnahme mit Live-Senden noch zu prüfen.
   * Offen: S3-AUDIO (LED-Ring statt Display: grüner Ring bei „fertig“) und C6 (kein PSRAM: kleiner Ringpuffer im internen RAM
     oder Lesen der Datei); Auswahl des Auftrags am Gerät.
-* **Diese Datei ist ein Konzept.** Die PC-Seite von Phase 2 und 3 und das Senden am S3 mit Bildschirm sind umgesetzt (siehe oben);
-  der Rest ändert weder die Anwendung noch die Firmware.
+* **Stand der Umsetzung:** Phase 1 und die PC-Seite von Phase 2/3 sind in der Anwendung; das S3 mit Bildschirm sendet während der
+  Aufnahme und fragt den Status ab (siehe oben). Die PC-Seite ist mit echtem Whisper (CPU) und einer echten Geräteaufnahme geprüft,
+  die Firmware mit Host-Tests und im Bau; der Ablauf Gerät – Netz – PC noch nicht auf einem Gerät. Der Rest dieser Datei ist ein
+  Konzept und ändert weder die Anwendung noch die Firmware.
+* **Wirkung der Live-Transkription:** Sie arbeitet mit einem gleitenden Fenster (`services/live_service.py`): ab 20 s neuem Audio wird vom
+  letzten sicheren Punkt bis jetzt transkribiert (höchstens 45 s), fertige Sätze gelten als bestätigt, das abgeschnittene Ende wird beim
+  nächsten Mal neu mitgerechnet. Das Transkript steht so mit etwa 20 bis 40 s Verzögerung bereit. Die Verarbeitung der fertigen Datei
+  (weiter in 600-s-Chunks mit 10 s Überlappung, damit Zusammenführung und Auswertung unverändert bleiben) übernimmt die bestätigten
+  Segmente und rechnet nur den Rest. Auch die **Teilzusammenfassungen** der Auswertung (Stufe 1 und 2 des Sprachmodells) werden
+  schon während der Aufnahme berechnet (`services/live_auswertung_service.py`): sobald der Text eines Auswertungsabschnitts (Standard 180 s statt 600 s, damit nach dem Ende nur wenig offen bleibt) feststeht, auf der
+  Grafikkarte neben Whisper auf dem Prozessor. Jedes Ergebnis wird nur bei übereinstimmender Eingabe (Modell, Auftrag, Text) übernommen;
+  dafür bekommt das Modell den Text ohne Sprecherangaben, weil die Sprechertrennung erst am Ende vorliegt.
