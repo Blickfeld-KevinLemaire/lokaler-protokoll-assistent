@@ -516,6 +516,177 @@ static void test_vertrag_mit_der_software(void)
     PRUEFE(wahr(SW_ABSCHLUSS_DOPPELT, "fertig") == 1);
 }
 
+
+static void test_json_text_und_promille(void)
+{
+    size_t n;
+    char *t;
+    char ziel[24];
+
+    t = ohne_null("{\"zustand\":\"auswertung\",\"fortschritt\":0.8}", &n);
+    PRUEFE(vermerk_json_text(t, n, "zustand", ziel, sizeof(ziel)) && strcmp(ziel, "auswertung") == 0);
+    PRUEFE(!vermerk_json_text(t, n, "fehlt", ziel, sizeof(ziel)) && ziel[0] == 0);
+    PRUEFE(!vermerk_json_text(t, n, "zustand", ziel, 10));        /* "auswertung" (10 Zeichen) passt nicht in 10 */
+    PRUEFE(vermerk_json_text(t, n, "zustand", ziel, 11));
+    PRUEFE(!vermerk_json_text(t, n, "zustand", NULL, 4) && !vermerk_json_text(t, n, "zustand", ziel, 0));
+    PRUEFE(!vermerk_json_text(t, n, "fortschritt", ziel, sizeof(ziel)));   /* kein Text */
+    free(t);
+
+    /* Grenzfaelle: leer, nicht abgeschlossen, Sonderzeichen, Schluessel nur als Text in einem Wert */
+    t = ohne_null("{\"zustand\":\"\"}", &n);
+    PRUEFE(!vermerk_json_text(t, n, "zustand", ziel, sizeof(ziel)));
+    free(t);
+    t = ohne_null("{\"zustand\":\"fertig", &n);
+    PRUEFE(!vermerk_json_text(t, n, "zustand", ziel, sizeof(ziel)));
+    free(t);
+    t = ohne_null("{\"zustand\":\"fer tig\"}", &n);
+    PRUEFE(!vermerk_json_text(t, n, "zustand", ziel, sizeof(ziel)));
+    free(t);
+    t = ohne_null("{\"meldung\":\"x \\\"zustand\\\":\\\"fertig\\\"\",\"y\":1}", &n);
+    PRUEFE(!vermerk_json_text(t, n, "zustand", ziel, sizeof(ziel)));
+    free(t);
+    t = ohne_null("{\"zustand\":\"fertig\"x}", &n);
+    PRUEFE(!vermerk_json_text(t, n, "zustand", ziel, sizeof(ziel)));
+    free(t);
+
+    uint32_t pm = 0;
+    const struct { const char *text; bool ok; uint32_t wert; } faelle[] = {
+        {"{\"f\":0}", true, 0},
+        {"{\"f\":0.0}", true, 0},
+        {"{\"f\":0.457}", true, 457},
+        {"{\"f\":0.5}", true, 500},
+        {"{\"f\":0.05}", true, 50},
+        {"{\"f\":0.001}", true, 1},
+        {"{\"f\":1}", true, 1000},
+        {"{\"f\":1.0}", true, 1000},
+        {"{\"f\":1.000,\"g\":1}", true, 1000},
+        {"{\"f\":1.001}", false, 0},     /* ueber 1 */
+        {"{\"f\":2}", false, 0},
+        {"{\"f\":0.1234}", false, 0},    /* mehr als drei Nachkommastellen */
+        {"{\"f\":1.}", false, 0},
+        {"{\"f\":.5}", false, 0},
+        {"{\"f\":-0.5}", false, 0},
+        {"{\"f\":01}", false, 0},
+        {"{\"f\":1e0}", false, 0},
+        {"{\"f\":\"0.5\"}", false, 0},
+        {"{\"f\":0.5", false, 0},        /* abgeschnitten */
+        {"{\"g\":0.5}", false, 0},       /* anderer Schluessel */
+    };
+    for (size_t i = 0; i < sizeof(faelle) / sizeof(faelle[0]); i++) {
+        t = ohne_null(faelle[i].text, &n);
+        pm = 12345;
+        bool ok = vermerk_json_promille(t, n, "f", &pm);
+        PRUEFE(ok == faelle[i].ok);
+        if (faelle[i].ok) {
+            PRUEFE(pm == faelle[i].wert);
+        } else {
+            PRUEFE(pm == 12345);   /* bei Fehler unveraendert */
+        }
+        free(t);
+    }
+    PRUEFE(!vermerk_json_promille("{\"f\":1}", 7, "f", NULL));
+}
+
+static vermerk_status_t status_lesen(const char *text, bool *ok)
+{
+    size_t n;
+    char *t = ohne_null(text, &n);
+    vermerk_status_t s;
+    *ok = vermerk_status_pruefen(t, n, &s);
+    free(t);
+    return s;
+}
+
+static void test_status(void)
+{
+    bool ok;
+    vermerk_status_t s;
+
+    /* Echte Antworten der Software (antworten_software.h) */
+    s = status_lesen(SW_STATUS_EMPFANG, &ok);
+    PRUEFE(SW_STATUS_EMPFANG_STATUS == 200 && ok && s.zustand == VERMERK_VERARB_EMPFANG && s.fortschritt_prozent == -1);
+    s = status_lesen(SW_STATUS_WARTET, &ok);
+    PRUEFE(ok && s.zustand == VERMERK_VERARB_WARTET && s.fortschritt_prozent == -1);
+    s = status_lesen(SW_STATUS_TRANSKRIPTION, &ok);   /* mit Umlaut in der Meldung */
+    PRUEFE(ok && s.zustand == VERMERK_VERARB_TRANSKRIPTION && s.fortschritt_prozent == 46);   /* 0.457 gerundet */
+    s = status_lesen(SW_STATUS_AUSWERTUNG, &ok);
+    PRUEFE(ok && s.zustand == VERMERK_VERARB_AUSWERTUNG && s.fortschritt_prozent == 80);
+    s = status_lesen(SW_STATUS_FERTIG, &ok);
+    PRUEFE(ok && s.zustand == VERMERK_VERARB_FERTIG && s.fortschritt_prozent == 100);
+    s = status_lesen(SW_STATUS_FEHLER, &ok);
+    PRUEFE(ok && s.zustand == VERMERK_VERARB_FEHLER && s.fortschritt_prozent == -1);
+    s = status_lesen(SW_STATUS_UNBEKANNT, &ok);
+    PRUEFE(ok && s.zustand == VERMERK_VERARB_UNBEKANNT && s.fortschritt_prozent == -1);
+
+    /* Ein zukuenftiger, hier unbekannter Zustand ist kein Fehler, sondern "unbekannt" */
+    s = status_lesen("{\"zustand\":\"neuer-zustand\"}", &ok);
+    PRUEFE(ok && s.zustand == VERMERK_VERARB_UNBEKANNT);
+    /* Kein Zustand: keine Antwort der Software */
+    s = status_lesen(SW_TOKEN_401, &ok);
+    PRUEFE(!ok && s.zustand == VERMERK_VERARB_UNBEKANNT && s.fortschritt_prozent == -1);
+    s = status_lesen(SW_STATUS_NEU, &ok);   /* Antwort des Upload-Stands, kein Verarbeitungsstand */
+    PRUEFE(!ok);
+    s = status_lesen("", &ok);
+    PRUEFE(!ok);
+    PRUEFE(!vermerk_status_pruefen("{}", 2, NULL));
+
+    PRUEFE(!vermerk_verarbeitung_beendet(VERMERK_VERARB_UNBEKANNT));
+    PRUEFE(!vermerk_verarbeitung_beendet(VERMERK_VERARB_EMPFANG));
+    PRUEFE(!vermerk_verarbeitung_beendet(VERMERK_VERARB_WARTET));
+    PRUEFE(!vermerk_verarbeitung_beendet(VERMERK_VERARB_TRANSKRIPTION));
+    PRUEFE(!vermerk_verarbeitung_beendet(VERMERK_VERARB_AUSWERTUNG));
+    PRUEFE(vermerk_verarbeitung_beendet(VERMERK_VERARB_FERTIG));
+    PRUEFE(vermerk_verarbeitung_beendet(VERMERK_VERARB_FEHLER));
+    PRUEFE(strcmp(vermerk_verarbeitung_text(VERMERK_VERARB_FERTIG), "fertig") == 0);
+    PRUEFE(strcmp(vermerk_verarbeitung_text(VERMERK_VERARB_UNBEKANNT), "unbekannt") == 0);
+}
+
+static vermerk_live_entscheidung_t live_e(int status, const char *text, uint64_t bestaetigt, uint64_t geschrieben)
+{
+    return vermerk_live_entscheiden(status, text, text != NULL ? strlen(text) : 0, bestaetigt, geschrieben);
+}
+
+static void test_live_entscheiden(void)
+{
+    vermerk_live_entscheidung_t e;
+
+    /* Stueck angehaengt: neuer Stand */
+    e = live_e(SW_TEIL_ANGEHAENGT_STATUS, SW_TEIL_ANGEHAENGT, 0, 10);
+    PRUEFE(e.aktion == VERMERK_LIVE_WEITER && e.naechstes_byte == 10);
+    /* Die Software hat schon mehr, als wir als bestaetigt wissen (Antwort ging verloren): auch gut */
+    e = live_e(SW_TEIL_ANGEHAENGT_STATUS, SW_TEIL_ANGEHAENGT, 4, 12);
+    PRUEFE(e.aktion == VERMERK_LIVE_WEITER && e.naechstes_byte == 10);
+    /* 409: ab dem Stand der Software weiter, solange der noch im Ringpuffer liegt */
+    e = live_e(SW_VERSATZ_409_STATUS, SW_VERSATZ_409, 4, 12);
+    PRUEFE(e.aktion == VERMERK_LIVE_WEITER && e.naechstes_byte == 10);
+    /* ... nicht, wenn sie weniger hat als schon verworfen ist (Luecke) oder mehr als je geschrieben wurde */
+    e = live_e(SW_VERSATZ_409_STATUS, SW_VERSATZ_409, 11, 20);
+    PRUEFE(e.aktion == VERMERK_LIVE_AUFGEBEN);
+    e = live_e(SW_VERSATZ_409_STATUS, SW_VERSATZ_409, 0, 9);
+    PRUEFE(e.aktion == VERMERK_LIVE_AUFGEBEN);
+    /* vorruebergehend: spaeter dieselben Bytes noch einmal */
+    e = live_e(0, NULL, 0, 10);
+    PRUEFE(e.aktion == VERMERK_LIVE_SPAETER);
+    e = live_e(SW_UEBERLAST_503_STATUS, SW_UEBERLAST_503, 0, 10);
+    PRUEFE(e.aktion == VERMERK_LIVE_SPAETER);
+    e = live_e(SW_PLATTE_VOLL_507_STATUS, SW_PLATTE_VOLL_507, 0, 10);
+    PRUEFE(e.aktion == VERMERK_LIVE_SPAETER);
+    e = live_e(200, "{}", 0, 10);   /* 200 ohne Stand: unerwartet, spaeter */
+    PRUEFE(e.aktion == VERMERK_LIVE_SPAETER);
+    /* dauerhaft: aufgeben (Token, Name, Groesse ...) */
+    e = live_e(SW_TOKEN_401_STATUS, SW_TOKEN_401, 0, 10);
+    PRUEFE(e.aktion == VERMERK_LIVE_AUFGEBEN);
+    e = live_e(SW_ZU_GROSS_413_STATUS, SW_ZU_GROSS_413, 0, 10);
+    PRUEFE(e.aktion == VERMERK_LIVE_AUFGEBEN);
+    e = live_e(SW_NAME_400_STATUS, SW_NAME_400, 0, 10);
+    PRUEFE(e.aktion == VERMERK_LIVE_AUFGEBEN);
+    e = live_e(SW_PFAD_404_STATUS, SW_PFAD_404, 0, 10);
+    PRUEFE(e.aktion == VERMERK_LIVE_AUFGEBEN);
+    /* 422 gibt es nur beim Abschluss; kommt es doch, wird nicht weitergebohrt */
+    e = live_e(SW_ABSCHLUSS_GROESSE_422_STATUS, SW_ABSCHLUSS_GROESSE_422, 0, 10);
+    PRUEFE(e.aktion == VERMERK_LIVE_SPAETER || e.aktion == VERMERK_LIVE_AUFGEBEN);
+}
+
 static void test_ergebnis_text(void)
 {
     PRUEFE(strcmp(vermerk_ergebnis_text(VERMERK_ERGEBNIS_FERTIG), "fertig") == 0);
@@ -629,6 +800,9 @@ int main(void)
     test_entscheiden();
     test_ergebnis_text();
     test_vertrag_mit_der_software();
+    test_json_text_und_promille();
+    test_status();
+    test_live_entscheiden();
     test_wartezeit();
     test_warteliste();
 

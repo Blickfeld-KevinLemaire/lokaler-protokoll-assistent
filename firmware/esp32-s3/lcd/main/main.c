@@ -9,6 +9,7 @@
 #include "vermerk_konfig.h"
 #include "vermerk_protokoll.h"
 #include "vermerk_konsole.h"
+#include "vermerk_live.h"
 #include "Rec_Codec.h"
 #include "Gain_Control.h"
 
@@ -67,6 +68,18 @@ static volatile rec_state_t rec_state = REC_IDLE;
 static volatile uint16_t wave_peak = 0;          /* Max. Pegel seit letzter Abholung durch die UI */
 static volatile uint32_t pending_uploads = 0;    /* Aufnahmen auf SD, die noch hochgeladen werden */
 static volatile bool upload_active = false;
+/* Die zuletzt aufgenommene Aufnahme (Nummer): Sie wird zuerst hochgeladen, und nur ihr Verarbeitungsstand wird
+ * angezeigt. 0 = keine. Gesetzt, wenn eine Aufnahme beginnt; zurueckgesetzt, wenn sie angekommen ist. */
+static volatile uint32_t upload_vorrang_id = 0;
+
+/* Verarbeitung der zuletzt hochgeladenen Aufnahme bei der Software (GET .../status). Der Upload-Manager
+ * fragt ab, die Anzeige liest nur. "Sichtbar", sobald die Software einen Zustand kennt. */
+#define VERARBEITUNG_ANZEIGE_MS   (10u * 60u * 1000u)   /* Fehlermeldung so lange stehen lassen; "fertig" bleibt bis zur naechsten Aufnahme */
+#define FERTIG_VOLLBILD_MS        4000u                  /* Haekchen ueber den ganzen Bildschirm */
+static volatile vermerk_verarbeitung_t verarbeitung_zustand = VERMERK_VERARB_UNBEKANNT;
+static volatile int verarbeitung_prozent = -1;
+static volatile bool verarbeitung_sichtbar = false;
+static volatile uint32_t verarbeitung_ende_ms = 0;      /* seit wann das Ergebnis feststeht (esp_timer, ms) */
 static volatile bool storage_full_stop = false;   /* Aufnahme wegen vollem Speicher beendet */
 
 static uint8_t wave_levels[WAVE_BARS];
@@ -84,6 +97,9 @@ static lv_obj_t *record_button_label;
 static lv_obj_t *battery_label;
 static lv_obj_t *battery_charge_icon;
 static lv_obj_t *connection_label;
+static lv_obj_t *fertig_vollbild;                /* "Transkription erfolgreich" ueber den ganzen Bildschirm */
+static uint32_t fertig_vollbild_start = 0;       /* lv_tick_get() beim Einblenden */
+static bool fertig_vollbild_gezeigt = false;     /* fuer diese Verarbeitung schon gezeigt */
 
 /* Pegel 0..100 fuer die Wellenform. Wurzel-Kennlinie, damit leise Sprache
  * noch sichtbar ist und laute Stellen nicht sofort anschlagen. */
@@ -223,7 +239,14 @@ static FILE *open_new_recording(char *path, size_t path_len)
             return NULL;
         }
 
+        /* Vor den Kopfseiten: Das Senden waehrend der Aufnahme braucht die Datei ab Byte 0. Gelingt es nicht
+         * (kein PSRAM ...), wird die Aufnahme nach dem Ende wie bisher hochgeladen. */
+        char live_name[32];
+        snprintf(live_name, sizeof(live_name), "H5_%03u." REC_EXT, (unsigned)id);
+        vermerk_live_beginnen(live_name);
+
         if (!rec_enc_begin(f)) {
+            vermerk_live_beenden();
             fclose(f);
             remove(path);
             return NULL;
@@ -231,12 +254,14 @@ static FILE *open_new_recording(char *path, size_t path_len)
 
         esp_err_t err = save_next_record_id(id + 1);
         if (err != ESP_OK) {
+            vermerk_live_beenden();
             fclose(f);
             remove(path);
             return NULL;
         }
 
         next_record_id = id + 1;
+        upload_vorrang_id = id;   /* nach dem Stopp zuerst hochladen, ihr Ergebnis anzeigen */
         printf("VERMERK Aufnahme-ID reserviert: %u\n", (unsigned)id);
         return f;
     }
@@ -252,6 +277,7 @@ static esp_err_t finalize_recording(FILE *f)
 
     /* Restpuffer des Encoders in die Datei schreiben, dann sauber schliessen */
     bool ok = rec_enc_end();
+    vermerk_live_beenden();   /* die letzte Seite ist raus; was fehlt, holt der normale Upload nach */
     fflush(f);
     fsync(fileno(f));
     ok = (fclose(f) == 0) && ok;
@@ -487,6 +513,58 @@ static void waveform_draw_cb(lv_event_t *e)
         a.y2 = a.y1 + bh - 1;
         lv_draw_rect(draw_ctx, &dsc, &a);
     }
+}
+
+static void fertig_vollbild_ausblenden(void)
+{
+    if (fertig_vollbild != NULL) {
+        lv_obj_add_flag(fertig_vollbild, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+static void fertig_vollbild_klick(lv_event_t *e)
+{
+    (void)e;
+    fertig_vollbild_ausblenden();
+}
+
+/* Der Haken ist gezeichnet (Linienzug), nicht als Schriftzeichen: Es gibt ihn so in jeder Groesse. */
+static void fertig_vollbild_erstellen(void)
+{
+    static const lv_point_t haken_punkte[] = {{34, 74}, {62, 102}, {108, 42}};
+
+    fertig_vollbild = lv_obj_create(lv_layer_top());
+    lv_obj_remove_style_all(fertig_vollbild);
+    lv_obj_set_size(fertig_vollbild, lv_pct(100), lv_pct(100));
+    lv_obj_set_style_bg_color(fertig_vollbild, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_bg_opa(fertig_vollbild, LV_OPA_COVER, 0);
+    lv_obj_add_flag(fertig_vollbild, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(fertig_vollbild, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_event_cb(fertig_vollbild, fertig_vollbild_klick, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_t *kreis = lv_obj_create(fertig_vollbild);
+    lv_obj_remove_style_all(kreis);
+    lv_obj_set_size(kreis, 140, 140);
+    lv_obj_set_style_radius(kreis, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(kreis, lv_color_hex(0x59D65C), 0);
+    lv_obj_set_style_bg_opa(kreis, LV_OPA_COVER, 0);
+    lv_obj_align(kreis, LV_ALIGN_TOP_MID, 0, 55);
+
+    lv_obj_t *haken = lv_line_create(kreis);
+    lv_line_set_points(haken, haken_punkte, sizeof(haken_punkte) / sizeof(haken_punkte[0]));
+    lv_obj_set_style_line_width(haken, 14, 0);
+    lv_obj_set_style_line_color(haken, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_line_rounded(haken, true, 0);
+    lv_obj_set_pos(haken, 0, 0);
+
+    lv_obj_t *text = lv_label_create(fertig_vollbild);
+    lv_label_set_text(text, "TRANSKRIPTION\nERFOLGREICH");
+    lv_obj_set_style_text_font(text, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_color(text, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_align(text, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(text, LV_ALIGN_TOP_MID, 0, 215);
+
+    lv_obj_add_flag(fertig_vollbild, LV_OBJ_FLAG_HIDDEN);
 }
 
 static void update_ui(void)
@@ -829,6 +907,66 @@ static void update_ui(void)
 
         last_state = state;
     }
+
+    /* Verarbeitung der zuletzt hochgeladenen Aufnahme: waehrend sie laeuft "TRANSKRIPTION WIRD VERARBEITET", am Ende
+     * einmal ca. 4 s das gruene Haekchen ueber den ganzen Bildschirm, danach dauerhaft "TRANSKRIPTION ERFOLGREICH",
+     * bis eine neue Aufnahme beginnt. Ersetzt nur den Statustext, solange nicht aufgenommen wird. */
+    {
+        const bool ruhe = (state == REC_IDLE || state == REC_DONE);
+        if (!verarbeitung_sichtbar || verarbeitung_zustand != VERMERK_VERARB_FERTIG) {
+            fertig_vollbild_gezeigt = false;   /* die naechste fertige Verarbeitung zeigt es wieder */
+        }
+        if (fertig_vollbild != NULL && !lv_obj_has_flag(fertig_vollbild, LV_OBJ_FLAG_HIDDEN) &&
+            (!ruhe || lv_tick_elaps(fertig_vollbild_start) >= FERTIG_VOLLBILD_MS)) {
+            fertig_vollbild_ausblenden();   /* Zeit um, oder eine Aufnahme beginnt */
+        }
+        if (fertig_vollbild != NULL && ruhe && verarbeitung_sichtbar && verarbeitung_zustand == VERMERK_VERARB_FERTIG &&
+            !fertig_vollbild_gezeigt) {
+            fertig_vollbild_gezeigt = true;
+            fertig_vollbild_start = lv_tick_get();
+            lv_obj_clear_flag(fertig_vollbild, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+    {
+        static int shown_key = -2;
+        static rec_state_t shown_state = (rec_state_t)-1;
+        int key = -1;   /* -1 = nichts Besonderes anzeigen */
+
+        if ((state == REC_IDLE || state == REC_DONE) && verarbeitung_sichtbar) {
+            vermerk_verarbeitung_t z = verarbeitung_zustand;
+            bool abgelaufen = (z == VERMERK_VERARB_FEHLER) &&
+                              ((uint32_t)(esp_timer_get_time() / 1000) - verarbeitung_ende_ms) > VERARBEITUNG_ANZEIGE_MS;
+            if (!abgelaufen && z >= VERMERK_VERARB_WARTET) {
+                key = (int)z * 1000;
+            }
+        }
+        if (state != shown_state) {
+            shown_state = state;
+            shown_key = -2;   /* der Statustext wurde oben neu gesetzt: noch einmal darueberschreiben */
+        }
+        if (key != shown_key) {
+            int vorher = shown_key;
+            shown_key = key;
+            if (key >= 0) {
+                switch (verarbeitung_zustand) {
+                    case VERMERK_VERARB_FERTIG:
+                        lv_label_set_text(status_label, LV_SYMBOL_OK " TRANSKRIPTION ERFOLGREICH");
+                        lv_obj_set_style_text_color(status_label, lv_color_hex(0x59D65C), 0);
+                        break;
+                    case VERMERK_VERARB_FEHLER:
+                        lv_label_set_text(status_label, "VERARBEITUNG FEHLGESCHLAGEN");
+                        lv_obj_set_style_text_color(status_label, lv_color_hex(0xFF6B6B), 0);
+                        break;
+                    default:   /* WARTET, TRANSKRIPTION, AUSWERTUNG: fuer das Geraet ein einziger Zustand */
+                        lv_label_set_text(status_label, "TRANSKRIPTION WIRD VERARBEITET");
+                        lv_obj_set_style_text_color(status_label, lv_color_hex(0x4AB7F4), 0);
+                        break;
+                }
+            } else if (vorher >= 0) {
+                last_state = (rec_state_t)-1;   /* Anzeige vorbei: normalen Statustext (BEREIT, GESPEICHERT) wieder setzen */
+            }
+        }
+    }
 }
 
 static lv_obj_t *make_label(lv_obj_t *parent, const char *text, lv_color_t color)
@@ -881,6 +1019,7 @@ static void vermerk_h3_ui_create(void)
 
     status_label = make_label(scr, "BEREIT", lv_color_hex(0xFFFFFF));
     lv_obj_align(status_label, LV_ALIGN_TOP_MID, 0, 151);
+    fertig_vollbild_erstellen();
     record_indicator = lv_obj_create(scr);
     lv_obj_set_size(record_indicator, 10, 10);
     lv_obj_set_style_radius(record_indicator, LV_RADIUS_CIRCLE, 0);
@@ -998,6 +1137,87 @@ static int collect_upload_ids(uint32_t *ids, int max)
     return count;
 }
 
+/* Verarbeitungsstand beobachten: Nach einem erfolgreichen Upload fragt der Manager alle paar Sekunden
+ * GET .../status ab, bis die Software "fertig" oder "fehler" meldet. Kennt sie die Aufnahme nicht (dreimal
+ * "unbekannt": Neustart der Software, Live-Verarbeitung aus, Server statt PC), bleibt die Anzeige aus. */
+#define STATUS_ABFRAGE_MS     3000u
+#define STATUS_MAX_DAUER_MS   (3ULL * 60ULL * 60ULL * 1000ULL)   /* laenger wird nicht gewartet */
+#define STATUS_UNBEKANNT_MAX  3
+static char status_name[32] = "";
+static uint64_t status_start_ms = 0;
+static uint64_t status_naechste_ms = 0;
+static int status_unbekannt = 0;
+
+static void status_beobachten(const char *dateiname)
+{
+    snprintf(status_name, sizeof(status_name), "%s", dateiname);
+    status_start_ms = upload_now_ms();
+    status_naechste_ms = status_start_ms;
+    status_unbekannt = 0;
+    verarbeitung_sichtbar = false;
+    verarbeitung_zustand = VERMERK_VERARB_UNBEKANNT;
+    verarbeitung_prozent = -1;
+}
+
+/* Eine neue Aufnahme beginnt: der alte Stand ist uninteressant */
+static void status_beenden(void)
+{
+    status_name[0] = '\0';
+    verarbeitung_sichtbar = false;
+}
+
+static void status_schritt(void)
+{
+    if (status_name[0] == '\0') {
+        return;
+    }
+    uint64_t jetzt = upload_now_ms();
+    if (jetzt < status_naechste_ms) {
+        return;
+    }
+    status_naechste_ms = jetzt + STATUS_ABFRAGE_MS;
+    if (jetzt - status_start_ms > STATUS_MAX_DAUER_MS) {
+        status_beenden();
+        return;
+    }
+
+    vermerk_status_t st;
+    if (!VERMERK_Status_Abfragen(status_name, &st)) {
+        return;   /* Netz oder Software gerade nicht erreichbar: weiter versuchen */
+    }
+    if (st.zustand == VERMERK_VERARB_UNBEKANNT) {
+        if (++status_unbekannt >= STATUS_UNBEKANNT_MAX) {
+            printf("VERMERK Verarbeitung %s: der Software ist nichts bekannt, keine Anzeige\n", status_name);
+            status_beenden();
+        }
+        return;
+    }
+    status_unbekannt = 0;
+    if (st.zustand != verarbeitung_zustand || st.fortschritt_prozent / 5 != verarbeitung_prozent / 5) {
+        if (st.fortschritt_prozent >= 0) {
+            printf("VERMERK Verarbeitung %s: %s %d %%\n", status_name, vermerk_verarbeitung_text(st.zustand),
+                   st.fortschritt_prozent);
+        } else {
+            printf("VERMERK Verarbeitung %s: %s\n", status_name, vermerk_verarbeitung_text(st.zustand));
+        }
+    }
+    verarbeitung_zustand = st.zustand;
+    verarbeitung_prozent = st.fortschritt_prozent;
+    verarbeitung_sichtbar = true;
+    if (vermerk_verarbeitung_beendet(st.zustand)) {
+        verarbeitung_ende_ms = (uint32_t)jetzt;
+        status_name[0] = '\0';   /* fertig: nichts mehr abzufragen, die Anzeige bleibt */
+    }
+}
+
+/* Wird zwischen zwei Stuecken eines Uploads gefragt: Auch waehrend einer langen Datei den Verarbeitungsstand der
+ * zuletzt aufgenommenen Aufnahme aktuell halten (eigene, kurze Anfrage), dann: aufhoeren, wenn eine Aufnahme beginnt. */
+static bool upload_abbrechen(void)
+{
+    status_schritt();
+    return recording_has_priority();
+}
+
 /* Eine Aufnahme (Endung upload_exts[art]) hochladen.
  * 0 = nichts zu tun oder diese Datei spaeter, 1 = erledigt, -1 = Durchgang beenden (kein Ziel, neue Aufnahme) */
 static int upload_one(uint32_t i, uint8_t art)
@@ -1055,7 +1275,7 @@ static int upload_one(uint32_t i, uint8_t art)
 
     upload_active = true;
     int64_t upload_start_us = esp_timer_get_time();
-    vermerk_ergebnis_t result = VERMERK_Upload_File(path, filename, recording_has_priority);
+    vermerk_ergebnis_t result = VERMERK_Upload_File(path, filename, upload_abbrechen);
     upload_active = false;
     printf("VERMERK Upload-Dauer: %s %lld ms\n", filename,
            (long long)((esp_timer_get_time() - upload_start_us) / 1000));
@@ -1071,6 +1291,11 @@ static int upload_one(uint32_t i, uint8_t art)
         return 0;
     }
     vermerk_warteliste_erfolg(&upload_warteliste, i, art);
+    if (i == upload_vorrang_id) {
+        /* Die zuletzt aufgenommene Aufnahme ist angekommen: Die Software verarbeitet sie jetzt, Stand abfragen und anzeigen */
+        upload_vorrang_id = 0;
+        status_beobachten(filename);
+    }
 
     /* Die Software hat die Datei geprueft ("fertig"). Marker zuerst: stirbt das Geraet beim Loeschen,
      * raeumt der naechste Durchgang auf, statt die Datei noch einmal zu senden. */
@@ -1119,13 +1344,42 @@ static void upload_manager_task(void *arg)
 
         bool target_ok = (transfer_mode == TRANSFER_MODE_PC && PC_REACHABLE) ||
                          (transfer_mode == TRANSFER_MODE_SERVER && SERVER_REACHABLE);
-        if (!target_ok || recording_busy) {
+        if (recording_busy) {
+            status_beenden();
+            if (target_ok) {
+                VERMERK_Live_Schritt();   /* waehrend der Aufnahme: neue Bytes an die Software senden (alle 15 s) */
+            }
+            vTaskDelay(pdMS_TO_TICKS(2000));
+            continue;
+        }
+        if (!target_ok) {
             vTaskDelay(pdMS_TO_TICKS(2000));
             continue;
         }
 
         /* Aelteste zuerst. Eine Datei, die scheitert, wartet; die naechste ist trotzdem dran. */
         int count = collect_upload_ids(ids, UPLOAD_IDS_PER_PASS);
+
+        /* Die gerade aufgenommene Aufnahme zuerst: Wer auf das Ergebnis wartet, soll nicht hinter allen
+         * aelteren Dateien anstehen (bei Live-Senden ist sie ohnehin fast vollstaendig am Ziel). */
+        uint32_t vorrang = upload_vorrang_id;
+        if (vorrang != 0 && recording_exists(vorrang)) {
+            int pos = -1;
+            for (int k = 0; k < count; k++) {
+                if (ids[k] == vorrang) {
+                    pos = k;
+                }
+            }
+            if (pos < 0 && count < UPLOAD_IDS_PER_PASS) {
+                pos = count++;
+            }
+            if (pos > 0) {
+                memmove(&ids[1], &ids[0], (size_t)pos * sizeof(ids[0]));
+                ids[0] = vorrang;
+            } else if (pos == 0) {
+                ids[0] = vorrang;
+            }
+        }
         bool stop = false;
         for (int k = 0; k < count && !stop; k++) {
             if (recording_has_priority()) {
@@ -1145,6 +1399,8 @@ static void upload_manager_task(void *arg)
             upload_fast_mode = false;
         }
 
+        status_schritt();
+
         vTaskDelay(pdMS_TO_TICKS(2000));
     }
 }
@@ -1153,6 +1409,7 @@ void app_main(void)
 {
     ESP_ERROR_CHECK(esp_board_init(16000, 2, 16));
     rec_enc_init();   /* Encoder frueh anlegen, solange noch ein grosser RAM-Block frei ist */
+    opus_enc_seiten_haken(vermerk_live_seite);   /* jede Ogg-Seite auch fuer das Senden waehrend der Aufnahme */
     BAT_Init();
     SD_Init();
 

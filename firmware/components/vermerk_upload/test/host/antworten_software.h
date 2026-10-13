@@ -20,6 +20,20 @@
 #define SW_ABSCHLUSS_GROESSE_422 "{\"naechstes_byte\":0,\"fertig\":false,\"fehler\":\"Groesse stimmt nicht (10 statt 11 Bytes).\"}"
 #define SW_ABSCHLUSS_PRUEFSUMME_422_STATUS 422
 #define SW_ABSCHLUSS_PRUEFSUMME_422 "{\"naechstes_byte\":0,\"fertig\":false,\"fehler\":\"Pruefsumme stimmt nicht.\"}"
+#define SW_STATUS_EMPFANG_STATUS 200
+#define SW_STATUS_EMPFANG "{\"zustand\":\"empfang\",\"meldung\":\"2 Bloecke schon transkribiert\",\"aktualisiert\":1760000000}"
+#define SW_STATUS_WARTET_STATUS 200
+#define SW_STATUS_WARTET "{\"zustand\":\"wartet\",\"meldung\":\"Aufnahme angekommen\",\"aktualisiert\":1760000000}"
+#define SW_STATUS_TRANSKRIPTION_STATUS 200
+#define SW_STATUS_TRANSKRIPTION "{\"zustand\":\"transkription\",\"fortschritt\":0.457,\"meldung\":\"Transkription l\xc3""\xa4""uft\",\"aktualisiert\":1760000000}"
+#define SW_STATUS_AUSWERTUNG_STATUS 200
+#define SW_STATUS_AUSWERTUNG "{\"zustand\":\"auswertung\",\"fortschritt\":0.8,\"aktualisiert\":1760000000}"
+#define SW_STATUS_FERTIG_STATUS 200
+#define SW_STATUS_FERTIG "{\"zustand\":\"fertig\",\"fortschritt\":1.0,\"meldung\":\"Transkription erfolgreich\",\"aktualisiert\":1760000000}"
+#define SW_STATUS_FEHLER_STATUS 200
+#define SW_STATUS_FEHLER "{\"zustand\":\"fehler\",\"meldung\":\"Die Auswertung ist fehlgeschlagen.\",\"aktualisiert\":1760000000}"
+#define SW_STATUS_UNBEKANNT_STATUS 200
+#define SW_STATUS_UNBEKANNT "{\"zustand\":\"unbekannt\"}"
 #define SW_NAME_400_STATUS 400
 #define SW_NAME_400 "{\"fehler\":\"Ungueltiger Dateiname.\"}"
 #define SW_KOPF_400_STATUS 400

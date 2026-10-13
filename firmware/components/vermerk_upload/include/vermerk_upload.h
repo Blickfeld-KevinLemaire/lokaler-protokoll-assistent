@@ -26,6 +26,19 @@ typedef struct {
 /* GET /api/v1/hallo (Zeitlimit 2 s). Darf aus einer Task mit 4 KB Stack laufen: die Puffer liegen im Heap. */
 vermerk_hallo_t vermerk_hallo(vermerk_ziel_t ziel);
 
+/* GET /api/v1/aufnahmen/<name><anhang> (anhang: "" fuer den Upload-Stand, "/status" fuer den Verarbeitungsstand).
+ * Rueckgabe: HTTP-Status, 0 = keine Antwort, -1 = Ziel oder Name nicht gueltig. antwort bekommt den Text
+ * (hoechstens antwort_max - 1 Bytes, mit Nullbyte). Zeitlimit 4 s; darf aus einer Task mit 4 KB Stack laufen. */
+int vermerk_aufnahme_abfragen(vermerk_ziel_t ziel, const char *name, const char *anhang,
+                              char *antwort, size_t antwort_max);
+
+/* Ein Stueck einer wachsenden Aufnahme anhaengen: PUT mit X-Offset, ohne Abschluss (Senden waehrend der
+ * Aufnahme). Die Bytes liegen in zwei Bereichen (Ende und Anfang des Ringpuffers; b darf leer sein).
+ * Rueckgabe wie oben; antwort bekommt den Text, mit dem vermerk_live_entscheiden() weiterarbeitet. */
+int vermerk_teil_anhaengen(vermerk_ziel_t ziel, const char *name, uint64_t offset,
+                           const uint8_t *a, size_t a_laenge, const uint8_t *b, size_t b_laenge,
+                           char *antwort, size_t antwort_max);
+
 /* Wird zwischen zwei Stuecken gefragt; true = jetzt aufhoeren (z. B. weil eine Aufnahme startet). Darf NULL sein. */
 typedef bool (*vermerk_abbrechen_t)(void);
 

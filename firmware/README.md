@@ -18,13 +18,31 @@ Ausführliche Bedienung, LED- und Tastenbelegung der beiden S3: [`esp32-s3/READM
 Alle Versionen haben dieselbe Aufnahme-, Pause- und Upload-Logik; Treiber, Pinbelegung und Bedienung unterscheiden sich je nach Board. Der C6 zeigt außerdem den
 USB-/Ladezustand direkt vom Power-Chip AXP2101 an, statt ihn aus der Akkuspannung zu erraten.
 
-## Geplant: Live-Übertragung
+## Live-Übertragung (S3 mit Bildschirm)
 
-Die Geräte sollen im WLAN der Software die Aufnahme in 15-s-Stücken schon während der Aufnahme an den PC schicken, wo sie
-laufend transkribiert und mit einem vorgegebenen Auftrag ausgewertet wird; das Gerät zeigt am Ende „Transkription erfolgreich“.
-Das Konzept mit Entscheidungen und Phasen steht in [`docs/streaming-konzept.md`](docs/streaming-konzept.md). Die Übertragung
-selbst ist umgesetzt (wiederaufnehmbarer Upload mit Token, siehe [Gegenstelle](#gegenstelle-die-protokoll-software)); das
-Senden schon **während** der Aufnahme fehlt in der Firmware noch.
+Das **S3 mit Bildschirm** schickt im WLAN der Software die Aufnahme alle 15 s in Stücken schon **während** der Aufnahme an
+den PC (`components/vermerk_upload/vermerk_live.c`). Dort wird sie laufend transkribiert und mit einem vorgegebenen Auftrag
+ausgewertet; das Gerät fragt den Stand ab und zeigt am Ende „✓ TRANSKRIPTION ERFOLGREICH“.
+Das Konzept mit Entscheidungen und Phasen steht in [`docs/streaming-konzept.md`](docs/streaming-konzept.md). S3-AUDIO
+(ohne Bildschirm) und C6 haben das noch nicht; sie laden die fertige Aufnahme wie bisher nach dem Ende hoch.
+
+**Wie es funktioniert**
+
+* Der Encoder gibt jede fertige Ogg-Seite (ca. 1 s Audio, 3 KB) über einen Haken (`opus_enc_seiten_haken`) auch in einen
+  **Ringpuffer im PSRAM** (1 MB, ca. 5,7 Minuten bei 24 kbit/s; `vermerk_ring.c`, auf dem PC getestet). Der Haken kopiert
+  nur; die Aufnahme wird nicht aufgehalten.
+* Der Upload-Manager, der während der Aufnahme sonst ruht, sendet alle 15 s die neuen Bytes mit `PUT` und `X-Offset`
+  (`vermerk_live_schritt`). Die Software hängt sie an die wachsende Datei an und transkribiert sie blockweise.
+  Vor dem ersten Stück fragt das Gerät `GET …/aufnahmen/<Name>`: Kennt die Software unter dem Namen schon Bytes, wird nicht
+  live gesendet.
+* **Es geht nie etwas verloren.** Die Aufnahme liegt ohnehin ganz auf der SD-Karte. Nach dem Stopp lädt der normale Upload
+  dort weiter, wo die Software steht, und schließt mit Größe und SHA-256 ab. Das Live-Senden endet still, wenn der
+  Ringpuffer voll wird (WLAN lange weg), die Software eine Lücke meldet oder dauerhaft ablehnt (Token, Name); im Monitor steht
+  der Grund (`VERMERK Live H5_007.opus: beendet (…)`).
+* Nach „fertig“ fragt das Gerät alle 3 s `GET …/aufnahmen/<Name>/status` ab, bis die Software `fertig` oder `fehler` meldet
+  (höchstens 3 Stunden). Kennt sie die Aufnahme nicht (dreimal `unbekannt`, etwa Neustart der Software, Live-Verarbeitung aus,
+  Server statt PC), bleibt die Anzeige aus. „Fertig“ erscheint ca. 4 s als grünes Häkchen über den ganzen Bildschirm und bleibt danach in der Statuszeile bis zur nächsten Aufnahme.
+* Ohne PSRAM (C6) oder bei einem Fehler beim Anlegen des Ringpuffers wird nicht live gesendet; sonst ändert sich nichts.
 
 ## Lautstärke
 

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 
@@ -18,6 +19,12 @@
 #define OPUS_BITRATE_BPS     24000
 #define OPUS_COMPLEXITY      2        /* 0 = schnell ... 10 = beste Qualitaet; kostet Rechenzeit */
 #define OPUS_FRAME_MS        20       /* kurze Frames: der Encoder braucht dann ca. 22 KB Stack, bei 40 ms mehr als 20 KB */
+
+/* Haken fuer jede fertig geschriebene Ogg-Seite (auch die Kopfseiten): Die Seite ist vollstaendig und liegt
+ * im Puffer des Encoders; der Haken muss sie sofort kopieren und schnell zurueckkehren (er laeuft in der
+ * Aufnahme-Task). NULL = kein Haken. Dient dem Senden waehrend der Aufnahme (vermerk_live). */
+typedef void (*opus_seiten_haken_t)(const uint8_t *seite, size_t laenge);
+void opus_enc_seiten_haken(opus_seiten_haken_t haken);
 
 /* Encoder einmalig anlegen, solange noch ein grosser RAM-Block frei ist (vor WLAN und Display). */
 bool opus_enc_init(void);

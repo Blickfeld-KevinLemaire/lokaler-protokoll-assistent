@@ -10,6 +10,16 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 ### Added
 
+- **Firmware (S3 mit Bildschirm): Senden während der Aufnahme und Anzeige „Transkription erfolgreich“:**
+  Das Gerät schickt die Aufnahme alle 15 s in Stücken an die Protokoll-Software (Ringpuffer im PSRAM, `PUT` mit `X-Offset`),
+  während die Aufnahme läuft. Nach dem Stopp lädt es den Rest hoch und fragt den Verarbeitungsstand ab; das Display zeigt
+  „TRANSKRIPTION WIRD VERARBEITET“, am Ende ca. 4 s ein grünes Häkchen mit „TRANSKRIPTION ERFOLGREICH“ über den ganzen
+  Bildschirm und danach dauerhaft die Statuszeile „✓ TRANSKRIPTION ERFOLGREICH“ (bei Fehlern rot). Es geht nichts verloren: Die
+  Aufnahme liegt immer ganz auf der SD-Karte, und der normale Upload macht dort weiter, wo die Software steht. Die zuletzt
+  aufgenommene Aufnahme wird jetzt zuerst hochgeladen (vor älteren Dateien), und das Prüfsummen-Lesen einer langen
+  angefangenen Datei lässt sich abbrechen, sobald eine Aufnahme beginnt (vorher hielt es die SD-Karte minutenlang besetzt).
+  Siehe `firmware/README.md`.
+
 - **Aufnahmegeräte im WLAN laden selbst hoch:** Ist der Empfang eingeschaltet
   (Einstellungen → „Aufnahmegeräte“, im Servermodus `PROTOKOLL_EMPFANG=1`),
   landen die Aufnahmen der eigenen ESP32-Geräte ohne Umweg im Eingabeordner und

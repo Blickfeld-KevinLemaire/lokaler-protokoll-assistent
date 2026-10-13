@@ -159,15 +159,44 @@ void VERMERK_Wifi_Fast_Mode(bool on)
     }
 }
 
+/* Ziel waehlen: Server hat Vorrang, sonst PC. false, wenn keines erreichbar ist. */
+static bool ziel_waehlen(vermerk_ziel_t *ziel)
+{
+    if (WIFI_CONNECTED && SERVER_REACHABLE) {
+        *ziel = VERMERK_ZIEL_SERVER;
+        return true;
+    }
+    if (WIFI_CONNECTED && PC_REACHABLE) {
+        *ziel = VERMERK_ZIEL_PC;
+        return true;
+    }
+    return false;
+}
+
+void VERMERK_Live_Schritt(void)
+{
+    vermerk_ziel_t ziel;
+    if (ziel_waehlen(&ziel)) {
+        vermerk_live_schritt(ziel, teil_max_bytes[ziel]);
+    }
+}
+
+bool VERMERK_Status_Abfragen(const char *dateiname, vermerk_status_t *status)
+{
+    vermerk_ziel_t ziel;
+    if (!ziel_waehlen(&ziel)) {
+        return false;
+    }
+    char antwort[200];
+    int http = vermerk_aufnahme_abfragen(ziel, dateiname, "/status", antwort, sizeof(antwort));
+    return http == 200 && vermerk_status_pruefen(antwort, strlen(antwort), status);
+}
+
 /* Eine Aufnahme hochladen (wiederaufnehmbar, siehe components/vermerk_upload). Ziel: Server hat Vorrang, sonst PC. */
 vermerk_ergebnis_t VERMERK_Upload_File(const char *path, const char *filename, vermerk_abbrechen_t abbrechen)
 {
     vermerk_ziel_t ziel;
-    if (WIFI_CONNECTED && SERVER_REACHABLE) {
-        ziel = VERMERK_ZIEL_SERVER;
-    } else if (WIFI_CONNECTED && PC_REACHABLE) {
-        ziel = VERMERK_ZIEL_PC;
-    } else {
+    if (!ziel_waehlen(&ziel)) {
         return VERMERK_ERGEBNIS_KEIN_ZIEL;
     }
 

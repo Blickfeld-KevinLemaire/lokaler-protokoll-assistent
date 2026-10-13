@@ -215,6 +215,82 @@ int vermerk_json_wahrheitswert(const char *text, size_t laenge, const char *schl
     return -1;
 }
 
+bool vermerk_json_text(const char *text, size_t laenge, const char *schluessel, char *ziel, size_t ziel_groesse)
+{
+    if (ziel == NULL || ziel_groesse == 0) {
+        return false;
+    }
+    ziel[0] = '\0';
+    const char *p = finde_wert(text, laenge, schluessel);
+    if (p == NULL) {
+        return false;
+    }
+    const char *ende = text + laenge;
+    if (p >= ende || *p != '"') {
+        return false;
+    }
+    p++;
+    size_t n = 0;
+    while (p < ende && *p != '"') {
+        char c = *p;
+        if (!ist_buchstabe(c) && !ist_ziffer(c) && c != '_' && c != '-') {
+            ziel[0] = '\0';
+            return false;
+        }
+        if (n + 1 >= ziel_groesse) {
+            ziel[0] = '\0';
+            return false;   /* zu lang fuer den Puffer */
+        }
+        ziel[n++] = c;
+        p++;
+    }
+    if (p >= ende || !ist_wertende(p + 1, ende)) {
+        ziel[0] = '\0';
+        return false;   /* nicht abgeschlossen oder nicht am Ende des Werts */
+    }
+    ziel[n] = '\0';
+    return n > 0;
+}
+
+bool vermerk_json_promille(const char *text, size_t laenge, const char *schluessel, uint32_t *promille)
+{
+    const char *p = finde_wert(text, laenge, schluessel);
+    if (p == NULL || promille == NULL) {
+        return false;
+    }
+    const char *ende = text + laenge;
+    if (p >= ende || !ist_ziffer(*p)) {
+        return false;
+    }
+    uint32_t ganz = (uint32_t)(*p - '0');
+    p++;
+    if (p < ende && ist_ziffer(*p)) {
+        return false;   /* keine zweistellige oder fuehrende-Null-Zahl: der Fortschritt ist 0 bis 1 */
+    }
+    uint32_t wert = ganz * 1000u;
+    if (p < ende && *p == '.') {
+        p++;
+        uint32_t stelle = 100u;
+        int stellen = 0;
+        while (p < ende && ist_ziffer(*p)) {
+            if (++stellen > 3) {
+                return false;
+            }
+            wert += (uint32_t)(*p - '0') * stelle;
+            stelle /= 10u;
+            p++;
+        }
+        if (stellen == 0) {
+            return false;   /* "1." */
+        }
+    }
+    if (!ist_wertende(p, ende) || wert > 1000u) {
+        return false;
+    }
+    *promille = wert;
+    return true;
+}
+
 bool vermerk_hallo_pruefen(const char *text, size_t laenge, uint32_t *teil_max_bytes)
 {
     static const char dienst[] = "\"protokoll-assistent\"";
@@ -282,6 +358,90 @@ bool vermerk_mac_hex(const uint8_t mac[6], char *ziel, size_t ziel_groesse)
         return false;
     }
     return vermerk_hex(mac, 6, ziel, ziel_groesse);
+}
+
+/* ---- Verarbeitungsstand ---- */
+
+bool vermerk_status_pruefen(const char *text, size_t laenge, vermerk_status_t *status)
+{
+    static const struct {
+        const char *name;
+        vermerk_verarbeitung_t zustand;
+    } zustaende[] = {
+        {"empfang", VERMERK_VERARB_EMPFANG},
+        {"wartet", VERMERK_VERARB_WARTET},
+        {"transkription", VERMERK_VERARB_TRANSKRIPTION},
+        {"auswertung", VERMERK_VERARB_AUSWERTUNG},
+        {"fertig", VERMERK_VERARB_FERTIG},
+        {"fehler", VERMERK_VERARB_FEHLER},
+    };
+    if (status == NULL) {
+        return false;
+    }
+    status->zustand = VERMERK_VERARB_UNBEKANNT;
+    status->fortschritt_prozent = -1;
+
+    char name[24];
+    if (!vermerk_json_text(text, laenge, "zustand", name, sizeof(name))) {
+        return false;
+    }
+    for (size_t i = 0; i < sizeof(zustaende) / sizeof(zustaende[0]); i++) {
+        if (strcmp(name, zustaende[i].name) == 0) {
+            status->zustand = zustaende[i].zustand;
+        }
+    }
+    uint32_t promille = 0;
+    if (vermerk_json_promille(text, laenge, "fortschritt", &promille)) {
+        status->fortschritt_prozent = (int)((promille + 5u) / 10u);   /* gerundet */
+    }
+    return true;
+}
+
+bool vermerk_verarbeitung_beendet(vermerk_verarbeitung_t zustand)
+{
+    return zustand == VERMERK_VERARB_FERTIG || zustand == VERMERK_VERARB_FEHLER;
+}
+
+const char *vermerk_verarbeitung_text(vermerk_verarbeitung_t zustand)
+{
+    switch (zustand) {
+    case VERMERK_VERARB_EMPFANG:       return "empfang";
+    case VERMERK_VERARB_WARTET:        return "wartet";
+    case VERMERK_VERARB_TRANSKRIPTION: return "transkription";
+    case VERMERK_VERARB_AUSWERTUNG:    return "auswertung";
+    case VERMERK_VERARB_FERTIG:        return "fertig";
+    case VERMERK_VERARB_FEHLER:        return "fehler";
+    default:                           return "unbekannt";
+    }
+}
+
+/* ---- Senden waehrend der Aufnahme ---- */
+
+vermerk_live_entscheidung_t vermerk_live_entscheiden(int http_status, const char *text, size_t laenge,
+                                                     uint64_t bestaetigt, uint64_t geschrieben)
+{
+    vermerk_live_entscheidung_t e = {VERMERK_LIVE_SPAETER, 0};
+    vermerk_entscheidung_t a = vermerk_entscheiden(VERMERK_PHASE_TEIL, http_status, text, laenge, true);
+
+    switch (a.aktion) {
+    case VERMERK_AKTION_WEITER_AB:
+        /* Die Software kennt nur Stand N. Davor liegt nichts mehr im Ringpuffer (schon bestaetigt und
+         * verworfen), dahinter gibt es nichts: Dann laesst sich die Luecke nicht fuellen. */
+        if (a.naechstes_byte < bestaetigt || a.naechstes_byte > geschrieben) {
+            e.aktion = VERMERK_LIVE_AUFGEBEN;
+        } else {
+            e.aktion = VERMERK_LIVE_WEITER;
+            e.naechstes_byte = a.naechstes_byte;
+        }
+        break;
+    case VERMERK_AKTION_SPAETER:
+        e.aktion = VERMERK_LIVE_SPAETER;
+        break;
+    default:   /* AUFGEBEN (401, 413 ...), VON_VORN und FERTIG kommen hier nicht sinnvoll vor */
+        e.aktion = VERMERK_LIVE_AUFGEBEN;
+        break;
+    }
+    return e;
 }
 
 /* ---- Ablauf ---- */

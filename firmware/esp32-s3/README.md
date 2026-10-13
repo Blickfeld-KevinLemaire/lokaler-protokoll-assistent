@@ -77,6 +77,12 @@ Bedienung ausschließlich über den Touchscreen. Die zwei Tasten am Gehäuse hab
 * **AUFNAHME STARTEN** → Zeit läuft, roter Punkt blinkt, die Wellenform zeigt den Pegel.
 * **PAUSE** (rechts neben STOPP) hält die Aufnahme an; die Wellenform friert ein.
 * **STOPP** beendet und speichert. Danach steht kurz „GESPEICHERT“ im Display.
+* Ist das Gerät mit der Protokoll-Software verbunden (PC), geht die Aufnahme schon **während** der Aufnahme in Stücken an den PC.
+  Nach dem Stopp lädt es den Rest hoch und zeigt dann „TRANSKRIPTION WIRD VERARBEITET“. Ist die Verarbeitung fertig,
+  erscheint **ca. 4 Sekunden lang** ein grünes Häkchen mit „TRANSKRIPTION ERFOLGREICH“ über den ganzen Bildschirm (ein Tipp
+  blendet es früher aus); danach steht in der Statuszeile dauerhaft **„✓ TRANSKRIPTION ERFOLGREICH“**, bis eine neue Aufnahme
+  beginnt. Bei einem Fehler steht 10 Minuten lang in Rot „VERARBEITUNG FEHLGESCHLAGEN“. Kennt die Software
+  die Aufnahme nicht (Live-Verarbeitung dort aus), bleibt es bei „GESPEICHERT“.
 * Oben: **LOKAL / WLAN / PC / SERVER** zeigt, ob und wohin hochgeladen werden kann (Pfeil = Upload läuft).
   **AKKU xx %** mit Blitz, wenn geladen wird. Unten: „n AUFNAHMEN OFFEN“, wenn noch etwas hochzuladen ist.
 * „MIKROFON PRUEFEN“ erscheint nur, wenn ein Mikrofon nichts mehr liefert.

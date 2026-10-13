@@ -1,7 +1,7 @@
 # Konzept: Live-Übertragung und laufende Transkription
 
-Stand: 12.10.2026. Das ist ein **Konzept**; umgesetzt ist bisher nur die Übertragung (Phase 1, siehe unten), noch nicht
-auf einem Gerät getestet. Es beschreibt, wie die Aufnahmegeräte
+Stand: 13.10.2026. Das ist ein **Konzept**; umgesetzt sind die Übertragung (Phase 1) und für das **S3 mit Bildschirm** das
+Senden während der Aufnahme mit Statusanzeige (siehe „Umsetzung am S3“ unten); S3-AUDIO und C6 sind noch offen. Es beschreibt, wie die Aufnahmegeräte
 (`esp32-s3/lcd`, `esp32-s3/audio`, später auch `esp32-c6`) und die Protokoll-Software zusammenarbeiten sollen.
 
 ## Ziel
@@ -36,7 +36,7 @@ Dort wird sofort transkribiert. Wenn die Aufnahme zu Ende ist, soll das Ergebnis
 2. Gerät fragt mit `GET /api/v1/aufnahmen/<Name>` das nächste erwartete Byte ab (umgesetzt; eine eigene Sitzung braucht es dafür nicht).
 3. Das Gerät schreibt weiter wie bisher in seine lokale Datei (Ogg-Opus) und schickt alle 15 s die **neuen Bytes** dieser Datei
    (`PUT` mit `X-Offset`). Der PC hängt sie an. So entsteht dort die lückenlose, jederzeit abspielbare Aufnahme, ohne Nähte
-   zwischen den Stücken. Die Software kann das schon; in der Firmware fehlt das Senden während der Aufnahme noch.
+   zwischen den Stücken. Die Software kann das; das S3 mit Bildschirm sendet so (S3-AUDIO und C6 noch nicht).
 4. Jede Übertragung wird bestätigt. Fehlt eine, sendet das Gerät beim nächsten Mal ab dem letzten bestätigten Byte (**Wiederaufnahme**, umgesetzt).
 5. Am Ende meldet das Gerät „Ende“ mit Gesamtgröße und SHA-256 (leeres `PUT` mit `X-Gesamtgroesse` und `X-SHA256`, umgesetzt).
    Erst wenn der PC „fertig“ meldet, darf das Gerät seine Kopie löschen.
@@ -134,7 +134,7 @@ das Sprachmodell, Export. Maßnahmen, geordnet nach erwartetem Nutzen:
 
 ## Technische Risiken und offene Punkte
 
-* **Lesen während des Schreibens** (offen, nächster Firmware-Schritt): Liest das Gerät seine Datei für die Übertragung, während der Encoder noch schreibt,
+* **Lesen während des Schreibens** (gelöst am S3 mit Bildschirm mit dem RAM-Ringpuffer, siehe unten; die Einschätzung blieb): Liest das Gerät seine Datei für die Übertragung, während der Encoder noch schreibt,
   müssen die Ogg-Seiten (ca. 1 s) vollständig geschrieben und gesichert sein, bevor sie gesendet werden; FAT und der Puffer von `fwrite` machen das
   unzuverlässig. Besser: Der Encoder gibt jede fertige Ogg-Seite zusätzlich über einen kleinen RAM-Ringpuffer an den Sender, der sie mit
   `PUT` (`X-Offset`) anhängt. Läuft der Ring über (WLAN weg), fällt der Sender auf das Lesen der Datei ab dem letzten bestätigten Byte zurück,
@@ -145,4 +145,22 @@ das Sprachmodell, Export. Maßnahmen, geordnet nach erwartetem Nutzen:
 * **Zeit:** Die Sitzungsordner brauchen die Uhrzeit. Der PC vergibt sie; die Geräte müssen keine Uhr stellen.
 * **Sicherheit:** HTTP im eigenen Netz mit Token je Gerät ist umgesetzt; `SECURITY.md` ist im Pull Request der Anwendung nachgezogen (Port nur auf Wunsch).
   Mitlesen im selben WLAN verhindert das Token nicht. Für fremde Netze ist TLS nötig (auf dem ESP32 machbar, kostet RAM, auf dem C6 knapp).
-* **Diese Datei ist ein Konzept.** Umgesetzt ist bisher nur Phase 1; der Rest ändert weder die Anwendung noch die Firmware.
+* **Umsetzung am S3 mit Bildschirm** (`components/vermerk_upload/vermerk_live.c`, `vermerk_ring.c`):
+  * Der Encoder gibt jede fertige Ogg-Seite über einen Haken in einen **Ringpuffer im PSRAM** (1 MB, ca. 5,7 min bei 24 kbit/s;
+    Reserve 512 oder 256 KB, wenn weniger frei ist). Der Haken kopiert nur. Der Puffer ist lock-frei (ein Erzeuger, ein
+    Verbraucher) und überschreibt nie Unbestätigtes; die Logik ist auf dem PC getestet (`test/host/`).
+  * Der Upload-Manager, der während der Aufnahme sonst ruht, sendet alle 15 s die neuen Bytes (`PUT` mit `X-Offset`, höchstens
+    64 KB je Anfrage; bei Rückstand sofort weiter). Vor dem ersten Stück fragt er den Stand ab; ist er nicht 0, wird nicht live
+    gesendet. Nach dem Stopp macht der normale Upload dort weiter, wo die Software steht, und schließt ab (Größe, SHA-256).
+  * Das Live-Senden endet still bei Ringpuffer-Überlauf (Ziel lange weg), bei einer Lücke (die Software kennt weniger, als
+    schon verworfen ist) und bei dauerhafter Ablehnung (Token, Name). **Nichts geht verloren**, die Aufnahme liegt immer ganz
+    auf der SD-Karte.
+  * Nach „fertig“ fragt das Gerät alle 3 s `GET …/aufnahmen/<Name>/status` ab und zeigt „TRANSKRIPTION WIRD VERARBEITET“, am Ende
+    ca. 4 s ein grünes Häkchen über den ganzen Bildschirm, danach dauerhaft „✓ TRANSKRIPTION ERFOLGREICH“ (grün) bis zur nächsten
+    Aufnahme bzw. „VERARBEITUNG FEHLGESCHLAGEN“ (rot).
+  * Geprüft: Host-Tests (Status-Leser gegen die **echten** Antworten der Software, Entscheidung für Live-Stücke, Ringpuffer inkl.
+    Zähler-Überlauf), Bau für S3 mit Bildschirm und S3-AUDIO. Auf dem Gerät ist die Aufnahme mit Live-Senden noch zu prüfen.
+  * Offen: S3-AUDIO (LED-Ring statt Display: grüner Ring bei „fertig“) und C6 (kein PSRAM: kleiner Ringpuffer im internen RAM
+    oder Lesen der Datei); Auswahl des Auftrags am Gerät.
+* **Diese Datei ist ein Konzept.** Die PC-Seite von Phase 2 und 3 und das Senden am S3 mit Bildschirm sind umgesetzt (siehe oben);
+  der Rest ändert weder die Anwendung noch die Firmware.

@@ -2,6 +2,8 @@
 #   vermerk_protokoll.c        reiner C-Teil des Uploads, auf dem PC getestet (test/host/)
 #   vermerk_einrichtung.c      reiner C-Teil der Einrichtung ueber USB, auf dem PC getestet
 #   vermerk_upload.c           HTTP, SHA-256, Lesen der Datei
+#   vermerk_ring.c             Ringpuffer fuer das Senden waehrend der Aufnahme, auf dem PC getestet
+#   vermerk_live.c             Senden waehrend der Aufnahme (Ringpuffer im PSRAM, alle 15 s ein PUT)
 #   vermerk_konfig.c           geltende Einstellungen: einkompiliert oder aus dem NVS, Geraete-Id
 #   vermerk_konsole.c          Einrichtung ueber USB: Konsole lesen, NVS schreiben, Neustart
 #   vermerk_konfig_standard.c  einkompilierte Werte der Geraete (server_config.h, wifi_credentials.h)
@@ -21,6 +23,8 @@ idf_component_register(
         "vermerk_protokoll.c"
         "vermerk_einrichtung.c"
         "vermerk_upload.c"
+        "vermerk_ring.c"
+        "vermerk_live.c"
         "vermerk_konfig.c"
         "vermerk_konsole.c"
         "${vermerk_standard_quelle}"

@@ -25,6 +25,7 @@
 #define VERMERK_ANTWORT_MAX      256    /* die Antworten sind kurz; mehr wird nicht gelesen */
 #define VERMERK_HALLO_TIMEOUT_MS 2000
 #define VERMERK_UPLOAD_TIMEOUT_MS 15000
+#define VERMERK_ABFRAGE_TIMEOUT_MS 4000
 #define VERMERK_OHNE_FORTSCHRITT_MAX 3  /* so oft hintereinander kein Fortschritt: spaeter erneut */
 
 #define HASH_UNBEKANNT UINT64_MAX
@@ -143,6 +144,104 @@ vermerk_hallo_t vermerk_hallo(vermerk_ziel_t ziel)
     return ergebnis;
 }
 
+/* ---- Abfragen und Stuecke waehrend der Aufnahme ---- */
+
+static void antwort_uebergeben(const vermerk_arbeit_t *a, char *antwort, size_t antwort_max)
+{
+    if (antwort == NULL || antwort_max == 0) {
+        return;
+    }
+    size_t n = (size_t)a->antwort_laenge;
+    if (n >= antwort_max) {
+        n = antwort_max - 1;
+    }
+    memcpy(antwort, a->antwort, n);
+    antwort[n] = '\0';
+}
+
+int vermerk_aufnahme_abfragen(vermerk_ziel_t ziel, const char *name, const char *anhang,
+                              char *antwort, size_t antwort_max)
+{
+    if (antwort != NULL && antwort_max > 0) {
+        antwort[0] = '\0';
+    }
+    const char *url;
+    const char *token;
+    if (!ziel_lesen(ziel, &url, &token) || !vermerk_name_gueltig(name) || anhang == NULL) {
+        return -1;
+    }
+    vermerk_arbeit_t *a = calloc(1, sizeof(*a));
+    if (a == NULL) {
+        return 0;
+    }
+    int status = 0;
+    int n = snprintf(a->url, sizeof(a->url), "%s/api/v1/aufnahmen/%s%s", url, name, anhang);
+    if (n > 0 && (size_t)n < sizeof(a->url) && client_anlegen(a, token, VERMERK_ABFRAGE_TIMEOUT_MS)) {
+        if (anfrage_oeffnen(a, HTTP_METHOD_GET, 0) == ESP_OK) {
+            status = anfrage_beenden(a);
+            antwort_uebergeben(a, antwort, antwort_max);
+        }
+        esp_http_client_cleanup(a->client);
+    }
+    free(a);
+    return status;
+}
+
+int vermerk_teil_anhaengen(vermerk_ziel_t ziel, const char *name, uint64_t offset,
+                           const uint8_t *a_daten, size_t a_laenge, const uint8_t *b_daten, size_t b_laenge,
+                           char *antwort, size_t antwort_max)
+{
+    if (antwort != NULL && antwort_max > 0) {
+        antwort[0] = '\0';
+    }
+    const char *url;
+    const char *token;
+    if (!ziel_lesen(ziel, &url, &token) || !vermerk_name_gueltig(name) || a_daten == NULL) {
+        return -1;
+    }
+    const size_t gesamt = a_laenge + b_laenge;
+    if (gesamt == 0 || gesamt > VERMERK_TEIL_BYTES) {
+        return -1;
+    }
+    vermerk_arbeit_t *a = calloc(1, sizeof(*a));
+    if (a == NULL) {
+        return 0;
+    }
+    int status = 0;
+    int n = snprintf(a->url, sizeof(a->url), "%s/api/v1/aufnahmen/%s", url, name);
+    if (n > 0 && (size_t)n < sizeof(a->url) && client_anlegen(a, token, VERMERK_UPLOAD_TIMEOUT_MS)) {
+        snprintf(a->zahl, sizeof(a->zahl), "%llu", (unsigned long long)offset);
+        esp_http_client_set_header(a->client, "X-Offset", a->zahl);
+        esp_http_client_set_header(a->client, "Content-Type", "application/octet-stream");
+        if (anfrage_oeffnen(a, HTTP_METHOD_PUT, (int)gesamt) == ESP_OK) {
+            const uint8_t *teile[2] = {a_daten, b_daten};
+            const size_t laengen[2] = {a_laenge, b_laenge};
+            bool ok = true;
+            for (int i = 0; i < 2 && ok; i++) {
+                size_t versatz = 0;
+                while (versatz < laengen[i]) {
+                    int geschrieben = esp_http_client_write(a->client, (const char *)teile[i] + versatz,
+                                                            (int)(laengen[i] - versatz));
+                    if (geschrieben <= 0) {
+                        ok = false;
+                        break;
+                    }
+                    versatz += (size_t)geschrieben;
+                }
+            }
+            if (ok) {
+                status = anfrage_beenden(a);
+                antwort_uebergeben(a, antwort, antwort_max);
+            } else {
+                esp_http_client_close(a->client);
+            }
+        }
+        esp_http_client_cleanup(a->client);
+    }
+    free(a);
+    return status;
+}
+
 /* ---- Upload ---- */
 
 static bool lesen(vermerk_arbeit_t *a, FILE *f, uint8_t *puffer, size_t n)
@@ -154,15 +253,28 @@ static bool lesen(vermerk_arbeit_t *a, FILE *f, uint8_t *puffer, size_t n)
 }
 
 /* SHA-256 der ersten bis Bytes neu berechnen (nach Wiederaufnahme, 409 oder Abbruch mitten im Stueck) */
-static bool praefix_hashen(vermerk_arbeit_t *a, FILE *f, uint8_t *puffer, size_t puffer_groesse, uint64_t bis)
+static bool praefix_hashen(vermerk_arbeit_t *a, FILE *f, uint8_t *puffer, size_t puffer_groesse, uint64_t bis,
+                           vermerk_abbrechen_t abbrechen, bool *abgebrochen)
 {
+    *abgebrochen = false;
     a->gehasht = HASH_UNBEKANNT;
     if (mbedtls_sha256_starts(&a->sha, 0) != 0 || fseek(f, 0, SEEK_SET) != 0) {
         return false;
     }
     uint64_t pos = 0;
+    uint32_t seit_pruefung = 0;
     while (pos < bis) {
+        /* Das Lesen einer langen Datei von der SD-Karte (ca. 1 MB/s) dauert Minuten und haelt die Karte besetzt: Beginnt
+         * eine Aufnahme, muss sie hier sofort Vorrang bekommen (alle 64 KB nachfragen). */
+        if (abbrechen != NULL && seit_pruefung >= 64u * 1024u) {
+            seit_pruefung = 0;
+            if (abbrechen()) {
+                *abgebrochen = true;
+                return false;
+            }
+        }
         size_t n = (bis - pos < puffer_groesse) ? (size_t)(bis - pos) : puffer_groesse;
+        seit_pruefung += (uint32_t)n;
         if (!lesen(a, f, puffer, n) || mbedtls_sha256_update(&a->sha, puffer, n) != 0) {
             return false;
         }
@@ -387,7 +499,13 @@ vermerk_ergebnis_t vermerk_upload_datei(vermerk_ziel_t ziel, uint32_t teil_max_b
          * direkt zum Abschluss ab ihrem Byte: Die Groesse passt dann nicht, sie antwortet 422 und
          * verwirft den Teilstand, danach beginnt die Datei von vorn. */
         uint64_t praefix = (ab < groesse) ? ab : groesse;
-        if (a->gehasht != praefix && !praefix_hashen(a, f, puffer, puffer_groesse, praefix)) {
+        bool beim_hashen_abgebrochen = false;
+        if (a->gehasht != praefix &&
+            !praefix_hashen(a, f, puffer, puffer_groesse, praefix, abbrechen, &beim_hashen_abgebrochen)) {
+            if (beim_hashen_abgebrochen) {
+                ergebnis = VERMERK_ERGEBNIS_UNTERBROCHEN;
+                break;
+            }
             printf("VERMERK Upload %s: Lesefehler\n", name);
             ergebnis = VERMERK_ERGEBNIS_SPAETER;
             break;
