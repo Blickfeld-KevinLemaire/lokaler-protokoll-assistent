@@ -237,6 +237,11 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 ### Fixed
 
+- **Empfang: Stand nach einem Verbindungsabbruch stimmt:** Fragte ein Aufnahmegerät
+  nach einem Abbruch mitten in einem Stück schon nach, während die Software noch auf
+  den Rest dieses Stücks wartete, zählte der gemeldete Stand den halben Rest mit. Das
+  Gerät setzte dort an und musste nach einer Ablehnung (409) zurück. Gemeldet wird
+  jetzt nur noch, was vollständig angekommen ist.
 - **Kein schwarzes Konsolenfenster mehr:** Im lokalen Modus stand neben der
   Oberfläche dauerhaft ein schwarzes Fenster offen – wer es schloss, beendete
   das ganze Programm. Die Oberfläche und alle Hilfsprogramme (ffmpeg,

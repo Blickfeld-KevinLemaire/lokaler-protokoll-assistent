@@ -258,6 +258,9 @@ class Ablage:
         self._jetzt = jetzt
         self._sperre = threading.Lock()
         self._sperren: dict[str, threading.Lock] = {}
+        # Stuecke, die gerade ankommen: Schluessel -> Byte, an dem das Stueck beginnt. Bis es vollstaendig da
+        # ist, gilt nur der Stand davor (siehe 'stand').
+        self._im_flug: dict[str, int] = {}
 
     # ------------------------------------------------------------------
     def _schluessel(self, geraet: str, datei: str) -> str:
@@ -271,10 +274,19 @@ class Ablage:
             return self._sperren.setdefault(schluessel, threading.Lock())
 
     def stand(self, geraet: str, datei: str) -> Antwort:
-        """``GET /api/v1/aufnahmen/<datei>``"""
+        """``GET /api/v1/aufnahmen/<datei>``
+
+        Nur vollstaendig angekommene Stuecke zaehlen. Ein Stueck, das gerade noch ankommt, steht schon
+        teilweise in der Datei. Fragt das Geraet nach einem Verbindungsabbruch nach, waehrend die Software
+        auf den Rest dieses Stuecks noch wartet, nannte die Dateigroesse diesen halben Rest mit -- und das
+        Geraet setzte dort an, obwohl das Stueck danach verworfen wird (Abbruch-Fall im QEMU-Test)."""
         if not dateiname_gueltig(datei):
             return _fehler(400, "Ungueltiger Dateiname.")
-        return Antwort(200, {"naechstes_byte": self._groesse(self._schluessel(geraet, datei)), "fertig": False})
+        schluessel = self._schluessel(geraet, datei)
+        with self._sperre:
+            beginn = self._im_flug.get(schluessel)
+        groesse = self._groesse(schluessel)
+        return Antwort(200, {"naechstes_byte": groesse if beginn is None else min(groesse, beginn), "fertig": False})
 
     def _groesse(self, schluessel: str) -> int:
         try:
@@ -319,7 +331,13 @@ class Ablage:
             if offset != vorhanden:
                 return _fehler(409, "X-Offset passt nicht zum Stand.", naechstes_byte=vorhanden, fertig=False)
             if laenge:
-                antwort = self._schreiben(schluessel, offset, laenge, lesen, gesamt)
+                with self._sperre:
+                    self._im_flug[schluessel] = offset
+                try:
+                    antwort = self._schreiben(schluessel, offset, laenge, lesen, gesamt)
+                finally:
+                    with self._sperre:
+                        self._im_flug.pop(schluessel, None)
                 if antwort is not None:
                     return antwort
                 if offset == 0:
