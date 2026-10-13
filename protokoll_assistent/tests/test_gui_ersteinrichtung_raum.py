@@ -335,11 +335,13 @@ def test_waehrend_ins_geraet_geschrieben_wird_bleibt_der_assistent_offen(assiste
     assistent.reject()  # Esc oder "Später einrichten"
     assert assistent.isVisible()
     assert "Bitte warten" in assistent.raum_seite.status_label.text()
-    assert not assistent.close()  # Schliessen ueber das Fensterkreuz
+    geschlossen = assistent.close()  # Schliessen ueber das Fensterkreuz
+    assert not geschlossen
     assert assistent.isVisible()
     assert app_config.load_config()["einrichtung_abgeschlossen"] is False  # noch nichts gespeichert
 
     aufgabe.laeuft = False  # fertig geschrieben: jetzt darf er zu
-    assert assistent.close()
+    geschlossen = assistent.close()
+    assert geschlossen
     assert not assistent.isVisible()
     assert app_config.load_config()["einrichtung_abgeschlossen"] is True
