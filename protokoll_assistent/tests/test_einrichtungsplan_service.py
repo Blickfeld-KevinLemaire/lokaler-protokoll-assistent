@@ -16,6 +16,7 @@ def _analyse(**profil):
 
 LAPTOP_6GB = {"ram_gb": 63.5, "cpu_kerne": 16, "gpu_name": "NVIDIA RTX PRO 500 Blackwell", "vram_gb": 6.0, "freier_platz_gb": 400}
 OHNE_GRAFIK = {"ram_gb": 16, "cpu_kerne": 8, "gpu_name": None, "vram_gb": None, "freier_platz_gb": 200}
+WENIG_RAM = {"ram_gb": 8, "cpu_kerne": 8, "gpu_name": None, "vram_gb": None, "freier_platz_gb": 200}
 SCHWACH = {"ram_gb": 4, "cpu_kerne": 2, "gpu_name": None, "vram_gb": None, "freier_platz_gb": 50}
 
 
@@ -49,6 +50,22 @@ def test_zu_schwacher_rechner_empfiehlt_online():
     m = eps.schaetze(_analyse(**SCHWACH))
     assert m.empfehlung == eps.EMPFEHLUNG_API
     assert set(_stufen(m).values()) == {NICHT}
+
+
+def test_wenig_ram_ohne_grafik_empfiehlt_gemischt():
+    # 8 GB, keine Grafikkarte: Mitschrift laeuft, das Protokoll ist aber nur
+    # "maessig" und der Arbeitsspeicher knapp -> Protokoll besser online.
+    m = eps.schaetze(_analyse(**WENIG_RAM))
+    stufen = _stufen(m)
+    assert stufen[eps.SCHRITT_MITSCHRIFT] != NICHT
+    assert stufen[eps.SCHRITT_PROTOKOLL] == MAESSIG
+    assert m.empfehlung == eps.EMPFEHLUNG_GEMISCHT
+    assert "Arbeitsspeicher" in m.begruendung
+
+
+def test_16gb_ohne_grafik_bleibt_neutral():
+    # 16 GB (nicht knapp): lokal geht, online waere schneller -- keine Vorauswahl.
+    assert eps.schaetze(_analyse(**OHNE_GRAFIK)).empfehlung is None
 
 
 def test_mitschrift_geht_protokoll_nicht_empfiehlt_gemischt(monkeypatch):

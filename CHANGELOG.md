@@ -10,6 +10,19 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 ### Added
 
+- **Zweites lokales Sprachmodell zur Wahl – LFM2.5 2.6B:** Neben Qwen3.5 4B
+  steht jetzt LFM2.5 2.6B (Liquid AI) zur Auswahl – schneller und mit weniger
+  Arbeitsspeicher (~4,6 GB statt ~5 GB), dafür etwas knapper als Qwen. Die
+  Ersteinrichtung/Hardware-Einschätzung empfiehlt es für Rechner ohne
+  Grafikkarte; auf 8-GB-Geräten mit dem Hinweis, dass der Arbeitsspeicher knapp
+  ist und ein Online-Dienst meist besser passt. Es wird wie die übrigen Modelle
+  über Ollama geladen (LFM Open License – kommerzielle Nutzung bis 10 Mio. USD
+  Jahresumsatz kostenlos).
+  In der Ersteinrichtung lässt sich das Sprachmodell für das Protokoll jetzt
+  direkt auf der Seite „Arbeitsweise“ auswählen (nur die Modelle, die dieser
+  Computer schafft; das empfohlene ist vorausgewählt). Auf einem 8-GB-Rechner
+  ohne Grafikkarte empfiehlt die Ersteinrichtung außerdem die gemischte
+  Arbeitsweise: Mitschrift lokal, Protokoll über einen Online-Dienst.
 - **Live-Transkription und automatische Auswertung für Aufnahmegeräte (PC-Seite):**
   Schickt ein Gerät seine Aufnahme schon während der Aufnahme (Ogg-Opus, Stück für
   Stück), transkribiert die Anwendung sie laufend mit einem gleitenden Fenster

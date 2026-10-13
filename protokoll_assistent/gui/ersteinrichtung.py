@@ -641,6 +641,17 @@ class ErsteinrichtungDialog(QDialog):
         raster.setColumnStretch(2, 1)
         layout.addWidget(self.einzeln)
 
+        # Auswahl des lokalen Sprachmodells fuer das Protokoll -- nur sichtbar,
+        # wenn das Protokoll auf diesem Computer laeuft (siehe '_arbeitsweise_geaendert').
+        # Gefuellt wird sie aus der Analyse ('_sprachmodell_auswahl_fuellen').
+        self.sprachmodell_bereich = QWidget(seite)
+        sprachmodell_zeile = QHBoxLayout(self.sprachmodell_bereich)
+        sprachmodell_zeile.setContentsMargins(24, 0, 0, 8)
+        sprachmodell_zeile.addWidget(QLabel("Sprachmodell für das Protokoll:", self.sprachmodell_bereich))
+        self.sprachmodell_wahl = QComboBox(self.sprachmodell_bereich)
+        sprachmodell_zeile.addWidget(self.sprachmodell_wahl, stretch=1)
+        layout.addWidget(self.sprachmodell_bereich)
+
         self.datenschutz_label = _text(DATENSCHUTZ_HINWEIS_API, seite)
         self.datenschutz_label.setObjectName("DatenschutzHinweis")
         layout.addWidget(self.datenschutz_label)
@@ -672,12 +683,34 @@ class ErsteinrichtungDialog(QDialog):
         for knopf in (self.weg_lokal, self.weg_online, self.weg_gemischt):
             knopf.setChecked(False)
         self.weg_gruppe.setExclusive(True)
+        self._sprachmodell_auswahl_fuellen()
         if empfehlung == einrichtungsplan_service.EMPFEHLUNG_LOKAL:
             self.weg_lokal.setChecked(True)
         elif empfehlung == einrichtungsplan_service.EMPFEHLUNG_GEMISCHT:
             # Nur die Einzelwahl aufklappen; "online" fuer das Protokoll waehlt der Anwender selbst.
             self.weg_gemischt.setChecked(True)
         self._arbeitsweise_geaendert()
+
+    def _sprachmodell_auswahl_fuellen(self) -> None:
+        """Fuellt die Auswahl der lokalen Sprachmodelle mit denen, die dieser
+        Rechner laut Analyse schafft (GUT oder MAESSIG, nie NICHT), und waehlt
+        das empfohlene vor. Laeuft keines lokal, bleibt die Auswahl leer -- sie
+        wird dann in '_arbeitsweise_geaendert' verborgen."""
+        self.sprachmodell_wahl.clear()
+        if self.analyse is None:
+            return
+        machbar = {
+            b.modell_id
+            for b in self.analyse.bewertungen
+            if b.bereich == rechner_analyse_service.BEREICH_NACHBEARBEITUNG and b.stufe != NICHT
+        }
+        for option in ollama_service.OLLAMA_MODELLE:
+            if option.id in machbar:
+                self.sprachmodell_wahl.addItem(option.label, option.id)
+        empfohlen = self.analyse.empfehlung.get(rechner_analyse_service.BEREICH_NACHBEARBEITUNG)
+        index = self.sprachmodell_wahl.findData(empfohlen)
+        if index >= 0:
+            self.sprachmodell_wahl.setCurrentIndex(index)
 
     def arbeitsweise(self) -> dict[str, str]:
         """Bereich -> "lokal" | "api" nach der aktuellen Wahl ({} ohne Wahl)."""
@@ -695,6 +728,10 @@ class ErsteinrichtungDialog(QDialog):
         online = "api" in wahl.values()
         self.datenschutz_label.setVisible(online)
         self.anbieter_hinweis.setVisible(online)
+        # Die Modellwahl nur zeigen, wenn das Protokoll lokal laeuft und ueberhaupt
+        # ein lokales Modell machbar ist.
+        protokoll_lokal = wahl.get("nachbearbeitung") == "lokal"
+        self.sprachmodell_bereich.setVisible(protokoll_lokal and self.sprachmodell_wahl.count() > 0)
         self.arbeitsweise_weiter_button.setEnabled(bool(wahl))
 
     def _arbeitsweise_uebernehmen(self) -> None:
@@ -711,12 +748,15 @@ class ErsteinrichtungDialog(QDialog):
             whisper = self.analyse.empfehlung.get(rechner_analyse_service.BEREICH_TRANSKRIPTION)
             if wahl["transkription"] == "lokal" and whisper and not konfig["whisper_modell"]:
                 aenderungen["whisper_modell"] = whisper
-            # Empfohlenes Sprachmodell nur, wo noch der Standard steht (wie 'RechnerAnalysePage').
-            sprache = self.analyse.empfehlung.get(rechner_analyse_service.BEREICH_NACHBEARBEITUNG)
-            if sprache and sprache != ollama_service.DEFAULT_MODEL:
-                for schluessel in ("ollama_modell", "chatbot_ollama_modell"):
-                    if konfig[schluessel] == ollama_service.DEFAULT_MODEL:
-                        aenderungen[schluessel] = sprache
+            # Das in der Auswahl gewaehlte Sprachmodell nur uebernehmen, wenn das
+            # Protokoll lokal laeuft (online bleibt das Modell, wie es ist) und nur
+            # dort, wo noch der Standard steht (wie 'RechnerAnalysePage').
+            if wahl["nachbearbeitung"] == "lokal":
+                gewaehlt = self.sprachmodell_wahl.currentData()
+                if gewaehlt and gewaehlt != ollama_service.DEFAULT_MODEL:
+                    for schluessel in ("ollama_modell", "chatbot_ollama_modell"):
+                        if konfig[schluessel] == ollama_service.DEFAULT_MODEL:
+                            aenderungen[schluessel] = gewaehlt
         app_config.update_config(**aenderungen)
         self._gehe_zu(self.S_KOSTEN)
 

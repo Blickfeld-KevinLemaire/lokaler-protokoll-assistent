@@ -166,6 +166,22 @@ def schaetze(analyse: Analyse) -> Moeglichkeiten:
     elif protokoll.stufe == GUT and mitschrift.stufe == GUT:
         empfehlung = EMPFEHLUNG_LOKAL
         begruendung = "Dieser Computer schafft alles selbst. Empfehlung: alles auf diesem Computer – nichts verlässt ihn."
+    elif (
+        protokoll.stufe == MAESSIG
+        and not analyse.profil.cuda_gpu
+        and analyse.profil.ram_gb is not None
+        and analyse.profil.ram_gb < rechner_analyse_service.NACHBEARBEITUNG_GUT_RAM_GB
+    ):
+        # Mitschrift klappt, aber ohne Grafikkarte und mit knappem Arbeitsspeicher
+        # (z. B. 8 GB, wo Windows und Programme schon 5-6 GB belegen) ist ein
+        # lokales Sprachmodell nur "maessig" und eng. Fuer das Protokoll ist der
+        # Online-Dienst hier die bessere Empfehlung.
+        empfehlung = EMPFEHLUNG_GEMISCHT
+        begruendung = (
+            "Die Mitschrift läuft auf diesem Computer, für das Protokoll ist der "
+            "Arbeitsspeicher aber knapp. Empfehlung: Mitschrift hier, Protokoll über "
+            "einen Online-Dienst."
+        )
     else:
         empfehlung = None
         begruendung = (

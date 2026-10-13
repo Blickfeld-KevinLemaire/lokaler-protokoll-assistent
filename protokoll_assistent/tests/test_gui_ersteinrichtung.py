@@ -183,14 +183,42 @@ def test_gemischt_und_empfehlungen_landen_in_der_konfiguration(dialog):
     assert dialog.stack.currentIndex() == dialog.S_KOSTEN
 
 
-def test_empfohlenes_sprachmodell_ersetzt_nur_den_standard(dialog, monkeypatch):
+LFM = "hf.co/LiquidAI/LFM2.5-2.6B-GGUF:Q4_K_M"
+
+
+def test_gewaehltes_sprachmodell_ersetzt_nur_den_standard(dialog, monkeypatch):
     app_config.update_config(chatbot_ollama_modell="eigenes:7b")
     _bis_zur_arbeitsweise(dialog, LAPTOP)
-    dialog.analyse.empfehlung[rechner_analyse_service.BEREICH_NACHBEARBEITUNG] = "qwen3.5:9b-q4_K_M"
+    index = dialog.sprachmodell_wahl.findData(LFM)
+    assert index >= 0
+    dialog.sprachmodell_wahl.setCurrentIndex(index)
     dialog.arbeitsweise_weiter_button.click()
     konfig = app_config.load_config()
-    assert konfig["ollama_modell"] == "qwen3.5:9b-q4_K_M"
+    assert konfig["ollama_modell"] == LFM  # das gewaehlte Modell ersetzt den Standard
     assert konfig["chatbot_ollama_modell"] == "eigenes:7b"  # eine bewusste Wahl bleibt
+
+
+def test_sprachmodell_auswahl_zeigt_nur_machbare_modelle_und_empfehlung(dialog):
+    _bis_zur_arbeitsweise(dialog, LAPTOP)
+    assert not dialog.sprachmodell_bereich.isHidden()  # weg_lokal ist vorgewaehlt
+    modelle = {dialog.sprachmodell_wahl.itemData(i) for i in range(dialog.sprachmodell_wahl.count())}
+    assert ollama_service.DEFAULT_MODEL in modelle and LFM in modelle
+    assert "qwen3.8:27b-q4_K_M" not in modelle  # auf diesem Rechner nicht machbar
+    assert (
+        dialog.sprachmodell_wahl.currentData()
+        == dialog.analyse.empfehlung[rechner_analyse_service.BEREICH_NACHBEARBEITUNG]
+    )
+
+
+def test_sprachmodell_auswahl_nur_wenn_protokoll_lokal(dialog):
+    _bis_zur_arbeitsweise(dialog, LAPTOP)
+    dialog.weg_online.setChecked(True)
+    assert dialog.sprachmodell_bereich.isHidden()  # online: keine Modellwahl
+    dialog.weg_gemischt.setChecked(True)
+    dialog.wahl["nachbearbeitung"].setCurrentIndex(dialog.wahl["nachbearbeitung"].findData("lokal"))
+    assert not dialog.sprachmodell_bereich.isHidden()
+    dialog.wahl["nachbearbeitung"].setCurrentIndex(dialog.wahl["nachbearbeitung"].findData("api"))
+    assert dialog.sprachmodell_bereich.isHidden()
 
 
 # --------------------------------------------------------------------------
