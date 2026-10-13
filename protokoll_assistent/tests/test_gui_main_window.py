@@ -146,7 +146,12 @@ def fenster(qt_widgets, isolierte_konfiguration, schluessel_speicher, monkeypatc
     # 'test_start_lokal_ohne_laufzeitumgebung_meldet_fehler' fuer den
     # Gegenfall) - deshalb hier standardmaessig "vorhanden" simulieren.
     monkeypatch.setattr(mw.MainWindow, "_lokale_laufzeitumgebung_verfuegbar", staticmethod(lambda: True))
-    return qt_widgets(mw.MainWindow())
+    fenster = qt_widgets(mw.MainWindow())
+    yield fenster
+    # 'qt_widgets' schliesst das Fenster beim Aufraeumen. Bliebe ein bearbeitetes
+    # Ergebnis ungespeichert (etwa weil ein Test mittendrin scheitert), fragte
+    # 'closeEvent' mit einem echten Dialog nach -- und die Suite hinge.
+    fenster._protocol_result_unveraendert = fenster.protocol_result_edit.toPlainText()
 
 
 @pytest.fixture
@@ -744,24 +749,45 @@ def _echtes_protokoll_schreiben(tmp_path, text="Erstes Protokoll"):
     return export_service.write_protocol_exports(tmp_path, text, "meeting", "20260101_000000", "Prompt")
 
 
-def test_nachbearbeitung_zeigt_das_ergebnis_auf_ihrer_seite_zum_bearbeiten(fenster, tmp_path, monkeypatch):
-    monkeypatch.setattr(QMessageBox, "information", staticmethod(lambda *a: None))
-    json_pfad, md_pfad = _echtes_protokoll_schreiben(tmp_path)
+def _transkript_anlegen(tmp_path, name):
+    pfad = tmp_path / name
+    pfad.write_text("{}", encoding="utf-8")
+    return pfad
+
+
+def _nachbearbeitung_durchlaufen(fenster, tmp_path, transkript, text="Erstes Protokoll", ende=True):
+    """Startet die Nachbearbeitung fuer 'transkript' und laesst sie mit einem
+    echten Protokoll fertig werden -- so, wie der Arbeiter es meldet. Mit
+    ``ende=False`` laeuft der Arbeits-Thread danach noch ('finished' fehlt)."""
+    fenster._set_transcript_path(transkript)
+    fenster._start_protocol()
+    arbeiter = _WorkerAttrappe.instanzen[-1]
+    json_pfad, md_pfad = export_service.write_protocol_exports(
+        tmp_path, text, transkript.stem, "20260101_000000", "Prompt"
+    )
     ergebnis = _protokoll_ergebnis_bauen(tmp_path)
     ergebnis.protocol_paths = (json_pfad, md_pfad)
+    arbeiter.finished_ok.emit(ergebnis)
+    if ende:
+        arbeiter.finished.emit()
+    return json_pfad, md_pfad
+
+
+def test_nachbearbeitung_zeigt_das_ergebnis_auf_ihrer_seite_zum_bearbeiten(fenster, tmp_path, monkeypatch):
+    monkeypatch.setattr(QMessageBox, "information", staticmethod(lambda *a: None))
+    transkript = _transkript_anlegen(tmp_path, "transkript.json")
     fenster.nav_buttons[0].click()
 
-    fenster._on_protocol_finished_ok(ergebnis)
+    json_pfad, md_pfad = _nachbearbeitung_durchlaufen(fenster, tmp_path, transkript)
 
     assert fenster.page_stack.currentIndex() == fenster.SEITE_NACHBEARBEITUNG
     assert fenster.protocol_result_edit.toPlainText().strip() == "Erstes Protokoll"
+    assert not fenster.protocol_result_edit.isReadOnly()
     assert not fenster.protocol_save_button.isEnabled()
     fenster.protocol_result_edit.setPlainText("Korrigiertes Protokoll")
     assert fenster.protocol_save_button.isEnabled()
 
     erneuert = []
-    fenster._selected_transcript_path = tmp_path / "transkript.json"
-    fenster._selected_transcript_path.write_text("{}", encoding="utf-8")
     monkeypatch.setattr(fenster, "_word_neu_erzeugen", lambda pfad: erneuert.append(pfad))
     assert fenster._save_protocol_edits() is True
 
@@ -769,7 +795,142 @@ def test_nachbearbeitung_zeigt_das_ergebnis_auf_ihrer_seite_zum_bearbeiten(fenst
     gespeichert = json.loads(json_pfad.read_text(encoding="utf-8"))
     assert gespeichert["ergebnis"] == "Korrigiertes Protokoll" and gespeichert["systemprompt"] == "Prompt"
     assert not fenster.protocol_save_button.isEnabled()
-    assert erneuert == [fenster._selected_transcript_path]  # die Word-Datei folgt dem neuen Text
+    assert erneuert == [transkript]  # die Word-Datei folgt dem neuen Text
+
+
+def test_ergebnisfeld_ist_ohne_ergebnis_schreibgeschuetzt(fenster):
+    """Vor dem ersten Ergebnis gehoert der Text zu keiner Datei -- Getipptes
+    ginge beim ersten Ergebnis stillschweigend verloren."""
+    assert fenster.protocol_result_edit.isReadOnly()
+    assert not fenster.protocol_save_button.isEnabled()
+
+
+def test_speichern_erneuert_die_word_datei_aus_dem_angezeigten_paar(fenster, tmp_path, monkeypatch):
+    """Lauf auf A, danach B ausgewaehlt, das Ergebnis von A bearbeitet und
+    gespeichert: Die Word-Datei entsteht aus A und dem Protokoll von A. Mit dem
+    Transkript von B ueberschriebe sie die Word-Datei von A mit fremdem Inhalt."""
+    monkeypatch.setattr(QMessageBox, "information", staticmethod(lambda *a: None))
+    aufrufe = []
+    monkeypatch.setattr(
+        mw.dokument_export_service, "automatisches_word", lambda t, p=None: aufrufe.append((t, p)) or None
+    )
+    a = _transkript_anlegen(tmp_path, "a.json")
+    b = _transkript_anlegen(tmp_path, "b.json")
+    json_a, md_a = _nachbearbeitung_durchlaufen(fenster, tmp_path, a)
+
+    fenster._set_transcript_path(b)  # "Transkript auswählen"
+    fenster.protocol_result_edit.setPlainText("A, korrigiert")
+    assert fenster._save_protocol_edits() is True
+
+    assert aufrufe == [(a, json_a)]
+    assert md_a.read_text(encoding="utf-8").strip() == "A, korrigiert"
+
+
+def test_speichern_nach_fehlgeschlagenem_lauf_behaelt_das_protokoll_in_der_word_datei(
+    fenster, tmp_path, monkeypatch
+):
+    """Ein spaeterer Lauf auf B scheitert ('protocol_paths' ist dann None). Das
+    angezeigte Ergebnis von A bleibt -- und mit ihm das Protokoll von A in der
+    Word-Datei."""
+    monkeypatch.setattr(QMessageBox, "information", staticmethod(lambda *a: None))
+    monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a: None))
+    aufrufe = []
+    monkeypatch.setattr(
+        mw.dokument_export_service, "automatisches_word", lambda t, p=None: aufrufe.append((t, p)) or None
+    )
+    a = _transkript_anlegen(tmp_path, "a.json")
+    b = _transkript_anlegen(tmp_path, "b.json")
+    json_a, _ = _nachbearbeitung_durchlaufen(fenster, tmp_path, a)
+
+    fenster._set_transcript_path(b)
+    fenster._start_protocol()
+    arbeiter = _WorkerAttrappe.instanzen[-1]
+    arbeiter.finished_ok.emit(_protokoll_ergebnis_bauen(tmp_path, protokoll_fehler="Modell antwortet nicht"))
+    arbeiter.finished.emit()
+    assert fenster._last_protocol_result.protocol_paths is None
+    assert fenster.protocol_result_edit.toPlainText().strip() == "Erstes Protokoll"
+
+    fenster.protocol_result_edit.setPlainText("A, korrigiert")
+    assert fenster._save_protocol_edits() is True
+    assert aufrufe == [(a, json_a)]
+
+
+def test_ergebnis_ist_waehrend_einer_nachbearbeitung_gesperrt(fenster, tmp_path, monkeypatch):
+    """Was waehrend eines Laufs getippt wuerde, ersetzte dessen Ergebnis ohne
+    Rueckfrage. Deshalb ist das Feld solange schreibgeschuetzt."""
+    monkeypatch.setattr(QMessageBox, "information", staticmethod(lambda *a: None))
+    a = _transkript_anlegen(tmp_path, "a.json")
+    _nachbearbeitung_durchlaufen(fenster, tmp_path, a)
+    assert not fenster.protocol_result_edit.isReadOnly()
+
+    fenster._start_protocol()
+    assert fenster.protocol_result_edit.isReadOnly()
+    assert not fenster.protocol_save_button.isEnabled()
+
+    _nachbearbeitung_durchlaufen(fenster, tmp_path, a, text="Zweites Protokoll", ende=False)
+    # Das neue Ergebnis steht da, der Arbeits-Thread ist aber noch nicht zu Ende.
+    assert fenster.protocol_result_edit.toPlainText().strip() == "Zweites Protokoll"
+    assert fenster.protocol_result_edit.isReadOnly()
+
+    _WorkerAttrappe.instanzen[-1].finished.emit()
+    assert not fenster.protocol_result_edit.isReadOnly()
+
+
+def test_ergebnis_bleibt_waehrend_einer_transkription_bearbeitbar(fenster, tmp_path, monkeypatch):
+    monkeypatch.setattr(QMessageBox, "information", staticmethod(lambda *a: None))
+    _nachbearbeitung_durchlaufen(fenster, tmp_path, _transkript_anlegen(tmp_path, "a.json"))
+    fenster._set_controls_running(True)  # so beginnt auch eine Transkription
+    assert not fenster.protocol_result_edit.isReadOnly()
+    fenster._set_controls_running(False)
+    assert not fenster.protocol_result_edit.isReadOnly()
+
+
+def test_schliessen_fragt_nach_ungespeicherten_aenderungen(fenster, tmp_path, monkeypatch):
+    from PySide6.QtGui import QCloseEvent
+
+    monkeypatch.setattr(QMessageBox, "information", staticmethod(lambda *a: None))
+    monkeypatch.setattr(fenster, "_word_neu_erzeugen", lambda pfad: None)
+    _, md_pfad = _nachbearbeitung_durchlaufen(fenster, tmp_path, _transkript_anlegen(tmp_path, "a.json"))
+    fenster.protocol_result_edit.setPlainText("Noch nicht gespeichert")
+    beendet = []
+
+    class _Aufnahme:
+        def stop(self):
+            beendet.append(True)
+
+    fenster._recording = _Aufnahme()
+    antworten = iter([QMessageBox.Cancel, QMessageBox.Save])
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a, **k: next(antworten)))
+
+    abgebrochen = QCloseEvent()
+    fenster.closeEvent(abgebrochen)
+    # Abgebrochen: Das Fenster bleibt offen, und nichts wurde schon beendet.
+    assert not abgebrochen.isAccepted()
+    assert beendet == []
+
+    gespeichert = QCloseEvent()
+    fenster.closeEvent(gespeichert)
+    assert gespeichert.isAccepted() and beendet == [True]
+    assert md_pfad.read_text(encoding="utf-8").strip() == "Noch nicht gespeichert"
+    fenster._recording = None
+
+
+def test_export_schlaegt_das_angezeigte_protokoll_vor(fenster, tmp_path, monkeypatch):
+    monkeypatch.setattr(QMessageBox, "information", staticmethod(lambda *a: None))
+    monkeypatch.setattr(mw, "ExportDialog", _ExportDialogAttrappe)
+    _ExportDialogAttrappe.instanzen.clear()
+    json_a, _ = _nachbearbeitung_durchlaufen(fenster, tmp_path, _transkript_anlegen(tmp_path, "a.json"))
+    anderes = tmp_path / "anderes.json"
+    anderes.write_text("{}", encoding="utf-8")
+    fenster._last_protocol_result = pipeline_service.ProtocolResult(
+        work_dir=tmp_path,
+        protocol_paths=(anderes, tmp_path / "anderes.md"),
+        report_paths=(tmp_path / "r.json", tmp_path / "r.md"),
+    )
+
+    fenster._export_oeffnen()
+
+    assert _ExportDialogAttrappe.instanzen[-1].argumente[1] == json_a
 
 
 def test_ungespeicherte_aenderungen_werden_vor_neuem_lauf_und_export_geklaert(fenster, tmp_path, monkeypatch):
@@ -2003,11 +2164,14 @@ def test_word_wird_nach_umbenennen_der_sprecher_neu_erzeugt(fenster, tmp_path, m
     assert aufrufe == [(transkript, None)]
 
     protokoll = tmp_path / "p.json"
-    fenster._last_protocol_result = pipeline_service.ProtocolResult(
-        work_dir=tmp_path, protocol_paths=(protokoll, tmp_path / "p.md"), report_paths=(tmp_path / "r.json", tmp_path / "r.md")
-    )
+    protokoll.write_text("{}", encoding="utf-8")
+    fenster._protocol_result_anzeigen("Protokoll", (protokoll, tmp_path / "p.md"), transkript)
     fenster._word_neu_erzeugen(transkript)
     assert aufrufe[-1] == (transkript, protokoll)
+
+    # Das angezeigte Protokoll gehoert zu einem anderen Transkript: nicht mischen.
+    fenster._word_neu_erzeugen(tmp_path / "anderes.json")
+    assert aufrufe[-1] == (tmp_path / "anderes.json", None)
 
 
 def test_word_fehler_stoert_nicht(fenster, tmp_path, monkeypatch):
