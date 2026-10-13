@@ -237,6 +237,11 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 ### Fixed
 
+- **USB-Einrichtung fand kein Gerät („Das Paket 'pyserial' fehlt“):** Im lokalen Modus
+  läuft die Anwendung in ihrer eigenen Rechenumgebung; dort fehlte `pyserial`. Bestehende
+  Installationen ziehen das Paket beim nächsten Start nach. Ein Test prüft jetzt, dass jedes
+  Paket der Anwendung auch in dieser Umgebung steht (zuvor schon bei `sounddevice` und
+  `keyring` passiert).
 - **Empfang: Stand nach einem Verbindungsabbruch stimmt:** Fragte ein Aufnahmegerät
   nach einem Abbruch mitten in einem Stück schon nach, während die Software noch auf
   den Rest dieses Stücks wartete, zählte der gemeldete Stand den halben Rest mit. Das

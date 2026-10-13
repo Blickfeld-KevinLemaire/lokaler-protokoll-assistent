@@ -50,3 +50,7 @@ sounddevice>=0.4.6
 # Anmeldeinformationsverwaltung). Ohne das Paket meldete die Anwendung beim
 # Speichern der Einstellungen, dass es fehlt.
 keyring>=25.0
+
+# Einrichtung der Aufnahmegeraete ueber USB ('services/geraete_usb_service.py'). Ohne das Paket
+# meldete die Anwendung "Das Paket 'pyserial' fehlt" und fand kein angeschlossenes Geraet.
+pyserial>=3.5
