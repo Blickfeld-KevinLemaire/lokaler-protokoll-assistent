@@ -94,14 +94,19 @@ def effektiver_systemprompt(system_prompt: str | None) -> str:
     return text or OHNE_VORGABE_SYSTEMPROMPT
 
 
-def prompt_kennung(system_prompt: str | None, modell: str | None = None) -> str:
+def prompt_kennung(
+    system_prompt: str | None, modell: str | None = None, abschnitt_sekunden: float | None = None
+) -> str:
     """Kurze, stabile Kennung des Auftrags und des Modells. Benennt den
     Unterordner der Zwischenstaende, damit weder ein anderer Systemprompt noch
     ein anderes Modell ein Ergebnis wiederverwendet, das unter anderen
-    Bedingungen entstanden ist. Ohne ``modell`` wie in aelteren Versionen."""
+    Bedingungen entstanden ist. Ohne ``modell`` wie in aelteren Versionen. Mit ``abschnitt_sekunden``
+    (nur wenn von der Standardlaenge abweichend) gelten Ergebnisse auch nur fuer diese Abschnittslaenge."""
     grundlage = effektiver_systemprompt(system_prompt)
     if modell:
         grundlage += f"\n--- Modell: {modell}"
+    if abschnitt_sekunden is not None:
+        grundlage += f"\n--- Abschnitt: {abschnitt_sekunden:g}"
     return hashlib.sha256(grundlage.encode("utf-8")).hexdigest()[:12]
 
 
@@ -123,6 +128,17 @@ def antwort_bereinigen(text: str) -> str:
     if anfang:
         bereinigt = bereinigt[: anfang.start()]
     return bereinigt.strip()
+
+
+def eingabe_kennung(prompt: str, auftrag: str, modell: str | None) -> str:
+    """Kennung der kompletten Eingabe einer Anfrage (Modell, Auftrag, Prompt mit Text).
+
+    Eine Teilauswertung, die schon waehrend der Aufnahme berechnet wurde (``live_auswertung_service``),
+    gilt nur fuer genau diese Eingabe. Erst wenn die Anfrage der fertigen Auswertung dieselbe Kennung
+    hat, wird sie wiederverwendet (``vorab_ergebnisse_ablegen``): Weicht auch nur ein Wort des Textes
+    ab, wird neu gefragt."""
+    grundlage = f"{modell or ''}\n\x00\n{auftrag}\n\x00\n{prompt}"
+    return hashlib.sha256(grundlage.encode("utf-8")).hexdigest()
 
 
 def _load_or_compute(path: Path, compute: Callable[[], str]) -> str:
@@ -225,6 +241,21 @@ def run_stage3_final_protocol(
     return _load_or_compute(output_path, compute)
 
 
+def gruppen_bilden(teilergebnisse: list[str], gruppengroesse: int, max_zeichen: int = MAX_KONTEXT_ZEICHEN) -> list[list[str]]:
+    """Wie die Stufe 2 benachbarte Teilergebnisse gruppiert (oeffentlich fuer die Vorab-Auswertung)."""
+    return _gruppen_bilden(teilergebnisse, gruppengroesse, max_zeichen)
+
+
+def abschluss_der_gruppe_steht_fest(gruppen: list[list[str]], index: int, gruppengroesse: int) -> bool:
+    """Ist Gruppe ``index`` schon endgueltig, auch wenn noch weitere Teilergebnisse dazukommen?
+
+    Eine Gruppe schliesst, wenn danach ein weiteres Teilergebnis beginnt (dann steht sie fest) oder wenn sie die
+    volle Groesse hat. Die letzte, noch nicht volle Gruppe kann sich noch aendern."""
+    if index < len(gruppen) - 1:
+        return True
+    return index == len(gruppen) - 1 and len(gruppen[index]) >= gruppengroesse
+
+
 def _gruppen_bilden(teilergebnisse: list[str], gruppengroesse: int, max_zeichen: int) -> list[list[str]]:
     """Teilt benachbarte Teilergebnisse in Gruppen: hoechstens
     ``gruppengroesse`` je Gruppe und zusammen hoechstens ``max_zeichen``
@@ -295,6 +326,67 @@ def _einzeln_passend_pruefen(teilergebnisse: list[str], max_zeichen: int) -> Non
         )
 
 
+def vorab_ergebnisse_ablegen(
+    vorab: dict[str, dict[str, str]] | None,
+    chunk_texts: list[dict[str, object]],
+    work_dir: Path,
+    system_prompt: str | None,
+    group_size: int = 4,
+    max_kontext_zeichen: int = MAX_KONTEXT_ZEICHEN,
+    modell: str | None = None,
+    abschnitt_sekunden: float | None = None,
+) -> tuple[int, int]:
+    """Legt Teilergebnisse, die schon waehrend der Aufnahme berechnet wurden, als Zwischenstaende ab -- aber nur
+    dort, wo ihre Eingabe genau zu der jetzigen passt. Die Auswertung (``run_full_protocol_pipeline``) findet sie
+    dann wie jeden anderen Zwischenstand und fragt das Modell dafuer nicht noch einmal.
+
+    ``vorab``: ``{"stufe1": {Eingabekennung: Ergebnis}, "stufe2": {Eingabekennung: Ergebnis}}``. Die Kennung kommt aus
+    ``eingabe_kennung`` ueber Prompt, Auftrag und Modell; sie wird hier fuer die tatsaechlichen Abschnitte neu
+    berechnet. Liefert ``(Anzahl Stufe 1, Anzahl Stufe 2)`` der neu abgelegten Ergebnisse."""
+    if not vorab or len(chunk_texts) <= 1:
+        return 0, 0  # ein einziger Abschnitt wird ohne Stufen ausgewertet
+    auftrag = effektiver_systemprompt(system_prompt)
+    kennung = prompt_kennung(system_prompt, modell, abschnitt_sekunden)
+    analysen_dir = work_dir / "analysen" / kennung
+    zusammen_dir = work_dir / "zusammengefuehrt" / kennung
+    analysen_dir.mkdir(parents=True, exist_ok=True)
+    zusammen_dir.mkdir(parents=True, exist_ok=True)
+
+    stufe1 = vorab.get("stufe1") or {}
+    stufe2 = vorab.get("stufe2") or {}
+    neu1 = neu2 = 0
+    ergebnisse: list[str] = []  # die Teilergebnisse der Abschnitte der Reihe nach, solange sie lueckenlos vorliegen
+    luecke = False
+    for chunk in chunk_texts:
+        index = int(str(chunk["index"]))
+        pfad = analysen_dir / f"chunk_{index + 1:04d}.md"
+        if not pfad.is_file():
+            prompt = build_stage1_prompt(index, str(chunk["start_str"]), str(chunk["end_str"]), str(chunk["text"]))
+            treffer = stufe1.get(eingabe_kennung(prompt, auftrag, modell))
+            if treffer is not None:
+                pfad.write_text(treffer, encoding="utf-8")
+                neu1 += 1
+        if not luecke and pfad.is_file():
+            text = pfad.read_text(encoding="utf-8")
+            if text.strip():  # leere Ergebnisse werden nicht zusammengefuehrt (siehe run_full_protocol_pipeline)
+                ergebnisse.append(text)
+        else:
+            luecke = True
+
+    gruppen = _gruppen_bilden(ergebnisse, group_size, max_kontext_zeichen)
+    for index, gruppe in enumerate(gruppen):
+        if len(gruppe) < 2 or not abschluss_der_gruppe_steht_fest(gruppen, index, group_size):
+            continue
+        pfad = zusammen_dir / f"zwischenergebnis_{index + 1:04d}.md"
+        if pfad.is_file():
+            continue
+        treffer = stufe2.get(eingabe_kennung(build_stage2_prompt(gruppe), auftrag, modell))
+        if treffer is not None:
+            pfad.write_text(treffer, encoding="utf-8")
+            neu2 += 1
+    return neu1, neu2
+
+
 def run_full_protocol_pipeline(
     chunk_texts: list[dict[str, object]],
     work_dir: Path,
@@ -304,6 +396,7 @@ def run_full_protocol_pipeline(
     progress_cb: Callable[[str, int, int], None] | None = None,
     max_kontext_zeichen: int = MAX_KONTEXT_ZEICHEN,
     modell: str | None = None,
+    abschnitt_sekunden: float | None = None,
 ) -> str:
     """``chunk_texts``: Liste von ``{"index", "start_str", "end_str", "text"}``.
 
@@ -317,7 +410,7 @@ def run_full_protocol_pipeline(
     """
     generate_fn = generate_fn or default_generate_fn
     auftrag = effektiver_systemprompt(system_prompt)
-    kennung = prompt_kennung(system_prompt, modell)
+    kennung = prompt_kennung(system_prompt, modell, abschnitt_sekunden)
     analysen_dir = work_dir / "analysen" / kennung
     zusammen_dir = work_dir / "zusammengefuehrt" / kennung
     analysen_dir.mkdir(parents=True, exist_ok=True)

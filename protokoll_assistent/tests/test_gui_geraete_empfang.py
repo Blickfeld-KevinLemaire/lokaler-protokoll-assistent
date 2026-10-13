@@ -18,6 +18,7 @@ from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from protokoll_assistent.gui import geraete_empfang as ge  # noqa: E402
 from protokoll_assistent.services import geraete_empfang_service as empfang  # noqa: E402
+from protokoll_assistent.services import live_service as ls  # noqa: E402
 from protokoll_assistent.utils import app_config  # noqa: E402
 
 HASH = empfang.token_hash("token")
@@ -264,3 +265,130 @@ def test_einstellungsdialog_speichert_die_geraete(qt_widgets, tmp_path, monkeypa
     tab_titel = [dialog.findChild(sd.QTabWidget).tabText(i) for i in range(dialog.findChild(sd.QTabWidget).count())]
     assert "Aufnahmegeräte" in tab_titel
 
+
+
+# --------------------------------------------------------------------------
+# Live-Transkription und Status
+# --------------------------------------------------------------------------
+class _LiveDienst(_DienstAttrappe):
+    instanzen: ClassVar[list] = []
+
+    def __init__(self, ziel, geraete, *, port, bei_neuer_aufnahme, **weitere):
+        super().__init__(ziel, geraete, port=port, bei_neuer_aufnahme=bei_neuer_aufnahme)
+        self.weitere = weitere
+        _LiveDienst.instanzen.append(self)
+
+
+class _LiveAttrappe:
+    def __init__(self):
+        self.ereignisse: list[tuple] = []
+        self.bereit_rufen = True
+
+    def teil_gewachsen(self, geraet, datei, pfad):
+        self.ereignisse.append(("teil", geraet, datei, pfad))
+
+    def abgeschlossen(self, geraet, datei, ziel, bei_bereit):
+        self.ereignisse.append(("ende", geraet, datei, ziel))
+        if self.bereit_rufen:
+            bei_bereit()
+
+
+def _live_steuerung(qt_app, live, status):
+    _LiveDienst.instanzen.clear()
+    return ge.EmpfangsSteuerung(dienst_fabrik=_LiveDienst, live=live, status=status)
+
+
+def test_ohne_live_bekommt_der_dienst_keine_zusaetzlichen_rueckrufe(steuerung, tmp_path):
+    steuerung.anwenden(tmp_path, konfig())
+    assert not hasattr(_DienstAttrappe.instanzen[-1], "weitere")  # alte Aufrufart: nur Name, Port und Meldung
+
+
+def test_live_verbindet_dienst_mit_live_arbeiter_und_status(qt_app, tmp_path):
+    live, status = _LiveAttrappe(), ls.StatusRegister()
+    steuerung = _live_steuerung(qt_app, live, status)
+    steuerung.anwenden(tmp_path, konfig())
+    weitere = _LiveDienst.instanzen[-1].weitere
+    assert set(weitere) == {"status_fn", "bei_teil", "bei_abschluss"}
+
+    status.setze("S3", "H5.opus", ls.AUSWERTUNG)
+    assert weitere["status_fn"]("S3", "H5.opus")["zustand"] == "auswertung"
+
+    weitere["bei_teil"]("S3", "H5.opus", tmp_path / "a.teil")
+    bereit = []
+    steuerung.aufnahme_bereit.connect(lambda *a: bereit.append(a))
+    weitere["bei_abschluss"]("S3", "H5.opus", tmp_path / "S3_H5.opus")
+    assert live.ereignisse == [("teil", "S3", "H5.opus", tmp_path / "a.teil"), ("ende", "S3", "H5.opus", tmp_path / "S3_H5.opus")]
+    assert status.hole("S3", "H5.opus")["zustand"] == "wartet"
+    # Erst wenn der Live-Arbeiter "bereit" meldet, darf die Verarbeitung der fertigen Datei beginnen.
+    assert bereit == [(str(tmp_path / "S3_H5.opus"), "S3", "H5.opus")]
+
+
+def test_abgeschaltete_live_verarbeitung_laesst_nur_den_status_zu(qt_app, tmp_path):
+    steuerung = _live_steuerung(qt_app, _LiveAttrappe(), ls.StatusRegister())
+    steuerung.anwenden(tmp_path, {**konfig(), "geraete_live_aktiv": False})
+    assert set(_LiveDienst.instanzen[-1].weitere) == {"status_fn"}
+
+
+def test_umschalten_der_live_verarbeitung_startet_den_dienst_neu(qt_app, tmp_path):
+    steuerung = _live_steuerung(qt_app, _LiveAttrappe(), ls.StatusRegister())
+    steuerung.anwenden(tmp_path, konfig())
+    steuerung.anwenden(tmp_path, konfig())
+    assert len(_LiveDienst.instanzen) == 1  # unveraendert: kein Neustart
+    steuerung.anwenden(tmp_path, {**konfig(), "geraete_live_aktiv": False})
+    assert len(_LiveDienst.instanzen) == 2 and _LiveDienst.instanzen[0].gestoppt
+
+
+def test_beschreibung_bleibt_wie_sie_war_mit_live(qt_app, tmp_path):
+    steuerung = _live_steuerung(qt_app, _LiveAttrappe(), ls.StatusRegister())
+    steuerung.anwenden(tmp_path, konfig())
+    assert steuerung.beschreibung().startswith("Aufnahmegeräte: Empfang an (Port 8765, 1 Gerät)")
+
+
+def test_seite_zeigt_und_liefert_live_einstellungen(qt_widgets, monkeypatch):
+    monkeypatch.setattr(ge, "alle_vorlagen", lambda: {"ToDos": "text", "Entscheidungen": "text"})
+    monkeypatch.setattr(empfang, "lokale_adressen", lambda: ["192.168.0.10"])
+    standard = qt_widgets(ge.GeraeteSeite({}))
+    assert standard.live_checkbox.isChecked()  # Standard: an
+    assert standard.auftrag_combo.currentData() == ""
+    assert [standard.auftrag_combo.itemText(i) for i in range(standard.auftrag_combo.count())] == [
+        "(normale Zusammenfassung)",
+        "ToDos",
+        "Entscheidungen",
+    ]
+    assert standard.aenderungen()["geraete_live_aktiv"] is True and standard.aenderungen()["geraete_live_auftrag"] == ""
+
+    seite = qt_widgets(ge.GeraeteSeite({"geraete_live_aktiv": False, "geraete_live_auftrag": "Entscheidungen"}))
+    assert not seite.live_checkbox.isChecked() and seite.auftrag_combo.currentData() == "Entscheidungen"
+    seite.live_checkbox.setChecked(True)
+    seite.auftrag_combo.setCurrentIndex(seite.auftrag_combo.findData("ToDos"))
+    aenderungen = seite.aenderungen()
+    assert aenderungen["geraete_live_aktiv"] is True and aenderungen["geraete_live_auftrag"] == "ToDos"
+
+
+def test_fehlende_vorlage_bleibt_sichtbar_statt_stillschweigend_ersetzt(qt_widgets, monkeypatch):
+    monkeypatch.setattr(ge, "alle_vorlagen", lambda: {"ToDos": "text"})
+    seite = qt_widgets(ge.GeraeteSeite({"geraete_live_auftrag": "Geloescht"}))
+    assert seite.auftrag_combo.currentData() == "Geloescht"
+    assert "nicht mehr vorhanden" in seite.auftrag_combo.currentText()
+    assert seite.aenderungen()["geraete_live_auftrag"] == "Geloescht"
+
+
+def test_seite_zeigt_und_liefert_den_schalter_fuer_die_vorab_auswertung(qt_widgets, monkeypatch):
+    monkeypatch.setattr(empfang, "lokale_adressen", lambda: ["192.168.0.10"])
+    standard = qt_widgets(ge.GeraeteSeite({}))
+    assert standard.auswertung_vorab_checkbox.isChecked()  # Standard: an
+    assert standard.aenderungen()["geraete_live_auswertung_vorab"] is True
+    seite = qt_widgets(ge.GeraeteSeite({"geraete_live_auswertung_vorab": False}))
+    assert not seite.auswertung_vorab_checkbox.isChecked()
+    seite.auswertung_vorab_checkbox.setChecked(True)
+    assert seite.aenderungen()["geraete_live_auswertung_vorab"] is True
+
+
+def test_seite_zeigt_und_liefert_die_laenge_der_auswertungsabschnitte(qt_widgets, monkeypatch):
+    monkeypatch.setattr(empfang, "lokale_adressen", lambda: ["192.168.0.10"])
+    standard = qt_widgets(ge.GeraeteSeite({}))
+    assert standard.abschnitt_spin.value() == 180 and standard.aenderungen()["geraete_live_abschnitt_sekunden"] == 180
+    seite = qt_widgets(ge.GeraeteSeite({"geraete_live_abschnitt_sekunden": 90}))
+    assert seite.abschnitt_spin.value() == 90
+    seite.abschnitt_spin.setValue(240)
+    assert seite.aenderungen()["geraete_live_abschnitt_sekunden"] == 240

@@ -122,6 +122,35 @@ Kommt ein Stück nur teilweise an (Verbindung weg), verwirft die Software den
 angefangenen Rest dieses Stücks. `naechstes_byte` zeigt danach wieder auf den
 Anfang des Stücks.
 
+### `GET /api/v1/aufnahmen/<Dateiname>/status`
+
+Wie weit ist die Verarbeitung dieser Aufnahme? `<Dateiname>` ist der Name, den
+das Gerät beim Hochladen benutzt hat (nicht der Name am PC). Das Gerät fragt
+das ab, nachdem es die Aufnahme abgeschlossen hat, und zeigt den Stand an.
+
+```json
+{"zustand":"auswertung","fortschritt":0.8,"meldung":"…","aktualisiert":1760000000}
+```
+
+| `zustand` | Bedeutung | Gerät zeigt |
+|---|---|---|
+| `empfang` | Die Aufnahme läuft noch oder das Ende steht aus. `meldung` nennt, wie viele Blöcke die Software schon transkribiert hat. | – |
+| `wartet` | Aufnahme komplett angekommen, die Verarbeitung ist eingereiht. | „Wird verarbeitet …" |
+| `transkription` | Transkription läuft (nur noch der Rest, wenn schon während der Aufnahme transkribiert wurde). | Fortschritt |
+| `auswertung` | Die Auswertung nach dem Auftrag läuft. | Fortschritt |
+| `fertig` | Alles ist da. `meldung` ist `Transkription erfolgreich`. | **grünes Häkchen, „Transkription erfolgreich"** |
+| `fehler` | Transkription oder Auswertung ist fehlgeschlagen oder wurde abgebrochen; `meldung` nennt, welcher Schritt. | Fehler |
+| `unbekannt` | Der Software ist nichts bekannt (Neustart der Software, Live-Verarbeitung ausgeschaltet). Kein Fehler: Die Aufnahme liegt trotzdem vor. | nichts oder „angekommen" |
+
+`fortschritt` (0 bis 1) fehlt, wenn die Software keinen kennt; er läuft über
+Transkription **und** Auswertung (erste Hälfte Transkription, zweite Auswertung).
+`aktualisiert` ist die Unix-Zeit der letzten Änderung. Das Gerät braucht keine
+eigene Uhr dafür und fragt alle paar Sekunden ab (2 bis 5 s genügen). Die
+Antwort ist immer `200`, solange das Token gilt (ein ungültiger Dateiname: `400`).
+
+Der Stand liegt nur im Speicher der Software. Nach einem Neustart der Software
+meldet sie `unbekannt`; die Aufnahme selbst ist dann trotzdem sicher abgelegt.
+
 ## Ablauf im Gerät
 
 1. `GET /api/v1/hallo` an die konfigurierten Ziele (Server vor PC).
@@ -161,13 +190,47 @@ Anfang des Stücks.
   und auf einen Schlag (Umbenennen im selben Ordner). Halbe Aufnahmen sieht
   die Verarbeitung nie.
 
-## Später: Senden während der Aufnahme
+## Senden während der Aufnahme
 
-Die Schnittstelle ist dafür schon ausgelegt: Ein Gerät kann die Bytes seiner
-wachsenden Datei laufend anhängen (alle 15 s die neuen, vollständig
-geschriebenen Ogg-Seiten) und erst am Ende abschließen. In der Software ist
-dafür nichts weiter nötig. Was in der Firmware noch fehlt, steht in
-`firmware/docs/streaming-konzept.md`.
+Ein Gerät kann die Bytes seiner wachsenden Datei laufend anhängen (alle 15 s die
+neuen, vollständig geschriebenen Ogg-Seiten) und erst am Ende abschließen. Die
+Software nutzt die Zeit bis dahin (`services/live_service.py`):
+
+* Aus der wachsenden **Ogg-Opus**-Datei transkribiert sie **laufend** mit einem
+  gleitenden Fenster – mit Whisper auf dem Prozessor. Sind seit dem letzten
+  sicheren Punkt mindestens 20 s neues Audio da, wird von diesem Punkt bis jetzt
+  transkribiert (höchstens 45 s je Fenster). Was Whisper dabei sicher
+  abgeschlossen hat, ist *bestätigt*; das letzte Segment am Fensterende kann
+  abgeschnitten sein und wird im nächsten Fenster neu mitgerechnet. Das
+  Transkript wächst so mit etwa 20 bis 40 s Verzögerung, ohne zerhackte Wörter.
+  Die Dauer der Datei liest die Software aus der Granulposition der letzten
+  vollständigen Ogg-Seite; eine mitten in einer Seite abgeschnittene Datei stört
+  nicht. Dateien in anderen Formaten (`.wav`, `.mp3`) werden nicht live verarbeitet.
+* Mit dem **Abschluss** (`fertig:true`) beginnt die Verarbeitung der fertigen
+  Datei. Sie übernimmt die bestätigten Segmente und transkribiert nur den Rest ab
+  dem sicheren Punkt (die letzten Sekunden), danach folgen Sprechertrennung und
+  die Auswertung nach dem Auftrag aus den Einstellungen. Ein gerade laufendes
+  Fenster wird noch fertig gerechnet, ein neues nicht mehr angefangen.
+* Das Transkript wächst während der Aufnahme auch in der Vorschau der Anwendung
+  (Seite „Ergebnis und Sprecher“), solange dort nichts anderes läuft.
+* Auch die **Auswertung** wird vorbereitet (`services/live_auswertung_service.py`): Sobald der
+  Text eines Auswertungsabschnitts (Standard 180 s, einstellbar 60–600 s) feststeht, wendet das Sprachmodell (auf der Grafikkarte, neben
+  Whisper auf dem Prozessor) den Auftrag darauf an (Stufe 1); feststehende Gruppen von
+  Teilergebnissen werden gleich zusammengeführt (Stufe 2). Nach dem Ende fehlen nur noch die
+  letzten Abschnitte und das Endergebnis. Jedes Ergebnis gilt nur für genau seine Eingabe
+  (Modell, Auftrag, Text): Die fertige Auswertung übernimmt es nur bei übereinstimmender Eingabe,
+  sonst fragt sie neu. Damit die Texte übereinstimmen, bekommt das Modell dabei den Text
+  **ohne Sprecherangaben** (die Sprechertrennung entsteht erst am Ende; im Transkript stehen die
+  Sprecher trotzdem). Abschaltbar: *Aufnahmegeräte → Auswertung schon während der Aufnahme
+  vorbereiten* (Standard: an). Ist das Sprachmodell nicht erreichbar, rechnet erst die
+  Auswertung nach dem Ende, ohne Verlust.
+* Das Gerät sieht den Stand über `…/status` (siehe oben).
+
+Ob das geschieht, steht in den Einstellungen: *Aufnahmegeräte → Während der
+Aufnahme transkribieren und nach dem Ende automatisch auswerten* (Standard: an).
+Ist es aus, legt die Software die Aufnahme nur ab, und `…/status` meldet
+`unbekannt`. Was in der Firmware noch fehlt (Senden während der Aufnahme,
+Status abfragen und anzeigen), steht in `firmware/docs/streaming-konzept.md`.
 
 ## Einrichtung über USB (Version 1)
 

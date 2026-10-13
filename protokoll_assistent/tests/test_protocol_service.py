@@ -425,3 +425,145 @@ def test_stufen_2_und_3_beschreiben_ihre_eingabe_als_teilergebnisse():
     assert hinweis in protocol_service.build_stage2_prompt(["a", "b"])
     assert hinweis in protocol_service.build_stage3_prompt(["a", "b"])
     assert "Teilergebnisse" in protocol_service.OHNE_VORGABE_SYSTEMPROMPT
+
+
+# --------------------------------------------------------------------------
+# Schon waehrend der Aufnahme berechnete Teilergebnisse
+# --------------------------------------------------------------------------
+AUFTRAG = "Liste die ToDos auf."
+MODELL = "qwen-test"
+
+
+def _kennung_stufe1(chunk: dict, modell: str | None = MODELL, auftrag: str = AUFTRAG) -> str:
+    prompt = protocol_service.build_stage1_prompt(
+        int(chunk["index"]), str(chunk["start_str"]), str(chunk["end_str"]), str(chunk["text"])
+    )
+    return protocol_service.eingabe_kennung(prompt, protocol_service.effektiver_systemprompt(auftrag), modell)
+
+
+def _kennung_stufe2(gruppe: list[str], modell: str | None = MODELL, auftrag: str = AUFTRAG) -> str:
+    prompt = protocol_service.build_stage2_prompt(gruppe)
+    return protocol_service.eingabe_kennung(prompt, protocol_service.effektiver_systemprompt(auftrag), modell)
+
+
+def _vorab(chunks: list[dict], vorhanden: list[int], gruppen: list[list[int]] | None = None) -> dict:
+    """Was die Teilauswertung geliefert haette: Stufe 1 fuer die Abschnitte in ``vorhanden``, Stufe 2 fuer ``gruppen``."""
+    stufe1 = {_kennung_stufe1(chunks[i]): f"A{i}" for i in vorhanden}
+    stufe2 = {_kennung_stufe2([f"A{i}" for i in g]): f"Z{g[0]}-{g[-1]}" for g in (gruppen or [])}
+    return {"stufe1": stufe1, "stufe2": stufe2}
+
+
+def _ablegen(vorab, chunks, work_dir, modell=MODELL, group_size=4):
+    return protocol_service.vorab_ergebnisse_ablegen(vorab, chunks, work_dir, AUFTRAG, group_size, modell=modell)
+
+
+def test_eingabe_kennung_haengt_von_allem_ab_was_die_antwort_beeinflusst():
+    basis = protocol_service.eingabe_kennung("Prompt", "Auftrag", "modell")
+    assert basis == protocol_service.eingabe_kennung("Prompt", "Auftrag", "modell")
+    assert len(basis) == 64
+    assert basis != protocol_service.eingabe_kennung("Anderer Prompt", "Auftrag", "modell")
+    assert basis != protocol_service.eingabe_kennung("Prompt", "Anderer Auftrag", "modell")
+    assert basis != protocol_service.eingabe_kennung("Prompt", "Auftrag", "anderes-modell")
+    assert protocol_service.eingabe_kennung("P", "A", None) == protocol_service.eingabe_kennung("P", "A", "")
+    # Die Teile lassen sich nicht gegeneinander verschieben
+    assert protocol_service.eingabe_kennung("ab", "c", "m") != protocol_service.eingabe_kennung("a", "bc", "m")
+
+
+def test_vorab_ergebnisse_werden_als_zwischenstaende_abgelegt_und_nicht_neu_gefragt(tmp_path):
+    chunks = _chunks(6)
+    vorab = _vorab(chunks, [0, 1, 2, 3, 4], gruppen=[[0, 1, 2, 3]])
+    assert _ablegen(vorab, chunks, tmp_path) == (5, 1)
+
+    generate_fn, calls = _fake_generate_factory()
+    ergebnis = protocol_service.run_full_protocol_pipeline(
+        chunks, tmp_path, AUFTRAG, generate_fn, group_size=4, modell=MODELL
+    )
+    # Ohne Vorab waeren es 6 + 2 + 1 Anfragen: jetzt nur Abschnitt 5, die zweite Gruppe und das Endergebnis
+    assert calls["count"] == 3
+    assert "Chunk 5" in calls["prompts"][0] and "Teilergebnis 1 ---\nA4" in calls["prompts"][1]
+    assert ergebnis == "ENDERGEBNIS"
+    # Das fertige Endergebnis fasst die vorab berechnete erste Gruppe zusammen
+    assert "Z0-3" in calls["prompts"][2]
+
+
+def test_abweichender_text_eines_abschnitts_wird_nicht_uebernommen(tmp_path):
+    chunks = _chunks(3)
+    vorab = _vorab(chunks, [0, 1, 2])
+    chunks[1] = {**chunks[1], "text": "Chunk 1, aber mit einem Wort mehr"}  # die fertige Auswertung sieht anderen Text
+    assert _ablegen(vorab, chunks, tmp_path) == (2, 0)
+    assert not (tmp_path / "analysen" / protocol_service.prompt_kennung(AUFTRAG, MODELL) / "chunk_0002.md").exists()
+
+
+def test_anderes_modell_oder_anderer_auftrag_uebernimmt_nichts(tmp_path):
+    chunks = _chunks(3)
+    vorab = _vorab(chunks, [0, 1, 2])
+    assert _ablegen(vorab, chunks, tmp_path, modell="anderes-modell") == (0, 0)
+    assert protocol_service.vorab_ergebnisse_ablegen(vorab, chunks, tmp_path, "Anderer Auftrag", 4, modell=MODELL) == (0, 0)
+
+
+def test_eine_luecke_verhindert_die_zusammenfuehrung_dahinter(tmp_path):
+    chunks = _chunks(5)
+    vorab = _vorab(chunks, [0, 2, 3], gruppen=[[0, 2, 3]])  # Abschnitt 1 fehlt: die Reihenfolge waere falsch
+    assert _ablegen(vorab, chunks, tmp_path, group_size=3) == (3, 0)
+
+
+def test_eine_noch_nicht_volle_letzte_gruppe_steht_nicht_fest(tmp_path):
+    chunks = _chunks(6)
+    vorab = _vorab(chunks, [0, 1, 2], gruppen=[[0, 1, 2]])  # nur 3 von 4: es kann noch ein vierter dazukommen
+    assert _ablegen(vorab, chunks, tmp_path) == (3, 0)
+
+
+def test_eine_gruppe_vor_einer_weiteren_steht_fest_auch_wenn_sie_nicht_voll_ist(tmp_path, monkeypatch):
+    chunks = _chunks(4)
+    vorab = _vorab(chunks, [0, 1, 2, 3], gruppen=[[0, 1]])
+    # Zeichenbudget so klein, dass ein drittes Teilergebnis nicht mehr in die erste Gruppe passt
+    monkeypatch.setattr(protocol_service, "MAX_KONTEXT_ZEICHEN", 5)
+    n1, n2 = protocol_service.vorab_ergebnisse_ablegen(
+        vorab, chunks, tmp_path, AUFTRAG, 4, max_kontext_zeichen=5, modell=MODELL
+    )
+    assert n1 == 4 and n2 == 1
+
+
+def test_leere_teilergebnisse_werden_abgelegt_aber_nicht_zusammengefuehrt(tmp_path):
+    chunks = _chunks(5)
+    vorab = _vorab(chunks, [0, 1, 2, 3, 4])
+    vorab["stufe1"][_kennung_stufe1(chunks[1])] = ""  # der Auftrag fand in Abschnitt 1 nichts
+    vorab["stufe2"] = {_kennung_stufe2(["A0", "A2", "A3", "A4"]): "Z"}
+    assert _ablegen(vorab, chunks, tmp_path) == (5, 1)
+    generate_fn, calls = _fake_generate_factory()
+    ergebnis = protocol_service.run_full_protocol_pipeline(
+        chunks, tmp_path, AUFTRAG, generate_fn, group_size=4, modell=MODELL
+    )
+    # Alles war schon da: Ein einziges zusammengefuehrtes Teilergebnis wird nicht noch einmal umformuliert
+    assert calls["count"] == 0 and ergebnis == "Z"
+
+
+def test_ein_einziger_abschnitt_und_fehlende_vorab_daten_tun_nichts(tmp_path):
+    chunks = _chunks(1)
+    assert _ablegen(_vorab(chunks, [0]), chunks, tmp_path) == (0, 0)
+    assert _ablegen(None, _chunks(3), tmp_path) == (0, 0)
+    assert _ablegen({}, _chunks(3), tmp_path) == (0, 0)
+
+
+def test_schon_vorhandene_zwischenstaende_werden_nicht_ueberschrieben(tmp_path):
+    chunks = _chunks(3)
+    ordner = tmp_path / "analysen" / protocol_service.prompt_kennung(AUFTRAG, MODELL)
+    ordner.mkdir(parents=True)
+    (ordner / "chunk_0001.md").write_text("ALT", encoding="utf-8")
+    assert _ablegen(_vorab(chunks, [0, 1, 2]), chunks, tmp_path) == (2, 0)
+    assert (ordner / "chunk_0001.md").read_text(encoding="utf-8") == "ALT"
+
+
+def test_gruppen_helfer_sind_oeffentlich_und_stimmen_mit_der_stufe_2_ueberein():
+    gruppen = protocol_service.gruppen_bilden(["a", "b", "c", "d", "e"], 4)
+    assert gruppen == [["a", "b", "c", "d"], ["e"]]
+    assert protocol_service.abschluss_der_gruppe_steht_fest(gruppen, 0, 4) is True
+    assert protocol_service.abschluss_der_gruppe_steht_fest(gruppen, 1, 4) is False  # nur 1 von 4, es kann noch wachsen
+    assert protocol_service.abschluss_der_gruppe_steht_fest([["a", "b", "c", "d"]], 0, 4) is True  # voll
+
+
+def test_kennung_haengt_nur_bei_abweichender_abschnittslaenge_davon_ab():
+    standard = protocol_service.prompt_kennung("Auftrag", "modell")
+    assert protocol_service.prompt_kennung("Auftrag", "modell", None) == standard  # aeltere Zwischenstaende bleiben gueltig
+    assert protocol_service.prompt_kennung("Auftrag", "modell", 180) != standard
+    assert protocol_service.prompt_kennung("Auftrag", "modell", 180) != protocol_service.prompt_kennung("Auftrag", "modell", 120)

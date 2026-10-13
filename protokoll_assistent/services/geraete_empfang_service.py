@@ -237,6 +237,8 @@ class Ablage:
         platz_reserve_bytes: int = PLATZ_RESERVE_BYTES,
         freier_platz: Callable[[Path], int] | None = None,
         bei_neuer_aufnahme: Callable[[Path, str], None] | None = None,
+        bei_teil: Callable[[str, str, Path], None] | None = None,
+        bei_abschluss: Callable[[str, str, Path], None] | None = None,
         jetzt: Callable[[], float] = time.time,
     ):
         self.ziel = ziel
@@ -245,6 +247,10 @@ class Ablage:
         self._platz_reserve = platz_reserve_bytes
         self._freier_platz = freier_platz or (lambda pfad: shutil.disk_usage(pfad).free)
         self._bei_neuer_aufnahme = bei_neuer_aufnahme
+        # Waehrend der Aufnahme (Stueck angekommen) und beim Abschluss, mit dem
+        # Dateinamen, den das Geraet benutzt hat -- darunter fragt es den Status ab.
+        self._bei_teil = bei_teil
+        self._bei_abschluss = bei_abschluss
         self._jetzt = jetzt
         self._sperre = threading.Lock()
         self._sperren: dict[str, threading.Lock] = {}
@@ -313,6 +319,11 @@ class Ablage:
                 if antwort is not None:
                     return antwort
             if gesamt is None or sha256 is None:
+                if laenge and self._bei_teil is not None:
+                    try:
+                        self._bei_teil(geraet, datei, self._teil_pfad(schluessel))
+                    except Exception:  # Eine Fehlfunktion der Live-Verarbeitung darf den Empfang nicht stoeren.
+                        logger.exception("Meldung ueber das neue Stueck fehlgeschlagen")
                 return Antwort(200, {"naechstes_byte": offset + laenge, "fertig": False})
             return self._abschliessen(schluessel, geraet, datei, gesamt, sha256)
 
@@ -380,6 +391,11 @@ class Ablage:
             self._fertig_speichern(fertig)
 
         logger.info("Aufnahme von %s angekommen: %s (%d Bytes)", geraet, ziel.name, gesamt)
+        if self._bei_abschluss is not None:
+            try:
+                self._bei_abschluss(geraet, datei, ziel)
+            except Exception:
+                logger.exception("Meldung ueber den Abschluss fehlgeschlagen")
         if self._bei_neuer_aufnahme is not None:
             try:
                 self._bei_neuer_aufnahme(ziel, geraet)
@@ -469,6 +485,7 @@ def _ordner_sichern(ordner: Path) -> None:
 # --------------------------------------------------------------------------
 _PFAD_HALLO = "/api/v1/hallo"
 _PFAD_AUFNAHMEN = "/api/v1/aufnahmen/"
+_ENDE_STATUS = "/status"
 
 
 class _Server(ThreadingHTTPServer):
@@ -568,6 +585,9 @@ class _Anfrage(BaseHTTPRequestHandler):
                     },
                 )
             )
+        elif pfad.startswith(_PFAD_AUFNAHMEN) and pfad.endswith(_ENDE_STATUS):
+            name = pfad[len(_PFAD_AUFNAHMEN) : -len(_ENDE_STATUS)]
+            self._senden(self.server.empfang.status(geraet.name, name))
         elif pfad.startswith(_PFAD_AUFNAHMEN):
             self._senden(self.server.empfang.ablage.stand(geraet.name, pfad[len(_PFAD_AUFNAHMEN):]))
         else:
@@ -665,15 +685,35 @@ class GeraeteEmpfang:
         adresse: str = STANDARD_ADRESSE,
         max_datei_bytes: int = STANDARD_MAX_DATEI_BYTES,
         bei_neuer_aufnahme: Callable[[Path, str], None] | None = None,
+        bei_teil: Callable[[str, str, Path], None] | None = None,
+        bei_abschluss: Callable[[str, str, Path], None] | None = None,
+        status_fn: Callable[[str, str], dict[str, Any] | None] | None = None,
     ):
         self.geraete: tuple[Geraet, ...] = tuple(geraete)
-        self.ablage = Ablage(ziel, max_datei_bytes=max_datei_bytes, bei_neuer_aufnahme=bei_neuer_aufnahme)
+        self.ablage = Ablage(
+            ziel,
+            max_datei_bytes=max_datei_bytes,
+            bei_neuer_aufnahme=bei_neuer_aufnahme,
+            bei_teil=bei_teil,
+            bei_abschluss=bei_abschluss,
+        )
+        self._status_fn = status_fn
         self._adresse = (adresse, port)
         self._server: _Server | None = None
         self._faden: threading.Thread | None = None
         self._kontakte: dict[str, Kontakt] = {}
         self._kontakte_sperre = threading.Lock()
         self._jetzt: Callable[[], float] = time.time
+
+    def status(self, geraet: str, datei: str) -> Antwort:
+        """``GET /api/v1/aufnahmen/<datei>/status``: Wie weit ist die Verarbeitung?
+
+        ``zustand`` ist einer aus ``live_service.ZUSTAENDE`` oder ``unbekannt`` (nichts bekannt,
+        etwa nach einem Neustart der Software oder ohne Live-Verarbeitung)."""
+        if not dateiname_gueltig(datei):
+            return _fehler(400, "Ungueltiger Dateiname.")
+        eintrag = self._status_fn(geraet, datei) if self._status_fn is not None else None
+        return Antwort(200, eintrag if eintrag is not None else {"zustand": "unbekannt"})
 
     def kontakte(self) -> dict[str, Kontakt]:
         """Letzter Kontakt je Geraetename (seit dem Start des Dienstes)."""

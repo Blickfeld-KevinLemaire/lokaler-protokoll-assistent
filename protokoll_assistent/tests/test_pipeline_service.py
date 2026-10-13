@@ -14,7 +14,13 @@ import json
 import pytest
 
 import protokoll_assistent.utils.paths as utils_paths
-from protokoll_assistent.services import chunking_service, manifest_service, ollama_service, pipeline_service
+from protokoll_assistent.services import (
+    chunking_service,
+    manifest_service,
+    ollama_service,
+    pipeline_service,
+    protocol_service,
+)
 
 
 # --------------------------------------------------------------------------
@@ -886,3 +892,350 @@ def test_run_protocol_mit_anderem_modell_liefert_neues_ergebnis(monkeypatch, tmp
     assert lauf("VON DER API", ollama_model="gemma4:12b-it-q4_K_M", protokoll_modell_kennung="api:x") == "VON DER API"
     # Dasselbe Modell wie zuvor: Zwischenstand wird wiederverwendet.
     assert lauf("NICHT GEFRAGT", ollama_model="qwen3.5:4b-q4_K_M") == "VON QWEN"
+
+
+# --------------------------------------------------------------------------
+# Live (waehrend der Aufnahme) transkribierte Segmente
+# --------------------------------------------------------------------------
+def _live_segment(start: float, ende: float, text: str) -> dict:
+    return {"start": start, "end": ende, "text": text, "speaker": None, "words": []}
+
+
+def _live(bis: float, *segmente: dict) -> dict:
+    return {"bestaetigt_bis": bis, "segmente": list(segmente)}
+
+
+def _zaehlende_transkription(gerechnet: list):
+    """Attrappe fuer Whisper: merkt sich jedes Mal, welcher Audio-Bereich verlangt wurde (Dateiname des Chunks)."""
+
+    def transcribe(chunk_wav_path):
+        gerechnet.append(chunk_wav_path.name)
+        return [{"start": 1.0, "end": 4.0, "text": "neu gerechnet", "speaker": None, "words": []}]
+
+    return transcribe
+
+
+def _ffmpeg_mit_aufzeichnung(monkeypatch, total_duration: float, geschnitten: list):
+    _patch_ffmpeg(monkeypatch, total_duration=total_duration)
+
+    def fake_extract(normalized, destination, start, end, ffmpeg_path=None, sample_rate=16000):
+        geschnitten.append((destination.name, round(start, 3), round(end, 3)))
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(b"dummy-chunk")
+        return destination
+
+    monkeypatch.setattr(pipeline_service.ffmpeg_service, "extract_chunk_wav", fake_extract)
+
+
+def test_voll_live_transkribierte_chunks_werden_nicht_noch_einmal_transkribiert(monkeypatch, tmp_path, source_file):
+    monkeypatch.setattr(utils_paths, "get_work_dir", lambda: tmp_path / "arbeitsdaten")
+    geschnitten: list = []
+    _ffmpeg_mit_aufzeichnung(monkeypatch, 1300.0, geschnitten)  # 3 Chunks: 0-600, 590-1190, 1180-1300
+    gerechnet: list = []
+
+    settings = _make_settings(source_file, tmp_path)
+    settings.vorab_live = _live(
+        1220.0,
+        _live_segment(10.0, 14.0, "eins"),
+        _live_segment(595.0, 599.0, "zwei"),  # in der Ueberlappung von Chunk 0 und 1: steht in beiden
+        _live_segment(700.0, 705.0, "drei"),
+        _live_segment(1185.0, 1189.0, "vier"),  # Ueberlappung von Chunk 1 und 2
+        _live_segment(1210.0, 1215.0, "fuenf"),
+    )
+    ergebnis = pipeline_service.run_transcription(
+        settings, transcribe_chunk_fn=_zaehlende_transkription(gerechnet), diarize_fn=_fake_diarize
+    )
+
+    # Chunk 0 und 1 sind ganz abgedeckt; vom letzten (1180-1300) bleibt der Rest ab 1220
+    assert gerechnet == ["chunk_0003_rest.wav"]
+    assert geschnitten == [("chunk_0003_rest.wav", 1220.0, 1300.0)]  # nur 80 s statt aller 1300
+    texte = [segment["text"] for segment in ergebnis.segments]
+    assert texte == ["eins", "zwei", "drei", "vier", "fuenf", "neu gerechnet"]  # keine Dubletten aus den Ueberlappungen
+    assert manifest_service.is_fully_processed(ergebnis.manifest)
+    # Der Rest steht auf der globalen Zeitachse an der richtigen Stelle (Rest ab 1220, im Rest bei 1,0 s)
+    assert ergebnis.segments[-1]["start"] == 1221.0
+    # Auch im Arbeitsordner abgelegt: Eine Wiederaufnahme findet die Chunks dort.
+    assert manifest_service.chunk_transcript_path(ergebnis.work_dir, 0).is_file()
+
+
+def test_teilweise_abgedeckter_chunk_bekommt_nur_den_rest(monkeypatch, tmp_path, source_file):
+    monkeypatch.setattr(utils_paths, "get_work_dir", lambda: tmp_path / "arbeitsdaten")
+    geschnitten: list = []
+    _ffmpeg_mit_aufzeichnung(monkeypatch, 300.0, geschnitten)  # ein Chunk 0-300
+    gerechnet: list = []
+
+    settings = _make_settings(source_file, tmp_path)
+    settings.vorab_live = _live(250.0, _live_segment(5.0, 9.0, "anfang"), _live_segment(240.0, 249.0, "fast hinten"))
+    ergebnis = pipeline_service.run_transcription(
+        settings, transcribe_chunk_fn=_zaehlende_transkription(gerechnet), diarize_fn=_fake_diarize
+    )
+
+    assert gerechnet == ["chunk_0001_rest.wav"]
+    assert geschnitten == [("chunk_0001_rest.wav", 250.0, 300.0)]  # nur 50 s statt 300 s
+    assert [s["text"] for s in ergebnis.segments] == ["anfang", "fast hinten", "neu gerechnet"]
+    assert ergebnis.segments[2]["start"] == 251.0  # 250 + 1 s im Rest
+
+
+def test_zu_wenig_live_abdeckung_lohnt_nicht_der_chunk_wird_ganz_transkribiert(monkeypatch, tmp_path, source_file):
+    monkeypatch.setattr(utils_paths, "get_work_dir", lambda: tmp_path / "arbeitsdaten")
+    geschnitten: list = []
+    _ffmpeg_mit_aufzeichnung(monkeypatch, 300.0, geschnitten)
+    gerechnet: list = []
+
+    settings = _make_settings(source_file, tmp_path)
+    settings.vorab_live = _live(20.0, _live_segment(5.0, 9.0, "zu wenig"))  # nur 20 s von 300
+    ergebnis = pipeline_service.run_transcription(
+        settings, transcribe_chunk_fn=_zaehlende_transkription(gerechnet), diarize_fn=_fake_diarize
+    )
+
+    assert gerechnet == ["chunk_0001.wav"] and geschnitten == [("chunk_0001.wav", 0.0, 300.0)]
+    assert [s["text"] for s in ergebnis.segments] == ["neu gerechnet"]  # die Live-Segmente werden nicht gemischt
+
+
+@pytest.mark.parametrize(
+    "vorab",
+    [
+        None,
+        {},
+        {"bestaetigt_bis": 100.0},
+        {"bestaetigt_bis": 100.0, "segmente": []},
+        {"bestaetigt_bis": "x", "segmente": [{"start": 1.0, "end": 2.0}]},
+        {"bestaetigt_bis": 0.0, "segmente": [{"start": 1.0, "end": 2.0}]},
+        {"bestaetigt_bis": 100.0, "segmente": ["kaputt", {"start": "a", "end": 2.0}]},
+    ],
+)
+def test_live_lesen_lehnt_unbrauchbares_ab(vorab):
+    assert pipeline_service._live_lesen(vorab) == (0.0, [])
+
+
+def test_live_lesen_und_abdeckung():
+    bis, segmente = pipeline_service._live_lesen(_live(500.0, _live_segment(1.0, 2.0, "a"), "kaputt"))
+    assert bis == 500.0 and len(segmente) == 1
+    plaene = chunking_service.plan_chunks(1300.0)  # 0-600, 590-1190, 1180-1300
+
+    def abdeckung(bis_):
+        return [pipeline_service._live_abdeckung(p, bis_) for p in plaene]
+
+    assert abdeckung(0.0) == ["keine", "keine", "keine"]
+    assert abdeckung(500.0) == ["teil", "keine", "keine"]   # 500 s von Chunk 0, aber nichts von Chunk 1
+    assert abdeckung(600.0) == ["voll", "keine", "keine"]
+    assert abdeckung(1190.0) == ["voll", "voll", "keine"]   # von Chunk 2 erst 10 s: lohnt nicht
+    assert abdeckung(1220.0) == ["voll", "voll", "teil"]    # 40 s von Chunk 2
+    assert abdeckung(1300.0) == ["voll", "voll", "voll"]
+
+
+def test_ist_alles_live_fertig_wird_whisper_nicht_geladen(monkeypatch, tmp_path, source_file):
+    monkeypatch.setattr(utils_paths, "get_work_dir", lambda: tmp_path / "arbeitsdaten")
+    _patch_ffmpeg(monkeypatch, total_duration=300.0)  # ein Chunk
+    geladen = []
+    monkeypatch.setattr(
+        pipeline_service.transcription_service, "load_whisper_model", lambda *a, **k: geladen.append(a)
+    )
+    monkeypatch.setattr(pipeline_service.model_service, "get_device_and_compute_type", lambda *_a: ("cpu", "int8"))
+    monkeypatch.setattr(pipeline_service.model_service, "prepare_offline_mode", lambda *_a: None)
+    monkeypatch.setattr(pipeline_service.model_service, "get_gpu_description", lambda: "CPU")
+    settings = _make_settings(source_file, tmp_path)
+    settings.enable_diarization = False
+    settings.vorab_live = _live(300.0, _live_segment(1.0, 4.0, "alles live"))
+    ergebnis = pipeline_service.run_transcription(settings)  # ohne Attrappe: wuerde sonst Whisper laden
+    assert geladen == []
+    assert [segment["text"] for segment in ergebnis.segments] == ["alles live"]
+
+
+def test_live_segmente_mit_woertern_behalten_ihre_wortzeiten_im_chunk(monkeypatch, tmp_path, source_file):
+    monkeypatch.setattr(utils_paths, "get_work_dir", lambda: tmp_path / "arbeitsdaten")
+    _patch_ffmpeg(monkeypatch, total_duration=700.0)  # 0-600, 590-700
+    settings = _make_settings(source_file, tmp_path)
+    mit_woertern = {
+        "start": 600.0,
+        "end": 604.0,
+        "text": "zweiter Chunk",
+        "speaker": None,
+        "words": [{"word": "zweiter", "start": 600.0, "end": 602.0}, {"word": "Chunk", "start": 602.0, "end": 604.0}],
+    }
+    settings.vorab_live = _live(700.0, _live_segment(5.0, 9.0, "erster"), mit_woertern)
+    ergebnis = pipeline_service.run_transcription(settings, transcribe_chunk_fn=lambda _w: [], diarize_fn=_fake_diarize)
+    segment = next(s for s in ergebnis.segments if s["text"] == "zweiter Chunk")
+    assert segment["start"] == 600.0 and segment["words"][0]["start"] == 600.0  # global wie zuvor
+    lokal = json.loads(manifest_service.chunk_transcript_path(ergebnis.work_dir, 1).read_text(encoding="utf-8"))
+    assert lokal[0]["start"] == 10.0 and lokal[0]["words"][1]["end"] == 14.0  # im Chunk (Start 590) relativ
+
+
+# --------------------------------------------------------------------------
+# Auswertung: schon waehrend der Aufnahme berechnete Teilergebnisse
+# --------------------------------------------------------------------------
+def _langes_transkript(monkeypatch, tmp_path, source_file, dauer: float = 1300.0):
+    """Ein fertiges Transkript (3 Chunks bei 1300 s) mit Sprechertrennung."""
+    monkeypatch.setattr(utils_paths, "get_work_dir", lambda: tmp_path / "arbeitsdaten")
+    _systemprompt_bereitstellen(monkeypatch, tmp_path)
+    _patch_ffmpeg(monkeypatch, total_duration=dauer)
+
+    def chunk_segmente(chunk_wav):
+        return [{"start": float(k * 10), "end": float(k * 10 + 4), "text": f"Satz {k}", "speaker": None} for k in range(5)]
+
+    return pipeline_service.run_transcription(
+        _make_settings(source_file, tmp_path), transcribe_chunk_fn=chunk_segmente, diarize_fn=_fake_diarize
+    )
+
+
+def test_ohne_sprecher_bekommt_das_modell_nur_den_fliesstext(monkeypatch, tmp_path, source_file):
+    transkript = _langes_transkript(monkeypatch, tmp_path, source_file, dauer=300.0)
+    prompts: list[str] = []
+
+    def lauf(ohne_sprecher: bool) -> str:
+        prompts.clear()
+        pipeline_service.run_protocol(
+            pipeline_service.ProtocolSettings(
+                transcript_json_path=transkript.export_paths.json,
+                output_dir=tmp_path / "ausgabe",
+                system_prompt=f"Auftrag {ohne_sprecher}",  # eigener Auftrag: keine alten Zwischenstaende
+                ohne_sprecher=ohne_sprecher,
+            ),
+            protocol_generate_fn=lambda prompt, system: prompts.append(prompt) or "Ergebnis",
+        )
+        return "\n".join(prompts)
+
+    mit = lauf(False)
+    ohne = lauf(True)
+    assert "Sprecher" in mit and "[00:00" in mit
+    assert "Sprecher" not in ohne and "[00:00" not in ohne and "Satz 0" in ohne
+
+
+def test_vorab_ausgewertete_abschnitte_werden_uebernommen(monkeypatch, tmp_path, source_file):
+    transkript = _langes_transkript(monkeypatch, tmp_path, source_file)
+    segmente, namen, _diarisierung, _stamm = pipeline_service.load_transcript_for_protocol(transkript.export_paths.json)
+    plaene = chunking_service.plan_chunks(max(s["end"] for s in segmente))
+    chunk_texte = pipeline_service.baue_protokoll_chunk_texte(plaene, segmente, namen, False)
+    assert len(chunk_texte) == 3
+    auftrag = "Liste die ToDos auf."
+    modell = "qwen-test"
+    stufe1 = {}
+    for chunk in chunk_texte[:2]:  # die ersten beiden Abschnitte waren schon waehrend der Aufnahme fertig
+        prompt = protocol_service.build_stage1_prompt(
+            chunk["index"], chunk["start_str"], chunk["end_str"], chunk["text"]
+        )
+        stufe1[protocol_service.eingabe_kennung(prompt, auftrag, modell)] = f"VORAB {chunk['index']}"
+
+    anfragen: list[str] = []
+    protokoll: list[str] = []
+    ergebnis = pipeline_service.run_protocol(
+        pipeline_service.ProtocolSettings(
+            transcript_json_path=transkript.export_paths.json,
+            output_dir=tmp_path / "ausgabe",
+            system_prompt=auftrag,
+            protokoll_modell_kennung=modell,
+            ohne_sprecher=True,
+            vorab_auswertung=lambda: {"stufe1": stufe1, "stufe2": {}},
+        ),
+        pipeline_service.PipelineCallbacks(on_log=protokoll.append),
+        protocol_generate_fn=lambda prompt, system: anfragen.append(prompt) or "ERGEBNIS",
+    )
+
+    assert ergebnis.protokoll_fehler is None
+    # Ohne Vorab: 3 Abschnitte + 1 Gruppe. Jetzt: nur Abschnitt 3 und die Gruppe
+    assert len(anfragen) == 2 and "Abschnitt 3 " in anfragen[0]
+    assert "VORAB 0" in anfragen[1] and "VORAB 1" in anfragen[1]
+    assert any("Schon waehrend der Aufnahme ausgewertet: 2 Abschnitte" in zeile for zeile in protokoll)
+
+
+def test_vorab_auswertung_fuer_ein_anderes_modell_wird_nicht_benutzt(monkeypatch, tmp_path, source_file):
+    transkript = _langes_transkript(monkeypatch, tmp_path, source_file)
+    segmente, namen, _d, _s = pipeline_service.load_transcript_for_protocol(transkript.export_paths.json)
+    plaene = chunking_service.plan_chunks(max(s["end"] for s in segmente))
+    chunk_texte = pipeline_service.baue_protokoll_chunk_texte(plaene, segmente, namen, False)
+    prompt = protocol_service.build_stage1_prompt(
+        0, chunk_texte[0]["start_str"], chunk_texte[0]["end_str"], chunk_texte[0]["text"]
+    )
+    stufe1 = {protocol_service.eingabe_kennung(prompt, "Auftrag", "modell-live"): "VORAB 0"}
+    anfragen: list[str] = []
+    pipeline_service.run_protocol(
+        pipeline_service.ProtocolSettings(
+            transcript_json_path=transkript.export_paths.json,
+            output_dir=tmp_path / "ausgabe",
+            system_prompt="Auftrag",
+            protokoll_modell_kennung="modell-final",  # die fertige Auswertung rechnet mit einem anderen Modell
+            ohne_sprecher=True,
+            vorab_auswertung=lambda: {"stufe1": stufe1, "stufe2": {}},
+        ),
+        protocol_generate_fn=lambda p, s: anfragen.append(p) or "E",
+    )
+    assert len(anfragen) == 4 and all("VORAB" not in a for a in anfragen)  # alles neu gefragt
+
+
+def test_fehler_in_der_vorab_auswertung_stoert_die_auswertung_nicht(monkeypatch, tmp_path, source_file):
+    transkript = _langes_transkript(monkeypatch, tmp_path, source_file, dauer=300.0)
+
+    def kaputt():
+        raise RuntimeError("Teilauswertung weg")
+
+    protokoll: list[str] = []
+    ergebnis = pipeline_service.run_protocol(
+        pipeline_service.ProtocolSettings(
+            transcript_json_path=transkript.export_paths.json,
+            output_dir=tmp_path / "ausgabe",
+            system_prompt="Auftrag",
+            vorab_auswertung=kaputt,
+        ),
+        pipeline_service.PipelineCallbacks(on_log=protokoll.append),
+        protocol_generate_fn=lambda p, s: "ERGEBNIS",
+    )
+    assert ergebnis.protokoll_fehler is None and ergebnis.protocol_paths is not None
+    assert any("Vorab-Auswertung nicht verwendet" in zeile for zeile in protokoll)
+
+
+def test_kuerzere_auswertungsabschnitte_teilen_das_transkript_feiner(monkeypatch, tmp_path, source_file):
+    # Text liegt bei 0-44 s und 590-634 s: mit 600-s-Abschnitten sind es 2 Abschnitte, mit 180-s-Abschnitten
+    # (ab 0, 170, 340, 510 s) hat der vierte den Text ab 590 s.
+    transkript = _langes_transkript(monkeypatch, tmp_path, source_file, dauer=700.0)
+    anfragen: list[str] = []
+
+    def lauf(abschnitt: float | None) -> list[str]:
+        anfragen.clear()
+        pipeline_service.run_protocol(
+            pipeline_service.ProtocolSettings(
+                transcript_json_path=transkript.export_paths.json,
+                output_dir=tmp_path / "ausgabe",
+                system_prompt="Auftrag",
+                abschnitt_sekunden=abschnitt,
+            ),
+            protocol_generate_fn=lambda prompt, system: anfragen.append(prompt) or "E",
+        )
+        return [a for a in anfragen if a.startswith("Das ist Abschnitt")]
+
+    standard = lauf(None)
+    kurz = lauf(180.0)  # eigene Zwischenstaende: die des 600-s-Laufs werden nicht wiederverwendet
+    assert len(standard) == 2 and not any("Abschnitt 4 " in a for a in standard)
+    assert any("Abschnitt 4 " in a for a in kurz)
+
+
+def test_vorab_ausgewertete_abschnitte_gelten_nur_fuer_dieselbe_abschnittslaenge(monkeypatch, tmp_path, source_file):
+    transkript = _langes_transkript(monkeypatch, tmp_path, source_file, dauer=700.0)
+    segmente, namen, _d, _s = pipeline_service.load_transcript_for_protocol(transkript.export_paths.json)
+    plaene = chunking_service.plan_chunks(max(s["end"] for s in segmente), chunk_length=180.0)
+    texte = pipeline_service.baue_protokoll_chunk_texte(plaene, segmente, namen, False)
+    assert len(texte) == 2  # Text nur bei 0-44 s und 590-634 s: Abschnitt 1 und 4
+    stufe1 = {}
+    for chunk in texte:
+        prompt = protocol_service.build_stage1_prompt(
+            int(chunk["index"]), chunk["start_str"], chunk["end_str"], chunk["text"]
+        )
+        stufe1[protocol_service.eingabe_kennung(prompt, "Auftrag", "m")] = f"VORAB {chunk['index']}"
+
+    def lauf(abschnitt: float | None, ordner: str) -> list[str]:
+        anfragen: list[str] = []
+        pipeline_service.run_protocol(
+            pipeline_service.ProtocolSettings(
+                transcript_json_path=transkript.export_paths.json,
+                output_dir=tmp_path / ordner,
+                system_prompt="Auftrag",
+                protokoll_modell_kennung="m",
+                ohne_sprecher=True,
+                abschnitt_sekunden=abschnitt,
+                vorab_auswertung=lambda: {"stufe1": stufe1, "stufe2": {}},
+            ),
+            protocol_generate_fn=lambda p, s: anfragen.append(p) or "E",
+        )
+        return [a for a in anfragen if a.startswith("Das ist Abschnitt")]
+
+    assert lauf(180.0, "kurz") == []  # beide Abschnitte kamen aus der Vorab-Auswertung
+    assert len(lauf(None, "standard")) == 2  # bei 600-s-Abschnitten passt davon nichts

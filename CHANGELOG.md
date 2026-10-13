@@ -10,6 +10,30 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 ### Added
 
+- **Live-Transkription und automatische Auswertung für Aufnahmegeräte (PC-Seite):**
+  Schickt ein Gerät seine Aufnahme schon während der Aufnahme (Ogg-Opus, Stück für
+  Stück), transkribiert die Anwendung sie laufend mit einem gleitenden Fenster
+  (Whisper auf dem Prozessor, sobald 20 s neues Audio da sind): Fertige Sätze gelten
+  als sicher, das abgeschnittene Ende wird im nächsten Fenster neu mitgerechnet. Das
+  Transkript wächst so mit etwa 20 bis 40 s Verzögerung, auch in der Vorschau der
+  Anwendung. Mit dem Ende der Aufnahme beginnt die Verarbeitung
+  von selbst: Sie übernimmt die sicheren Segmente, transkribiert nur noch die letzten
+  Sekunden und
+  wertet nach dem Auftrag aus den Einstellungen aus – ohne Rückfragefenster. Das
+  Gerät fragt den Stand über die neue Schnittstelle
+  `GET /api/v1/aufnahmen/<Name>/status` ab (Zustände `empfang`, `wartet`,
+  `transkription`, `auswertung`, `fertig` mit „Transkription erfolgreich",
+  `fehler`). Einstellungen → Aufnahmegeräte: Schalter und Auftrag (eine
+  Systemprompt-Vorlage); ab Werk an. Die Firmware sendet noch nicht während der
+  Aufnahme (siehe `firmware/docs/streaming-konzept.md`).
+- **Auswertung schon während der Aufnahme vorbereiten:** Das Sprachmodell wertet jeden fertigen
+  Abschnitt der laufenden Aufnahme (Standard 180 s, einstellbar 60–600 s; von Hand gestartete Auswertungen bleiben bei 600 s) sofort aus (Stufe 1) und führt feststehende Gruppen
+  zusammen (Stufe 2), während Whisper auf dem Prozessor weiter transkribiert. Nach dem Ende fehlen
+  nur noch die letzten Abschnitte und das Endergebnis; die Wartezeit sinkt bei längeren Meetings
+  deutlich. Teilergebnisse werden nur übernommen, wenn ihre Eingabe (Modell, Auftrag, Text)
+  genau zur fertigen Auswertung passt. Dafür enthält der Auswertungstext der automatischen
+  Verarbeitung keine Sprecherangaben (im Transkript stehen sie weiterhin). Einstellungen →
+  Aufnahmegeräte: „Auswertung schon während der Aufnahme vorbereiten“ (ab Werk an).
 - **Aufnahmegeräte im WLAN laden selbst hoch:** Ist der Empfang eingeschaltet
   (Einstellungen → „Aufnahmegeräte“, im Servermodus `PROTOKOLL_EMPFANG=1`),
   landen die Aufnahmen der eigenen ESP32-Geräte ohne Umweg im Eingabeordner und

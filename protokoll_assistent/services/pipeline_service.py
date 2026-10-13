@@ -107,6 +107,11 @@ class PipelineSettings:
     whisper_model: str = model_service.WHISPER_MODEL_NAME
     protocol_group_size: int = 4
     enable_diarization: bool = True
+    # Waehrend einer Geraeteaufnahme schon transkribierte Segmente (siehe 'live_service'):
+    # {"bestaetigt_bis": Sekunden, "segmente": [...]} mit globalen Zeitstempeln. Alles bis dahin
+    # gilt als sicher und wird nicht noch einmal transkribiert; ein Chunk, der nur zum Teil
+    # abgedeckt ist, bekommt nur noch seinen Rest transkribiert. 'None' = nichts vorab.
+    vorab_live: dict[str, Any] | None = None
 
 
 @dataclass
@@ -176,6 +181,17 @@ class ProtocolSettings:
     # Wer ein anderes Modell ueber 'protocol_generate_fn' anbindet (API),
     # setzt hier dessen Kennung.
     protokoll_modell_kennung: str | None = None
+    # Teilergebnisse der Auswertung, die schon waehrend der Aufnahme berechnet wurden (siehe
+    # 'live_auswertung_service'): eine Funktion, die ``{"stufe1": {...}, "stufe2": {...}}`` liefert (oder 'None').
+    # Sie wird erst in der Auswertung selbst aufgerufen und darf dort warten, bis eine noch laufende
+    # Teilauswertung fertig ist. Nur Ergebnisse, deren Eingabe genau zur jetzigen passt, werden uebernommen.
+    vorab_auswertung: Callable[[], dict[str, dict[str, str]] | None] | None = None
+    # Den Auswertungstext ohne Sprecherangaben bauen (reiner Fliesstext je Abschnitt). Noetig, damit er zu
+    # dem passt, was schon waehrend der Aufnahme ausgewertet wurde: Die Sprechertrennung gibt es erst am Ende.
+    ohne_sprecher: bool = False
+    # Laenge der Abschnitte, die das Sprachmodell einzeln auswertet (Sekunden). 'None': Standard (600 s). Kuerzere
+    # Abschnitte verkuerzen die Wartezeit, wenn die Auswertung schon waehrend der Aufnahme vorbereitet wurde.
+    abschnitt_sekunden: float | None = None
 
 
 @dataclass
@@ -253,6 +269,16 @@ def _build_protocol_chunk_texts(
     return chunk_texts
 
 
+def baue_protokoll_chunk_texte(
+    chunk_plans: list[chunking_service.ChunkPlan],
+    merged_segments: list[dict[str, Any]],
+    speaker_names: dict[str, str],
+    diarization_enabled: bool = True,
+) -> list[dict[str, Any]]:
+    """Der Text je Chunk fuer die Auswertung (oeffentlich: ``live_auswertung_service`` baut ihn vorab genauso)."""
+    return _build_protocol_chunk_texts(chunk_plans, merged_segments, speaker_names, diarization_enabled)
+
+
 def _automatisches_word(callbacks: PipelineCallbacks, transkript_json: Path, protokoll_json: Path | None = None) -> None:
     """Legt die zusammengefasste Word-Datei neben die uebrigen Ausgaben.
 
@@ -317,6 +343,64 @@ def _sprechertrennung(
         pipeline, waveform_dict, settings.min_speakers, settings.max_speakers, embeddings_out=embeddings
     )
     return turns, embeddings
+
+
+# Ein Chunk gilt als vollstaendig live transkribiert, wenn der sichere Punkt hoechstens so weit vor seinem
+# Ende liegt (Rundungsunterschiede der Dauer).
+_LIVE_ENDE_TOLERANZ_SEKUNDEN = 1.0
+# Ein Chunk wird nur dann aus Live-Segmenten und einem Rest zusammengesetzt, wenn die Live-Segmente mindestens
+# so viel davon abdecken; sonst lohnt es nicht (er wird ganz neu transkribiert).
+_LIVE_TEIL_MIN_SEKUNDEN = 30.0
+
+_LIVE_VOLL = "voll"
+_LIVE_TEIL = "teil"
+_LIVE_KEINE = "keine"
+
+
+def _chunk_fertig(manifest: dict[str, Any], work_dir: Path, plan: chunking_service.ChunkPlan) -> bool:
+    status = next(c for c in manifest["chunks"] if c["index"] == plan.index)
+    return (
+        status["status"] == manifest_service.STATUS_ABGESCHLOSSEN
+        and manifest_service.chunk_transcript_path(work_dir, plan.index).exists()
+    )
+
+
+def _live_lesen(vorab: dict[str, Any] | None) -> tuple[float, list[dict[str, Any]]]:
+    """``(sicherer Punkt, Segmente)`` aus ``PipelineSettings.vorab_live``; ``(0.0, [])``, wenn es nichts
+    Brauchbares ist."""
+    if not vorab or not isinstance(vorab.get("segmente"), list):
+        return 0.0, []
+    try:
+        bis = float(vorab["bestaetigt_bis"])
+    except (KeyError, TypeError, ValueError):
+        return 0.0, []
+    segmente = [
+        s
+        for s in vorab["segmente"]
+        if isinstance(s, dict) and isinstance(s.get("start"), int | float) and isinstance(s.get("end"), int | float)
+    ]
+    return (bis, segmente) if bis > 0 and segmente else (0.0, [])
+
+
+def _live_abdeckung(plan: chunking_service.ChunkPlan, live_bis: float) -> str:
+    """Wie viel dieses Chunks decken die Live-Segmente ab: ``voll``, ``teil`` oder ``keine``?"""
+    if live_bis <= 0:
+        return _LIVE_KEINE
+    if plan.global_end <= live_bis + _LIVE_ENDE_TOLERANZ_SEKUNDEN:
+        return _LIVE_VOLL
+    if live_bis - plan.global_start >= _LIVE_TEIL_MIN_SEKUNDEN:
+        return _LIVE_TEIL
+    return _LIVE_KEINE
+
+
+def _live_segmente_des_chunks(
+    segmente: list[dict[str, Any]], plan: chunking_service.ChunkPlan
+) -> list[dict[str, Any]]:
+    """Die Live-Segmente, die in diesem Chunk beginnen, mit Chunk-Zeitstempeln (wie die Segmente eines
+    transkribierten Chunks). Segmente aus der Ueberlappung mit dem Vorgaenger stehen in beiden; das
+    Zusammenfuehren entfernt die Dubletten wie bisher."""
+    im_chunk = [s for s in segmente if plan.global_start <= float(s["start"]) < plan.global_end]
+    return merge_service.to_global_segments(im_chunk, -plan.global_start)
 
 
 def _run_transcription_stage(
@@ -403,8 +487,21 @@ def _run_transcription_stage(
     device, compute_type = model_service.get_device_and_compute_type(settings.device_preference)
     model_service.prepare_offline_mode(settings.allow_download)
 
+    live_bis, live_segmente = _live_lesen(settings.vorab_live)
+    if live_segmente:
+        callbacks.on_log(
+            f"Live transkribiert: {len(live_segmente)} Segmente bis {format_timestamp(live_bis)} (nur der Rest wird noch transkribiert)."
+        )
+    # Das Modell nur laden, wenn noch Audio zu transkribieren ist -- nach einer Live-Transkription kann das
+    # ausnahmsweise keines mehr sein.
+    chunks_offen = [
+        plan
+        for plan in chunk_plans
+        if not _chunk_fertig(manifest, work_dir, plan) and _live_abdeckung(plan, live_bis) != _LIVE_VOLL
+    ]
+
     whisper_model = None
-    if transcribe_chunk_fn is None:
+    if transcribe_chunk_fn is None and chunks_offen:
         _grafikspeicher_fuer_whisper_freimachen(device, callbacks)
         whisper_model = transcription_service.load_whisper_model(
             settings.whisper_model, device, compute_type, settings.language
@@ -434,15 +531,48 @@ def _run_transcription_stage(
             callbacks.on_overall_progress((plan.index + 1) / len(chunk_plans) * 0.5)
             continue
 
+        abdeckung = _live_abdeckung(plan, live_bis)
+        if abdeckung == _LIVE_VOLL:
+            callbacks.on_log(f"Chunk {plan.index + 1}: schon waehrend der Aufnahme transkribiert.")
+            live_lokal = _live_segmente_des_chunks(live_segmente, plan)
+            transcript_path.write_text(json.dumps(live_lokal, ensure_ascii=False, indent=2), encoding="utf-8")
+            manifest_service.update_chunk_status(manifest, plan.index, manifest_service.STATUS_ABGESCHLOSSEN)
+            manifest_service.save_manifest(work_dir, manifest)
+            chunk_segment_lists.append(live_lokal)
+            callbacks.on_overall_progress((plan.index + 1) / len(chunk_plans) * 0.5)
+            continue
+
         manifest_service.update_chunk_status(manifest, plan.index, manifest_service.STATUS_IN_BEARBEITUNG)
         manifest_service.save_manifest(work_dir, manifest)
         try:
-            chunk_wav = manifest_service.chunk_audio_path(work_dir, plan.index)
-            if not chunk_wav.exists():
-                ffmpeg_service.extract_chunk_wav(
-                    normalized_path, chunk_wav, plan.global_start, plan.global_end
+            if transcribe_chunk_fn is None:
+                # Nicht erreichbar: Ein Chunk ohne Transkript steht in 'chunks_offen', dann ist das Modell geladen.
+                raise PipelineError("Es ist kein Transkribierer verfuegbar.")
+            if abdeckung == _LIVE_TEIL:
+                # Ein Teil des Chunks ist live transkribiert: nur den Rest ab dem sicheren Punkt rechnen.
+                callbacks.on_log(
+                    f"Chunk {plan.index + 1}: bis {format_timestamp(live_bis)} live transkribiert, "
+                    f"Rest bis {format_timestamp(plan.global_end)} wird jetzt transkribiert."
                 )
-            local_segments = transcribe_chunk_fn(chunk_wav)
+                rest_wav = manifest_service.chunk_audio_path(work_dir, plan.index).with_name(
+                    f"chunk_{plan.index + 1:04d}_rest.wav"
+                )
+                ffmpeg_service.extract_chunk_wav(normalized_path, rest_wav, live_bis, plan.global_end)
+                rest = transcribe_chunk_fn(rest_wav)
+                live_teil = [
+                    s
+                    for s in _live_segmente_des_chunks(live_segmente, plan)
+                    if float(s["start"]) + plan.global_start < live_bis
+                ]
+                rest_lokal = merge_service.to_global_segments(rest, live_bis - plan.global_start)
+                local_segments = sorted(live_teil + rest_lokal, key=lambda s: float(s["start"]))
+            else:
+                chunk_wav = manifest_service.chunk_audio_path(work_dir, plan.index)
+                if not chunk_wav.exists():
+                    ffmpeg_service.extract_chunk_wav(
+                        normalized_path, chunk_wav, plan.global_start, plan.global_end
+                    )
+                local_segments = transcribe_chunk_fn(chunk_wav)
             transcript_path.write_text(
                 json.dumps(local_segments, ensure_ascii=False, indent=2), encoding="utf-8"
             )
@@ -630,7 +760,15 @@ def run_protocol(
     work_dir = manifest_service.get_work_dir_for_file(get_work_dir(), file_hash)
 
     total_duration = max((segment["end"] for segment in segments), default=0.0)
-    chunk_plans = chunking_service.plan_chunks(max(total_duration, 1.0))
+    abschnitt = (
+        chunking_service.auswertungs_abschnitt(settings.abschnitt_sekunden)
+        if settings.abschnitt_sekunden is not None
+        else chunking_service.DEFAULT_CHUNK_LENGTH_SECONDS
+    )
+    # In die Kennung der Zwischenstaende geht die Laenge nur ein, wenn sie vom Standard abweicht (aeltere
+    # Zwischenstaende bleiben so gueltig).
+    abschnitt_kennung = None if abschnitt == chunking_service.DEFAULT_CHUNK_LENGTH_SECONDS else abschnitt
+    chunk_plans = chunking_service.plan_chunks(max(total_duration, 1.0), chunk_length=abschnitt)
 
     callbacks.on_stage("protokoll_auswertung", STAGE_LABELS["protokoll_auswertung"])
     from protokoll_assistent.utils.paths import get_system_prompt_file
@@ -639,7 +777,29 @@ def run_protocol(
         system_prompt = get_system_prompt_file().read_text(encoding="utf-8")
     else:
         system_prompt = settings.system_prompt
-    chunk_texts = _build_protocol_chunk_texts(chunk_plans, segments, speaker_names, diarization_enabled)
+    chunk_texts = _build_protocol_chunk_texts(
+        chunk_plans, segments, speaker_names, diarization_enabled and not settings.ohne_sprecher
+    )
+    modell_kennung = settings.protokoll_modell_kennung or settings.ollama_model
+    if settings.vorab_auswertung is not None:
+        try:
+            vorab = settings.vorab_auswertung()
+            neu1, neu2 = protocol_service.vorab_ergebnisse_ablegen(
+                vorab,
+                chunk_texts,
+                work_dir,
+                system_prompt,
+                settings.protocol_group_size,
+                modell=modell_kennung,
+                abschnitt_sekunden=abschnitt_kennung,
+            )
+            if neu1 or neu2:
+                callbacks.on_log(
+                    f"Schon waehrend der Aufnahme ausgewertet: {neu1} Abschnitte und {neu2} Zusammenfuehrungen "
+                    "werden uebernommen."
+                )
+        except Exception as fehler:  # Die Vorab-Auswertung ist eine Beschleunigung, nie Voraussetzung.
+            callbacks.on_log(f"Vorab-Auswertung nicht verwendet: {fehler}")
 
     def default_ollama_generate(prompt: str, system: str) -> str:
         return ollama_service.generate_text(prompt, system, model=settings.ollama_model)
@@ -660,7 +820,8 @@ def run_protocol(
                 "protokoll_auswertung",
                 f"{STAGE_LABELS['protokoll_auswertung']} ({stage}: {current + 1}/{max(total, 1)})",
             ),
-            modell=settings.protokoll_modell_kennung or settings.ollama_model,
+            modell=modell_kennung,
+            abschnitt_sekunden=abschnitt_kennung,
         )
         protokoll_status = manifest_service.STATUS_ABGESCHLOSSEN
         callbacks.on_stage("export_protokoll", STAGE_LABELS["export_protokoll"])

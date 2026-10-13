@@ -1,7 +1,8 @@
 # Konzept: Live-Übertragung und laufende Transkription
 
-Stand: 12.10.2026. Das ist ein **Konzept**; umgesetzt ist bisher nur die Übertragung (Phase 1, siehe unten), noch nicht
-auf einem Gerät getestet. Es beschreibt, wie die Aufnahmegeräte
+Stand: 13.10.2026. Das ist ein **Konzept**; umgesetzt sind die Übertragung (Phase 1, noch nicht auf einem Gerät getestet)
+und auf der **PC-Seite** die blockweise Live-Transkription, die automatische Auswertung und der Status fürs Gerät
+(Phase 2 und 3, siehe unten). **Offen ist die Firmware:** Senden während der Aufnahme, Status abfragen, Häkchen anzeigen. Es beschreibt, wie die Aufnahmegeräte
 (`esp32-s3/lcd`, `esp32-s3/audio`, später auch `esp32-c6`) und die Protokoll-Software zusammenarbeiten sollen.
 
 ## Ziel
@@ -127,8 +128,8 @@ das Sprachmodell, Export. Maßnahmen, geordnet nach erwartetem Nutzen:
 |---|---|---|
 | **0 – Messen** (erledigt, [`messung-phase0.md`](messung-phase0.md)) | Zeit je Schritt der vorhandenen Verarbeitung auf diesem PC bei 8 und 73 Minuten | Das Sprachmodell ist der Engpass; Whisper und das 8B-Modell passen nicht zusammen auf die Karte; Fehler „CUDA out of memory“ bei zwei Aufnahmen kurz nacheinander gefunden |
 | **1 – Übertragung** (umgesetzt; Upload-Code in QEMU gegen den echten Empfang getestet, noch nicht auf einem Gerät) | Dienst in der Software (Opt-in, Token je Gerät, Token-Verwaltung), wiederaufnehmbarer Upload nach [`GERAETE-SCHNITTSTELLE.md`](../../protokoll_assistent/GERAETE-SCHNITTSTELLE.md); Firmware (`components/vermerk_upload/`): 256-KiB-Stücke mit Byte-Versatz, SHA-256 beim Abschluss, Wiederaufnahme auch nach Neustart, lokale Kopie bleibt bis „fertig“, wachsende Wartezeit je Datei, danach vorhandene Verarbeitung | Ganze Aufnahmen kommen sicher an, nichts geht verloren. Dasselbe Protokoll trägt später das Anhängen während der Aufnahme |
-| **2 – Blockweise Verarbeitung während des Meetings** | Die vorhandenen 600-s-Chunks (`services/chunking_service.py`, 10 s Überlappung) verarbeiten, sobald ein Block angekommen ist: Transkription und Stufe 1 der Auswertung je Block (gemessen im Mittel 73 s je Block) laufen während des Meetings. Whisper auf dem Prozessor oder kleineres Sprachmodell, Sprachmodell nach Gebrauch entladen. **Kein** eigenes Schnittschema mit 5–30-s-Stücken: nach Phase 0 sind 84 % der Zeit Sprachmodell, die Transkription nur ca. 79 s von 25 min. Firmware: Anhängen während der Aufnahme (nächster Schritt, siehe Risiken) | spart Transkription und Stufe 1 nach dem Ende (bei 73 min ca. 590 s Stufe 1 + 79 s Transkription); vermeidet den Speicherfehler |
-| **3 – Auftrag und schnelle Auswertung** | Aufträge (Dropdown am PC/Gerät), knappes Auftragsergebnis statt vollem Protokoll, früher Status, „Transkription erfolgreich ✓“ | Der beschriebene Ablauf; Wartezeit grob 2–5 min statt ca. 25 min (zu bestätigen) |
+| **2 – Blockweise Verarbeitung während des Meetings** (PC-Seite umgesetzt: `services/live_service.py`; Firmware offen) | Die vorhandenen 600-s-Chunks (`services/chunking_service.py`, 10 s Überlappung) verarbeiten, sobald ein Block angekommen ist: Transkription und Stufe 1 der Auswertung je Block (gemessen im Mittel 73 s je Block) laufen während des Meetings. Whisper auf dem Prozessor oder kleineres Sprachmodell, Sprachmodell nach Gebrauch entladen. **Kein** eigenes Schnittschema mit 5–30-s-Stücken: nach Phase 0 sind 84 % der Zeit Sprachmodell, die Transkription nur ca. 79 s von 25 min. Firmware: Anhängen während der Aufnahme (nächster Schritt, siehe Risiken) | spart Transkription und Stufe 1 nach dem Ende (bei 73 min ca. 590 s Stufe 1 + 79 s Transkription); vermeidet den Speicherfehler |
+| **3 – Auftrag und schnelle Auswertung** (PC-Seite umgesetzt, mit einem festen Auftrag in den Einstellungen; Auswahl am Gerät und Firmware offen) | Aufträge (Dropdown am PC/Gerät), knappes Auftragsergebnis statt vollem Protokoll, früher Status, „Transkription erfolgreich ✓“ | Der beschriebene Ablauf; Wartezeit grob 2–5 min statt ca. 25 min (zu bestätigen) |
 | **4 – Ergebnis aufs Gerät** | Kurzfassung/ToDos auf dem Display, „Frag mein Meeting“ als Text | Rückmeldung am Gerät |
 | **5 – Sprache** | Frage per Mikrofon, KI-Sprachausgabe der Antwort | später |
 
@@ -145,4 +146,14 @@ das Sprachmodell, Export. Maßnahmen, geordnet nach erwartetem Nutzen:
 * **Zeit:** Die Sitzungsordner brauchen die Uhrzeit. Der PC vergibt sie; die Geräte müssen keine Uhr stellen.
 * **Sicherheit:** HTTP im eigenen Netz mit Token je Gerät ist umgesetzt; `SECURITY.md` ist im Pull Request der Anwendung nachgezogen (Port nur auf Wunsch).
   Mitlesen im selben WLAN verhindert das Token nicht. Für fremde Netze ist TLS nötig (auf dem ESP32 machbar, kostet RAM, auf dem C6 knapp).
-* **Diese Datei ist ein Konzept.** Umgesetzt ist bisher nur Phase 1; der Rest ändert weder die Anwendung noch die Firmware.
+* **Stand der Umsetzung:** Phase 1 und die PC-Seite von Phase 2/3 sind in der Anwendung. Die Firmware sendet während der Aufnahme
+  noch nicht und fragt den Status noch nicht ab. Die PC-Seite ist mit echtem Whisper (CPU) und einer echten Geräteaufnahme geprüft,
+  der Ablauf Gerät – Netz – PC noch nicht auf einem Gerät.
+* **Wirkung der Live-Transkription:** Sie arbeitet mit einem gleitenden Fenster (`services/live_service.py`): ab 20 s neuem Audio wird vom
+  letzten sicheren Punkt bis jetzt transkribiert (höchstens 45 s), fertige Sätze gelten als bestätigt, das abgeschnittene Ende wird beim
+  nächsten Mal neu mitgerechnet. Das Transkript steht so mit etwa 20 bis 40 s Verzögerung bereit. Die Verarbeitung der fertigen Datei
+  (weiter in 600-s-Chunks mit 10 s Überlappung, damit Zusammenführung und Auswertung unverändert bleiben) übernimmt die bestätigten
+  Segmente und rechnet nur den Rest. Auch die **Teilzusammenfassungen** der Auswertung (Stufe 1 und 2 des Sprachmodells) werden
+  schon während der Aufnahme berechnet (`services/live_auswertung_service.py`): sobald der Text eines Auswertungsabschnitts (Standard 180 s statt 600 s, damit nach dem Ende nur wenig offen bleibt) feststeht, auf der
+  Grafikkarte neben Whisper auf dem Prozessor. Jedes Ergebnis wird nur bei übereinstimmender Eingabe (Modell, Auftrag, Text) übernommen;
+  dafür bekommt das Modell den Text ohne Sprecherangaben, weil die Sprechertrennung erst am Ende vorliegt.
