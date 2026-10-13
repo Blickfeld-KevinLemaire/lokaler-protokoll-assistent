@@ -155,9 +155,22 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
   optional auch per Webhook). Läuft ohne Oberfläche per `docker compose`
   (Prozessor oder NVIDIA-Grafikkarte, Ollama als eigener Dienst); Einstellungen
   über Umgebungsvariablen. Anleitung: `protokoll_assistent/server/README.md`.
+- **Ergebnis der Nachbearbeitung vor dem Export ansehen und überarbeiten:**
+  Die Seite „Nachbearbeitung“ zeigt das fertige Protokoll (bzw. die
+  Zusammenfassung) direkt an. Der Text lässt sich dort bearbeiten; „Änderungen
+  speichern“ schreibt ihn in die Protokolldateien zurück und erneuert die
+  zusammengefasste Word-Datei – immer mit dem Transkript, aus dem dieses
+  Ergebnis entstanden ist. „Exportieren …“ schlägt das angezeigte Protokoll
+  vor. Wer ungespeicherte Änderungen hat und eine neue Nachbearbeitung
+  startet, exportiert oder das Fenster schließt, wird vorher gefragt. Solange
+  eine Nachbearbeitung läuft, ist das Feld gesperrt, damit ihr Ergebnis
+  nichts Getipptes überschreibt.
 
 ### Changed
 
+- **Neue Reihenfolge in der Seitenleiste:** „Nachbearbeitung“ steht jetzt
+  nach „Ergebnis und Sprecher“ – also in der Reihenfolge, in der man
+  arbeitet: transkribieren, Sprecher benennen, Protokoll erstellen.
 - Die Nachbearbeitung richtet sich jetzt ausschließlich nach dem
   Systemprompt. Bisher erzwang das Programm unabhängig davon immer dieselbe
   Besprechungsstruktur (Titel, Themen, Entscheidungen, Aufgaben, Termine,

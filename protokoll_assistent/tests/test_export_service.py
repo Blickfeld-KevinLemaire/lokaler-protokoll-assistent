@@ -307,3 +307,19 @@ def test_json_ohne_turns_bleibt_lesbar(tmp_path):
     )
     daten = json.loads(pfade.json.read_text(encoding="utf-8"))
     assert daten["sprecher_turns"] == [] and daten["audio_pfad"] is None
+
+
+def test_bearbeitetes_ergebnis_ersetzt_nur_den_text_der_protokolldateien(tmp_path):
+    json_pfad, md_pfad = export_service.write_protocol_exports(tmp_path, "Alt", "meeting", "20260101_000000", "Auftrag")
+    export_service.update_protocol_exports(json_pfad, md_pfad, "Neu\n\nZweiter Absatz")
+    daten = json.loads(json_pfad.read_text(encoding="utf-8"))
+    assert daten["ergebnis"] == "Neu\n\nZweiter Absatz" and daten["systemprompt"] == "Auftrag"
+    assert daten["quelldatei_stamm"] == "meeting" and "bearbeitet" in daten
+    assert md_pfad.read_text(encoding="utf-8") == "Neu\n\nZweiter Absatz\n"
+
+
+def test_bearbeitetes_ergebnis_verlangt_eine_json_mit_objekt(tmp_path):
+    json_pfad = tmp_path / "p.json"
+    json_pfad.write_text("[1, 2]", encoding="utf-8")
+    with pytest.raises(ValueError, match="Unerwarteter Inhalt"):
+        export_service.update_protocol_exports(json_pfad, tmp_path / "p.md", "x")
