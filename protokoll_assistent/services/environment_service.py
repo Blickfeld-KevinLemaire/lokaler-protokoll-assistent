@@ -16,6 +16,7 @@ import sys
 from pathlib import Path
 
 from protokoll_assistent.utils.paths import get_app_dir
+from protokoll_assistent.utils.prozess import KEIN_FENSTER
 
 SUPPORTED_PYTHON_VERSIONS = ((3, 10), (3, 11))
 
@@ -125,6 +126,7 @@ def _pruefe_py_launcher_version(major: int, minor: int) -> Path | None:
             capture_output=True,
             text=True,
             timeout=10,
+            creationflags=KEIN_FENSTER,
         )
     except (OSError, subprocess.TimeoutExpired):
         return None
@@ -183,6 +185,7 @@ def detect_compute_capability() -> tuple[int, int] | None:
             text=True,
             timeout=30,
             check=False,
+            creationflags=KEIN_FENSTER,
         )
     except (OSError, subprocess.SubprocessError):
         return None

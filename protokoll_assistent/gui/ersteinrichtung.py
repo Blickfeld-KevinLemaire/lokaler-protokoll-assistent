@@ -74,6 +74,7 @@ from protokoll_assistent.services.einrichtungsplan_service import Baustein, Moeg
 from protokoll_assistent.services.rechner_analyse_service import GUT, MAESSIG, NICHT, Analyse
 from protokoll_assistent.utils import app_config, hf_env
 from protokoll_assistent.utils.logging_setup import get_logger
+from protokoll_assistent.utils.prozess import KEIN_FENSTER, NEUE_PROZESSGRUPPE
 
 logger = get_logger()
 
@@ -85,7 +86,11 @@ HF_TOKEN_URL = "https://huggingface.co/settings/tokens"  # noqa: S105 -- eine Ad
 _ZEICHEN = {GUT: "✓", MAESSIG: "~", NICHT: "✗"}
 _STUFEN_TEXT = {GUT: "geht gut", MAESSIG: "geht, aber langsam", NICHT: "nicht sinnvoll"}
 
-_LOSGELOEST = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+# Nicht 'DETACHED_PROCESS': Der neue Prozess hat dann gar keine Konsole, und
+# jedes Hilfsprogramm, das er startet, oeffnete ein eigenes schwarzes Fenster.
+# Mit 'CREATE_NO_WINDOW' hat er eine unsichtbare, die seine Kinder erben --
+# und er lebt trotzdem weiter, wenn dieser Prozess endet.
+_LOSGELOEST = KEIN_FENSTER | NEUE_PROZESSGRUPPE
 
 
 def _starte_prozess(befehl: list[str], ordner: Path, umgebung: dict[str, str]) -> None:

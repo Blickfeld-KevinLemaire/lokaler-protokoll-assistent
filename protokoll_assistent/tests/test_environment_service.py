@@ -2,6 +2,7 @@ import re
 from pathlib import Path
 
 from protokoll_assistent.services import environment_service as env
+from protokoll_assistent.utils.prozess import KEIN_FENSTER
 
 
 def test_supported_python_versions():
@@ -82,7 +83,8 @@ def test_find_alternate_supported_python_via_py_launcher(monkeypatch):
     monkeypatch.setattr(env.sys, "platform", "win32")
     monkeypatch.setattr(env.shutil, "which", lambda name: r"C:\Windows\py.exe" if name == "py" else None)
 
-    def fake_run(command, capture_output, text, timeout):
+    def fake_run(command, capture_output, text, timeout, creationflags):
+        assert creationflags == KEIN_FENSTER  # keine Konsolenfenster beim Suchen
         assert command[0] == r"C:\Windows\py.exe"
         if command[1] == "-3.10":
             class _Result:

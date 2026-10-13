@@ -8,11 +8,13 @@ Logik ist bewusst an dieser Stelle einmal implementiert.
 
 from __future__ import annotations
 
+import re
 import subprocess
 from collections.abc import Callable
 
 from protokoll_assistent.services import model_service, ollama_service
 from protokoll_assistent.utils.hf_env import has_hf_token
+from protokoll_assistent.utils.prozess import KEIN_FENSTER
 
 LogFn = Callable[[str], None]
 TokenProviderFn = Callable[[], str | None]
@@ -70,6 +72,18 @@ def download_pyannote(log: LogFn, get_token: TokenProviderFn | None = None) -> b
         return False
 
 
+# Steuerzeichen der Fortschrittsanzeige von 'ollama pull' (Farben, Cursor).
+_ANSI_STEUERZEICHEN = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
+
+
+def _letzte_zeilen(ausgabe: str, anzahl: int = 3) -> str:
+    """Die letzten nicht leeren Zeilen einer Ausgabe, ohne die Steuerzeichen
+    der Fortschrittsanzeige -- dort steht bei 'ollama pull' der Grund des
+    Fehlers ("Error: ...")."""
+    zeilen = [zeile.strip() for zeile in re.split(r"[\r\n]+", _ANSI_STEUERZEICHEN.sub("", ausgabe))]
+    return "\n".join([zeile for zeile in zeilen if zeile][-anzahl:])
+
+
 def download_ollama_model(log: LogFn, model: str = ollama_service.DEFAULT_MODEL) -> bool:
     log(f"Ollama-Modell ({model}) ...")
     executable = ollama_service.find_ollama_executable()
@@ -84,9 +98,19 @@ def download_ollama_model(log: LogFn, model: str = ollama_service.DEFAULT_MODEL)
         return True
 
     log(f"Lade Modell '{model}' herunter (kann mehrere Minuten dauern) ...")
-    completed = subprocess.run([str(executable), "pull", model], check=False)
+    # Ohne Konsolenfenster liefe die Ausgabe ins Leere -- deshalb mitlesen,
+    # damit im Fehlerfall der Grund beim Anwender und im Log ankommt.
+    completed = subprocess.run(
+        [str(executable), "pull", model],
+        check=False,
+        capture_output=True,
+        text=True,
+        errors="replace",
+        creationflags=KEIN_FENSTER,
+    )
     if completed.returncode != 0:
-        log(f"FEHLER: 'ollama pull {model}' ist fehlgeschlagen.")
+        grund = _letzte_zeilen(completed.stderr or "") or _letzte_zeilen(completed.stdout or "")
+        log(f"FEHLER: 'ollama pull {model}' ist fehlgeschlagen." + (f"\n{grund}" if grund else ""))
         return False
     log(f"Modell '{model}' erfolgreich heruntergeladen.")
     return True
