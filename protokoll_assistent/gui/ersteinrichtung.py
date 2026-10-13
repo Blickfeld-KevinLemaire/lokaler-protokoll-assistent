@@ -1,19 +1,23 @@
 """Ersteinrichtung: erklaert das Programm, zeigt, was auf DIESEM Computer
 moeglich ist und was es kostet -- und laedt erst nach Zustimmung.
 
-Sieben Schritte, alle in einem Dialog ueber dem Hauptfenster:
+Acht Schritte, alle in einem Dialog ueber dem Hauptfenster:
 
 1. Willkommen        -- was das Programm macht.
-2. Ihr Computer      -- Hardware, je Arbeitsschritt "geht gut / langsam /
+2. Vermerk Raum      -- optional: das Aufnahmegeraet (Waveshare ESP32-S3) per
+                        USB mit dem WLAN und diesem Rechner verbinden
+                        (``gui/ersteinrichtung_raum.py``); ohne Geraet
+                        ueberspringen -- nachholbar in den Einstellungen.
+3. Ihr Computer      -- Hardware, je Arbeitsschritt "geht gut / langsam /
                         nicht" mit ungefaehrer Dauer, dazu eine Empfehlung.
-3. Arbeitsweise      -- alles hier, alles online oder gemischt.
-4. Was noetig ist    -- Downloads und Platz, Lizenzhinweise, Zustimmung.
-5. Einrichtung       -- FFmpeg, Ollama (still, nur fuers eigene Konto),
+4. Arbeitsweise      -- alles hier, alles online oder gemischt.
+5. Was noetig ist    -- Downloads und Platz, Lizenzhinweise, Zustimmung.
+6. Einrichtung       -- FFmpeg, Ollama (still, nur fuers eigene Konto),
                         Sprachmodelle. Fehlt fuer die lokale Mitschrift die
                         Rechenumgebung, startet die Anwendung dafuer neu
-                        (``bootstrap`` richtet sie ein) und setzt bei 6 fort.
-6. Mitschrift        -- Whisper-Modell und Sprechererkennung (HF-Zugang).
-7. Fertig.
+                        (``bootstrap`` richtet sie ein) und setzt bei 7 fort.
+7. Mitschrift        -- Whisper-Modell und Sprechererkennung (HF-Zugang).
+8. Fertig.
 
 Geschlossen werden kann jederzeit ("Spaeter einrichten"): Dann erscheint der
 Dialog beim naechsten Start wieder -- ausser mit "Nicht mehr fragen". Ohne
@@ -32,6 +36,7 @@ from pathlib import Path
 from typing import Any
 
 from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
@@ -55,6 +60,7 @@ from PySide6.QtWidgets import (
 )
 
 from protokoll_assistent import bootstrap
+from protokoll_assistent.gui.ersteinrichtung_raum import VermerkRaumSeite
 from protokoll_assistent.gui.settings_dialog import DATENSCHUTZ_HINWEIS_API
 from protokoll_assistent.services import (
     einrichtungsplan_service,
@@ -308,10 +314,23 @@ def _text(text: str, eltern: QWidget, *, untertitel: bool = False) -> QLabel:
 
 class ErsteinrichtungDialog(QDialog):
     NEUSTART = 2
-    SCHRITTE = ("Willkommen", "Ihr Computer", "Arbeitsweise", "Was nötig ist", "Einrichtung", "Mitschrift", "Fertig")
-    (S_WILLKOMMEN, S_RECHNER, S_ARBEITSWEISE, S_KOSTEN, S_EINRICHTUNG, S_MITSCHRIFT, S_FERTIG) = range(7)
+    SCHRITTE = (
+        "Willkommen",
+        "Vermerk Raum",
+        "Ihr Computer",
+        "Arbeitsweise",
+        "Was nötig ist",
+        "Einrichtung",
+        "Mitschrift",
+        "Fertig",
+    )
+    (S_WILLKOMMEN, S_RAUM, S_RECHNER, S_ARBEITSWEISE, S_KOSTEN, S_EINRICHTUNG, S_MITSCHRIFT, S_FERTIG) = range(8)
 
-    def __init__(self, parent=None, start_bei: str = ""):
+    def __init__(self, parent=None, start_bei: str = "", *, mit_raum: bool = True):
+        """``mit_raum=False`` laesst den Schritt "Vermerk Raum" weg -- fuer den
+        Aufruf aus den Einstellungen, wo es dafuer den Reiter "Aufnahmegeräte"
+        gibt (der Einstellungsdialog haelt die Geraeteliste selbst im Speicher
+        und wuerde eine hier eingetragene sonst beim Speichern ueberschreiben)."""
         super().__init__(parent)
         self.setWindowTitle("Protokoll-Assistent einrichten")
         self.setObjectName("WizardRoot")
@@ -327,22 +346,28 @@ class ErsteinrichtungDialog(QDialog):
         self._ermittlung: ErmittlungsWorker | None = None
         self._einrichtung: EinrichtungsWorker | None = None
         self._mitschrift: MitschriftWorker | None = None
+        self._mit_raum = mit_raum
+        self._raum_eingerichtet = False
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 20, 24, 16)
         schritte = QHBoxLayout()
-        self._schritt_labels: list[QLabel] = []
-        for nummer, name in enumerate(self.SCHRITTE, start=1):
-            label = QLabel(f"{nummer}. {name}", self)
+        # Nach Seitenindex; ohne den Schritt "Vermerk Raum" fehlt dort ein Eintrag
+        # und die Zaehlung geht trotzdem lueckenlos weiter.
+        self._schritt_labels: dict[int, QLabel] = {}
+        sichtbar = [i for i in range(len(self.SCHRITTE)) if mit_raum or i != self.S_RAUM]
+        for nummer, index in enumerate(sichtbar, start=1):
+            label = QLabel(f"{nummer}. {self.SCHRITTE[index]}", self)
             label.setObjectName("StepIndicator")
             schritte.addWidget(label)
-            self._schritt_labels.append(label)
+            self._schritt_labels[index] = label
         schritte.addStretch(1)
         layout.addLayout(schritte)
 
         self.stack = QStackedWidget(self)
         for bauen in (
             self._baue_willkommen,
+            self._baue_raum,
             self._baue_rechner,
             self._baue_arbeitsweise,
             self._baue_kosten,
@@ -373,11 +398,13 @@ class ErsteinrichtungDialog(QDialog):
     # ------------------------------------------------------------------
     def _gehe_zu(self, index: int) -> None:
         self.stack.setCurrentIndex(index)
-        for nummer, label in enumerate(self._schritt_labels):
+        for nummer, label in self._schritt_labels.items():
             label.setObjectName("StepIndicatorActive" if nummer == index else "StepIndicator")
             label.style().unpolish(label)
             label.style().polish(label)
-        if index == self.S_RECHNER and self.analyse is None:
+        if index == self.S_RAUM:
+            self.raum_seite.zuruecksetzen()
+        elif index == self.S_RECHNER and self.analyse is None:
             self._ermitteln()
         elif index == self.S_KOSTEN:
             self._zeige_kosten()
@@ -388,9 +415,25 @@ class ErsteinrichtungDialog(QDialog):
         elif index == self.S_FERTIG:
             self._zeige_fertig()
 
+    def done(self, ergebnis: int) -> None:
+        super().done(ergebnis)
+        # Ein im Assistenten eingerichtetes Aufnahmegeraet braucht den Empfang
+        # sofort (nicht erst beim naechsten Start). Nach einem Neustart
+        # uebernimmt das die neue Instanz -- zwei Empfaenger auf demselben Port
+        # wuerden sich gegenseitig blockieren.
+        if self._raum_eingerichtet and ergebnis != self.NEUSTART:
+            anwenden = getattr(self.parent(), "_geraete_empfang_anwenden", None)
+            if callable(anwenden):
+                anwenden()
+
     def reject(self) -> None:
         """Schliessen ohne Abschluss: Der Dialog kommt beim naechsten Start
         wieder -- ausser mit "Nicht mehr fragen"."""
+        # Schreibt der Schritt "Vermerk Raum" gerade ins Geraet, bleibt der
+        # Dialog offen (Esc, "Später einrichten"): halb beschrieben waere das
+        # Geraet unbrauchbar, und der Faden wuerde mit dem Dialog zerstoert.
+        if self.raum_seite.muss_warten():
+            return
         if self._einrichtung is not None and self._einrichtung.isRunning():
             self._einrichtung.abbrechen()
         if self.nicht_mehr_fragen.isChecked():
@@ -400,6 +443,12 @@ class ErsteinrichtungDialog(QDialog):
                 aenderungen["lokale_einrichtung_zurueckgestellt"] = True
             app_config.update_config(**aenderungen)
         super().reject()
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        if self.raum_seite.muss_warten():
+            event.ignore()
+            return
+        super().closeEvent(event)
 
     # ------------------------------------------------------------------
     # 1. Willkommen
@@ -432,10 +481,23 @@ class ErsteinrichtungDialog(QDialog):
         knoepfe.addStretch(1)
         self.los_button = QPushButton("Los geht's", seite)
         self.los_button.setObjectName("PrimaryButton")
-        self.los_button.clicked.connect(lambda: self._gehe_zu(self.S_RECHNER))
+        self.los_button.clicked.connect(lambda: self._gehe_zu(self.S_RAUM if self._mit_raum else self.S_RECHNER))
         knoepfe.addWidget(self.los_button)
         layout.addLayout(knoepfe)
         return seite
+
+    # ------------------------------------------------------------------
+    # 2. Vermerk Raum (optional)
+    # ------------------------------------------------------------------
+    def _baue_raum(self) -> QWidget:
+        self.raum_seite = VermerkRaumSeite(self)
+        self.raum_seite.weiter.connect(lambda: self._gehe_zu(self.S_RECHNER))
+        self.raum_seite.zurueck.connect(lambda: self._gehe_zu(self.S_WILLKOMMEN))
+        self.raum_seite.eingerichtet.connect(self._raum_wurde_eingerichtet)
+        return self.raum_seite
+
+    def _raum_wurde_eingerichtet(self) -> None:
+        self._raum_eingerichtet = True
 
     # ------------------------------------------------------------------
     # 2. Ihr Computer
@@ -486,7 +548,7 @@ class ErsteinrichtungDialog(QDialog):
 
         knoepfe = QHBoxLayout()
         zurueck = QPushButton("Zurück", seite)
-        zurueck.clicked.connect(lambda: self._gehe_zu(self.S_WILLKOMMEN))
+        zurueck.clicked.connect(lambda: self._gehe_zu(self.S_RAUM if self._mit_raum else self.S_WILLKOMMEN))
         knoepfe.addWidget(zurueck)
         knoepfe.addStretch(1)
         self.rechner_weiter_button = QPushButton("Weiter", seite)

@@ -171,7 +171,7 @@ class SettingsDialog(QDialog):
         if not ersteinrichtung.laufzeit_vorhanden():
             # Noch nichts eingerichtet: die gefuehrte Einrichtung -- sie sagt,
             # was es kostet, und laedt erst nach Zustimmung.
-            gefuehrt = ersteinrichtung.ErsteinrichtungDialog(self)
+            gefuehrt = ersteinrichtung.ErsteinrichtungDialog(self, mit_raum=False)
             if gefuehrt.exec() == ersteinrichtung.ErsteinrichtungDialog.NEUSTART:
                 anwendung = QApplication.instance()
                 if anwendung is not None:
