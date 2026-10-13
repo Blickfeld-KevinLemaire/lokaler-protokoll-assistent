@@ -10,6 +10,7 @@ import pytest
 
 from protokoll_assistent import bootstrap
 from protokoll_assistent.services import environment_service
+from protokoll_assistent.utils.prozess import KEIN_FENSTER
 
 
 class _FakeSplash:
@@ -111,7 +112,9 @@ def _relaunch_cwd_testen(monkeypatch, tmp_path, *, app_dir: Path) -> Path:
     class _FakeCompleted:
         returncode = 0
 
-    def _fake_run(befehl, env, cwd):
+    def _fake_run(befehl, env, cwd, creationflags):
+        # Die Oberflaeche darf kein sichtbares Konsolenfenster bekommen.
+        assert creationflags == KEIN_FENSTER
         calls.append((befehl, cwd))
         return _FakeCompleted()
 
@@ -322,7 +325,8 @@ def test_create_venv_with_base_python_calls_subprocess(monkeypatch, tmp_path):
         returncode = 0
         stderr = ""
 
-    def fake_run(command, capture_output, text):
+    def fake_run(command, capture_output, text, creationflags):
+        assert creationflags == KEIN_FENSTER
         calls.append(command)
         return _FakeResult()
 
@@ -386,3 +390,25 @@ def test_neustart_der_gebauten_exe(monkeypatch, tmp_path):
     monkeypatch.setattr(bootstrap.sys, "frozen", True, raising=False)
     befehl, ordner, _umgebung = bootstrap.neustart_kommando()
     assert befehl == [bootstrap.sys.executable] and ordner == tmp_path
+
+
+def test_pip_aufrufe_der_einrichtung_oeffnen_kein_konsolenfenster(monkeypatch):
+    gesehen = {}
+
+    class _Prozess:
+        stdout: list[str] = []  # noqa: RUF012
+
+        def wait(self):
+            return 0
+
+    def fake_popen(command, **kwargs):
+        gesehen.update(kwargs)
+        return _Prozess()
+
+    class _Splash:
+        def log(self, _text):
+            pass
+
+    monkeypatch.setattr(bootstrap.subprocess, "Popen", fake_popen)
+    bootstrap._run_logged(["python.exe", "-m", "pip", "list"], _Splash())
+    assert gesehen["creationflags"] == KEIN_FENSTER

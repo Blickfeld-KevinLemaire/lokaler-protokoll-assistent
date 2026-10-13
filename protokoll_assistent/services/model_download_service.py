@@ -13,6 +13,7 @@ from collections.abc import Callable
 
 from protokoll_assistent.services import model_service, ollama_service
 from protokoll_assistent.utils.hf_env import has_hf_token
+from protokoll_assistent.utils.prozess import KEIN_FENSTER
 
 LogFn = Callable[[str], None]
 TokenProviderFn = Callable[[], str | None]
@@ -84,7 +85,7 @@ def download_ollama_model(log: LogFn, model: str = ollama_service.DEFAULT_MODEL)
         return True
 
     log(f"Lade Modell '{model}' herunter (kann mehrere Minuten dauern) ...")
-    completed = subprocess.run([str(executable), "pull", model], check=False)
+    completed = subprocess.run([str(executable), "pull", model], check=False, creationflags=KEIN_FENSTER)
     if completed.returncode != 0:
         log(f"FEHLER: 'ollama pull {model}' ist fehlgeschlagen.")
         return False
