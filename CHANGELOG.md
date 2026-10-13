@@ -205,6 +205,14 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 ### Fixed
 
+- **Kein schwarzes Konsolenfenster mehr:** Im lokalen Modus stand neben der
+  Oberfläche dauerhaft ein schwarzes Fenster offen – wer es schloss, beendete
+  das ganze Programm. Die Oberfläche und alle Hilfsprogramme (ffmpeg,
+  Sprechertrennung, Einrichtung, Modell-Download, Hardwareprüfung) starten
+  jetzt unsichtbar. Schlägt `ollama pull` fehl, steht der Grund in der Meldung
+  statt nur „fehlgeschlagen“. Wer die Anwendung aus einem Terminal startet,
+  sieht die Ausgabe dort weiterhin.
+
 - **Aufnahmegeräte: Antworten kommen sicher an.** Lehnte der Empfang eine
   Anfrage ab, ohne ihren Inhalt zu lesen (z. B. falsches Token), konnte das
   Gerät statt der Antwort nur „Verbindung zurückgesetzt“ sehen. Der Empfang

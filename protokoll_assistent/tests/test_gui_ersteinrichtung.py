@@ -24,6 +24,7 @@ from protokoll_assistent.services import (  # noqa: E402
 )
 from protokoll_assistent.services.rechner_analyse_service import RechnerProfil  # noqa: E402
 from protokoll_assistent.utils import app_config, hf_env  # noqa: E402
+from protokoll_assistent.utils.prozess import KEIN_FENSTER  # noqa: E402
 
 LAPTOP = RechnerProfil(ram_gb=32, cpu_kerne=16, gpu_name="NVIDIA GeForce RTX 4060", vram_gb=8.0, freier_platz_gb=300)
 OHNE_GRAFIK = RechnerProfil(ram_gb=16, cpu_kerne=8, freier_platz_gb=300)
@@ -619,3 +620,8 @@ def test_prozessstart_ist_losgeloest(monkeypatch, tmp_path):
     ee._starte_prozess(["app.exe"], tmp_path, {"A": "1"})
     befehl, kwargs = gestartet[0]
     assert befehl == ["app.exe"] and kwargs["cwd"] == str(tmp_path) and kwargs["env"] == {"A": "1"}
+    # Eigener Prozess, der weiterlaeuft, wenn dieser endet -- aber ohne sichtbares Konsolenfenster
+    # und ohne 'DETACHED_PROCESS' (sonst oeffnete jedes seiner Hilfsprogramme ein eigenes Fenster).
+    flags = kwargs["creationflags"]
+    assert flags & KEIN_FENSTER == KEIN_FENSTER
+    assert not flags & getattr(subprocess, "DETACHED_PROCESS", 0)

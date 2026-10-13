@@ -8,6 +8,7 @@ technische Ablaufinformationen protokolliert.
 from __future__ import annotations
 
 import logging
+import sys
 from logging.handlers import RotatingFileHandler
 
 from protokoll_assistent.utils.paths import get_logs_dir
@@ -33,9 +34,12 @@ def setup_logging(level: int = logging.INFO) -> logging.Logger:
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)
 
-    console_handler = logging.StreamHandler()
-    console_handler.setFormatter(formatter)
-    logger.addHandler(console_handler)
+    # Ohne Konsole (gebaute EXE, 'pythonw') ist 'sys.stderr' leer; ein
+    # Handler darauf liefe bei jeder Zeile in einen Fehler.
+    if sys.stderr is not None:
+        console_handler = logging.StreamHandler()
+        console_handler.setFormatter(formatter)
+        logger.addHandler(console_handler)
 
     _configured = True
     return logger
