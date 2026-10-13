@@ -239,6 +239,7 @@ class Ablage:
         bei_neuer_aufnahme: Callable[[Path, str], None] | None = None,
         bei_teil: Callable[[str, str, Path], None] | None = None,
         bei_abschluss: Callable[[str, str, Path], None] | None = None,
+        bei_verworfen: Callable[[str, str], None] | None = None,
         jetzt: Callable[[], float] = time.time,
     ):
         self.ziel = ziel
@@ -251,6 +252,9 @@ class Ablage:
         # Dateinamen, den das Geraet benutzt hat -- darunter fragt es den Status ab.
         self._bei_teil = bei_teil
         self._bei_abschluss = bei_abschluss
+        # Was bisher unter diesem Namen ankam, gilt nicht mehr: Ein Upload beginnt bei Byte 0, ein Teilstand
+        # wurde verworfen (422) oder es war die Wiederholung einer schon abgelegten Aufnahme.
+        self._bei_verworfen = bei_verworfen
         self._jetzt = jetzt
         self._sperre = threading.Lock()
         self._sperren: dict[str, threading.Lock] = {}
@@ -318,6 +322,8 @@ class Ablage:
                 antwort = self._schreiben(schluessel, offset, laenge, lesen, gesamt)
                 if antwort is not None:
                     return antwort
+                if offset == 0:
+                    self._verworfen_melden(geraet, datei)
             if gesamt is None or sha256 is None:
                 if laenge and self._bei_teil is not None:
                     try:
@@ -367,11 +373,13 @@ class Ablage:
         groesse = self._groesse(schluessel)
         if groesse != gesamt:
             self._verwerfen(teil)
+            self._verworfen_melden(geraet, datei)
             return _fehler(
                 422, f"Groesse stimmt nicht ({groesse} statt {gesamt} Bytes).", naechstes_byte=0, fertig=False
             )
         if _datei_sha256(teil) != sha256:
             self._verwerfen(teil)
+            self._verworfen_melden(geraet, datei)
             return _fehler(422, "Pruefsumme stimmt nicht.", naechstes_byte=0, fertig=False)
 
         with self._sperre:
@@ -381,6 +389,7 @@ class Ablage:
                 # Dieselbe Aufnahme noch einmal (die Bestaetigung ging verloren):
                 # keine zweite Datei, aber dieselbe Antwort.
                 self._verwerfen(teil)
+                self._verworfen_melden(geraet, datei)
                 return Antwort(200, {"naechstes_byte": gesamt, "fertig": True, "datei": fertig[kennung]["datei"]})
             ziel = self._freier_zielname(f"{geraet}_{datei}")
             # Erst ablegen, dann merken: Faellt dazwischen der Strom aus, entsteht
@@ -416,6 +425,14 @@ class Ablage:
     def _verwerfen(teil: Path) -> None:
         with contextlib.suppress(OSError):
             teil.unlink()
+
+    def _verworfen_melden(self, geraet: str, datei: str) -> None:
+        if self._bei_verworfen is None:
+            return
+        try:
+            self._bei_verworfen(geraet, datei)
+        except Exception:  # Eine Fehlfunktion der Live-Verarbeitung darf den Empfang nicht stoeren.
+            logger.exception("Meldung ueber den verworfenen Stand fehlgeschlagen")
 
     # ------------------------------------------------------------------
     def _fertig_datei(self) -> Path:
@@ -687,6 +704,7 @@ class GeraeteEmpfang:
         bei_neuer_aufnahme: Callable[[Path, str], None] | None = None,
         bei_teil: Callable[[str, str, Path], None] | None = None,
         bei_abschluss: Callable[[str, str, Path], None] | None = None,
+        bei_verworfen: Callable[[str, str], None] | None = None,
         status_fn: Callable[[str, str], dict[str, Any] | None] | None = None,
     ):
         self.geraete: tuple[Geraet, ...] = tuple(geraete)
@@ -696,6 +714,7 @@ class GeraeteEmpfang:
             bei_neuer_aufnahme=bei_neuer_aufnahme,
             bei_teil=bei_teil,
             bei_abschluss=bei_abschluss,
+            bei_verworfen=bei_verworfen,
         )
         self._status_fn = status_fn
         self._adresse = (adresse, port)

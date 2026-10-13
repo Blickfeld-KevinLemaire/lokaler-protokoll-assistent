@@ -1105,7 +1105,7 @@ def test_vorab_ausgewertete_abschnitte_werden_uebernommen(monkeypatch, tmp_path,
     transkript = _langes_transkript(monkeypatch, tmp_path, source_file)
     segmente, namen, _diarisierung, _stamm = pipeline_service.load_transcript_for_protocol(transkript.export_paths.json)
     plaene = chunking_service.plan_chunks(max(s["end"] for s in segmente))
-    chunk_texte = pipeline_service.baue_protokoll_chunk_texte(plaene, segmente, namen, False)
+    chunk_texte = pipeline_service.baue_protokoll_chunk_texte(plaene, segmente, namen, False, fliesstext=True)
     assert len(chunk_texte) == 3
     auftrag = "Liste die ToDos auf."
     modell = "qwen-test"
@@ -1142,7 +1142,7 @@ def test_vorab_auswertung_fuer_ein_anderes_modell_wird_nicht_benutzt(monkeypatch
     transkript = _langes_transkript(monkeypatch, tmp_path, source_file)
     segmente, namen, _d, _s = pipeline_service.load_transcript_for_protocol(transkript.export_paths.json)
     plaene = chunking_service.plan_chunks(max(s["end"] for s in segmente))
-    chunk_texte = pipeline_service.baue_protokoll_chunk_texte(plaene, segmente, namen, False)
+    chunk_texte = pipeline_service.baue_protokoll_chunk_texte(plaene, segmente, namen, False, fliesstext=True)
     prompt = protocol_service.build_stage1_prompt(
         0, chunk_texte[0]["start_str"], chunk_texte[0]["end_str"], chunk_texte[0]["text"]
     )
@@ -1212,7 +1212,7 @@ def test_vorab_ausgewertete_abschnitte_gelten_nur_fuer_dieselbe_abschnittslaenge
     transkript = _langes_transkript(monkeypatch, tmp_path, source_file, dauer=700.0)
     segmente, namen, _d, _s = pipeline_service.load_transcript_for_protocol(transkript.export_paths.json)
     plaene = chunking_service.plan_chunks(max(s["end"] for s in segmente), chunk_length=180.0)
-    texte = pipeline_service.baue_protokoll_chunk_texte(plaene, segmente, namen, False)
+    texte = pipeline_service.baue_protokoll_chunk_texte(plaene, segmente, namen, False, fliesstext=True)
     assert len(texte) == 2  # Text nur bei 0-44 s und 590-634 s: Abschnitt 1 und 4
     stufe1 = {}
     for chunk in texte:
@@ -1239,3 +1239,30 @@ def test_vorab_ausgewertete_abschnitte_gelten_nur_fuer_dieselbe_abschnittslaenge
 
     assert lauf(180.0, "kurz") == []  # beide Abschnitte kamen aus der Vorab-Auswertung
     assert len(lauf(None, "standard")) == 2  # bei 600-s-Abschnitten passt davon nichts
+
+
+def test_ohne_sprecher_haengt_der_text_nicht_von_der_teilung_nach_sprechern_ab():
+    """Die wortgenaue Sprecherzuordnung teilt ein Segment beim Sprecherwechsel. Waehrend der Aufnahme gibt es diese
+    Teilung noch nicht -- der Auswertungstext ohne Sprecher muss trotzdem derselbe sein, sonst passt keine
+    Vorab-Auswertung (die Eingabekennung waere eine andere)."""
+    from protokoll_assistent.services import speaker_merge_service
+
+    woerter = [
+        {"start": 0.0, "end": 0.4, "word": " Hallo"},
+        {"start": 0.4, "end": 0.9, "word": " zusammen,"},
+        {"start": 1.2, "end": 1.5, "word": " ja"},
+        {"start": 1.5, "end": 2.0, "word": " genau."},
+    ]
+    live = [{"start": 0.0, "end": 2.0, "text": "Hallo zusammen, ja genau.", "words": woerter}]
+    turns = [{"start": 0.0, "end": 1.0, "speaker": "A"}, {"start": 1.1, "end": 2.0, "speaker": "B"}]
+    fertig = speaker_merge_service.assign_speakers_by_words(live, turns)
+    assert len(fertig) == 2  # geteilt
+
+    plaene = chunking_service.plan_chunks(2.0)
+    assert pipeline_service.baue_protokoll_chunk_texte(
+        plaene, live, {}, False, fliesstext=True
+    ) == pipeline_service.baue_protokoll_chunk_texte(plaene, fertig, {}, False, fliesstext=True)
+    # Zeilenweise (die Form ohne 'fliesstext') unterschieden sie sich
+    assert pipeline_service.baue_protokoll_chunk_texte(plaene, live, {}, False) != (
+        pipeline_service.baue_protokoll_chunk_texte(plaene, fertig, {}, False)
+    )

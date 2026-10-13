@@ -287,6 +287,9 @@ class _LiveAttrappe:
     def teil_gewachsen(self, geraet, datei, pfad):
         self.ereignisse.append(("teil", geraet, datei, pfad))
 
+    def verwerfen(self, geraet, datei):
+        self.ereignisse.append(("verworfen", geraet, datei))
+
     def abgeschlossen(self, geraet, datei, ziel, bei_bereit):
         self.ereignisse.append(("ende", geraet, datei, ziel))
         if self.bereit_rufen:
@@ -308,7 +311,7 @@ def test_live_verbindet_dienst_mit_live_arbeiter_und_status(qt_app, tmp_path):
     steuerung = _live_steuerung(qt_app, live, status)
     steuerung.anwenden(tmp_path, konfig())
     weitere = _LiveDienst.instanzen[-1].weitere
-    assert set(weitere) == {"status_fn", "bei_teil", "bei_abschluss"}
+    assert set(weitere) == {"status_fn", "bei_teil", "bei_abschluss", "bei_verworfen"}
 
     status.setze("S3", "H5.opus", ls.AUSWERTUNG)
     assert weitere["status_fn"]("S3", "H5.opus")["zustand"] == "auswertung"
@@ -321,6 +324,9 @@ def test_live_verbindet_dienst_mit_live_arbeiter_und_status(qt_app, tmp_path):
     assert status.hole("S3", "H5.opus")["zustand"] == "wartet"
     # Erst wenn der Live-Arbeiter "bereit" meldet, darf die Verarbeitung der fertigen Datei beginnen.
     assert bereit == [(str(tmp_path / "S3_H5.opus"), "S3", "H5.opus")]
+    # Ein Upload von vorn (oder eine Wiederholung) verwirft den Live-Stand unter diesem Namen
+    weitere["bei_verworfen"]("S3", "H5.opus")
+    assert live.ereignisse[-1] == ("verworfen", "S3", "H5.opus")
 
 
 def test_abgeschaltete_live_verarbeitung_laesst_nur_den_status_zu(qt_app, tmp_path):

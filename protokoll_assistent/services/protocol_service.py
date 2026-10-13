@@ -95,18 +95,25 @@ def effektiver_systemprompt(system_prompt: str | None) -> str:
 
 
 def prompt_kennung(
-    system_prompt: str | None, modell: str | None = None, abschnitt_sekunden: float | None = None
+    system_prompt: str | None,
+    modell: str | None = None,
+    abschnitt_sekunden: float | None = None,
+    ohne_sprecher: bool = False,
 ) -> str:
     """Kurze, stabile Kennung des Auftrags und des Modells. Benennt den
     Unterordner der Zwischenstaende, damit weder ein anderer Systemprompt noch
     ein anderes Modell ein Ergebnis wiederverwendet, das unter anderen
     Bedingungen entstanden ist. Ohne ``modell`` wie in aelteren Versionen. Mit ``abschnitt_sekunden``
-    (nur wenn von der Standardlaenge abweichend) gelten Ergebnisse auch nur fuer diese Abschnittslaenge."""
+    (nur wenn von der Standardlaenge abweichend) gelten Ergebnisse auch nur fuer diese Abschnittslaenge.
+    Mit ``ohne_sprecher`` entstanden sie aus Text ohne Sprecherangaben; sie duerfen dann nicht in einen
+    Lauf mit Sprechern geraten (und umgekehrt)."""
     grundlage = effektiver_systemprompt(system_prompt)
     if modell:
         grundlage += f"\n--- Modell: {modell}"
     if abschnitt_sekunden is not None:
         grundlage += f"\n--- Abschnitt: {abschnitt_sekunden:g}"
+    if ohne_sprecher:
+        grundlage += "\n--- ohne Sprecher"
     return hashlib.sha256(grundlage.encode("utf-8")).hexdigest()[:12]
 
 
@@ -335,6 +342,7 @@ def vorab_ergebnisse_ablegen(
     max_kontext_zeichen: int = MAX_KONTEXT_ZEICHEN,
     modell: str | None = None,
     abschnitt_sekunden: float | None = None,
+    ohne_sprecher: bool = False,
 ) -> tuple[int, int]:
     """Legt Teilergebnisse, die schon waehrend der Aufnahme berechnet wurden, als Zwischenstaende ab -- aber nur
     dort, wo ihre Eingabe genau zu der jetzigen passt. Die Auswertung (``run_full_protocol_pipeline``) findet sie
@@ -346,7 +354,7 @@ def vorab_ergebnisse_ablegen(
     if not vorab or len(chunk_texts) <= 1:
         return 0, 0  # ein einziger Abschnitt wird ohne Stufen ausgewertet
     auftrag = effektiver_systemprompt(system_prompt)
-    kennung = prompt_kennung(system_prompt, modell, abschnitt_sekunden)
+    kennung = prompt_kennung(system_prompt, modell, abschnitt_sekunden, ohne_sprecher)
     analysen_dir = work_dir / "analysen" / kennung
     zusammen_dir = work_dir / "zusammengefuehrt" / kennung
     analysen_dir.mkdir(parents=True, exist_ok=True)
@@ -397,6 +405,7 @@ def run_full_protocol_pipeline(
     max_kontext_zeichen: int = MAX_KONTEXT_ZEICHEN,
     modell: str | None = None,
     abschnitt_sekunden: float | None = None,
+    ohne_sprecher: bool = False,
 ) -> str:
     """``chunk_texts``: Liste von ``{"index", "start_str", "end_str", "text"}``.
 
@@ -410,7 +419,7 @@ def run_full_protocol_pipeline(
     """
     generate_fn = generate_fn or default_generate_fn
     auftrag = effektiver_systemprompt(system_prompt)
-    kennung = prompt_kennung(system_prompt, modell, abschnitt_sekunden)
+    kennung = prompt_kennung(system_prompt, modell, abschnitt_sekunden, ohne_sprecher)
     analysen_dir = work_dir / "analysen" / kennung
     zusammen_dir = work_dir / "zusammengefuehrt" / kennung
     analysen_dir.mkdir(parents=True, exist_ok=True)

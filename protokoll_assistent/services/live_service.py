@@ -76,6 +76,8 @@ ENDE_TOLERANZ_SEKUNDEN = 1.5
 STILLE_RESERVE_SEKUNDEN = 1.0
 # Aufgegebene Aufnahmen (das Geraet kam nie zum Ende) raeumt der Start weg.
 STAGING_MAX_ALTER_SEKUNDEN = 7 * 24 * 3600
+# So lange wartet der Abschluss einer Aufnahme hoechstens auf eine noch laufende Anfrage der Teilauswertung.
+AUSWERTUNG_WARTEN_SEKUNDEN = 300.0
 ENDUNGEN = (".opus", ".ogg")
 
 TranskribiererFabrik = Callable[[], Callable[[Path], list[dict[str, Any]]]]
@@ -178,6 +180,9 @@ class _Sitzung:
     ende: bool = False
     ziel: Path | None = None
     bereit: Callable[[], None] | None = None
+    # Eindeutig je Upload (nicht je Dateiname): Ein Geraet kann denselben Namen ein zweites Mal hochladen --
+    # nach einem verworfenen Teilstand (422), nach einer verlorenen Bestaetigung oder mit neu begonnener Zaehlung.
+    kennung: str = ""
 
 
 class LiveTranskription:
@@ -209,7 +214,12 @@ class LiveTranskription:
         self._extrahieren = extrahieren or standard_extrahieren
         self._neu_min = neu_min
         self._fenster_max = fenster_max
+        # Alle Sitzungen nach ihrer Kennung; dazu je "Geraet/Datei" die Sitzung des laufenden Uploads. Eine
+        # abgeschlossene Sitzung verliert diese Zuordnung (sie wartet nur noch auf die Verarbeitung ihrer Datei):
+        # Ein spaeterer Upload unter demselben Namen beginnt immer eine neue.
         self._sitzungen: dict[str, _Sitzung] = {}
+        self._aktuell: dict[str, str] = {}
+        self._zaehler = 0
         self._sperre = threading.Lock()
         self._vorgemerkt: set[str] = set()
         self._warte: queue.Queue[str | None] = queue.Queue()
@@ -228,32 +238,54 @@ class LiveTranskription:
             return
         schluessel = self._schluessel(geraet, datei)
         with self._sperre:
-            sitzung = self._sitzungen.get(schluessel)
+            kennung = self._aktuell.get(schluessel)
+            sitzung = self._sitzungen.get(kennung) if kennung is not None else None
             if sitzung is None:
-                ordner = self._basis / hashlib.sha256(schluessel.encode()).hexdigest()[:16]
-                sitzung = _Sitzung(geraet, datei, pfad, ordner)
-                self._sitzungen[schluessel] = sitzung
+                self._zaehler += 1
+                kennung = f"{schluessel}#{self._zaehler}"
+                ordner = self._basis / hashlib.sha256(f"{kennung}|{time.time_ns()}".encode()).hexdigest()[:16]
+                sitzung = _Sitzung(geraet, datei, pfad, ordner, kennung=kennung)
+                self._sitzungen[kennung] = sitzung
+                self._aktuell[schluessel] = kennung
             sitzung.teil = pfad
-        self._anstossen(schluessel)
+        self._anstossen(sitzung.kennung)
+
+    def verwerfen(self, geraet: str, datei: str) -> None:
+        """Der laufende Upload unter diesem Namen gilt nicht mehr: Das Geraet beginnt ihn von vorn (Byte 0,
+        etwa nach einem verworfenen Teilstand) oder er war eine Wiederholung einer schon abgelegten Aufnahme.
+        Ohne das uebernaehme die naechste Aufnahme unter demselben Namen das Transkript der vorigen.
+
+        Eine schon abgeschlossene Sitzung bleibt unberuehrt: Ihre Datei wird gerade verarbeitet."""
+        schluessel = self._schluessel(geraet, datei)
+        with self._sperre:
+            kennung = self._aktuell.pop(schluessel, None)
+            sitzung = self._sitzungen.pop(kennung, None) if kennung is not None else None
+        if sitzung is None:
+            return
+        if self._auswertung is not None:
+            self._auswertung.freigeben(sitzung.kennung)
+        shutil.rmtree(sitzung.ordner, ignore_errors=True)
 
     def abgeschlossen(self, geraet: str, datei: str, ziel: Path, bei_bereit: Callable[[], None]) -> None:
         """Die Aufnahme ist vollstaendig und liegt als ``ziel`` vor. ``bei_bereit``
-        wird aufgerufen, sobald das gerade laufende Fenster fertig ist -- davor darf
-        die Verarbeitung der fertigen Datei nicht beginnen, sonst rechneten beide
-        dieselben Sekunden. Es wird kein neues Fenster mehr angefangen."""
+        wird aufgerufen, sobald das gerade laufende Fenster (und eine gerade laufende
+        Anfrage der Teilauswertung) fertig ist -- davor darf die Verarbeitung der fertigen
+        Datei nicht beginnen, sonst rechneten beide dieselben Sekunden. Es wird kein neues
+        Fenster mehr angefangen."""
         schluessel = self._schluessel(geraet, datei)
         with self._sperre:
-            sitzung = self._sitzungen.get(schluessel)
+            kennung = self._aktuell.pop(schluessel, None)
+            sitzung = self._sitzungen.get(kennung) if kennung is not None else None
             if sitzung is not None:
                 sitzung.ende = True
                 sitzung.ziel = ziel
                 sitzung.bereit = bei_bereit
-        if self._auswertung is not None:
-            self._auswertung.beenden(schluessel)  # kein neuer Abschnitt mehr; die fertige Auswertung uebernimmt
         if sitzung is None:
             self._aufrufen(bei_bereit)
             return
-        self._anstossen(schluessel)
+        if self._auswertung is not None:
+            self._auswertung.beenden(sitzung.kennung)  # keine neue Anfrage mehr; die fertige Auswertung uebernimmt
+        self._anstossen(sitzung.kennung)
 
     def auswertung_fuer(self, ziel: Path, warten: float = 0.0) -> dict[str, dict[str, str]] | None:
         """Die schon waehrend der Aufnahme berechneten Teilergebnisse der Auswertung (siehe
@@ -261,7 +293,7 @@ class LiveTranskription:
         if self._auswertung is None:
             return None
         with self._sperre:
-            schluessel = next(
+            kennung = next(
                 (
                     k
                     for k, sitzung in self._sitzungen.items()
@@ -269,7 +301,7 @@ class LiveTranskription:
                 ),
                 None,
             )
-        return self._auswertung.vorab_fuer(schluessel, warten) if schluessel is not None else None
+        return self._auswertung.vorab_fuer(kennung, warten) if kennung is not None else None
 
     def vorab_fuer(self, ziel: Path) -> dict[str, Any] | None:
         """Bestaetigte Segmente der Aufnahme ``ziel``: ``{"bestaetigt_bis": Sekunden, "segmente": [...]}``
@@ -349,15 +381,20 @@ class LiveTranskription:
         except Exception:  # Eine Meldung nach aussen darf den Arbeiter nicht stoppen.
             logger.exception("Rueckruf der Live-Transkription fehlgeschlagen")
 
-    def _anstossen(self, schluessel: str) -> None:
+    def _anstossen(self, kennung: str) -> None:
         with self._sperre:
             if self._faden is None and not self._stopp:
                 self._faden = threading.Thread(target=self._lauf, name="live-transkription", daemon=True)
                 self._faden.start()
-            if schluessel in self._vorgemerkt:
+            if kennung in self._vorgemerkt:
                 return
-            self._vorgemerkt.add(schluessel)
-        self._warte.put(schluessel)
+            self._vorgemerkt.add(kennung)
+        self._warte.put(kennung)
+
+    def _gilt(self, sitzung: _Sitzung) -> bool:
+        """Ist die Sitzung noch registriert (nicht inzwischen verworfen oder freigegeben)?"""
+        with self._sperre:
+            return self._sitzungen.get(sitzung.kennung) is sitzung
 
     def _lauf(self) -> None:
         while True:
@@ -384,18 +421,22 @@ class LiveTranskription:
             self._transkribierer = None
             gc.collect()
 
-    def _bearbeite(self, schluessel: str) -> None:
+    def _bearbeite(self, kennung: str) -> None:
         with self._sperre:
-            sitzung = self._sitzungen.get(schluessel)
+            sitzung = self._sitzungen.get(kennung)
         if sitzung is None:
             return
-        while not self._stopp and not sitzung.ende and not self._deaktiviert:
+        while not self._stopp and not sitzung.ende and not self._deaktiviert and self._gilt(sitzung):
             if not self._naechstes_fenster(sitzung):
                 break
         if sitzung.ende:
             with self._sperre:
                 bereit, sitzung.bereit = sitzung.bereit, None
             if bereit is not None:
+                if self._auswertung is not None:
+                    # Eine noch laufende Anfrage ans Sprachmodell erst fertig werden lassen: Die Verarbeitung der
+                    # fertigen Datei laedt gleich Whisper auf die Grafikkarte (siehe 'LiveAuswertung.beenden').
+                    self._auswertung.warte_auf_leerlauf(kennung, AUSWERTUNG_WARTEN_SEKUNDEN)
                 self._aufrufen(bereit)
 
     def _naechstes_fenster(self, sitzung: _Sitzung) -> bool:
@@ -421,15 +462,22 @@ class LiveTranskription:
             shutil.copyfile(sitzung.teil, momentaufnahme)
             self._extrahieren(momentaufnahme, wav, start, ende)
             if self._transkribierer is None:
-                self._transkribierer = self._fabrik()
+                try:
+                    self._transkribierer = self._fabrik()
+                except Exception as fehler:
+                    # Ohne Whisper gibt es keine Live-Transkription -- die Verarbeitung der fertigen Datei holt
+                    # alles nach.
+                    logger.warning("Live-Transkription nicht moeglich (Whisper nicht ladbar): %s", fehler)
+                    self._deaktiviert = True
+                    return False
             lokal = self._transkribierer(wav)
         except FileNotFoundError:
             return False  # Die Aufnahme wurde eben abgeschlossen (umbenannt).
         except Exception as fehler:
-            # Ohne Whisper (oder bei einem Fehler im Schnitt) gibt es keine Live-Transkription -- die
-            # Verarbeitung der fertigen Datei holt alles nach.
-            logger.warning("Live-Transkription nicht moeglich: %s", fehler)
-            self._deaktiviert = True
+            # Ein einzelnes Fenster ging schief (Schnitt, eine kurz gesperrte Datei ...): nicht fuer immer
+            # aufgeben, sondern erst mit neuem Audio wieder versuchen.
+            logger.warning("Live-Fenster von %s uebersprungen: %s", sitzung.datei, fehler)
+            sitzung.letzte_dauer = dauer
             return False
         finally:
             for pfad in (momentaufnahme, wav):
@@ -463,18 +511,20 @@ class LiveTranskription:
             )
 
     def _melden(self, sitzung: _Sitzung) -> None:
+        if not self._gilt(sitzung):
+            return  # inzwischen verworfen: nichts mehr melden
         if self._auswertung is not None and not sitzung.ende:
             with self._sperre:
                 kopie = [dict(s) for s in sitzung.segmente]
                 punkt = sitzung.bestaetigt_bis
             # Die Auswertung rechnet in ihrem eigenen Faden: Das Sprachmodell auf der Grafikkarte, Whisper auf dem Prozessor
-            self._auswertung.fortschritt(self._schluessel(sitzung.geraet, sitzung.datei), kopie, punkt)
-        if self._status is not None and not sitzung.ende:
-            ausgewertet = (
-                self._auswertung.anzahl(self._schluessel(sitzung.geraet, sitzung.datei))
-                if self._auswertung is not None
-                else 0
-            )
+            self._auswertung.fortschritt(sitzung.kennung, kopie, punkt)
+        vorher = self._status.hole(sitzung.geraet, sitzung.datei) if self._status is not None else None
+        # Nur "empfang" melden, solange nichts Weiteres bekannt ist: Ein wiederholter Upload einer schon
+        # abgelegten Aufnahme (die Bestaetigung ging verloren) darf ein "fertig" nicht zuruecknehmen -- das Geraet
+        # zeigte sonst nie "Transkription erfolgreich". Den Stand einer neuen Aufnahme setzt ihr Abschluss.
+        if self._status is not None and not sitzung.ende and (vorher is None or vorher.get("zustand") == EMPFANG):
+            ausgewertet = self._auswertung.anzahl(sitzung.kennung) if self._auswertung is not None else 0
             zusatz = f", {ausgewertet} {'Abschnitt' if ausgewertet == 1 else 'Abschnitte'} ausgewertet" if ausgewertet else ""
             self._status.setze(
                 sitzung.geraet,

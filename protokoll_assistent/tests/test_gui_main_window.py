@@ -2371,3 +2371,35 @@ def test_api_funktion_uebersetzt_fehler_in_ollama_fehler(monkeypatch):
         lambda prompt, system, **kw: f"{prompt}|{system}|{kw['model']}|{kw['endpoint_url']}|{kw['api_key']}",
     )
     assert anfrage("P", "S") == "P|S|modell|https://api.test|schluessel"
+
+
+def test_kann_die_automatische_auswertung_nicht_beginnen_bekommt_das_geraet_fehler_ohne_dialog(
+    fenster, geraeteaufnahme, gemeldete_fehler, tmp_path, monkeypatch
+):
+    """Fehlt das Sprachmodell (oder Anbieter/Schluessel), sitzt bei der automatischen Verarbeitung niemand vor einem
+    Fehlerfenster. Vorher blieb die Automatik danach fuer immer belegt: Status ewig "transkription", keine weitere
+    Aufnahme kam dran, und eine spaetere Auswertung von Hand lief mit dem Auftrag der Automatik."""
+    monkeypatch.setattr(ollama_service, "modell_fehlt", lambda *a, **k: True)
+    fenster._geraete_aufnahme_bereit(str(geraeteaufnahme), "S3", "H5_007.opus")
+    transkript = tmp_path / "ergebnis.json"
+    transkript.write_text("{}", encoding="utf-8")
+    fenster._set_transcript_path(transkript)
+
+    fenster._start_protocol()
+
+    assert gemeldete_fehler == []
+    assert _status(fenster)["zustand"] == "fehler" and "Ollama-Modell fehlt" in _status(fenster)["meldung"]
+    assert fenster._automatik is None and fenster._systemprompt_automatik is None
+    # Von Hand gestartet bleibt es beim Fehlerfenster
+    fenster._start_protocol()
+    assert gemeldete_fehler == ["Ollama-Modell fehlt"]
+
+
+@pytest.mark.parametrize(("modus", "mit_live"), [("fortsetzen", True), ("neu_beginnen", False)])
+def test_live_segmente_nur_wenn_nicht_neu_begonnen_wird(fenster, audio_datei, monkeypatch, modus, mit_live):
+    live = {"bestaetigt_bis": 125.0, "segmente": [{"start": 1.0, "end": 4.0, "text": "a"}]}
+    monkeypatch.setattr(fenster._live, "vorab_fuer", lambda pfad: live)
+    fenster._source_path = audio_datei
+    fenster.resume_combo.setCurrentIndex(fenster.resume_combo.findData(modus))
+    fenster._start_transcription()
+    assert _WorkerAttrappe.instanzen[-1].settings.vorab_live == (live if mit_live else None)

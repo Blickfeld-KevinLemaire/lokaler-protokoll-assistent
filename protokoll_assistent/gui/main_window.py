@@ -1178,11 +1178,11 @@ class MainWindow(QMainWindow):
         )
 
     def _geraete_empfang_anwenden(self) -> None:
-        self._live_einstellungen = self._live_einstellungen_lesen()
-        self._live_auswertung_stand = self._live_auswertung_lesen()
         """Empfang passend zu den Einstellungen starten oder stoppen. Die Geraete
         liefern in den Eingabeordner -- ohne einen in den Aufnahmeordner, damit
         eine Aufnahme immer irgendwo landen kann."""
+        self._live_einstellungen = self._live_einstellungen_lesen()
+        self._live_auswertung_stand = self._live_auswertung_lesen()
         ziel = self._input_folder if self._input_folder is not None else get_recordings_dir()
         self._geraete_empfang.anwenden(ziel)
         self._empfang_anzeigen()
@@ -1277,6 +1277,17 @@ class MainWindow(QMainWindow):
             self._automatik_phase = live_service.AUSWERTUNG
         geraet, datei, _pfad = self._automatik
         self._geraete_status.setze(geraet, datei, zustand, fortschritt, detail)
+
+    def _protokoll_start_scheitert(self, titel: str, text: str) -> None:
+        """Die Auswertung kann nicht beginnen. Von Hand gestartet: Fehlerfenster. In der automatischen Verarbeitung
+        einer Geraeteaufnahme sitzt niemand davor -- dort kein Fenster, sondern Abschluss mit 'fehler' fuers Geraet.
+        Sonst bliebe die Automatik fuer immer belegt: kein Status mehr, und keine weitere Aufnahme kaeme dran."""
+        if self._automatik is None:
+            show_error(self, titel, text)
+            return
+        self._on_log_message(text)
+        self.status_label.setText(f"Automatische Auswertung nicht möglich: {titel}")
+        self._automatik_beenden(live_service.FEHLER, f"Auswertung nicht möglich: {titel}")
 
     def _automatik_beenden(self, zustand: str, meldung: str) -> None:
         """Schliesst die automatische Verarbeitung ab und meldet das Ergebnis dem Geraet."""
@@ -1599,8 +1610,13 @@ class MainWindow(QMainWindow):
             whisper_model=ermittle_whisper_modell(config),
             enable_diarization=self.diarization_checkbox.isChecked(),
             # Bei einer Geraeteaufnahme sind die ersten Bloecke schon waehrend der Aufnahme
-            # transkribiert worden (leer fuer jede andere Datei).
-            vorab_live=self._live.vorab_fuer(self._source_path),
+            # transkribiert worden (leer fuer jede andere Datei). Nicht ueber die API (dort liefert der
+            # Endpunkt auch die Sprecher; lokale Live-Segmente haetten keine) und nicht bei "neu beginnen".
+            vorab_live=(
+                self._live.vorab_fuer(self._source_path)
+                if self.transkription_lokal_radio.isChecked() and self.resume_combo.currentData() != "neu_beginnen"
+                else None
+            ),
         )
 
         self._set_controls_running(True)
@@ -1686,15 +1702,14 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     def _start_protocol(self) -> None:
         if self._selected_transcript_path is None:
-            show_error(
-                self,
+            self._protokoll_start_scheitert(
                 "Kein Transkript ausgewählt",
                 "Bitte zuerst eine Transkription durchführen oder ein vorhandenes Transkript auswählen.",
             )
             return
         if not self._selected_transcript_path.is_file():
-            show_error(
-                self, "Transkript nicht gefunden", f"Die Datei wurde nicht gefunden:\n{self._selected_transcript_path}"
+            self._protokoll_start_scheitert(
+                "Transkript nicht gefunden", f"Die Datei wurde nicht gefunden:\n{self._selected_transcript_path}"
             )
             return
         try:
@@ -1703,7 +1718,7 @@ class MainWindow(QMainWindow):
             probe_file.write_text("test", encoding="utf-8")
             probe_file.unlink()
         except OSError as error:
-            show_error(self, "Ausgabeordner ungültig", f"In den Ausgabeordner kann nicht geschrieben werden:\n{error}")
+            self._protokoll_start_scheitert("Ausgabeordner ungültig", f"In den Ausgabeordner kann nicht geschrieben werden:\n{error}")
             return
 
         # Ein leerer Systemprompt ist erlaubt: Dann fasst das Modell so
@@ -1725,8 +1740,7 @@ class MainWindow(QMainWindow):
                 api_anbieter.adresse_vollstaendig(config["api_nachbearbeitung_endpunkt"])
                 and config["api_nachbearbeitung_modell"]
             ):
-                show_error(
-                    self,
+                self._protokoll_start_scheitert(
                     "Kein Anbieter gewählt",
                     "Für die Nachbearbeitung über eine API ist noch kein Anbieter gewählt oder die Adresse "
                     "unvollständig.\n\nBitte in den Einstellungen im Reiter „Nachbearbeitung“ einen Anbieter "
@@ -1738,8 +1752,7 @@ class MainWindow(QMainWindow):
             schluessel_name = "nachbearbeitung" if eigener_schluessel else "transkription"
             api_key = self._verwendbarer_api_schluessel(schluessel_name)
             if not api_key:
-                show_error(
-                    self,
+                self._protokoll_start_scheitert(
                     "Kein API-Schlüssel",
                     "Bitte zuerst in den Einstellungen einen API-Schlüssel für die Nachbearbeitung hinterlegen.",
                 )
@@ -1753,8 +1766,7 @@ class MainWindow(QMainWindow):
         if not self.nachbearbeitung_api_radio.isChecked():
             lokales_modell = config["ollama_modell"] or ollama_service.DEFAULT_MODEL
             if ollama_service.modell_fehlt(lokales_modell):
-                show_error(
-                    self,
+                self._protokoll_start_scheitert(
                     "Ollama-Modell fehlt",
                     f"Das Modell '{lokales_modell}' ist bei Ollama nicht installiert.\n\n"
                     "Bitte in den Einstellungen unter „Nachbearbeitung“ auf „Jetzt herunterladen“ klicken "

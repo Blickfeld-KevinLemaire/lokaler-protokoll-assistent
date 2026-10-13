@@ -585,6 +585,9 @@ class _AuswertungAttrappe:
     def freigeben(self, schluessel):
         self.ereignisse.append(("freigeben", schluessel))
 
+    def warte_auf_leerlauf(self, schluessel, zeitlimit):
+        self.ereignisse.append(("leerlauf", schluessel))
+
     def stoppen(self):
         self.ereignisse.append(("stoppen",))
 
@@ -602,7 +605,7 @@ def test_bestaetigte_segmente_gehen_an_die_teilauswertung(tmp_path, welt, teil):
     )
     try:
         wachsen(live, welt, teil, 25.0)
-        assert auswertung.ereignisse == [("fortschritt", "S3/H5_007.opus", 4, 19.0)]
+        assert auswertung.ereignisse == [("fortschritt", "S3/H5_007.opus#1", 4, 19.0)]
         auswertung.ausgewertet = 2
         wachsen(live, welt, teil, 50.0)
         meldung = status.hole("S3", "H5_007.opus")["meldung"]  # type: ignore[index]
@@ -615,12 +618,14 @@ def test_bestaetigte_segmente_gehen_an_die_teilauswertung(tmp_path, welt, teil):
         ziel.write_bytes(b"x")
         live.abgeschlossen("S3", "H5_007.opus", ziel, lambda: None)
         live.warte_bis_fertig()
-        assert ("beenden", "S3/H5_007.opus") in auswertung.ereignisse
+        assert ("beenden", "S3/H5_007.opus#1") in auswertung.ereignisse
+        # vor der Verarbeitung der fertigen Datei: eine laufende Anfrage abwarten (Grafikspeicher)
+        assert ("leerlauf", "S3/H5_007.opus#1") in auswertung.ereignisse
         assert live.auswertung_fuer(ziel, warten=7.0) == {"stufe1": {"k": "text"}, "stufe2": {}}
-        assert ("vorab", "S3/H5_007.opus", 7.0) in auswertung.ereignisse
+        assert ("vorab", "S3/H5_007.opus#1", 7.0) in auswertung.ereignisse
         assert live.auswertung_fuer(tmp_path / "andere.opus") is None
         live.freigeben(ziel)
-        assert ("freigeben", "S3/H5_007.opus") in auswertung.ereignisse
+        assert ("freigeben", "S3/H5_007.opus#1") in auswertung.ereignisse
     finally:
         live.stoppen()
     assert ("stoppen",) in auswertung.ereignisse
@@ -633,3 +638,67 @@ def test_ohne_teilauswertung_gibt_es_keine_vorab_ergebnisse(live, welt, teil, tm
     live.abgeschlossen("S3", "H5_007.opus", ziel, lambda: None)
     live.warte_bis_fertig()
     assert live.auswertung_fuer(ziel) is None
+
+
+# --------------------------------------------------------------------------
+# Derselbe Name ein zweites Mal, Fehler in einem Fenster
+# --------------------------------------------------------------------------
+def test_neue_aufnahme_unter_demselben_namen_beginnt_eine_neue_sitzung(live, welt, teil, tmp_path):
+    """Ein Geraet kann einen Namen wieder benutzen (Zaehlung neu begonnen). Das Transkript der vorigen Aufnahme
+    darf nie in die neue geraten -- sonst galt sie als "schon live transkribiert" und Whisper lief nie."""
+    wachsen(live, welt, teil, 50.0)
+    alt = tmp_path / "S3_H5_007.opus"
+    alt.write_bytes(b"alt")
+    live.abgeschlossen("S3", "H5_007.opus", alt, lambda: None)
+    assert live.warte_bis_fertig()
+
+    wachsen(live, welt, teil, 10.0)  # die neue Aufnahme, noch zu kurz fuer ein Fenster
+    neu = tmp_path / "S3_H5_007_2.opus"
+    neu.write_bytes(b"neu")
+    live.abgeschlossen("S3", "H5_007.opus", neu, lambda: None)
+    assert live.warte_bis_fertig()
+    assert live.vorab_fuer(neu) is None
+    assert live.vorab_fuer(alt) is not None  # die vorige wird womoeglich noch verarbeitet
+
+
+def test_verworfener_upload_nimmt_seine_segmente_mit(live, welt, teil, tmp_path):
+    wachsen(live, welt, teil, 50.0)
+    live.verwerfen("S3", "H5_007.opus")  # 422: das Geraet beginnt von vorn
+    wachsen(live, welt, teil, 10.0)
+    ziel = tmp_path / "S3_H5_007.opus"
+    ziel.write_bytes(b"x")
+    live.abgeschlossen("S3", "H5_007.opus", ziel, lambda: None)
+    assert live.warte_bis_fertig()
+    assert live.vorab_fuer(ziel) is None
+
+
+def test_wiederholter_upload_nimmt_fertig_nicht_zurueck(live, welt, teil):
+    """Ging die Bestaetigung verloren, laedt das Geraet die Aufnahme noch einmal ganz hoch. Der Status muss dabei
+    "fertig" bleiben, sonst zeigte das Geraet nie "Transkription erfolgreich"."""
+    live.status.setze("S3", "H5_007.opus", ls.FERTIG, 1.0, "Transkription erfolgreich")
+    wachsen(live, welt, teil, 25.0)
+    assert live.status.hole("S3", "H5_007.opus")["zustand"] == ls.FERTIG
+
+
+def test_ein_fehler_in_einem_fenster_schaltet_die_live_transkription_nicht_ab(tmp_path, welt, teil):
+    status = ls.StatusRegister()
+    versuche: list[tuple[float, float]] = []
+
+    def einmal_kaputt(quelle, ziel, start, ende):
+        versuche.append((start, ende))
+        if len(versuche) == 1:
+            raise RuntimeError("ffmpeg: Datei kurz gesperrt")
+        welt.extrahieren(quelle, ziel, start, ende)
+
+    live = ls.LiveTranskription(
+        tmp_path / "arbeit", welt.fabrik, status=status, dauer_fn=welt.dauer_fn, extrahieren=einmal_kaputt
+    )
+    try:
+        wachsen(live, welt, teil, 25.0)
+        assert not live.deaktiviert and status.hole("S3", "H5_007.opus") is None
+        wachsen(live, welt, teil, 30.0)  # ohne 20 s neues Audio kein neuer Versuch
+        assert len(versuche) == 1
+        wachsen(live, welt, teil, 50.0)
+        assert status.hole("S3", "H5_007.opus")["zustand"] == ls.EMPFANG  # type: ignore[index]
+    finally:
+        live.stoppen()

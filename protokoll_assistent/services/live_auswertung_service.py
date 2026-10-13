@@ -94,15 +94,31 @@ class LiveAuswertung:
         self._anstossen(schluessel)
 
     def beenden(self, schluessel: str) -> None:
-        """Die Aufnahme ist zu Ende: Es kommen keine neuen Segmente mehr dazu. Abschnitte, deren Text schon
-        feststeht, werden noch ausgewertet -- das laeuft parallel zur Transkription des Rests -- die uebrigen
-        uebernimmt die fertige Auswertung."""
+        """Die Aufnahme ist zu Ende: Es kommen keine neuen Segmente und keine neuen Anfragen mehr dazu. Eine
+        gerade laufende Anfrage rechnet noch fertig; alle uebrigen Abschnitte uebernimmt die fertige Auswertung.
+
+        Nicht parallel weiterrechnen: Die Verarbeitung der fertigen Datei laedt jetzt Whisper auf die
+        Grafikkarte. Eine weitere Anfrage holte das Sprachmodell daneben zurueck -- genau die Lage, die auf
+        6-GB-Karten "CUDA out of memory" ausloeste (``pipeline_service._grafikspeicher_fuer_whisper_freimachen``)."""
         with self._bedingung:
             stand = self._staende.get(schluessel)
             if stand is None:
                 return
             stand.ende = True
-        self._anstossen(schluessel)
+
+    def warte_auf_leerlauf(self, schluessel: str, zeitlimit: float) -> None:
+        """Wartet hoechstens ``zeitlimit`` Sekunden, bis keine Anfrage dieser Aufnahme mehr laeuft oder ansteht."""
+        ende = self._jetzt() + zeitlimit
+        with self._bedingung:
+            self._warten_solange_beschaeftigt(schluessel, ende)
+
+    def _warten_solange_beschaeftigt(self, schluessel: str, ende: float) -> None:
+        """Erwartet die gehaltene ``_bedingung``."""
+        stand = self._staende.get(schluessel)
+        while (
+            stand is not None and (stand.in_arbeit or schluessel in self._vorgemerkt) and self._jetzt() < ende
+        ):
+            self._bedingung.wait(timeout=max(0.01, min(0.5, ende - self._jetzt())))
 
     def vorab_fuer(self, schluessel: str, warten: float = 0.0) -> dict[str, dict[str, str]] | None:
         """Die fertigen Teilergebnisse ``{"stufe1": {Kennung: Text}, "stufe2": {...}}``; ``None``, wenn es keine gibt.
@@ -114,8 +130,7 @@ class LiveAuswertung:
             stand = self._staende.get(schluessel)
             if stand is None:
                 return None
-            while (stand.in_arbeit or schluessel in self._vorgemerkt) and self._jetzt() < ende:
-                self._bedingung.wait(timeout=max(0.01, min(0.5, ende - self._jetzt())))
+            self._warten_solange_beschaeftigt(schluessel, ende)
             if not stand.stufe1 and not stand.stufe2:
                 return None
             return {"stufe1": dict(stand.stufe1), "stufe2": dict(stand.stufe2)}
@@ -185,7 +200,7 @@ class LiveAuswertung:
                 self._warte.task_done()
 
     def _bearbeite(self, stand: _Stand) -> None:
-        if self._jetzt() < stand.naechster_versuch:
+        if stand.ende or self._jetzt() < stand.naechster_versuch:
             return
         einstellungen = self._einstellungen_fn()
         if einstellungen is None:
@@ -208,7 +223,7 @@ class LiveAuswertung:
         anfang = index * schritt
         ende = anfang + laenge
         with self._bedingung:
-            if ende > stand.bestaetigt_bis:
+            if stand.ende or ende > stand.bestaetigt_bis:
                 return False
             segmente = list(stand.segmente)
         plan = chunking_service.ChunkPlan(
@@ -220,7 +235,7 @@ class LiveAuswertung:
             is_last=False,
         )
         auftrag = protocol_service.effektiver_systemprompt(einstellungen.auftrag)
-        texte = pipeline_service.baue_protokoll_chunk_texte([plan], segmente, {}, False)
+        texte = pipeline_service.baue_protokoll_chunk_texte([plan], segmente, {}, False, fliesstext=True)
         if texte:  # ein Abschnitt ohne Text wird (wie in der fertigen Auswertung) nicht angefragt
             chunk = texte[0]
             prompt = protocol_service.build_stage1_prompt(
@@ -247,6 +262,8 @@ class LiveAuswertung:
             ]
         gruppen = protocol_service.gruppen_bilden(ergebnisse, einstellungen.gruppengroesse)
         for index, gruppe in enumerate(gruppen):
+            if stand.ende or self._stopp:
+                return  # siehe 'beenden'
             if len(gruppe) < 2 or not protocol_service.abschluss_der_gruppe_steht_fest(
                 gruppen, index, einstellungen.gruppengroesse
             ):

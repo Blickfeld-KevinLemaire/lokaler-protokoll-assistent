@@ -87,7 +87,7 @@ def fortschritt(a, bis):
 def erwartete_kennung_stufe1(index: int, segmente: list[dict]) -> str:
     anfang = index * SCHRITT
     plan = chunking_service.ChunkPlan(index, anfang, anfang + LAENGE, 0.0 if index == 0 else UEBERLAPPUNG, index == 0, False)
-    chunk = pipeline_service.baue_protokoll_chunk_texte([plan], segmente, {}, False)[0]
+    chunk = pipeline_service.baue_protokoll_chunk_texte([plan], segmente, {}, False, fliesstext=True)[0]
     prompt = protocol_service.build_stage1_prompt(index, str(chunk["start_str"]), str(chunk["end_str"]), str(chunk["text"]))
     return protocol_service.eingabe_kennung(prompt, protocol_service.effektiver_systemprompt(AUFTRAG), MODELL)
 
@@ -203,9 +203,11 @@ def test_nach_dem_ende_kommen_keine_neuen_segmente_mehr_dazu(auswertung, modell)
     assert len(modell.stufe1) == 1  # Abschnitt 2 uebernimmt die fertige Auswertung
 
 
-def test_schon_feststehende_abschnitte_werden_nach_dem_ende_noch_ausgewertet(modell):
-    """Das Ende der Aufnahme darf einen Abschnitt, dessen Text schon feststeht, nicht liegen lassen: Er wird parallel zur
-    Transkription des Rests ausgewertet, und die fertige Auswertung wartet darauf."""
+def test_nach_dem_ende_rechnet_nur_die_laufende_anfrage_fertig(modell):
+    """Mit dem Ende der Aufnahme beginnt keine neue Anfrage mehr: Die Verarbeitung der fertigen Datei laedt gleich
+    Whisper auf die Grafikkarte, und eine weitere Anfrage holte das Sprachmodell daneben zurueck ("CUDA out of
+    memory" auf 6-GB-Karten). Die gerade laufende rechnet fertig und wird uebernommen; den Rest rechnet die fertige
+    Auswertung."""
     modell.sperre = threading.Event()
     a = bauen(modell)
     try:
@@ -213,9 +215,10 @@ def test_schon_feststehende_abschnitte_werden_nach_dem_ende_noch_ausgewertet(mod
         assert modell.laeuft.wait(5)  # Abschnitt 1 laeuft gerade
         a.beenden(SCHLUESSEL)
         modell.sperre.set()
-        vorab = a.vorab_fuer(SCHLUESSEL, warten=10.0)
-        assert len(modell.stufe1) == 2 and vorab is not None and len(vorab["stufe1"]) == 2
-        assert a.anzahl(SCHLUESSEL) == 2
+        a.warte_auf_leerlauf(SCHLUESSEL, 10.0)
+        vorab = a.vorab_fuer(SCHLUESSEL)
+        assert len(modell.stufe1) == 1 and vorab is not None and len(vorab["stufe1"]) == 1
+        assert a.anzahl(SCHLUESSEL) == 1
     finally:
         modell.sperre.set()
         a.stoppen()
@@ -292,7 +295,7 @@ def test_ende_zu_ende_mit_der_fertigen_auswertung(tmp_path, modell):
             {"start": s["start"], "sprecher_id": None, "text": s["text"]} for s in saetze(2000)
         ]
         plaene = chunking_service.plan_chunks(2000.0)
-        chunk_texte = pipeline_service.baue_protokoll_chunk_texte(plaene, segmente, {}, False)
+        chunk_texte = pipeline_service.baue_protokoll_chunk_texte(plaene, segmente, {}, False, fliesstext=True)
         vorab = a.vorab_fuer(SCHLUESSEL)
         neu1, neu2 = protocol_service.vorab_ergebnisse_ablegen(
             vorab, chunk_texte, tmp_path, AUFTRAG, 2, modell=MODELL

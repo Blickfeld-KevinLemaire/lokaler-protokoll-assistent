@@ -719,3 +719,21 @@ def test_status_ueber_http(tmp_path):
 
 def test_status_ohne_live_verarbeitung_ist_unbekannt(dienst):
     assert anfrage(dienst, "GET", "/api/v1/aufnahmen/H5_007.opus/status")[:2] == (200, {"zustand": "unbekannt"})
+
+
+def test_neubeginn_verwerfen_und_wiederholung_werden_gemeldet(tmp_path):
+    """Was bisher unter einem Namen ankam, gilt nicht mehr: ein Upload ab Byte 0, ein verworfener Teilstand (422),
+    die Wiederholung einer schon abgelegten Aufnahme. Die Live-Verarbeitung verwirft dann ihren Stand -- sonst
+    geriete das Transkript der vorigen Aufnahme in die naechste unter demselben Namen."""
+    verworfen: list[tuple] = []
+    ablage = Ablage(tmp_path / "eingang", freier_platz=lambda _p: 10**12, bei_verworfen=lambda *a: verworfen.append(a))
+    assert ablage.anhaengen("S3", "H5.opus", 0, 3, leser(b"abc")).status == 200
+    assert verworfen == [("S3", "H5.opus")]  # beginnt bei Byte 0
+    assert ablage.anhaengen("S3", "H5.opus", 3, 3, leser(b"def")).status == 200
+    assert len(verworfen) == 1  # ein Folgestueck verwirft nichts
+    assert ablage.anhaengen("S3", "H5.opus", 6, 0, leser(b""), 6, sha(b"anders")).status == 422
+    assert len(verworfen) == 2
+    hochladen(ablage, "S3", "H5.opus", b"abc", stueck=3)  # von vorn: Byte 0
+    assert len(verworfen) == 3
+    hochladen(ablage, "S3", "H5.opus", b"abc", stueck=3)  # Bestaetigung verloren: Byte 0 und Wiederholung
+    assert verworfen == [("S3", "H5.opus")] * 5

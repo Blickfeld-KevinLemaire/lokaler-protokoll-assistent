@@ -567,3 +567,12 @@ def test_kennung_haengt_nur_bei_abweichender_abschnittslaenge_davon_ab():
     assert protocol_service.prompt_kennung("Auftrag", "modell", None) == standard  # aeltere Zwischenstaende bleiben gueltig
     assert protocol_service.prompt_kennung("Auftrag", "modell", 180) != standard
     assert protocol_service.prompt_kennung("Auftrag", "modell", 180) != protocol_service.prompt_kennung("Auftrag", "modell", 120)
+
+
+def test_ergebnisse_ohne_sprecher_haben_eine_eigene_kennung():
+    """Zwischenstaende aus Text ohne Sprecherangaben (automatische Auswertung) duerfen nicht in eine Auswertung mit
+    Sprechern geraten -- auch nicht bei Standard-Abschnittslaenge."""
+    mit = protocol_service.prompt_kennung("Auftrag", "m")
+    ohne = protocol_service.prompt_kennung("Auftrag", "m", ohne_sprecher=True)
+    assert mit != ohne
+    assert protocol_service.prompt_kennung("Auftrag", "m", None, False) == mit  # unveraendert fuer alte Staende

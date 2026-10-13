@@ -113,6 +113,7 @@ class EmpfangsSteuerung(QObject):
         if live_aktiv:
             zusaetze["bei_teil"] = self._teil
             zusaetze["bei_abschluss"] = self._abschluss
+            zusaetze["bei_verworfen"] = self._verworfen
         dienst = fabrik(ziel, geraete, port=port, bei_neuer_aufnahme=self._melden, **zusaetze)
         try:
             dienst.starten()
@@ -147,6 +148,10 @@ class EmpfangsSteuerung(QObject):
     def _teil(self, geraet: str, datei: str, pfad: Path) -> None:
         assert self._live is not None  # noqa: S101 -- nur mit Live-Verarbeitung verbunden
         self._live.teil_gewachsen(geraet, datei, pfad)
+
+    def _verworfen(self, geraet: str, datei: str) -> None:
+        assert self._live is not None  # noqa: S101 -- siehe oben
+        self._live.verwerfen(geraet, datei)
 
     def _abschluss(self, geraet: str, datei: str, ziel: Path) -> None:
         assert self._live is not None and self._status is not None  # noqa: S101 -- siehe oben

@@ -150,6 +150,9 @@ Antwort ist immer `200`, solange das Token gilt (ein ungültiger Dateiname: `400
 
 Der Stand liegt nur im Speicher der Software. Nach einem Neustart der Software
 meldet sie `unbekannt`; die Aufnahme selbst ist dann trotzdem sicher abgelegt.
+Lädt ein Gerät eine schon abgelegte Aufnahme noch einmal hoch (die Bestätigung
+ging verloren), bleibt der bisherige Stand stehen – ein `fertig` wird dadurch
+nicht zurückgenommen.
 
 ## Ablauf im Gerät
 

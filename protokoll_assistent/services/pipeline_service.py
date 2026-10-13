@@ -222,6 +222,7 @@ def _build_protocol_chunk_texts(
     merged_segments: list[dict[str, Any]],
     speaker_names: dict[str, str],
     diarization_enabled: bool = True,
+    fliesstext: bool = False,
 ) -> list[dict[str, Any]]:
     """Baut je Chunk den zugehoerigen (bereits global datierten und
     deduplizierten) Transkriptausschnitt fuer die Ollama-Auswertung.
@@ -238,6 +239,11 @@ def _build_protocol_chunk_texts(
     Ohne Sprechertrennung gibt es keine Sprecher zuzuordnen - dann sind
     weder Sprecherangabe noch sekundengenaue Zeitstempel eine hilfreiche
     Information, nur reiner Fliesstext (genau wie in 'build_preview_text').
+
+    ``fliesstext`` (nur ohne Sprecher): alle Segmente eines Chunks als eine Zeile, Leerraum vereinheitlicht.
+    Die wortgenaue Sprecherzuordnung teilt ein Segment dort, wo der Sprecher wechselt; zeilenweise ergaebe
+    dasselbe Gesprochene dann einen anderen Text als waehrend der Aufnahme (vor der Sprechertrennung) -- und
+    die dort schon berechneten Teilergebnisse passten nie (siehe ``live_auswertung_service``).
     """
     chunk_texts = []
     for plan in chunk_plans:
@@ -251,6 +257,10 @@ def _build_protocol_chunk_texts(
                     sprecher_id = segment.get("sprecher_id")
                     name = speaker_names.get(sprecher_id, "Sprecher unbekannt")  # type: ignore[arg-type]
                     lines.append(f"[{format_timestamp(segment['start'])}] {name}: {segment['text']}")
+                elif fliesstext:
+                    woerter = " ".join(str(segment["text"]).split())
+                    if woerter:
+                        lines.append(woerter)
                 else:
                     lines.append(segment["text"])
         if not lines:
@@ -263,7 +273,7 @@ def _build_protocol_chunk_texts(
                 "index": plan.index,
                 "start_str": format_timestamp(fenster_start),
                 "end_str": format_timestamp(plan.global_end),
-                "text": "\n".join(lines),
+                "text": (" " if fliesstext and not diarization_enabled else "\n").join(lines),
             }
         )
     return chunk_texts
@@ -274,9 +284,10 @@ def baue_protokoll_chunk_texte(
     merged_segments: list[dict[str, Any]],
     speaker_names: dict[str, str],
     diarization_enabled: bool = True,
+    fliesstext: bool = False,
 ) -> list[dict[str, Any]]:
     """Der Text je Chunk fuer die Auswertung (oeffentlich: ``live_auswertung_service`` baut ihn vorab genauso)."""
-    return _build_protocol_chunk_texts(chunk_plans, merged_segments, speaker_names, diarization_enabled)
+    return _build_protocol_chunk_texts(chunk_plans, merged_segments, speaker_names, diarization_enabled, fliesstext)
 
 
 def _automatisches_word(callbacks: PipelineCallbacks, transkript_json: Path, protokoll_json: Path | None = None) -> None:
@@ -778,7 +789,11 @@ def run_protocol(
     else:
         system_prompt = settings.system_prompt
     chunk_texts = _build_protocol_chunk_texts(
-        chunk_plans, segments, speaker_names, diarization_enabled and not settings.ohne_sprecher
+        chunk_plans,
+        segments,
+        speaker_names,
+        diarization_enabled and not settings.ohne_sprecher,
+        fliesstext=settings.ohne_sprecher,
     )
     modell_kennung = settings.protokoll_modell_kennung or settings.ollama_model
     if settings.vorab_auswertung is not None:
@@ -792,6 +807,7 @@ def run_protocol(
                 settings.protocol_group_size,
                 modell=modell_kennung,
                 abschnitt_sekunden=abschnitt_kennung,
+                ohne_sprecher=settings.ohne_sprecher,
             )
             if neu1 or neu2:
                 callbacks.on_log(
@@ -822,6 +838,7 @@ def run_protocol(
             ),
             modell=modell_kennung,
             abschnitt_sekunden=abschnitt_kennung,
+            ohne_sprecher=settings.ohne_sprecher,
         )
         protokoll_status = manifest_service.STATUS_ABGESCHLOSSEN
         callbacks.on_stage("export_protokoll", STAGE_LABELS["export_protokoll"])
