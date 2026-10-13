@@ -460,6 +460,19 @@ def write_protocol_exports(
     return json_path, md_path
 
 
+def update_protocol_exports(json_path: Path, md_path: Path, protocol: str) -> None:
+    """Schreibt einen von Hand bearbeiteten Ergebnistext zurueck in die
+    Protokolldateien (``.md`` und das ``ergebnis``-Feld der ``.json``);
+    Systemprompt und uebrige Angaben der ``.json`` bleiben erhalten."""
+    daten = json.loads(json_path.read_text(encoding="utf-8")) if json_path.is_file() else {}
+    if not isinstance(daten, dict):
+        raise ValueError(f"Unerwarteter Inhalt in {json_path.name}")
+    daten["ergebnis"] = protocol
+    daten["bearbeitet"] = datetime.now().astimezone().isoformat(timespec="seconds")
+    json_path.write_text(json.dumps(daten, ensure_ascii=False, indent=2), encoding="utf-8")
+    md_path.write_text(protocol.rstrip("\n") + "\n", encoding="utf-8")
+
+
 def write_protocol_docx(protocol: str, output_path: Path) -> bool:
     """Optionaler DOCX-Export des Ergebnistextes. Liefert ``False``, wenn
     ``python-docx`` nicht installiert ist (das Paket ist gemaess Auftrag

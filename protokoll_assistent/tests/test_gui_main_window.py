@@ -740,6 +740,60 @@ def test_nachbearbeitung_erfolgreich(fenster, tmp_path, monkeypatch):
     assert fenster.status_label.text() == "Nachbearbeitung abgeschlossen."
 
 
+def _echtes_protokoll_schreiben(tmp_path, text="Erstes Protokoll"):
+    return export_service.write_protocol_exports(tmp_path, text, "meeting", "20260101_000000", "Prompt")
+
+
+def test_nachbearbeitung_zeigt_das_ergebnis_auf_ihrer_seite_zum_bearbeiten(fenster, tmp_path, monkeypatch):
+    monkeypatch.setattr(QMessageBox, "information", staticmethod(lambda *a: None))
+    json_pfad, md_pfad = _echtes_protokoll_schreiben(tmp_path)
+    ergebnis = _protokoll_ergebnis_bauen(tmp_path)
+    ergebnis.protocol_paths = (json_pfad, md_pfad)
+    fenster.nav_buttons[0].click()
+
+    fenster._on_protocol_finished_ok(ergebnis)
+
+    assert fenster.page_stack.currentIndex() == fenster.SEITE_NACHBEARBEITUNG
+    assert fenster.protocol_result_edit.toPlainText().strip() == "Erstes Protokoll"
+    assert not fenster.protocol_save_button.isEnabled()
+    fenster.protocol_result_edit.setPlainText("Korrigiertes Protokoll")
+    assert fenster.protocol_save_button.isEnabled()
+
+    erneuert = []
+    fenster._selected_transcript_path = tmp_path / "transkript.json"
+    fenster._selected_transcript_path.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(fenster, "_word_neu_erzeugen", lambda pfad: erneuert.append(pfad))
+    assert fenster._save_protocol_edits() is True
+
+    assert md_pfad.read_text(encoding="utf-8").strip() == "Korrigiertes Protokoll"
+    gespeichert = json.loads(json_pfad.read_text(encoding="utf-8"))
+    assert gespeichert["ergebnis"] == "Korrigiertes Protokoll" and gespeichert["systemprompt"] == "Prompt"
+    assert not fenster.protocol_save_button.isEnabled()
+    assert erneuert == [fenster._selected_transcript_path]  # die Word-Datei folgt dem neuen Text
+
+
+def test_ungespeicherte_aenderungen_werden_vor_neuem_lauf_und_export_geklaert(fenster, tmp_path, monkeypatch):
+    monkeypatch.setattr(QMessageBox, "information", staticmethod(lambda *a: None))
+    json_pfad, md_pfad = _echtes_protokoll_schreiben(tmp_path)
+    ergebnis = _protokoll_ergebnis_bauen(tmp_path)
+    ergebnis.protocol_paths = (json_pfad, md_pfad)
+    fenster._on_protocol_finished_ok(ergebnis)
+    fenster.protocol_result_edit.setPlainText("Geaendert")
+
+    antworten = iter([QMessageBox.Cancel, QMessageBox.Discard, QMessageBox.Save])
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a, **k: next(antworten)))
+    monkeypatch.setattr(fenster, "_word_neu_erzeugen", lambda pfad: None)
+
+    assert fenster._ungespeicherte_aenderungen_geklaert("etwas passiert") is False  # abgebrochen
+    assert fenster.protocol_save_button.isEnabled()
+    assert fenster._ungespeicherte_aenderungen_geklaert("etwas passiert") is True  # verworfen
+    assert md_pfad.read_text(encoding="utf-8").strip() == "Erstes Protokoll"
+    assert fenster._ungespeicherte_aenderungen_geklaert("etwas passiert") is True  # gespeichert
+    assert md_pfad.read_text(encoding="utf-8").strip() == "Geaendert"
+    # Ohne Aenderung wird gar nicht erst gefragt (der Iterator ist leer).
+    assert fenster._ungespeicherte_aenderungen_geklaert("etwas passiert") is True
+
+
 def test_nachbearbeitung_fehlschlag(fenster, tmp_path, monkeypatch):
     warnungen = []
     monkeypatch.setattr(QMessageBox, "warning", staticmethod(lambda *a: warnungen.append(a)))
@@ -1675,8 +1729,8 @@ def test_audioquelle_dialog_bekommt_nur_echte_geraete(fenster, monkeypatch):
 def test_seitenleiste_hat_vier_seiten_und_startet_auf_der_transkription(fenster):
     assert [k.text().split()[-1] for k in fenster.nav_buttons] == [
         "Transkription",
-        "Nachbearbeitung",
         "Sprecher",
+        "Nachbearbeitung",
         "Meeting",
     ]
     assert fenster.nav_buttons[3].text().endswith("Frag mein Meeting")
@@ -1689,11 +1743,11 @@ def test_seitenleiste_hat_vier_seiten_und_startet_auf_der_transkription(fenster)
 def test_navigation_wechselt_seite_titel_und_markierung(fenster):
     fenster.nav_buttons[1].click()
     assert fenster.page_stack.currentIndex() == 1
-    assert fenster.page_title_label.text() == "Nachbearbeitung"
+    assert fenster.page_title_label.text() == "Ergebnis und Sprecher"
     assert fenster.nav_buttons[1].isChecked() and not fenster.nav_buttons[0].isChecked()
 
     fenster.nav_buttons[2].click()
-    assert fenster.page_title_label.text() == "Ergebnis und Sprecher"
+    assert fenster.page_title_label.text() == "Nachbearbeitung"
 
 
 def test_jede_funktionsgruppe_liegt_auf_der_richtigen_seite(fenster):
@@ -1708,10 +1762,11 @@ def test_jede_funktionsgruppe_liegt_auf_der_richtigen_seite(fenster):
     assert seite_von(fenster.language_combo) == 0
     assert seite_von(fenster.resume_combo) == 0
     assert seite_von(fenster.start_button) == 0
-    assert seite_von(fenster.protocol_start_button) == 1
-    assert seite_von(fenster.systemprompt_editor) == 1
-    assert seite_von(fenster.preview_edit) == 2
-    assert seite_von(fenster.speaker_table) == 2
+    assert seite_von(fenster.preview_edit) == 1
+    assert seite_von(fenster.speaker_table) == 1
+    assert seite_von(fenster.protocol_start_button) == 2
+    assert seite_von(fenster.systemprompt_editor) == 2
+    assert seite_von(fenster.protocol_result_edit) == 2
     # Der Fortschritt steht nicht auf einer Seite, sondern immer sichtbar darunter.
     assert seite_von(fenster.overall_progress_bar) is None
 
@@ -1719,7 +1774,7 @@ def test_jede_funktionsgruppe_liegt_auf_der_richtigen_seite(fenster):
 def test_fertige_transkription_zeigt_die_ergebnisseite(fenster, tmp_path, monkeypatch):
     monkeypatch.setattr(QMessageBox, "information", staticmethod(lambda *a: None))
     fenster._on_transcription_finished_ok(_transkript_ergebnis_bauen(tmp_path, []))
-    assert fenster.page_stack.currentIndex() == 2
+    assert fenster.page_stack.currentIndex() == fenster.SEITE_ERGEBNIS
 
 
 def test_neue_transkription_wechselt_zur_transkriptionsseite(fenster, monkeypatch):

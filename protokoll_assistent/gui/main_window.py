@@ -236,10 +236,14 @@ class MainWindow(QMainWindow):
     # Seiten im 'QStackedWidget' aus '_build_ui'.
     SEITEN: ClassVar[tuple[tuple[str, str], ...]] = (
         ("Transkription", "Aufnahme oder Datei auswählen und in Text umwandeln."),
-        ("Nachbearbeitung", "Aus einem vorhandenen Transkript ein Protokoll erstellen."),
         ("Ergebnis und Sprecher", "Vorschau ansehen, Sprecher benennen, Stimmen anhören."),
+        (
+            "Nachbearbeitung",
+            "Aus einem vorhandenen Transkript ein Protokoll erstellen, ansehen und bei Bedarf überarbeiten.",
+        ),
         ("Frag mein Meeting", "Fragen an die ausgewählten Transkripte und Zusammenfassungen stellen."),
     )
+    (SEITE_TRANSKRIPTION, SEITE_ERGEBNIS, SEITE_NACHBEARBEITUNG, SEITE_CHAT) = range(4)
 
     def _build_ui(self) -> None:
         """Seitenleiste mit Navigation links, rechts die gewaehlte Seite und
@@ -284,19 +288,20 @@ class MainWindow(QMainWindow):
                 [self._build_settings_group(), self._build_resume_group(), self._build_control_group()],
             )
         )
-        self.page_stack.addWidget(
-            self._scroll_page(
-                [
-                    self._build_transcript_selection_group(),
-                    self._build_protocol_control_group(),
-                ]
-            )
-        )
         ergebnis_seite = QSplitter(Qt.Vertical, self)
         ergebnis_seite.addWidget(self._build_preview_group())
         ergebnis_seite.addWidget(self._build_speaker_group())
         ergebnis_seite.setSizes([300, 300])
         self.page_stack.addWidget(ergebnis_seite)
+        self.page_stack.addWidget(
+            self._scroll_page(
+                [
+                    self._build_transcript_selection_group(),
+                    self._build_protocol_control_group(),
+                    self._build_protocol_result_group(),
+                ]
+            )
+        )
 
         # Chatbot "Frag mein Meeting": Fragen an Transkripte und Zusammenfassungen.
         self.chat_page = ChatPage(
@@ -347,7 +352,7 @@ class MainWindow(QMainWindow):
         self._nav_gruppe = QButtonGroup(self)
         self._nav_gruppe.setExclusive(True)
         self.nav_buttons: list[QPushButton] = []
-        symbole = ("🎙", "📝", "👥", "💬")
+        symbole = ("🎙", "👥", "📝", "💬")
         for index, ((titel, _), symbol) in enumerate(zip(self.SEITEN, symbole, strict=True)):
             knopf = QPushButton(f"{symbol}   {titel}", self)
             knopf.setObjectName("NavButton")
@@ -855,7 +860,7 @@ class MainWindow(QMainWindow):
         Aufnahme- bzw. Dateiauswahl aus."""
         if self._recording is not None:
             return
-        self._show_page(0)
+        self._show_page(self.SEITE_TRANSKRIPTION)
         geraete = [geraet.anzeigename for geraet in self._recording_devices]
         dialog = AudioquelleDialog(
             geraete,
@@ -1303,6 +1308,103 @@ class MainWindow(QMainWindow):
 
         return group
 
+    def _build_protocol_result_group(self) -> QGroupBox:
+        """Ansicht des Nachbearbeitungs-Ergebnisses (Protokoll, Zusammenfassung
+        o. ae.) auf der Seite "Nachbearbeitung". Der Text ist bearbeitbar und
+        wird erst mit "Änderungen speichern" in die Protokolldateien (und die
+        automatische Word-Datei) zurueckgeschrieben -- so laesst sich das
+        Ergebnis pruefen und korrigieren, bevor es exportiert wird."""
+        group = QGroupBox("Ergebnis der Nachbearbeitung", self)
+        layout = QVBoxLayout(group)
+
+        self.protocol_result_edit = QPlainTextEdit(self)
+        self.protocol_result_edit.setMinimumHeight(260)
+        self.protocol_result_edit.setPlaceholderText(
+            "Hier erscheint das Ergebnis der Nachbearbeitung. Es lässt sich anschließend "
+            "direkt bearbeiten und mit „Änderungen speichern“ in die Protokolldateien übernehmen."
+        )
+        self.protocol_result_edit.textChanged.connect(self._protocol_result_geaendert)
+        layout.addWidget(self.protocol_result_edit)
+
+        self.protocol_result_file_label = QLabel("Noch kein Ergebnis vorhanden.", self)
+        self.protocol_result_file_label.setWordWrap(True)
+        layout.addWidget(self.protocol_result_file_label)
+
+        button_row = QHBoxLayout()
+        self.protocol_save_button = QPushButton("Änderungen speichern", self)
+        self.protocol_save_button.setEnabled(False)
+        self.protocol_save_button.clicked.connect(self._save_protocol_edits)
+        button_row.addWidget(self.protocol_save_button)
+        button_row.addStretch(1)
+        layout.addLayout(button_row)
+
+        self._protocol_result_paths: tuple[Path, Path] | None = None
+        self._protocol_result_unveraendert = ""
+        self._protocol_result_wird_gesetzt = False
+        return group
+
+    def _protocol_result_geaendert(self) -> None:
+        if self._protocol_result_wird_gesetzt:
+            return
+        ungespeichert = (
+            self._protocol_result_paths is not None
+            and self.protocol_result_edit.toPlainText() != self._protocol_result_unveraendert
+        )
+        self.protocol_save_button.setEnabled(ungespeichert)
+
+    def _protocol_result_anzeigen(self, text: str, paths: tuple[Path, Path] | None) -> None:
+        self._protocol_result_wird_gesetzt = True
+        try:
+            self.protocol_result_edit.setPlainText(text)
+        finally:
+            self._protocol_result_wird_gesetzt = False
+        self._protocol_result_paths = paths
+        self._protocol_result_unveraendert = self.protocol_result_edit.toPlainText()
+        self.protocol_save_button.setEnabled(False)
+        if paths is None:
+            self.protocol_result_file_label.setText("Noch kein Ergebnis vorhanden.")
+        else:
+            self.protocol_result_file_label.setText(f"Datei: {paths[1].name}")
+
+    def _save_protocol_edits(self, _checked: bool = False) -> bool:
+        if self._protocol_result_paths is None:
+            return False
+        json_path, md_path = self._protocol_result_paths
+        text = self.protocol_result_edit.toPlainText()
+        try:
+            export_service.update_protocol_exports(json_path, md_path, text)
+        except (OSError, ValueError) as error:
+            show_error(self, "Speichern fehlgeschlagen", f"Das Ergebnis konnte nicht gespeichert werden:\n{error}")
+            return False
+        self._protocol_result_unveraendert = text
+        self.protocol_save_button.setEnabled(False)
+        self.status_label.setText("Änderungen am Ergebnis gespeichert.")
+        # Die automatische Word-Datei enthaelt das Protokoll und soll den
+        # bearbeiteten Text zeigen.
+        if self._selected_transcript_path is not None and self._selected_transcript_path.is_file():
+            self._word_neu_erzeugen(self._selected_transcript_path)
+        return True
+
+    def _ungespeicherte_aenderungen_geklaert(self, anlass: str) -> bool:
+        """Fragt nach, bevor ein Vorgang das bearbeitete, noch nicht gespeicherte
+        Ergebnis ersetzt oder ohne die Aenderungen weiterverwendet. Liefert
+        ``False``, wenn der Benutzer abbricht."""
+        if not self.protocol_save_button.isEnabled():
+            return True
+        antwort = QMessageBox.question(
+            self,
+            "Ungespeicherte Änderungen",
+            "Das Ergebnis der Nachbearbeitung wurde bearbeitet, aber nicht gespeichert.\n"
+            f"Speichern, bevor {anlass}?",
+            QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel,
+            QMessageBox.Save,
+        )
+        if antwort == QMessageBox.Cancel:
+            return False
+        if antwort == QMessageBox.Save:
+            return self._save_protocol_edits()
+        return True
+
     def _nachbearbeitung_modus_geaendert(self) -> None:
         modus = "api" if self.nachbearbeitung_api_radio.isChecked() else "lokal"
         app_config.update_config(nachbearbeitung_modus=modus)
@@ -1526,6 +1628,9 @@ class MainWindow(QMainWindow):
             show_error(self, "Ausgabeordner ungültig", f"In den Ausgabeordner kann nicht geschrieben werden:\n{error}")
             return
 
+        if not self._ungespeicherte_aenderungen_geklaert("ein neues Ergebnis erzeugt wird"):
+            return
+
         # Ein leerer Systemprompt ist erlaubt: Dann fasst das Modell so
         # zusammen, wie es fuer den Inhalt am sinnvollsten ist. Ist einer
         # eingetragen, bestimmt er allein, was geschieht.
@@ -1691,7 +1796,7 @@ class MainWindow(QMainWindow):
         self._populate_speaker_table(result)
         self._set_transcript_path(result.export_paths.json)
         self.status_label.setText("Transkription abgeschlossen.")
-        self._show_page(2)
+        self._show_page(self.SEITE_ERGEBNIS)
         if self._protokoll_nach_transkription and self._transcription_worker is not None:
             # Erst starten, wenn der Transkriptions-Thread beendet ist: Dessen
             # 'finished' schaltet die Bedienelemente wieder frei und stoppt den
@@ -1737,6 +1842,8 @@ class MainWindow(QMainWindow):
                 "unter „Nachbearbeitung“ ein Transkript auswählen.",
             )
             return
+        if not self._ungespeicherte_aenderungen_geklaert("exportiert wird"):
+            return
         protokoll = None
         if self._last_protocol_result is not None and self._last_protocol_result.protocol_paths is not None:
             kandidat = self._last_protocol_result.protocol_paths[0]
@@ -1774,10 +1881,17 @@ class MainWindow(QMainWindow):
         protocol_paths = result.protocol_paths
         if protocol_paths is None:
             return
+        try:
+            ergebnis_text = protocol_paths[1].read_text(encoding="utf-8")
+        except OSError:
+            ergebnis_text = ""
+        self._protocol_result_anzeigen(ergebnis_text, protocol_paths)
+        self._show_page(self.SEITE_NACHBEARBEITUNG)
         QMessageBox.information(
             self,
             "Nachbearbeitung abgeschlossen",
-            f"Protokolldateien wurden erstellt in:\n{protocol_paths[0].parent}",
+            f"Protokolldateien wurden erstellt in:\n{protocol_paths[0].parent}\n\n"
+            "Das Ergebnis steht unten auf der Seite „Nachbearbeitung“ und lässt sich dort noch bearbeiten.",
         )
 
     def _on_protocol_failed(self, message: str) -> None:
