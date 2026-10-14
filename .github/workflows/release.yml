@@ -49,6 +49,9 @@ jobs:
     # Anwendung ist das ein Build - und ein Windows-Laeufer weniger.
     name: Anwendung, Archiv und Installer bauen
     runs-on: windows-latest
+    # Tests plus Build plus Installer; ein haengender Schritt soll den Laeufer
+    # nicht die Vorgabe von sechs Stunden belegen.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
 
@@ -164,6 +167,7 @@ jobs:
     needs: [bauen]
     if: startsWith(github.ref, 'refs/tags/v') || inputs.version != ''
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - name: Artefakte holen
         uses: actions/download-artifact@v8
