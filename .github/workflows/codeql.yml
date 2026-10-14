@@ -29,7 +29,13 @@ jobs:
     name: Analyse (Python)
     # Linux: CodeQL braucht die Anwendung nicht auszufuehren, und Linux-Laeufer
     # kosten nur einfach.
+    #
+    # Laeuft bewusst AUCH bei reiner Dokumentation (anders als ci.yml): Die
+    # Pflichtpruefung "CodeQL" entsteht erst, wenn eine Analyse hochgeladen
+    # wurde. Ohne Analyse fehlte sie, und der Pull Request liesse sich nicht
+    # zusammenfuehren. Eine Minute auf Linux, parallel zu allem anderen.
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     permissions:
       contents: read
       security-events: write # zum Hochladen der Ergebnisse
