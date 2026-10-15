@@ -70,6 +70,10 @@ class EmpfangsSteuerung(QObject):
     aufnahme_bereit = Signal(str, str, str)
     # Das Geraet gibt die Zusammenfassung frei (nach der Rueckfrage am Geraet): Geraetename, Dateiname.
     zusammenfassung_gewuenscht = Signal(str, str)
+    # Am Geraet "Nein" gewaehlt: keine Zusammenfassung. Geraetename, Dateiname.
+    zusammenfassung_abgelehnt = Signal(str, str)
+    # Das Geraet hat eine neue Aufnahme begonnen und fragt nach der vorigen nicht mehr: Geraetename, neue Datei.
+    geraet_weitergezogen = Signal(str, str)
 
     def __init__(
         self,
@@ -118,8 +122,9 @@ class EmpfangsSteuerung(QObject):
             zusaetze["status_fn"] = self._status.hole
             zusaetze["auftraege_fn"] = self._auftraege
             zusaetze["bei_zusammenfassung"] = self._zusammenfassung
+            zusaetze["bei_keine_zusammenfassung"] = self._keine_zusammenfassung
         if self._wuensche is not None:
-            zusaetze["bei_wunsch"] = self._wuensche.merke
+            zusaetze["bei_wunsch"] = self._wunsch
         if self._fragen is not None:
             zusaetze["fragen"] = self._fragen
         if live_aktiv:
@@ -142,6 +147,15 @@ class EmpfangsSteuerung(QObject):
         # Aus dem Faden des Dienstes: Qt stellt es dem Hauptfenster ueber dessen Ereignisschleife zu.
         self.zusammenfassung_gewuenscht.emit(geraet, datei)
         return True
+
+    def _keine_zusammenfassung(self, geraet: str, datei: str) -> bool:
+        self.zusammenfassung_abgelehnt.emit(geraet, datei)  # wie oben: Zustellung ueber die Ereignisschleife
+        return True
+
+    def _wunsch(self, geraet: str, datei: str, auftrag: str | None, rueckfrage: bool) -> None:
+        assert self._wuensche is not None  # noqa: S101 -- nur mit Wunschregister verbunden
+        if self._wuensche.merke(geraet, datei, auftrag, rueckfrage):
+            self.geraet_weitergezogen.emit(geraet, datei)
 
     def kontakte(self) -> dict[str, geraete_empfang_service.Kontakt]:
         """Letzter Kontakt je Geraet, solange der Empfang laeuft."""

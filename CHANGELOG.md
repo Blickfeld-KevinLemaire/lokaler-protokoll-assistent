@@ -10,6 +10,12 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 ### Added
 
+- **Rückfrage „Zusammenfassung erstellen?“ ohne Antwort bleibt nicht mehr hängen:** Beginnt das Gerät eine neue
+  Aufnahme (oder startet es neu), bevor die Frage zur vorigen beantwortet ist, wartet die vorige nicht länger. Reicht
+  die Grafikkarte für Sprachmodell und Whisper zugleich (oder läuft die Zusammenfassung über eine API), wird sie nach
+  den neuen Aufnahmen zusammengefasst; sonst bleibt es beim Transkript, damit die neue Aufnahme nicht warten muss.
+  „Nein“ am Gerät meldet das Gerät jetzt an die Software (`POST …/keine_zusammenfassung`) – eine abgelehnte
+  Zusammenfassung entsteht so auch später nicht.
 - **Firmware S3 mit Display: Hinweis nach einem Neustart:** Wird das Gerät zurückgesetzt oder aus- und wieder eingeschaltet (etwa
   durch einen versehentlichen Druck auf die Ein/Aus-Taste, die den Strom in der Hardware unterbricht und von der Firmware nicht
   abgefangen werden kann), zeigt die Statuszeile 8 Sekunden „NEUSTART“; war dabei eine Aufnahme aktiv, „NEUSTART: AUFNAHME

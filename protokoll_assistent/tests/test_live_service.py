@@ -736,6 +736,16 @@ def test_wunsch_register_behaelt_den_auftrag_und_die_rueckfrage():
     assert wuensche.hole("S3", "H5.opus") is None  # aelteste Eintraege fallen heraus
 
 
+def test_wunsch_register_merkt_welche_aufnahme_das_geraet_beobachtet():
+    wuensche = ls.WunschRegister()
+    assert wuensche.neueste("S3") is None
+    assert wuensche.merke("S3", "H5_001.opus", None, True) is False  # die erste: nichts zurueckgelassen
+    assert wuensche.merke("S3", "H5_001.opus", "Agenda", True) is False
+    assert wuensche.merke("C6", "H5_009.opus", None, True) is False  # Geraete zaehlen getrennt
+    assert wuensche.merke("S3", "H5_002.opus", None, True) is True  # weitergezogen
+    assert wuensche.neueste("S3") == "H5_002.opus" and wuensche.neueste("C6") == "H5_009.opus"
+
+
 def test_transkript_ist_ein_zustand_fuer_das_geraet():
     status = ls.StatusRegister()
     status.setze("S3", "H5.opus", ls.TRANSKRIPT, 1.0, "Transkription erfolgreich")

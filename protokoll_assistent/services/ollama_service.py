@@ -173,6 +173,20 @@ def get_modell_option(model_id: str) -> OllamaModellOption | None:
     )
 
 
+# Was die Protokollauswertung (bis 32K Kontext) zusaetzlich zur Downloadgroesse im Grafikspeicher belegt.
+# Geschaetzt aus der Messung oben: Das 4B-Modell (3,3 GB) passte mit 32K nicht mehr ganz in 6 GB.
+PROTOKOLL_KONTEXT_ZUSCHLAG_BYTES = int(2.5 * 1024**3)
+
+
+def geschaetzter_grafikspeicher(model_id: str) -> int | None:
+    """Ungefaehrer Grafikspeicher fuer die Protokollauswertung mit diesem Modell, solange es nicht geladen ist
+    (geladen misst ``belegter_grafikspeicher`` genauer). ``None`` fuer Modelle ausserhalb der Auswahl."""
+    option = get_modell_option(model_id)
+    if option is None:
+        return None
+    return int(option.groesse_gb * 1024**3) + PROTOKOLL_KONTEXT_ZUSCHLAG_BYTES
+
+
 def find_ollama_executable():
     """Sucht das Ollama-Programm: erst im PATH, dann an den ueblichen
     Installationsorten unter Windows.

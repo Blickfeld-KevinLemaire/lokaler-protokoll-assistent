@@ -544,6 +544,7 @@ _PFAD_HALLO = "/api/v1/hallo"
 _PFAD_AUFNAHMEN = "/api/v1/aufnahmen/"
 _ENDE_STATUS = "/status"
 _ENDE_ZUSAMMENFASSUNG = "/zusammenfassung"
+_ENDE_KEINE_ZUSAMMENFASSUNG = "/keine_zusammenfassung"
 _PFAD_AUFTRAEGE = "/api/v1/auftraege"
 _ENDE_FRAGE = "/frage"
 _PFAD_FRAGEN = "/api/v1/fragen/"
@@ -765,7 +766,10 @@ class _Anfrage(BaseHTTPRequestHandler):
             if len(inhalt) != laenge:
                 self.close_connection = True
                 return
-        if pfad.startswith(_PFAD_AUFNAHMEN) and pfad.endswith(_ENDE_ZUSAMMENFASSUNG):
+        if pfad.startswith(_PFAD_AUFNAHMEN) and pfad.endswith(_ENDE_KEINE_ZUSAMMENFASSUNG):
+            name = pfad[len(_PFAD_AUFNAHMEN) : -len(_ENDE_KEINE_ZUSAMMENFASSUNG)]
+            self._senden(self.server.empfang.keine_zusammenfassung(geraet.name, name))
+        elif pfad.startswith(_PFAD_AUFNAHMEN) and pfad.endswith(_ENDE_ZUSAMMENFASSUNG):
             name = pfad[len(_PFAD_AUFNAHMEN) : -len(_ENDE_ZUSAMMENFASSUNG)]
             self._senden(self.server.empfang.zusammenfassung(geraet.name, name))
         elif ist_frage:
@@ -826,8 +830,9 @@ class GeraeteEmpfang:
         bei_verworfen: Callable[[str, str], None] | None = None,
         status_fn: Callable[[str, str], dict[str, Any] | None] | None = None,
         auftraege_fn: Callable[[], Iterable[str]] | None = None,
-        bei_wunsch: Callable[[str, str, str | None, bool], None] | None = None,
+        bei_wunsch: Callable[[str, str, str | None, bool], object] | None = None,
         bei_zusammenfassung: Callable[[str, str], bool] | None = None,
+        bei_keine_zusammenfassung: Callable[[str, str], bool] | None = None,
         fragen: Any = None,
     ):
         self.geraete: tuple[Geraet, ...] = tuple(geraete)
@@ -843,6 +848,7 @@ class GeraeteEmpfang:
         self._auftraege_fn = auftraege_fn
         self._bei_wunsch = bei_wunsch
         self._bei_zusammenfassung = bei_zusammenfassung
+        self._bei_keine_zusammenfassung = bei_keine_zusammenfassung
         # ``frage_service.FragenDienst`` (oder eine Attrappe): Fragen per Sprache zu einer Aufnahme
         self._fragen = fragen
         self._adresse = (adresse, port)
@@ -907,6 +913,27 @@ class GeraeteEmpfang:
         if not self._bei_zusammenfassung(geraet, datei):
             return _fehler(409, "Die Zusammenfassung kann gerade nicht erstellt werden.", zustand=zustand)
         return Antwort(202, {"zustand": "auswertung"})
+
+    def keine_zusammenfassung(self, geraet: str, datei: str) -> Antwort:
+        """``POST .../keine_zusammenfassung``: Der Nutzer hat am Geraet "Nein" gewaehlt. Die Aufnahme ist damit
+        fertig (das Transkript steht); ohne diese Meldung koennte die Software "Nein" nicht von "nie gefragt"
+        unterscheiden und fasste sie zusammen, sobald das Geraet weiterzieht."""
+        if not dateiname_gueltig(datei):
+            return _fehler(400, "Ungueltiger Dateiname.")
+        if self._bei_keine_zusammenfassung is None:
+            return _fehler(404, "Die Software kennt keine Rueckfrage.")
+        eintrag = self._status_fn(geraet, datei) if self._status_fn is not None else None
+        zustand = str(eintrag.get("zustand")) if eintrag else "unbekannt"
+        if zustand == "unbekannt":
+            return _fehler(404, "Die Aufnahme ist der Software nicht bekannt.")
+        if zustand == "fertig":
+            return Antwort(200, {"zustand": zustand})
+        if zustand != "transkript":
+            # Zu frueh (Transkript steht noch nicht) oder zu spaet (Zusammenfassung laeuft schon)
+            return _fehler(409, "Die Aufnahme wartet nicht auf eine Antwort.", zustand=zustand)
+        if not self._bei_keine_zusammenfassung(geraet, datei):
+            return _fehler(409, "Die Aufnahme wartet nicht auf eine Antwort.", zustand=zustand)
+        return Antwort(200, {"zustand": "fertig"})
 
     def frage_einreichen(
         self, geraet: str, datei: str, ton: bytes, endung: str | None, ausgabe: str | None = None

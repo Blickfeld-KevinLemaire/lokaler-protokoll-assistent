@@ -28,6 +28,15 @@ SPRECHERTRENNUNG_GERAET_VARIABLE = "PROTOKOLL_SPRECHERTRENNUNG_GERAET"
 # samt Reserve. Ist weniger frei, muss Ollama seine Modelle erst entladen.
 WHISPER_GRAFIKSPEICHER_BYTES = 3 * 1024**3
 
+
+def sprachmodell_passt_neben_whisper(gesamt_bytes: int | None, sprachmodell_bytes: int | None) -> bool:
+    """Passen Sprachmodell und Whisper zugleich auf die Grafikkarte? Dann muss Ollama fuer eine Transkription
+    nichts entladen (``pipeline_service._grafikspeicher_fuer_whisper_freimachen``), und eine Zusammenfassung kann
+    neben einer neuen Aufnahme laufen. Ohne CUDA-Karte oder ohne bekannten Bedarf des Modells: nein."""
+    if not gesamt_bytes or not sprachmodell_bytes:
+        return False
+    return gesamt_bytes - sprachmodell_bytes >= WHISPER_GRAFIKSPEICHER_BYTES
+
 WHISPER_MODEL_NAME = "large-v3-turbo"
 PYANNOTE_MODEL_NAME = "pyannote/speaker-diarization-community-1"
 PYANNOTE_LICENSE_URL = "https://huggingface.co/pyannote/speaker-diarization-community-1"

@@ -126,6 +126,7 @@ static uint32_t vorrang_auftrag_id = 0;
 static portMUX_TYPE vorrang_sperre = portMUX_INITIALIZER_UNLOCKED;
 static volatile bool rueckfrage_beantwortet = false;        /* "Zusammenfassung erstellen?" fuer die Aufnahme schon beantwortet */
 static volatile bool zusammenfassung_abgelehnt = false;     /* "Nein" gedrueckt: Stand nicht weiter abfragen */
+static volatile bool ablehnung_melden = false;              /* "Nein" gedrueckt, noch nicht an die Software gemeldet */
 static volatile bool rueckfrage_gesehen = false;            /* die Software hat "transkript" gemeldet: Zwei-Schritt-Ablauf */
 static volatile bool zusammenfassung_gewuenscht = false;    /* "Ja" gedrueckt, noch nicht an die Software gemeldet */
 static volatile bool status_neu_erzwingen = false;          /* Statustext aus dem Zustand neu setzen */
@@ -740,6 +741,7 @@ static void rueckfrage_nein_cb(lv_event_t *e)
 {
     (void)e;
     zusammenfassung_abgelehnt = true;
+    ablehnung_melden = true;
     rueckfrage_beantwortet = true;
 }
 
@@ -1629,6 +1631,7 @@ static void status_beobachten(const char *dateiname)
     rueckfrage_gesehen = false;
     zusammenfassung_gewuenscht = false;
     zusammenfassung_abgelehnt = false;
+    ablehnung_melden = false;
     status_start_ms = upload_now_ms();
     status_naechste_ms = status_start_ms;
     status_unbekannt = 0;
@@ -1898,6 +1901,7 @@ static void bedienung_schritt(void)
     static bool bereit = false;
     static uint64_t auftraege_naechste_ms = 0;
     static int freigabe_versuche = 0;
+    static int ablehnung_versuche = 0;
     static bool ohne_speicher = false;
 
     if (ohne_speicher) {
@@ -1974,6 +1978,23 @@ static void bedienung_schritt(void)
             }
         } else if (zusammenfassung_gewuenscht) {
             zusammenfassung_gewuenscht = false;
+        }
+
+        /* "Nein" melden: Ohne die Meldung haelt die Software die Aufnahme fuer unbeantwortet und fasst sie
+         * zusammen, sobald das Geraet eine neue Aufnahme beginnt. Gelingt es nicht, bleibt es still dabei. */
+        if (ablehnung_melden && frage_datei[0] != '\0') {
+            char pfad[96];
+            snprintf(pfad, sizeof(pfad), "/api/v1/aufnahmen/%s/keine_zusammenfassung", frage_datei);
+            int http = VERMERK_Anfrage(true, pfad, NULL, NULL, 0, NULL, antwort, 256, 8000);
+            printf("VERMERK Zusammenfassung abgelehnt: HTTP %d\n", http);
+            if (http == 200 || http == 404 || http == 409 || http == 401 || ++ablehnung_versuche >= 5) {
+                ablehnung_melden = false;   /* angekommen, zu spaet, oder die Software kennt den Aufruf nicht */
+                ablehnung_versuche = 0;
+            } else {
+                vTaskDelay(pdMS_TO_TICKS(1500));
+            }
+        } else if (ablehnung_melden) {
+            ablehnung_melden = false;
         }
 
         /* Frage senden */
