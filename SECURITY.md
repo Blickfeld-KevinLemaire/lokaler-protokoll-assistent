@@ -106,6 +106,13 @@ zugestimmt haben. Entsprechend gelten hier ein paar Punkte besonders:
     oder offene Netze braeuchte es TLS (noch nicht umgesetzt).
   * `X-Geraete-Id` (Werks-MAC) und `X-Firmware` dienen nur der Zuordnung und
     Fehlersuche, nie der Anmeldung.
+  * **Fragen per Sprache** (`services/frage_service.py`): Ein Geraet kann zu
+    einer Aufnahme, die es **selbst** hochgeladen hat, eine Frage schicken
+    (hoechstens 3 MB Ton) und bekommt eine Antwort aus Transkript und
+    Zusammenfassung zurueck – ebenfalls unverschluesselt. Fragen und Antworten
+    gehoeren dem fragenden Geraet (ein anderes bekommt `404`), liegen nur im
+    Speicher (hoechstens 15 Minuten, hoechstens 20 Stueck) und werden lokal
+    beantwortet (Whisper, Ollama), nie ueber eine API.
   * **Einrichtung ueber USB** (`services/geraete_usb_service.py`): Die Anwendung
     schreibt WLAN-Name, WLAN-Passwort, eigene Adresse und ein frisch erzeugtes
     Token ueber das USB-Kabel ins Geraet (NVS). Das Passwort wird nirgends

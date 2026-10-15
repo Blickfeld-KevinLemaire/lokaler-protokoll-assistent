@@ -171,7 +171,8 @@ nicht zurückgenommen.
 ### `GET /api/v1/auftraege`
 
 Die Namen der Vorlagen (Systemprompts), aus denen das Gerät **vor der Aufnahme** einen Auftrag wählen lässt
-(Auswahlliste am Display). Es sind höchstens 16 Namen mit je höchstens 60 Zeichen.
+(Auswahlliste am Display). Es sind höchstens 12 Namen mit je höchstens 60 Zeichen und höchstens 63 Byte UTF-8
+(so passt jeder Name ungekürzt in die Liste der Firmware; längere Vorlagen bietet die Software nicht an).
 
 ```json
 {"auftraege":["Aufgaben und Zuständigkeiten","Entscheidungen","Meetingprotokoll"],
@@ -226,6 +227,7 @@ mono) oder `audio/ogg` (Opus), höchstens 3 MB (etwa 90 s). Antworten:
 | `202 {"frage_id":"…","ton":false}` | Angenommen. `ton` ist `true` nur, wenn das Gerät `X-Ausgabe: ton` verlangt hat **und** die Software eine Sprachausgabe hat. |
 | `409` | Zu dieser Aufnahme gibt es noch kein Transkript (die Software kennt sie nicht oder sie ist noch in Arbeit). |
 | `413` / `415` / `400` | Zu groß / kein `audio/wav` oder `audio/ogg` / kein Ton oder ungültiger Dateiname. |
+| `503` | Es warten schon zu viele unbearbeitete Fragen: etwas später noch einmal. |
 | `404` | Die Software beantwortet keine Fragen per Sprache. |
 
 **`GET /api/v1/fragen/<frage_id>`** – Stand der Frage:
@@ -242,11 +244,16 @@ mono) oder `audio/ogg` (Opus), höchstens 3 MB (etwa 90 s). Antworten:
 | `fertig` | `anzeige` (Text fürs Display) und `antwort` sind da; `ton_bytes` ist die Größe der WAV-Datei (0: kein Ton). | Liste anzeigen, ggf. Ton abspielen |
 | `fehler` | `meldung` nennt den Grund (Frage nicht verstanden, Sprachmodell nicht erreichbar …). | Fehler |
 
+`frage` und `anzeige` sind nur ASCII; `anzeige` hat höchstens 1000 Zeichen. Die Felder kommen in der Reihenfolge
+`zustand`, `frage`, `anzeige`, `meldung`, `ton_bytes`, `antwort`: Die ungekürzte `antwort` steht zuletzt, damit ein
+Gerät mit festem Puffer auch dann alles fürs Display bekommt, wenn sie nicht mehr hineinpasst.
+
 **`GET /api/v1/fragen/<frage_id>/ton`** – die Antwort als WAV (`audio/wav`, 16 kHz, 16 Bit, mono) mit `Content-Length`;
 nur bei `fertig` (sonst `409`, ohne Ton `404`). Die Kennung gehört dem Gerät, das gefragt hat: ein anderes Gerät bekommt
 `404`. Fragen und Töne bleiben höchstens 15 Minuten im Speicher der Software.
 
-Die Antwort ist kurz und gesprochen formuliert (höchstens vier Sätze, ohne Aufzählungen und Quellenangaben).
+Mit `X-Ausgabe: ton` ist die Antwort kurz und gesprochen formuliert (höchstens vier Sätze, ohne Aufzählungen und
+Quellenangaben); sonst ist sie die Liste fürs Display (siehe **Ausgabe** oben).
 
 ## Ablauf im Gerät
 

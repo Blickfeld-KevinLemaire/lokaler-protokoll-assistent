@@ -18,6 +18,7 @@ from pathlib import Path
 
 import pytest
 
+from protokoll_assistent.services import frage_service
 from protokoll_assistent.services import geraete_empfang_service as empfang
 from protokoll_assistent.services.geraete_empfang_service import Ablage, Geraet, GeraeteEmpfang
 
@@ -784,7 +785,8 @@ def test_auftrag_lesen_prozentcodiert_und_begrenzt():
 
 def test_auftraege_ueber_http(tmp_path):
     geraete = (Geraet("S3-Audio", empfang.token_hash(TOKEN)),)
-    namen = ["ToDos", "Entscheidungen", "ToDos", "x" * 200, "", "Agenda"]
+    # 58 Zeichen, aber mit sechs Umlauten 64 Byte: passt nicht ins Geraet und fehlt deshalb
+    namen = ["ToDos", "Entscheidungen", "ToDos", "x" * 200, "", "ä" * 6 + "x" * 52, "Agenda"]
     dienst = GeraeteEmpfang(tmp_path / "eingang", geraete, port=0, adresse="127.0.0.1", auftraege_fn=lambda: namen)
     dienst.starten()
     try:
@@ -796,6 +798,17 @@ def test_auftraege_ueber_http(tmp_path):
             },
         )
         assert anfrage(dienst, "GET", "/api/v1/auftraege", token=None)[0] == 401
+    finally:
+        dienst.stoppen()
+
+
+def test_hoechstens_so_viele_auftraege_wie_die_firmware_fasst(tmp_path):
+    geraete = (Geraet("S3-Audio", empfang.token_hash(TOKEN)),)
+    namen = [f"Vorlage {i}" for i in range(20)]
+    dienst = GeraeteEmpfang(tmp_path / "eingang", geraete, port=0, adresse="127.0.0.1", auftraege_fn=lambda: namen)
+    dienst.starten()
+    try:
+        assert anfrage(dienst, "GET", "/api/v1/auftraege")[1]["auftraege"] == namen[: empfang.MAX_AUFTRAEGE]
     finally:
         dienst.stoppen()
 
@@ -991,6 +1004,13 @@ def test_frage_fehlerfaelle_ueber_http(tmp_path):
         fragen.bereit = False
         assert anfrage(dienst, "POST", pfad, b"x", Content_Type="audio/wav")[0] == 409  # noch kein Transkript
         assert fragen.eingereicht == []
+        fragen.bereit = True
+
+        def voll(*_args):
+            raise frage_service.Ueberlastet("Es warten schon zu viele Fragen.")
+
+        fragen.einreichen = voll  # type: ignore[method-assign]
+        assert anfrage(dienst, "POST", pfad, b"x", Content_Type="audio/wav")[0] == 503  # spaeter noch einmal
     finally:
         dienst.stoppen()
 

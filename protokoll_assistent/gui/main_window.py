@@ -1447,7 +1447,7 @@ class MainWindow(QMainWindow):
             self._live.freigeben(pfad)
         self._empfang_zuletzt = f"{meldung}: {pfad.name} von {geraet} ({time.strftime('%H:%M')})"
         self._empfang_anzeigen()
-        if self._geraete_warteschlange:
+        if self._geraete_warteschlange or self._freigabe_warteschlange:
             QTimer.singleShot(0, self._naechste_geraete_aufnahme)
 
     def _choose_output_dir(self) -> None:
@@ -2118,7 +2118,8 @@ class MainWindow(QMainWindow):
             self._elapsed_timer.stop()
             # Transkription und Nachbearbeitung laufen nie gleichzeitig.
             self._nachbearbeitung_laeuft = False
-            if self._geraete_warteschlange and self._automatik is None:
+            # Auch eine Freigabe vom Geraet kann warten (sie kam, waehrend etwas anderes lief).
+            if (self._geraete_warteschlange or self._freigabe_warteschlange) and self._automatik is None:
                 QTimer.singleShot(0, self._naechste_geraete_aufnahme)
         self._protocol_result_sperre_anwenden()
 

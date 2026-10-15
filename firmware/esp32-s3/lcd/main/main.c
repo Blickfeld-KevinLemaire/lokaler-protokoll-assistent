@@ -118,7 +118,14 @@ static volatile int auftraege_anzahl = 0;
 static volatile bool auftraege_neu = false;                 /* Liste geaendert: Auswahl neu aufbauen */
 static volatile int auftrag_gewaehlt = 0;                   /* 0 = Standard (Auftrag aus den Einstellungen der Software) */
 static char letzter_auftrag_name[VERMERK_AUFTRAG_NAME_MAX] = "";   /* Auftrag der zuletzt gestarteten Aufnahme */
+/* Auftrag und Rueckfrage gehoeren zu genau einer Aufnahme: Beim Anlegen der Aufnahmedatei (Audio-Task) wird der
+ * Auftrag mit ihrer Nummer gemerkt; nur der Upload-Manager setzt daraus die Kopfzeilen (wunsch_fuer). So bekommt
+ * eine aeltere Aufnahme, deren Upload gerade laeuft, nie den Wunsch der neuen. */
+static char vorrang_auftrag[VERMERK_AUFTRAG_NAME_MAX] = "";
+static uint32_t vorrang_auftrag_id = 0;
+static portMUX_TYPE vorrang_sperre = portMUX_INITIALIZER_UNLOCKED;
 static volatile bool rueckfrage_beantwortet = false;        /* "Zusammenfassung erstellen?" fuer die Aufnahme schon beantwortet */
+static volatile bool zusammenfassung_abgelehnt = false;     /* "Nein" gedrueckt: Stand nicht weiter abfragen */
 static volatile bool rueckfrage_gesehen = false;            /* die Software hat "transkript" gemeldet: Zwei-Schritt-Ablauf */
 static volatile bool zusammenfassung_gewuenscht = false;    /* "Ja" gedrueckt, noch nicht an die Software gemeldet */
 static volatile bool status_neu_erzwingen = false;          /* Statustext aus dem Zustand neu setzen */
@@ -353,6 +360,10 @@ static FILE *open_new_recording(char *path, size_t path_len)
 
         next_record_id = id + 1;
         rec_aktiv_setzen(true);
+        portENTER_CRITICAL(&vorrang_sperre);
+        memcpy(vorrang_auftrag, letzter_auftrag_name, sizeof(vorrang_auftrag));
+        vorrang_auftrag_id = id;
+        portEXIT_CRITICAL(&vorrang_sperre);
         upload_vorrang_id = id;   /* nach dem Stopp zuerst hochladen, ihr Ergebnis anzeigen */
         printf("VERMERK Aufnahme-ID reserviert: %u\n", (unsigned)id);
         return f;
@@ -548,14 +559,14 @@ static void record_toggle(void)
         rec_state == REC_DONE ||
         rec_state == REC_ERROR) {
         /* Der gewaehlte Auftrag gilt fuer diese Aufnahme (Kopfzeile X-Auftrag bei jedem Senden), auch wenn danach
-         * eine andere Auswahl getroffen wird. */
+         * eine andere Auswahl getroffen wird. Die Kopfzeilen setzt erst der Upload-Manager (wunsch_fuer): Hier
+         * gesetzt, gingen sie an eine aeltere Aufnahme, deren Upload womoeglich gerade laeuft. */
         int wahl = auftrag_gewaehlt;
         if (wahl >= 1 && wahl <= auftraege_anzahl) {
             snprintf(letzter_auftrag_name, sizeof(letzter_auftrag_name), "%s", auftraege[wahl - 1].name);
         } else {
             letzter_auftrag_name[0] = '\0';
         }
-        vermerk_wunsch_setzen(letzter_auftrag_name[0] != '\0' ? letzter_auftrag_name : NULL, true);
         frage_modus = false;
         rec_elapsed_seconds = 0;
         rec_state = REC_REQUESTED;
@@ -728,6 +739,7 @@ static void rueckfrage_ja_cb(lv_event_t *e)
 static void rueckfrage_nein_cb(lv_event_t *e)
 {
     (void)e;
+    zusammenfassung_abgelehnt = true;
     rueckfrage_beantwortet = true;
 }
 
@@ -1616,6 +1628,7 @@ static void status_beobachten(const char *dateiname)
     rueckfrage_beantwortet = false;
     rueckfrage_gesehen = false;
     zusammenfassung_gewuenscht = false;
+    zusammenfassung_abgelehnt = false;
     status_start_ms = upload_now_ms();
     status_naechste_ms = status_start_ms;
     status_unbekannt = 0;
@@ -1683,6 +1696,10 @@ static void status_schritt(void)
     if (vermerk_verarbeitung_beendet(st.zustand)) {
         verarbeitung_ende_ms = (uint32_t)jetzt;
         status_name[0] = '\0';   /* fertig: nichts mehr abzufragen, die Anzeige bleibt */
+    } else if (st.zustand == VERMERK_VERARB_TRANSKRIPT && zusammenfassung_abgelehnt) {
+        /* "Nein": Es kommt nichts mehr. Nicht weiter abfragen (sonst nach STATUS_MAX_DAUER_MS status_beenden);
+         * Anzeige und frage_datei bleiben wie nach "fertig" bis zur naechsten Aufnahme, Fragen gehen weiter. */
+        status_name[0] = '\0';
     }
 }
 
@@ -1734,6 +1751,8 @@ static void ptt_poll(void)
     if (neu_gedrueckt && frage_phase == FRAGE_AUS && (rs == REC_IDLE || rs == REC_DONE || rs == REC_ERROR)) {
         if (!frage_moeglich()) {
             frage_hinweis_zeigen(frage_datei[0] == '\0' ? "ERST AUFNEHMEN, DANN FRAGEN" : "ERST NACH DEM TRANSKRIPT");
+        } else if (frage_ergebnis == NULL) {
+            frage_hinweis_zeigen("KEIN SPEICHER");   /* bedienung_schritt hat kein PSRAM bekommen */
         } else if (Storage_Free_Bytes() < STORAGE_MIN_FREE_START) {
             frage_hinweis_zeigen("SPEICHER VOLL");
         } else {
@@ -1788,6 +1807,13 @@ static void ascii_kopieren(char *ziel, size_t ziel_groesse, const char *quelle)
 /* Die aufgenommene Frage senden und auf die Antwort warten */
 static void frage_abwickeln(char *antwort)
 {
+    if (frage_datei[0] == '\0') {
+        /* Die Aufnahme, nach der gefragt wird, ist inzwischen vergessen (neue Aufnahme): sonst ginge die Frage
+         * an /api/v1/aufnahmen//frage */
+        remove(FRAGE_PFAD);
+        frage_hinweis_zeigen("ERST AUFNEHMEN, DANN FRAGEN");
+        return;
+    }
     FILE *f = fopen(FRAGE_PFAD, "rb");
     if (f == NULL) {
         frage_hinweis_zeigen("AUFNAHME NICHT GEFUNDEN");
@@ -1872,18 +1898,32 @@ static void bedienung_schritt(void)
     static bool bereit = false;
     static uint64_t auftraege_naechste_ms = 0;
     static int freigabe_versuche = 0;
+    static bool ohne_speicher = false;
 
+    if (ohne_speicher) {
+        return;   /* ohne PSRAM keine Bedienung: Aufnehmen und Hochladen gehen weiter wie bisher */
+    }
     if (!bereit) {
         /* Alles im PSRAM: der interne RAM reicht gerade fuer Aufnahme, Encoder und SD-Zugriff */
         antwort = heap_caps_malloc(BEDIENUNG_PUFFER, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
         neu = heap_caps_calloc(VERMERK_AUFTRAEGE_MAX, sizeof(*neu), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-        frage_ergebnis = heap_caps_calloc(1, sizeof(*frage_ergebnis), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        vermerk_frage_stand_t *ergebnis = heap_caps_calloc(1, sizeof(*ergebnis), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
         vermerk_auftrag_t *liste = heap_caps_calloc(VERMERK_AUFTRAEGE_MAX, sizeof(*liste), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-        if (antwort == NULL || neu == NULL || frage_ergebnis == NULL || liste == NULL) {
-            printf("VERMERK Bedienung: kein PSRAM\n");
+        if (antwort == NULL || neu == NULL || ergebnis == NULL || liste == NULL) {
+            /* Nicht in jedem Durchgang neu versuchen (das liesse die Bloecke liegen): einmal aufgeben. Ohne
+             * frage_ergebnis nimmt ptt_poll keine Frage an, die hier nie gesendet wuerde. */
+            printf("VERMERK Bedienung: kein PSRAM, ohne Auftragswahl und Fragen\n");
+            free(antwort);
+            free(neu);
+            free(ergebnis);
+            free(liste);
+            antwort = NULL;
+            neu = NULL;
+            ohne_speicher = true;
             return;
         }
         auftraege = liste;
+        frage_ergebnis = ergebnis;
         bereit = true;
     }
 
@@ -1924,7 +1964,11 @@ static void bedienung_schritt(void)
                 zusammenfassung_gewuenscht = false;   /* gibt auf: die Frage erscheint erneut */
                 freigabe_versuche = 0;
                 rueckfrage_beantwortet = false;
-                frage_hinweis_zeigen("SENDEN FEHLGESCHLAGEN");
+                /* Nur ohne laufende Frage melden: frage_hinweis_zeigen setzt FRAGE_FEHLER und risse eine Frage
+                 * mitten in der Aufnahme ab (ptt_poll stoppte sie dann nie) oder verdeckte eine Antwort. */
+                if (frage_phase == FRAGE_AUS || frage_phase == FRAGE_FEHLER) {
+                    frage_hinweis_zeigen("SENDEN FEHLGESCHLAGEN");
+                }
             } else {
                 vTaskDelay(pdMS_TO_TICKS(1500));
             }
@@ -1936,6 +1980,25 @@ static void bedienung_schritt(void)
         if (frage_phase == FRAGE_SENDEN) {
             frage_abwickeln(antwort);
         }
+    }
+}
+
+/* Kopfzeilen X-Auftrag/X-Rueckfrage fuer die Aufnahme mit dieser Nummer setzen. Auftrag und Rueckfrage gelten nur
+ * fuer die zuletzt aufgenommene Aufnahme (die das Geraet beobachtet); aeltere Aufnahmen auf der SD werden wie
+ * bisher ganz ausgewertet (id = 0: kein Wunsch). Nur aus dem Upload-Manager rufen: Er sendet alles nacheinander,
+ * so gilt der Wunsch genau fuer die naechsten Anfragen dieser Aufnahme. */
+static void wunsch_fuer(uint32_t id)
+{
+    char name[VERMERK_AUFTRAG_NAME_MAX];
+    bool passt;
+    portENTER_CRITICAL(&vorrang_sperre);
+    passt = id != 0 && id == vorrang_auftrag_id;
+    memcpy(name, vorrang_auftrag, sizeof(name));
+    portEXIT_CRITICAL(&vorrang_sperre);
+    if (passt) {
+        vermerk_wunsch_setzen(name[0] != '\0' ? name : NULL, true);
+    } else {
+        vermerk_wunsch_setzen(NULL, false);
     }
 }
 
@@ -1996,13 +2059,7 @@ static int upload_one(uint32_t i, uint8_t art)
 
     upload_active = true;
     int64_t upload_start_us = esp_timer_get_time();
-    /* Auftrag und Rueckfrage gelten nur fuer die zuletzt aufgenommene Aufnahme (die das Geraet beobachtet);
-     * aeltere Aufnahmen auf der SD werden wie bisher ganz ausgewertet. */
-    if (i == upload_vorrang_id) {
-        vermerk_wunsch_setzen(letzter_auftrag_name[0] != '\0' ? letzter_auftrag_name : NULL, true);
-    } else {
-        vermerk_wunsch_setzen(NULL, false);
-    }
+    wunsch_fuer(i == upload_vorrang_id ? i : 0);
     vermerk_ergebnis_t result = VERMERK_Upload_File(path, filename, upload_abbrechen);
     upload_active = false;
     printf("VERMERK Upload-Dauer: %s %lld ms\n", filename,
@@ -2079,6 +2136,7 @@ static void upload_manager_task(void *arg)
                 status_beenden();   /* eine neue Aufnahme: der alte Stand ist uninteressant (eine Frage dazu aber nicht) */
             }
             if (target_ok) {
+                wunsch_fuer(frage_modus ? 0 : upload_vorrang_id);   /* die laufende Aufnahme (eine Frage geht nicht live) */
                 VERMERK_Live_Schritt();   /* waehrend der Aufnahme: neue Bytes an die Software senden (alle 15 s) */
             }
             vTaskDelay(pdMS_TO_TICKS(2000));

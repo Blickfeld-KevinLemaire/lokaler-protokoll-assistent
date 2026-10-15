@@ -39,6 +39,8 @@ MAX_ALTER_SEKUNDEN = 15 * 60
 # Eine Frage ist kurz: 60 s WAV (16 kHz, 16 Bit) sind 1,9 MB.
 MAX_FRAGE_BYTES = 3 * 1024 * 1024
 ENDUNGEN = {".wav", ".opus", ".ogg"}
+# Die Firmware haelt die Anzeige in 1024 Byte (VERMERK_FRAGE_ANZEIGE_MAX, mit Nullbyte); die Anzeige ist ASCII
+ANZEIGE_MAX_ZEICHEN = 1000
 
 # Erkennt die Frage: (Ton der Frage, Endung mit Punkt) -> Text
 ErkennenFn = Callable[[bytes, str], str]
@@ -53,6 +55,10 @@ AnzeigeFn = Callable[[str], str]
 SprechenFn = Callable[[str], bytes]
 # Gibt es zu dieser Aufnahme schon etwas, wozu man fragen kann (Transkript)?
 BereitFn = Callable[[str, str], bool]
+
+
+class Ueberlastet(RuntimeError):
+    """Es warten schon ``max_eintraege`` Fragen auf ihre Bearbeitung; jede haelt ihren Ton im Speicher."""
 
 
 @dataclass
@@ -116,7 +122,7 @@ class FragenDienst:
         """Nimmt eine Frage an und gibt ihre Kennung zurueck; die Bearbeitung laeuft im Hintergrund.
 
         ``ausgabe``: ``anzeige`` (Text fuers Display, Standard) oder ``ton`` (zusaetzlich gesprochen,
-        wenn eine Sprachausgabe da ist)."""
+        wenn eine Sprachausgabe da ist). ``Ueberlastet``, wenn der Speicher schon voller unbearbeiteter Fragen ist."""
         if endung not in ENDUNGEN:
             raise ValueError(f"Unbekannte Endung: {endung}")
         if ausgabe not in (AUSGABE_ANZEIGE, AUSGABE_TON):
@@ -126,6 +132,9 @@ class FragenDienst:
         )
         with self._sperre:
             self._aufraeumen()
+            # Nur Fragen in Arbeit sind uebrig: nicht noch eine (mit bis zu 3 MB Ton) dazulegen.
+            if len(self._fragen) >= self._max_eintraege:
+                raise Ueberlastet("Es warten schon zu viele Fragen.")
             self._fragen[frage.id] = frage
         self._anstossen(frage.id)
         return frage.id
@@ -136,17 +145,20 @@ class FragenDienst:
             frage = self._fragen.get(frage_id)
             if frage is None or frage.geraet != geraet:
                 return None
+            # Reihenfolge mit Absicht: Das Geraet liest in einen festen Puffer (6 KB). Was es braucht, steht vorn;
+            # ``antwort`` (ungekuerzt) zuletzt -- wird sie abgeschnitten, fehlt dem Display nichts.
             daten: dict[str, Any] = {"zustand": frage.zustand}
             if frage.frage:
-                daten["frage"] = frage.frage
-            if frage.antwort:
-                daten["antwort"] = frage.antwort
+                # Die Schriften der Geraete haben keine Umlaute: die Frage wie die Anzeige als ASCII
+                daten["frage"] = self._anzeige(frage.frage) if self._anzeige is not None else frage.frage
             if frage.anzeige:
                 daten["anzeige"] = frage.anzeige
             if frage.meldung:
                 daten["meldung"] = frage.meldung
             if frage.zustand == FERTIG:
                 daten["ton_bytes"] = len(frage.wav) if frage.wav else 0
+            if frage.antwort:
+                daten["antwort"] = frage.antwort
             return daten
 
     def ton(self, geraet: str, frage_id: str) -> bytes | None:
@@ -224,7 +236,7 @@ class FragenDienst:
             if not antwort:
                 self._setze(frage, zustand=FEHLER, meldung="Es gibt keine Antwort.")
                 return
-            anzeige = self._anzeige(antwort) if self._anzeige is not None else ""
+            anzeige = _anzeige_kuerzen(self._anzeige(antwort)) if self._anzeige is not None else ""
             if self._sprechen is None or frage.ausgabe != AUSGABE_TON:
                 self._setze(
                     frage, antwort=antwort, anzeige=anzeige, zustand=FERTIG, meldung="Antwort (ohne Sprachausgabe)"
@@ -238,6 +250,14 @@ class FragenDienst:
         except Exception as fehler:
             logger.warning("Frage von %s zu %s fehlgeschlagen: %s", frage.geraet, frage.datei, fehler)
             self._setze(frage, zustand=FEHLER, meldung=_kurz(str(fehler)), frage_ton=b"")
+
+
+def _anzeige_kuerzen(text: str, laenge: int = ANZEIGE_MAX_ZEICHEN) -> str:
+    """Die Laenge steht nur im Prompt; haelt sich das Modell nicht daran, an einer Zeilengrenze kuerzen."""
+    if len(text) <= laenge:
+        return text
+    schnitt = text.rfind("\n", 0, laenge - 3)
+    return text[: schnitt if schnitt > 0 else laenge - 3].rstrip() + "..."
 
 
 def _kurz(text: str, laenge: int = 160) -> str:

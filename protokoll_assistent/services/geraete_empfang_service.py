@@ -41,6 +41,7 @@ from pathlib import Path
 from typing import Any
 
 from protokoll_assistent.services.anzeigetext import fuer_display
+from protokoll_assistent.services.frage_service import Ueberlastet
 from protokoll_assistent.services.manifest_service import _ersetzen_mit_wiederholung
 
 logger = logging.getLogger(__name__)
@@ -559,8 +560,12 @@ _TON_TYPEN = {
 _FRAGE_KENNUNG = re.compile(r"^[0-9a-f]{16}$")
 # Auftraege (Namen der Vorlagen), die ein Geraet auswaehlen kann
 AUFTRAG_MAX_ZEICHEN = 60
+# Das Geraet haelt einen Namen in 64 Byte (mit Nullbyte): Mit Umlauten werden 60 Zeichen mehr als 63 Byte UTF-8,
+# der Name kaeme gekuerzt zurueck und passte zu keiner Vorlage mehr.
+AUFTRAG_MAX_BYTES = 63
 AUFTRAG_ANZEIGE_MAX = 38
-MAX_AUFTRAEGE = 16
+# So viele Eintraege fasst die Liste der Firmware (VERMERK_AUFTRAEGE_MAX)
+MAX_AUFTRAEGE = 12
 # Eine Anfrage ohne Aufnahme (Freigabe der Zusammenfassung) ist klein
 POST_MAX_BYTES = 1024
 
@@ -862,7 +867,12 @@ class GeraeteEmpfang:
         namen: list[str] = []
         if self._auftraege_fn is not None:
             for name in self._auftraege_fn():
-                if isinstance(name, str) and 0 < len(name) <= AUFTRAG_MAX_ZEICHEN and name not in namen:
+                if (
+                    isinstance(name, str)
+                    and 0 < len(name) <= AUFTRAG_MAX_ZEICHEN
+                    and len(name.encode("utf-8")) <= AUFTRAG_MAX_BYTES
+                    and name not in namen
+                ):
                     namen.append(name)
                 if len(namen) >= MAX_AUFTRAEGE:
                     break
@@ -916,7 +926,10 @@ class GeraeteEmpfang:
             return _fehler(400, "X-Ausgabe muss anzeige oder ton sein.")
         if not self._fragen.bereit_fuer(geraet, datei):
             return _fehler(409, "Zu dieser Aufnahme gibt es noch kein Transkript.")
-        kennung = self._fragen.einreichen(geraet, datei, ton, endung, art)
+        try:
+            kennung = self._fragen.einreichen(geraet, datei, ton, endung, art)
+        except Ueberlastet:
+            return _fehler(503, "Es warten schon zu viele Fragen. Bitte gleich noch einmal.")
         return Antwort(202, {"frage_id": kennung, "ton": art == "ton" and bool(self._fragen.spricht)})
 
     def frage_stand(self, geraet: str, kennung: str) -> Antwort:

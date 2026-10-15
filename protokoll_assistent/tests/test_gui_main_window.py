@@ -2725,7 +2725,7 @@ def test_freigabe_fuer_unbekannte_aufnahme_und_doppelte_freigabe_tun_nichts(mit_
 
 
 def test_freigabe_wartet_auf_eine_laufende_verarbeitung_und_geht_neuen_aufnahmen_vor(
-    mit_rueckfrage, geraeteaufnahme, tmp_path
+    mit_rueckfrage, geraeteaufnahme, tmp_path, qtbot
 ):
     fenster = mit_rueckfrage
     zweite = tmp_path / "S3_H5_008.opus"
@@ -2738,10 +2738,25 @@ def test_freigabe_wartet_auf_eine_laufende_verarbeitung_und_geht_neuen_aufnahmen
     assert _status(fenster)["zustand"] == "auswertung"  # das Geraet sieht sofort, dass es angekommen ist
     assert fenster._freigabe_warteschlange == [("S3", "H5_007.opus")]
 
-    fenster._automatik_beenden("fertig", "fertig")  # die andere Aufnahme ist durch
-    fenster._naechste_geraete_aufnahme()
-    assert len(_WorkerAttrappe.instanzen) == vorher + 1
+    # Die andere Aufnahme ist durch. Die Freigabe startet dann von selbst -- auch ohne neue Aufnahme in der
+    # Warteschlange (vorher blieb sie dort liegen, bis die naechste Aufnahme kam).
+    assert fenster._geraete_warteschlange == []
+    fenster._automatik_beenden("fertig", "fertig")
+    qtbot.waitUntil(lambda: len(_WorkerAttrappe.instanzen) == vorher + 1, timeout=2000)
     assert _WorkerAttrappe.instanzen[-1].settings.system_prompt == "Halte die Entscheidungen fest."
+
+
+def test_freigabe_waehrend_einer_handarbeit_startet_wenn_die_bedienung_frei_wird(mit_rueckfrage, monkeypatch, qtbot):
+    fenster = mit_rueckfrage
+    monkeypatch.setattr(fenster, "_arbeit_laeuft", lambda: True)  # z. B. eine von Hand gestartete Transkription
+    vorher = len(_WorkerAttrappe.instanzen)
+    fenster._zusammenfassung_gewuenscht("S3", "H5_007.opus")
+    assert fenster._freigabe_warteschlange == [("S3", "H5_007.opus")]
+
+    monkeypatch.setattr(fenster, "_arbeit_laeuft", lambda: False)
+    fenster._set_controls_running(False)  # der Arbeitsfaden ist beendet
+    qtbot.waitUntil(lambda: len(_WorkerAttrappe.instanzen) == vorher + 1, timeout=2000)
+    assert fenster._freigabe_warteschlange == []
 
 
 # --------------------------------------------------------------------------

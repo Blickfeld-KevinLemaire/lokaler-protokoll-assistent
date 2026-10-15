@@ -167,6 +167,23 @@ def test_alte_und_ueberzaehlige_fragen_werden_verworfen(schritte):
         dienst.stoppen()
 
 
+def test_unbearbeitete_fragen_stapeln_sich_nicht_unbegrenzt(schritte):
+    schritte.sperre = threading.Event()  # die erste Frage haengt im Verstehen, der Rest wartet
+    dienst = bauen(schritte, max_eintraege=2)
+    try:
+        dienst.einreichen("S3", "H5_007.opus", b"x", ".wav")
+        dienst.einreichen("S3", "H5_007.opus", b"x", ".wav")
+        with pytest.raises(fs.Ueberlastet):
+            dienst.einreichen("S3", "H5_007.opus", b"x", ".wav")
+        schritte.sperre.set()
+        assert dienst.warte_bis_fertig()
+        assert dienst.einreichen("S3", "H5_007.opus", b"x", ".wav")  # erledigte machen wieder Platz
+        assert dienst.warte_bis_fertig()
+    finally:
+        schritte.sperre.set()
+        dienst.stoppen()
+
+
 def test_bereit_fuer_fragt_die_oberflaeche(schritte):
     dienst = bauen(schritte, bereit=lambda geraet, datei: datei == "H5_007.opus")
     assert dienst.bereit_fuer("S3", "H5_007.opus") and not dienst.bereit_fuer("S3", "H5_008.opus")
@@ -195,6 +212,25 @@ def test_mit_ton_gibt_es_beides_anzeige_und_ton(schritte):
         assert dienst.warte_bis_fertig()
         stand = dienst.stand("S3", kennung)
         assert stand["anzeige"] == "FRITZ SCHREIBT DAS ANGEBOT." and stand["ton_bytes"] > 0
+    finally:
+        dienst.stoppen()
+
+
+def test_was_das_display_braucht_steht_vorn_und_passt_in_den_puffer_des_geraets(schritte):
+    """Das Geraet liest den Stand in einen festen Puffer: Eine ausufernde Antwort darf die Anzeige nicht verdraengen."""
+    schritte.text = "Was hat Jörg übernommen?"
+    schritte.antwort = "\n".join(f"{i}. " + "Punkt " * 30 for i in range(1, 40))  # haelt sich nicht an den Prompt
+    dienst = bauen(schritte, mit_ton=False, anzeige=lambda t: t.replace("ö", "oe").replace("ü", "ue"))
+    try:
+        kennung = dienst.einreichen("S3", "H5_007.opus", b"x", ".wav")
+        assert dienst.warte_bis_fertig()
+        stand = dienst.stand("S3", kennung)
+        assert list(stand) == ["zustand", "frage", "anzeige", "meldung", "ton_bytes", "antwort"]
+        assert stand["frage"] == "Was hat Joerg uebernommen?"  # ASCII fuer die Schrift des Geraets
+        assert len(stand["anzeige"]) <= fs.ANZEIGE_MAX_ZEICHEN and stand["anzeige"].endswith("...")
+        zeilen = stand["anzeige"][: -len("...")].split("\n")
+        assert all(z.rstrip() == f"{i}. " + ("Punkt " * 30).rstrip() for i, z in enumerate(zeilen, 1))  # ganze Zeilen
+        assert stand["antwort"] == schritte.antwort.strip()  # ungekuerzt, am Ende
     finally:
         dienst.stoppen()
 
