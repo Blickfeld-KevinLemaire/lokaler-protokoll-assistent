@@ -10,6 +10,17 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 ### Added
 
+- **Fragen per Sprache zu einer Aufnahme (PC-Seite):** Ein Gerät kann nach dem Transkript eine gesprochene Frage stellen
+  (`POST …/frage`, Stand über `GET /api/v1/fragen/<Kennung>`, Antwort als Ton über `…/ton`). Whisper (Prozessor)
+  versteht die Frage, das lokale Sprachmodell beantwortet sie kurz aus Zusammenfassung und Transkript der Aufnahme,
+  die Antwort kommt standardmäßig als kurze Liste fürs Display des Geräts (nur ASCII, `X-Ausgabe: anzeige`); eine
+  Sprachausgabe (`X-Ausgabe: ton`) ist vorbereitet, die Engine wird von außen eingesetzt. Alles läuft lokal; die Antwort gehört nur dem fragenden Gerät.
+- **Auftrag am Gerät wählen und Zusammenfassung nach dem Transkript freigeben (PC-Seite):** Neuer Aufruf
+  `GET /api/v1/auftraege` (Namen der Vorlagen für eine Auswahlliste am Gerät), Kopfzeilen `X-Auftrag` und
+  `X-Rueckfrage` beim Hochladen, neuer Zustand `transkript` und `POST …/zusammenfassung`. Der am Gerät gewählte
+  Auftrag gilt für diese Aufnahme (auch für die Vorab-Auswertung). Mit Rückfrage meldet die Software nach dem
+  Transkript „Transkription erfolgreich“ und erstellt die Zusammenfassung erst, wenn das Gerät sie freigibt;
+  eine Freigabe geht neuen Aufnahmen in der Warteschlange vor. Geräte ohne diese Kopfzeilen laufen unverändert.
 - **Live-Transkription und automatische Auswertung für Aufnahmegeräte (PC-Seite):**
   Schickt ein Gerät seine Aufnahme schon während der Aufnahme (Ogg-Opus, Stück für
   Stück), transkribiert die Anwendung sie laufend mit einem gleitenden Fenster

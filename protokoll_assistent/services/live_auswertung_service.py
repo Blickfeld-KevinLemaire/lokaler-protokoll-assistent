@@ -22,6 +22,7 @@ Ohne Qt: Die Verbindung zum Sprachmodell (Ollama oder API) kommt als Funktion vo
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 import queue
 import threading
@@ -64,6 +65,7 @@ class _Stand:
     stufe2: dict[str, str] = field(default_factory=dict)
     naechster_versuch: float = 0.0
     in_arbeit: bool = False
+    auftrag: str | None = None  # vom Geraet gewaehlt; sonst gilt der aus den Einstellungen
 
 
 class LiveAuswertung:
@@ -83,12 +85,17 @@ class LiveAuswertung:
     # ------------------------------------------------------------------
     # Von aussen
     # ------------------------------------------------------------------
-    def fortschritt(self, schluessel: str, segmente: list[dict[str, Any]], bestaetigt_bis: float) -> None:
-        """Die Live-Transkription hat Segmente bestaetigt: alles bis ``bestaetigt_bis`` steht fest."""
+    def fortschritt(
+        self, schluessel: str, segmente: list[dict[str, Any]], bestaetigt_bis: float, auftrag: str | None = None
+    ) -> None:
+        """Die Live-Transkription hat Segmente bestaetigt: alles bis ``bestaetigt_bis`` steht fest.
+        ``auftrag``: der Auftrag, den das Geraet fuer diese Aufnahme gewaehlt hat (Text der Vorlage)."""
         with self._bedingung:
             stand = self._staende.setdefault(schluessel, _Stand())
             if stand.ende:
                 return
+            if auftrag is not None:
+                stand.auftrag = auftrag
             stand.segmente = segmente
             stand.bestaetigt_bis = bestaetigt_bis
         self._anstossen(schluessel)
@@ -205,6 +212,8 @@ class LiveAuswertung:
         einstellungen = self._einstellungen_fn()
         if einstellungen is None:
             return
+        if stand.auftrag is not None:
+            einstellungen = dataclasses.replace(einstellungen, auftrag=stand.auftrag)
         try:
             while not self._stopp:
                 if not self._naechster_abschnitt(stand, einstellungen):

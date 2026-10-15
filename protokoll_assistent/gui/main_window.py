@@ -25,6 +25,7 @@ import contextlib
 import functools
 import importlib.util
 import json
+import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -89,9 +90,12 @@ from protokoll_assistent.services import (
     api_anbieter,
     api_protocol_service,
     api_transcription_service,
+    chat_service,
     chunking_service,
     dokument_export_service,
     export_service,
+    frage_service,
+    geraete_fragen,
     live_auswertung_service,
     live_service,
     manifest_service,
@@ -234,6 +238,16 @@ class MainWindow(QMainWindow):
         self._automatik_phase = ""
         self._systemprompt_automatik: str | None = None
         self._geraete_warteschlange: list[tuple[Path, str, str]] = []
+        # Aufnahmen mit fertigem Transkript, deren Zusammenfassung das Geraet noch freigeben muss:
+        # (Geraet, Datei) -> (Aufnahme, Transkript-JSON, Text des Auftrags)
+        self._freigaben: dict[tuple[str, str], tuple[Path, Path, str]] = {}
+        self._freigabe_warteschlange: list[tuple[str, str]] = []
+        # Unterlagen zu Geraeteaufnahmen, nach denen per Sprache gefragt werden kann:
+        # (Geraet, Datei) -> {"transkript": JSON, "zusammenfassung": Text}
+        self._ergebnisse: dict[tuple[str, str], dict[str, Path]] = {}
+        self._frage_transkribierer: Any = None
+        self._frage_sperre = threading.Lock()
+        self._automatik_rueckfrage = False
         self._last_protocol_result: pipeline_service.ProtocolResult | None = None
         self._selected_transcript_path: Path | None = None
         # Das Transkript, aus dem die laufende bzw. letzte Nachbearbeitung
@@ -265,6 +279,7 @@ class MainWindow(QMainWindow):
         # Einstellungen eingeschaltet wird (siehe 'gui/geraete_empfang.py').
         self._empfang_zuletzt = ""
         self._geraete_status = live_service.StatusRegister()
+        self._wuensche = live_service.WunschRegister()
         # Die Live-Transkription rechnet auf dem Prozessor und liest ihre Einstellungen aus
         # dem Arbeitsfaden heraus -- deshalb kein Zugriff auf Widgets, sondern dieser Merker.
         self._live_einstellungen: tuple[str, str | None, bool] = self._live_einstellungen_lesen()
@@ -279,9 +294,22 @@ class MainWindow(QMainWindow):
             status=self._geraete_status,
             bei_aenderung=self.live_transkript_geaendert.emit,
             auswertung=live_auswertung_service.LiveAuswertung(lambda: self._live_auswertung_stand),
+            auftrag_fn=self._auftrag_des_geraets,
         )
         self.live_transkript_geaendert.connect(self._live_transkript_anzeigen)
-        self._geraete_empfang = EmpfangsSteuerung(self, live=self._live, status=self._geraete_status)
+        self._fragen = frage_service.FragenDienst(
+            erkennen=self._frage_erkennen,
+            antworten=self._frage_beantworten,
+            anzeige=geraete_fragen.fuer_display,
+            # Die Sprachausgabe (lokale Sprachsynthese) folgt, sobald die Engine feststeht; bis dahin
+            # endet eine Frage mit der Antwort als Text.
+            sprechen=None,
+            bereit=self._frage_bereit,
+        )
+        self._geraete_empfang = EmpfangsSteuerung(
+            self, live=self._live, status=self._geraete_status, wuensche=self._wuensche, fragen=self._fragen
+        )
+        self._geraete_empfang.zusammenfassung_gewuenscht.connect(self._zusammenfassung_gewuenscht)
         self._geraete_empfang.neue_aufnahme.connect(self._neue_geraete_aufnahme)
         self._geraete_empfang.aufnahme_bereit.connect(self._geraete_aufnahme_bereit)
         self._geraete_empfang_anwenden()
@@ -1155,6 +1183,7 @@ class MainWindow(QMainWindow):
             with contextlib.suppress(Exception):
                 self._recording.stop()
         self._geraete_empfang.stoppen()
+        self._fragen.stoppen()
         self._live.stoppen()
         super().closeEvent(event)
 
@@ -1247,6 +1276,50 @@ class MainWindow(QMainWindow):
         if not self._arbeit_laeuft() and self._automatik is None:
             self.preview_edit.setPlainText(text)
 
+    def _ergebnisse_merken(self, **pfade: Path | None) -> None:
+        """Die Unterlagen der Aufnahme, die gerade automatisch verarbeitet wird, fuer Fragen per Sprache merken."""
+        if self._automatik is None:
+            return
+        geraet, datei, _pfad = self._automatik
+        eintrag = self._ergebnisse.setdefault((geraet, datei), {})
+        for name, pfad in pfade.items():
+            if pfad is not None:
+                eintrag[name] = pfad
+        while len(self._ergebnisse) > 50:
+            del self._ergebnisse[next(iter(self._ergebnisse))]
+
+    def _frage_bereit(self, geraet: str, datei: str) -> bool:
+        return "transkript" in self._ergebnisse.get((geraet, datei), {})
+
+    def _frage_erkennen(self, ton: bytes, endung: str) -> str:
+        """Die gesprochene Frage als Text (Whisper auf dem Prozessor; laeuft im Faden der Fragen)."""
+        with self._frage_sperre:
+            if self._frage_transkribierer is None:
+                self._frage_transkribierer = self._live_transkribierer()
+            transkribieren = self._frage_transkribierer
+        return geraete_fragen.frage_verstehen(
+            ton, endung, transkribieren=transkribieren, extrahieren=live_service.standard_extrahieren
+        )
+
+    def _frage_beantworten(self, frage: str, geraet: str, datei: str, ausgabe: str) -> str:
+        """Antwort aus Zusammenfassung und Transkript der Aufnahme (lokales Sprachmodell, laeuft im Faden der Fragen)."""
+        eintrag = self._ergebnisse.get((geraet, datei), {})
+        unterlagen = [p for p in (eintrag.get("zusammenfassung"), eintrag.get("transkript")) if p is not None]
+        konfig = app_config.load_config()
+        modell = konfig.get("chatbot_ollama_modell") or konfig.get("ollama_modell") or ollama_service.DEFAULT_MODEL
+        # Immer lokal und mit dem ganzen Text: Das Geraet fragt im eigenen Netz, ohne Einbettungsmodell.
+        einstellungen = chat_service.ChatEinstellungen("lokal", modell, "", kontext=chat_service.KONTEXT_VOLLTEXT)
+        _embed, chat_fn = chat_service.funktionen_aus_einstellungen(einstellungen)
+        return geraete_fragen.antwort_aus_unterlagen(frage, unterlagen, chat_fn, ausgabe)
+
+    def _auftrag_des_geraets(self, geraet: str, datei: str) -> str | None:
+        """Text des Auftrags, den das Geraet fuer diese Aufnahme gewaehlt hat; ``None``: der aus den Einstellungen
+        (kein Wunsch, oder die Vorlage gibt es nicht mehr)."""
+        wunsch = self._wuensche.hole(geraet, datei)
+        if wunsch is None or wunsch.auftrag is None:
+            return None
+        return alle_vorlagen().get(wunsch.auftrag)
+
     def _geraete_aufnahme_bereit(self, pfad: str, geraet: str, datei: str) -> None:
         """Eine Aufnahme ist vollstaendig angekommen: automatisch verarbeiten."""
         self._geraete_warteschlange.append((Path(pfad), geraet, datei))
@@ -1258,7 +1331,14 @@ class MainWindow(QMainWindow):
         )
 
     def _naechste_geraete_aufnahme(self) -> None:
-        if not self._geraete_warteschlange or self._automatik is not None or self._arbeit_laeuft():
+        if self._automatik is not None or self._arbeit_laeuft():
+            return
+        # Wer am Geraet die Zusammenfassung freigegeben hat, wartet darauf: Das geht vor neuen Aufnahmen.
+        if self._freigabe_warteschlange:
+            geraet, datei = self._freigabe_warteschlange.pop(0)
+            self._zusammenfassung_erstellen(geraet, datei)
+            return
+        if not self._geraete_warteschlange:
             return
         pfad, geraet, datei = self._geraete_warteschlange.pop(0)
         self._geraete_aufnahme_verarbeiten(pfad, geraet, datei)
@@ -1270,20 +1350,69 @@ class MainWindow(QMainWindow):
         auftrag = str(config.get("geraete_live_auftrag") or "")
         self._automatik = (geraet, datei, pfad)
         self._automatik_phase = live_service.TRANSKRIPTION
-        self._systemprompt_automatik = alle_vorlagen().get(auftrag, "")
+        # Der Auftrag, den das Geraet vor der Aufnahme gewaehlt hat, geht vor dem aus den Einstellungen.
+        gewaehlt = self._auftrag_des_geraets(geraet, datei)
+        self._systemprompt_automatik = gewaehlt if gewaehlt is not None else alle_vorlagen().get(auftrag, "")
+        wunsch = self._wuensche.hole(geraet, datei)
+        self._automatik_rueckfrage = wunsch is not None and wunsch.rueckfrage
         self._set_source_file(pfad)
         self._select_file_in_list(pfad.name)
         self.resume_combo.setCurrentIndex(max(self.resume_combo.findData("fortsetzen"), 0))
         self._geraete_status.setze(geraet, datei, live_service.TRANSKRIPTION, 0.0, "Transkription beginnt")
         self._empfang_zuletzt = f"Automatische Verarbeitung: {pfad.name} von {geraet}"
         self._empfang_anzeigen()
-        self._protokoll_nach_transkription = True
+        # Mit Rueckfrage am Geraet wartet die Zusammenfassung, bis das Geraet sie freigibt.
+        self._protokoll_nach_transkription = not self._automatik_rueckfrage
         vorher = self._transcription_worker
         self._start_transcription()
         if self._transcription_worker is vorher:
             # Der Start ist gescheitert (Fehlermeldung wurde schon gezeigt).
             self._protokoll_nach_transkription = False
             self._automatik_beenden(live_service.FEHLER, "Die Verarbeitung konnte nicht gestartet werden.")
+
+    def _automatik_wartet_auf_freigabe(self, transkript: Path) -> None:
+        """Das Transkript steht. Das Geraet fragt seinen Nutzer, ob die Zusammenfassung erstellt werden soll;
+        bis es sie freigibt, bleibt die Verarbeitung stehen und die Software frei fuer andere Aufnahmen."""
+        if self._automatik is None:
+            return
+        geraet, datei, pfad = self._automatik
+        self._freigaben[(geraet, datei)] = (pfad, transkript, self._systemprompt_automatik or "")
+        self._automatik = None
+        self._automatik_phase = ""
+        self._systemprompt_automatik = None
+        self._automatik_rueckfrage = False
+        self._geraete_status.setze(geraet, datei, live_service.TRANSKRIPT, 1.0, "Transkription erfolgreich")
+        self._empfang_zuletzt = f"Transkript steht, wartet auf Freigabe am Gerät: {pfad.name} von {geraet}"
+        self._empfang_anzeigen()
+        if self._geraete_warteschlange or self._freigabe_warteschlange:
+            QTimer.singleShot(0, self._naechste_geraete_aufnahme)
+
+    def _zusammenfassung_gewuenscht(self, geraet: str, datei: str) -> None:
+        """Das Geraet hat die Zusammenfassung freigegeben."""
+        if (geraet, datei) not in self._freigaben or (geraet, datei) in self._freigabe_warteschlange:
+            return
+        self._freigabe_warteschlange.append((geraet, datei))
+        # Sofort Rueckmeldung ans Geraet, auch wenn noch eine andere Aufnahme verarbeitet wird.
+        self._geraete_status.setze(geraet, datei, live_service.AUSWERTUNG, 0.5, "Zusammenfassung wird erstellt")
+        self._naechste_geraete_aufnahme()
+
+    def _zusammenfassung_erstellen(self, geraet: str, datei: str) -> None:
+        eintrag = self._freigaben.pop((geraet, datei), None)
+        if eintrag is None:
+            return
+        pfad, transkript, auftrag = eintrag
+        self._automatik = (geraet, datei, pfad)
+        self._automatik_phase = live_service.AUSWERTUNG
+        self._automatik_rueckfrage = True
+        self._systemprompt_automatik = auftrag
+        self._set_transcript_path(transkript)
+        self._geraete_status.setze(geraet, datei, live_service.AUSWERTUNG, 0.5, "Zusammenfassung wird erstellt")
+        self._empfang_zuletzt = f"Zusammenfassung wird erstellt: {pfad.name} von {geraet}"
+        self._empfang_anzeigen()
+        vorher = self._protocol_worker
+        self._start_protocol()
+        if self._automatik is not None and self._protocol_worker is vorher:
+            self._automatik_beenden(live_service.FEHLER, "Die Zusammenfassung konnte nicht gestartet werden.")
 
     def _automatik_status(self, zustand: str, *, fortschritt: float | None = None, detail: str = "") -> None:
         if self._automatik is None:
@@ -1312,6 +1441,7 @@ class MainWindow(QMainWindow):
         self._automatik = None
         self._automatik_phase = ""
         self._systemprompt_automatik = None
+        self._automatik_rueckfrage = False
         self._geraete_status.setze(geraet, datei, zustand, 1.0 if zustand == live_service.FERTIG else None, meldung)
         if zustand == live_service.FERTIG:
             self._live.freigeben(pfad)
@@ -2044,6 +2174,12 @@ class MainWindow(QMainWindow):
         self.status_label.setText("Transkription abgeschlossen.")
         if self._automatik is None:  # eine Geraeteaufnahme im Hintergrund holt niemanden von seiner Seite weg
             self._show_page(self.SEITE_ERGEBNIS)
+        elif self._automatik_rueckfrage:
+            self._ergebnisse_merken(transkript=result.export_paths.json)
+            self._automatik_wartet_auf_freigabe(result.export_paths.json)
+            return
+        else:
+            self._ergebnisse_merken(transkript=result.export_paths.json)
         if self._protokoll_nach_transkription and self._transcription_worker is not None:
             # Erst starten, wenn der Transkriptions-Thread beendet ist: Dessen
             # 'finished' schaltet die Bedienelemente wieder frei und stoppt den
@@ -2142,7 +2278,12 @@ class MainWindow(QMainWindow):
         protocol_paths = result.protocol_paths
         if self._automatik is not None:
             # Ohne Rueckfrage-Fenster: Niemand sitzt davor, das Geraet bekommt die Meldung.
-            self._automatik_beenden(live_service.FERTIG, "Transkription erfolgreich")
+            if protocol_paths is not None:
+                self._ergebnisse_merken(zusammenfassung=protocol_paths[1])
+            self._automatik_beenden(
+                live_service.FERTIG,
+                "Zusammenfassung fertig" if self._automatik_rueckfrage else "Transkription erfolgreich",
+            )
             return
         if protocol_paths is None:
             return

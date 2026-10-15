@@ -68,6 +68,8 @@ class EmpfangsSteuerung(QObject):
     # durch: Die Verarbeitung der fertigen Datei darf beginnen.
     # Pfad der Datei, Geraetename, Dateiname, den das Geraet benutzt hat.
     aufnahme_bereit = Signal(str, str, str)
+    # Das Geraet gibt die Zusammenfassung frei (nach der Rueckfrage am Geraet): Geraetename, Dateiname.
+    zusammenfassung_gewuenscht = Signal(str, str)
 
     def __init__(
         self,
@@ -76,10 +78,14 @@ class EmpfangsSteuerung(QObject):
         dienst_fabrik: Callable[..., geraete_empfang_service.GeraeteEmpfang] | None = None,
         live: live_service.LiveTranskription | None = None,
         status: live_service.StatusRegister | None = None,
+        wuensche: live_service.WunschRegister | None = None,
+        fragen: Any = None,
     ):
         super().__init__(parent)
         self._live = live
         self._status = status
+        self._wuensche = wuensche
+        self._fragen = fragen
         # Erst beim Start aufgeloest, nicht hier: So laesst sich der Dienst in
         # Tests auch nach dem Bau des Fensters noch ersetzen.
         self._fabrik = dienst_fabrik
@@ -110,6 +116,12 @@ class EmpfangsSteuerung(QObject):
         zusaetze: dict[str, Any] = {}
         if self._status is not None:
             zusaetze["status_fn"] = self._status.hole
+            zusaetze["auftraege_fn"] = self._auftraege
+            zusaetze["bei_zusammenfassung"] = self._zusammenfassung
+        if self._wuensche is not None:
+            zusaetze["bei_wunsch"] = self._wuensche.merke
+        if self._fragen is not None:
+            zusaetze["fragen"] = self._fragen
         if live_aktiv:
             zusaetze["bei_teil"] = self._teil
             zusaetze["bei_abschluss"] = self._abschluss
@@ -121,6 +133,15 @@ class EmpfangsSteuerung(QObject):
             self.fehler = f"Port {port} ist nicht nutzbar ({fehler.strerror or fehler}). Anderen Port in den Einstellungen wählen."
             return
         self._dienst = dienst
+
+    def _auftraege(self) -> list[str]:
+        """Die Vorlagen, aus denen ein Geraet vor der Aufnahme waehlen kann."""
+        return list(alle_vorlagen())
+
+    def _zusammenfassung(self, geraet: str, datei: str) -> bool:
+        # Aus dem Faden des Dienstes: Qt stellt es dem Hauptfenster ueber dessen Ereignisschleife zu.
+        self.zusammenfassung_gewuenscht.emit(geraet, datei)
+        return True
 
     def kontakte(self) -> dict[str, geraete_empfang_service.Kontakt]:
         """Letzter Kontakt je Geraet, solange der Empfang laeuft."""

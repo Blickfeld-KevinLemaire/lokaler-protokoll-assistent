@@ -325,3 +325,16 @@ def test_kurze_abschnitte_werden_entsprechend_frueher_ausgewertet(modell):
         assert vorab is not None and len(vorab["stufe1"]) == 2
     finally:
         a.stoppen()
+
+
+def test_auftrag_des_geraets_ersetzt_den_aus_den_einstellungen(auswertung, modell):
+    auswertung.fortschritt(SCHLUESSEL, saetze(605), 605.0, "Nur Entscheidungen auflisten.")
+    assert auswertung.warte_bis_fertig()
+    assert [system for _prompt, system in modell.anfragen] == [protocol_service.effektiver_systemprompt("Nur Entscheidungen auflisten.")]
+    # Ohne Auftrag des Geraets bleibt es beim Auftrag aus den Einstellungen
+    andere = bauen(Modell())
+    try:
+        andere.fortschritt(SCHLUESSEL, saetze(605), 605.0)
+        assert andere.warte_bis_fertig()
+    finally:
+        andere.stoppen()

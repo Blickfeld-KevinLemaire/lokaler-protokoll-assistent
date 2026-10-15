@@ -56,10 +56,13 @@ logger = logging.getLogger(__name__)
 EMPFANG = "empfang"  # Die Aufnahme laeuft noch (oder das Ende steht aus).
 WARTET = "wartet"  # Ende da, die Verarbeitung ist eingereiht.
 TRANSKRIPTION = "transkription"
+# Nur fuer Geraete, die eine Rueckfrage wuenschen (``X-Rueckfrage``): Das Transkript steht, die Zusammenfassung
+# wartet auf die Freigabe am Geraet (``POST .../zusammenfassung``).
+TRANSKRIPT = "transkript"
 AUSWERTUNG = "auswertung"
 FERTIG = "fertig"
 FEHLER = "fehler"
-ZUSTAENDE = (EMPFANG, WARTET, TRANSKRIPTION, AUSWERTUNG, FERTIG, FEHLER)
+ZUSTAENDE = (EMPFANG, WARTET, TRANSKRIPTION, TRANSKRIPT, AUSWERTUNG, FERTIG, FEHLER)
 
 # So viel neues Audio (seit dem letzten sicheren Punkt und seit dem letzten Durchlauf) muss da sein, bevor
 # ein Fenster transkribiert wird. Kleiner = geringere Verzoegerung, aber mehr Rechenaufwand fuer das Neu-
@@ -122,6 +125,37 @@ class StatusRegister:
         with self._sperre:
             eintrag = self._eintraege.get((geraet, datei))
             return dict(eintrag) if eintrag is not None else None
+
+
+@dataclass(frozen=True)
+class Wunsch:
+    """Was ein Geraet fuer eine Aufnahme angegeben hat: Auftrag (Name einer Vorlage) und ob es nach dem
+    Transkript fragen will, ob die Zusammenfassung erstellt werden soll."""
+
+    auftrag: str | None = None
+    rueckfrage: bool = False
+
+
+class WunschRegister:
+    """Wuensche je Aufnahme (Geraet + Dateiname des Geraets); aus mehreren Faeden benutzt."""
+
+    def __init__(self, *, max_eintraege: int = 200):
+        self._eintraege: OrderedDict[tuple[str, str], Wunsch] = OrderedDict()
+        self._sperre = threading.Lock()
+        self._max = max_eintraege
+
+    def merke(self, geraet: str, datei: str, auftrag: str | None, rueckfrage: bool) -> None:
+        """Ein spaeter fehlender Auftrag loescht den frueheren nicht (nicht jede Anfrage traegt die Kopfzeile)."""
+        with self._sperre:
+            alt = self._eintraege.get((geraet, datei), Wunsch())
+            self._eintraege[(geraet, datei)] = Wunsch(auftrag or alt.auftrag, rueckfrage or alt.rueckfrage)
+            self._eintraege.move_to_end((geraet, datei))
+            while len(self._eintraege) > self._max:
+                self._eintraege.popitem(last=False)
+
+    def hole(self, geraet: str, datei: str) -> Wunsch | None:
+        with self._sperre:
+            return self._eintraege.get((geraet, datei))
 
 
 # --------------------------------------------------------------------------
@@ -204,8 +238,11 @@ class LiveTranskription:
         neu_min: float = NEU_MIN_SEKUNDEN,
         fenster_max: float = FENSTER_MAX_SEKUNDEN,
         auswertung: LiveAuswertung | None = None,
+        auftrag_fn: Callable[[str, str], str | None] | None = None,
     ):
         self._auswertung = auswertung
+        # (Geraet, Datei) -> Text des Auftrags, den das Geraet gewaehlt hat (``None``: der aus den Einstellungen)
+        self._auftrag_fn = auftrag_fn
         self._basis = arbeitsordner / "live"
         self._fabrik = transkribierer_fabrik
         self._status = status
@@ -518,7 +555,8 @@ class LiveTranskription:
                 kopie = [dict(s) for s in sitzung.segmente]
                 punkt = sitzung.bestaetigt_bis
             # Die Auswertung rechnet in ihrem eigenen Faden: Das Sprachmodell auf der Grafikkarte, Whisper auf dem Prozessor
-            self._auswertung.fortschritt(sitzung.kennung, kopie, punkt)
+            auftrag = self._auftrag_fn(sitzung.geraet, sitzung.datei) if self._auftrag_fn is not None else None
+            self._auswertung.fortschritt(sitzung.kennung, kopie, punkt, auftrag)
         vorher = self._status.hole(sitzung.geraet, sitzung.datei) if self._status is not None else None
         # Nur "empfang" melden, solange nichts Weiteres bekannt ist: Ein wiederholter Upload einer schon
         # abgelegten Aufnahme (die Bestaetigung ging verloren) darf ein "fertig" nicht zuruecknehmen -- das Geraet
