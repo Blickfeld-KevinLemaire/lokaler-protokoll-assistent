@@ -254,6 +254,33 @@ def test_gesamter_grafikspeicher_ohne_torch_ist_none():
     assert model_service.gesamter_grafikspeicher() is None  # Entwicklungsumgebung ohne torch
 
 
+GB = 1024**3
+
+
+@pytest.mark.parametrize(
+    ("gesamt", "sprachmodell", "passt"),
+    [
+        (6 * GB, ollama_service.geschaetzter_grafikspeicher(ollama_service.DEFAULT_MODEL), False),  # Laptop, 6 GB
+        (12 * GB, ollama_service.geschaetzter_grafikspeicher(ollama_service.DEFAULT_MODEL), True),
+        (8 * GB, 5 * GB, True),  # genau 3 GB bleiben fuer Whisper
+        (8 * GB, 5 * GB + 1, False),
+        (None, 2 * GB, False),  # keine CUDA-Karte
+        (24 * GB, None, False),  # Bedarf des Modells unbekannt
+    ],
+)
+def test_sprachmodell_passt_neben_whisper(gesamt, sprachmodell, passt):
+    assert model_service.sprachmodell_passt_neben_whisper(gesamt, sprachmodell) is passt
+
+
+def test_geschaetzter_grafikspeicher_nur_fuer_modelle_der_auswahl():
+    option = ollama_service.get_modell_option(ollama_service.DEFAULT_MODEL)
+    assert option is not None
+    assert ollama_service.geschaetzter_grafikspeicher(ollama_service.DEFAULT_MODEL) == int(
+        option.groesse_gb * GB
+    ) + ollama_service.PROTOKOLL_KONTEXT_ZUSCHLAG_BYTES
+    assert ollama_service.geschaetzter_grafikspeicher("eigenes-modell:latest") is None
+
+
 def test_modelle_entladen_schickt_keep_alive_null_je_geladenem_modell(monkeypatch):
     monkeypatch.setattr(
         ollama_service, "_get_json", lambda url, timeout: {"models": [{"name": "qwen3.5:4b-q4_K_M"}, {"model": "bge-m3"}, "kaputt"]}

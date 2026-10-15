@@ -242,6 +242,9 @@ class MainWindow(QMainWindow):
         # (Geraet, Datei) -> (Aufnahme, Transkript-JSON, Text des Auftrags)
         self._freigaben: dict[tuple[str, str], tuple[Path, Path, str]] = {}
         self._freigabe_warteschlange: list[tuple[str, str]] = []
+        # Aufnahmen, nach denen das Geraet nicht mehr fragt (es ist weitergezogen): Ihre Zusammenfassung kommt nach
+        # den neuen Aufnahmen dran, wenn die Grafikkarte sie neben der naechsten Aufnahme verkraftet.
+        self._nachhol_warteschlange: list[tuple[str, str]] = []
         # Unterlagen zu Geraeteaufnahmen, nach denen per Sprache gefragt werden kann:
         # (Geraet, Datei) -> {"transkript": JSON, "zusammenfassung": Text}
         self._ergebnisse: dict[tuple[str, str], dict[str, Path]] = {}
@@ -310,6 +313,8 @@ class MainWindow(QMainWindow):
             self, live=self._live, status=self._geraete_status, wuensche=self._wuensche, fragen=self._fragen
         )
         self._geraete_empfang.zusammenfassung_gewuenscht.connect(self._zusammenfassung_gewuenscht)
+        self._geraete_empfang.zusammenfassung_abgelehnt.connect(self._zusammenfassung_abgelehnt)
+        self._geraete_empfang.geraet_weitergezogen.connect(self._geraet_weitergezogen)
         self._geraete_empfang.neue_aufnahme.connect(self._neue_geraete_aufnahme)
         self._geraete_empfang.aufnahme_bereit.connect(self._geraete_aufnahme_bereit)
         self._geraete_empfang_anwenden()
@@ -1338,10 +1343,17 @@ class MainWindow(QMainWindow):
             geraet, datei = self._freigabe_warteschlange.pop(0)
             self._zusammenfassung_erstellen(geraet, datei)
             return
-        if not self._geraete_warteschlange:
+        if self._geraete_warteschlange:
+            pfad, geraet, datei = self._geraete_warteschlange.pop(0)
+            self._geraete_aufnahme_verarbeiten(pfad, geraet, datei)
             return
-        pfad, geraet, datei = self._geraete_warteschlange.pop(0)
-        self._geraete_aufnahme_verarbeiten(pfad, geraet, datei)
+        # Zuletzt, was niemand mehr am Geraet erwartet: Zusammenfassungen, nach denen das Geraet nicht mehr fragt.
+        if self._nachhol_warteschlange:
+            geraet, datei = self._nachhol_warteschlange.pop(0)
+            self._zusammenfassung_erstellen(geraet, datei)
+
+    def _geraete_arbeit_wartet(self) -> bool:
+        return bool(self._freigabe_warteschlange or self._geraete_warteschlange or self._nachhol_warteschlange)
 
     def _geraete_aufnahme_verarbeiten(self, pfad: Path, geraet: str, datei: str) -> None:
         """Transkription der fertigen Datei (nur der Rest nach der Live-Transkription), danach
@@ -1384,8 +1396,63 @@ class MainWindow(QMainWindow):
         self._geraete_status.setze(geraet, datei, live_service.TRANSKRIPT, 1.0, "Transkription erfolgreich")
         self._empfang_zuletzt = f"Transkript steht, wartet auf Freigabe am Gerät: {pfad.name} von {geraet}"
         self._empfang_anzeigen()
-        if self._geraete_warteschlange or self._freigabe_warteschlange:
+        if self._wuensche.neueste(geraet) not in (None, datei):
+            # Das Geraet hat schon eine neue Aufnahme begonnen: Nach dieser fragt es nicht mehr.
+            self._ohne_antwort_weiter(geraet, datei)
+        if self._geraete_arbeit_wartet():
             QTimer.singleShot(0, self._naechste_geraete_aufnahme)
+
+    def _geraet_weitergezogen(self, geraet: str, neue_datei: str) -> None:
+        """Das Geraet hat eine neue Aufnahme begonnen (oder ist neu gestartet und nimmt wieder auf): Nach seinen
+        frueheren Aufnahmen fragt es nicht mehr. Was noch auf "Ja/Nein" wartet, geht ohne Antwort weiter."""
+        for schluessel in list(self._freigaben):
+            if schluessel[0] == geraet and schluessel[1] != neue_datei and schluessel not in self._freigabe_warteschlange:
+                self._ohne_antwort_weiter(*schluessel)
+
+    def _ohne_antwort_weiter(self, geraet: str, datei: str) -> None:
+        """Niemand beantwortet die Rueckfrage mehr. Reicht die Grafikkarte, um die Zusammenfassung neben der
+        neuen Aufnahme zu rechnen, kommt sie nach den neuen Aufnahmen dran; sonst bleibt es beim Transkript --
+        die neue Aufnahme darf nicht warten, weil das Sprachmodell den Grafikspeicher haelt."""
+        if (geraet, datei) not in self._freigaben or (geraet, datei) in self._nachhol_warteschlange:
+            return
+        if self._zusammenfassung_nebenher_moeglich():
+            self._nachhol_warteschlange.append((geraet, datei))
+            self._empfang_zuletzt = f"Zusammenfassung ohne Rückfrage folgt: {datei} von {geraet}"
+            self._empfang_anzeigen()
+            QTimer.singleShot(0, self._naechste_geraete_aufnahme)
+        else:
+            self._ohne_zusammenfassung_abschliessen(
+                geraet, datei, "ohne Zusammenfassung (Grafikspeicher reicht nicht neben der neuen Aufnahme)"
+            )
+
+    def _zusammenfassung_abgelehnt(self, geraet: str, datei: str) -> None:
+        """Am Geraet "Nein" gewaehlt: Das Transkript bleibt, eine Zusammenfassung gibt es nicht."""
+        if (geraet, datei) in self._freigabe_warteschlange:
+            return  # "Ja" kam zuerst und gilt
+        with contextlib.suppress(ValueError):
+            self._nachhol_warteschlange.remove((geraet, datei))
+        self._ohne_zusammenfassung_abschliessen(geraet, datei, "ohne Zusammenfassung (am Gerät abgelehnt)")
+
+    def _ohne_zusammenfassung_abschliessen(self, geraet: str, datei: str, grund: str) -> None:
+        eintrag = self._freigaben.pop((geraet, datei), None)
+        if eintrag is None:
+            return
+        pfad = eintrag[0]
+        self._geraete_status.setze(geraet, datei, live_service.FERTIG, 1.0, "Transkription erfolgreich")
+        self._live.freigeben(pfad)  # die Vorab-Teilergebnisse braucht niemand mehr
+        self._empfang_zuletzt = f"Transkript fertig, {grund}: {pfad.name} von {geraet}"
+        self._empfang_anzeigen()
+
+    def _zusammenfassung_nebenher_moeglich(self) -> bool:
+        """Verkraftet der Rechner eine Zusammenfassung neben der naechsten Aufnahme? Ueber eine API immer (sie
+        rechnet nicht hier); lokal nur, wenn Sprachmodell und Whisper zugleich in den Grafikspeicher passen --
+        sonst muesste die neue Aufnahme warten, bis das Sprachmodell entladen ist."""
+        if self.nachbearbeitung_api_radio.isChecked():
+            return True
+        modell = app_config.load_config().get("ollama_modell") or ollama_service.DEFAULT_MODEL
+        # Geladen misst Ollama selbst (mit Kontext); sonst die Schaetzung aus der Modellauswahl
+        bedarf = max(ollama_service.belegter_grafikspeicher(timeout=2), ollama_service.geschaetzter_grafikspeicher(modell) or 0)
+        return model_service.sprachmodell_passt_neben_whisper(model_service.gesamter_grafikspeicher(), bedarf or None)
 
     def _zusammenfassung_gewuenscht(self, geraet: str, datei: str) -> None:
         """Das Geraet hat die Zusammenfassung freigegeben."""
@@ -1399,6 +1466,9 @@ class MainWindow(QMainWindow):
     def _zusammenfassung_erstellen(self, geraet: str, datei: str) -> None:
         eintrag = self._freigaben.pop((geraet, datei), None)
         if eintrag is None:
+            # Schon erledigt (etwa freigegeben, waehrend sie zum Nachholen anstand): mit dem Naechsten weiter.
+            if self._geraete_arbeit_wartet():
+                QTimer.singleShot(0, self._naechste_geraete_aufnahme)
             return
         pfad, transkript, auftrag = eintrag
         self._automatik = (geraet, datei, pfad)
@@ -1447,7 +1517,7 @@ class MainWindow(QMainWindow):
             self._live.freigeben(pfad)
         self._empfang_zuletzt = f"{meldung}: {pfad.name} von {geraet} ({time.strftime('%H:%M')})"
         self._empfang_anzeigen()
-        if self._geraete_warteschlange or self._freigabe_warteschlange:
+        if self._geraete_arbeit_wartet():
             QTimer.singleShot(0, self._naechste_geraete_aufnahme)
 
     def _choose_output_dir(self) -> None:
@@ -2119,7 +2189,7 @@ class MainWindow(QMainWindow):
             # Transkription und Nachbearbeitung laufen nie gleichzeitig.
             self._nachbearbeitung_laeuft = False
             # Auch eine Freigabe vom Geraet kann warten (sie kam, waehrend etwas anderes lief).
-            if (self._geraete_warteschlange or self._freigabe_warteschlange) and self._automatik is None:
+            if self._geraete_arbeit_wartet() and self._automatik is None:
                 QTimer.singleShot(0, self._naechste_geraete_aufnahme)
         self._protocol_result_sperre_anwenden()
 

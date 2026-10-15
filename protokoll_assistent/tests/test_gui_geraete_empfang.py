@@ -311,7 +311,9 @@ def test_live_verbindet_dienst_mit_live_arbeiter_und_status(qt_app, tmp_path):
     steuerung = _live_steuerung(qt_app, live, status)
     steuerung.anwenden(tmp_path, konfig())
     weitere = _LiveDienst.instanzen[-1].weitere
-    assert set(weitere) == {"status_fn", "auftraege_fn", "bei_zusammenfassung", "bei_teil", "bei_abschluss", "bei_verworfen"}
+    assert set(weitere) == {
+        "status_fn", "auftraege_fn", "bei_zusammenfassung", "bei_keine_zusammenfassung", "bei_teil", "bei_abschluss", "bei_verworfen"
+    }
 
     status.setze("S3", "H5.opus", ls.AUSWERTUNG)
     assert weitere["status_fn"]("S3", "H5.opus")["zustand"] == "auswertung"
@@ -332,7 +334,9 @@ def test_live_verbindet_dienst_mit_live_arbeiter_und_status(qt_app, tmp_path):
 def test_abgeschaltete_live_verarbeitung_laesst_nur_den_status_zu(qt_app, tmp_path):
     steuerung = _live_steuerung(qt_app, _LiveAttrappe(), ls.StatusRegister())
     steuerung.anwenden(tmp_path, {**konfig(), "geraete_live_aktiv": False})
-    assert set(_LiveDienst.instanzen[-1].weitere) == {"status_fn", "auftraege_fn", "bei_zusammenfassung"}
+    assert set(_LiveDienst.instanzen[-1].weitere) == {
+        "status_fn", "auftraege_fn", "bei_zusammenfassung", "bei_keine_zusammenfassung"
+    }
 
 
 def test_umschalten_der_live_verarbeitung_startet_den_dienst_neu(qt_app, tmp_path):
@@ -418,6 +422,28 @@ def test_auftraege_wuensche_und_freigabe_des_geraets(qt_app, tmp_path, monkeypat
     steuerung.zusammenfassung_gewuenscht.connect(lambda *a: freigaben.append(a))
     assert weitere["bei_zusammenfassung"]("S3", "H5.opus") is True
     assert freigaben == [("S3", "H5.opus")]
+
+    abgelehnt = []
+    steuerung.zusammenfassung_abgelehnt.connect(lambda *a: abgelehnt.append(a))
+    assert weitere["bei_keine_zusammenfassung"]("S3", "H5.opus") is True
+    assert abgelehnt == [("S3", "H5.opus")]
+
+
+def test_neue_aufnahme_am_geraet_meldet_dass_es_weitergezogen_ist(qt_app, tmp_path):
+    _LiveDienst.instanzen.clear()
+    steuerung = ge.EmpfangsSteuerung(
+        dienst_fabrik=_LiveDienst, live=_LiveAttrappe(), status=ls.StatusRegister(), wuensche=ls.WunschRegister()
+    )
+    steuerung.anwenden(tmp_path, konfig())
+    wunsch = _LiveDienst.instanzen[-1].weitere["bei_wunsch"]
+    weiter = []
+    steuerung.geraet_weitergezogen.connect(lambda *a: weiter.append(a))
+    wunsch("S3", "H5_001.opus", None, True)
+    wunsch("S3", "H5_001.opus", None, True)  # weitere Stuecke derselben Aufnahme
+    wunsch("C6", "H5_009.opus", None, True)  # ein anderes Geraet
+    assert weiter == []
+    wunsch("S3", "H5_002.opus", None, True)
+    assert weiter == [("S3", "H5_002.opus")]
 
 
 def test_fragendienst_wird_an_den_empfang_gereicht(qt_app, tmp_path):

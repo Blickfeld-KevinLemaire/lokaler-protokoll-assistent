@@ -2760,6 +2760,113 @@ def test_freigabe_waehrend_einer_handarbeit_startet_wenn_die_bedienung_frei_wird
 
 
 # --------------------------------------------------------------------------
+# Rueckfrage ohne Antwort: "Nein" am Geraet, oder das Geraet ist zur naechsten Aufnahme weitergezogen
+# --------------------------------------------------------------------------
+def _freigaben_beobachten(fenster):
+    freigegeben: list[Path] = []
+    fenster._live.freigeben = lambda pfad: freigegeben.append(pfad)  # type: ignore[method-assign]
+    return freigegeben
+
+
+def test_nein_am_geraet_beendet_ohne_zusammenfassung(mit_rueckfrage, geraeteaufnahme):
+    fenster = mit_rueckfrage
+    freigegeben = _freigaben_beobachten(fenster)
+    vorher = len(_WorkerAttrappe.instanzen)
+    fenster._zusammenfassung_abgelehnt("S3", "H5_007.opus")
+    assert _status(fenster)["zustand"] == "fertig" and _status(fenster)["meldung"] == "Transkription erfolgreich"
+    assert fenster._freigaben == {} and len(_WorkerAttrappe.instanzen) == vorher
+    assert freigegeben == [geraeteaufnahme]  # die Vorab-Teilergebnisse sind frei
+    fenster._geraet_weitergezogen("S3", "H5_008.opus")  # danach aendert ein Weiterziehen nichts mehr
+    assert len(_WorkerAttrappe.instanzen) == vorher
+
+
+def test_nein_nach_ja_aendert_nichts(mit_rueckfrage, monkeypatch):
+    fenster = mit_rueckfrage
+    monkeypatch.setattr(fenster, "_arbeit_laeuft", lambda: True)  # die Freigabe muss noch warten
+    fenster._zusammenfassung_gewuenscht("S3", "H5_007.opus")
+    fenster._zusammenfassung_abgelehnt("S3", "H5_007.opus")
+    assert fenster._freigabe_warteschlange == [("S3", "H5_007.opus")] and ("S3", "H5_007.opus") in fenster._freigaben
+
+
+def test_weitergezogen_mit_genug_grafikspeicher_wird_nachgeholt(mit_rueckfrage, monkeypatch, qtbot, tmp_path):
+    fenster = mit_rueckfrage
+    monkeypatch.setattr(fenster, "_zusammenfassung_nebenher_moeglich", lambda: True)
+    vorher = len(_WorkerAttrappe.instanzen)
+    fenster._geraet_weitergezogen("S3", "H5_007.opus")  # dieselbe Aufnahme: nichts
+    assert fenster._nachhol_warteschlange == []
+
+    fenster._geraet_weitergezogen("S3", "H5_008.opus")
+    qtbot.waitUntil(lambda: len(_WorkerAttrappe.instanzen) == vorher + 1, timeout=2000)
+    assert _WorkerAttrappe.instanzen[-1].settings.system_prompt == "Halte die Entscheidungen fest."
+    assert _status(fenster)["zustand"] == "auswertung"
+    fenster._on_protocol_finished_ok(_protokoll_ergebnis_bauen(tmp_path))
+    assert _status(fenster)["zustand"] == "fertig" and _status(fenster)["meldung"] == "Zusammenfassung fertig"
+
+
+def test_weitergezogen_ohne_genug_grafikspeicher_bleibt_es_beim_transkript(mit_rueckfrage, geraeteaufnahme, monkeypatch):
+    fenster = mit_rueckfrage
+    monkeypatch.setattr(fenster, "_zusammenfassung_nebenher_moeglich", lambda: False)
+    freigegeben = _freigaben_beobachten(fenster)
+    vorher = len(_WorkerAttrappe.instanzen)
+    fenster._geraet_weitergezogen("S3", "H5_008.opus")
+    assert _status(fenster)["zustand"] == "fertig" and fenster._freigaben == {}
+    assert fenster._nachhol_warteschlange == [] and len(_WorkerAttrappe.instanzen) == vorher
+    assert freigegeben == [geraeteaufnahme]
+    assert "Grafikspeicher" in fenster._empfang_zuletzt
+
+
+def test_weitergezogen_waehrend_der_transkription_wartet_gar_nicht_erst(fenster, geraeteaufnahme, tmp_path, monkeypatch):
+    _vorlagen_mit_entscheidungen(monkeypatch)
+    monkeypatch.setattr(fenster, "_zusammenfassung_nebenher_moeglich", lambda: False)
+    fenster._wuensche.merke("S3", "H5_007.opus", "Entscheidungen", True)
+    fenster._geraete_aufnahme_bereit(str(geraeteaufnahme), "S3", "H5_007.opus")  # wird transkribiert
+    fenster._wuensche.merke("S3", "H5_008.opus", None, True)  # das Geraet nimmt schon die naechste auf
+    fenster._on_transcription_finished_ok(_transkript_ergebnis_bauen(tmp_path, []))
+    assert _status(fenster)["zustand"] == "fertig" and fenster._freigaben == {}
+
+
+def test_neue_aufnahmen_gehen_dem_nachholen_vor(mit_rueckfrage, tmp_path, monkeypatch):
+    fenster = mit_rueckfrage
+    monkeypatch.setattr(fenster, "_zusammenfassung_nebenher_moeglich", lambda: True)
+    # Ohne Ereignisschleife (kein qtbot) laeuft hier nur, was der Test selbst aufruft
+    fenster._geraet_weitergezogen("S3", "H5_008.opus")
+    zweite = tmp_path / "S3_H5_008.opus"
+    zweite.write_bytes(b"OggS-zweite")
+    fenster._geraete_warteschlange.append((zweite, "S3", "H5_008.opus"))
+    fenster._naechste_geraete_aufnahme()
+    assert fenster._automatik is not None and fenster._automatik[1] == "H5_008.opus"
+    assert fenster._nachhol_warteschlange == [("S3", "H5_007.opus")]
+
+
+def test_nachholen_ueberspringt_was_schon_erledigt_ist(mit_rueckfrage, qtbot):
+    fenster = mit_rueckfrage
+    fenster._nachhol_warteschlange.append(("S3", "H5_099.opus"))  # nicht (mehr) in den Freigaben
+    fenster._nachhol_warteschlange.append(("S3", "H5_007.opus"))
+    vorher = len(_WorkerAttrappe.instanzen)
+    fenster._naechste_geraete_aufnahme()
+    qtbot.waitUntil(lambda: len(_WorkerAttrappe.instanzen) == vorher + 1, timeout=2000)
+
+
+@pytest.mark.parametrize(("gesamt_gb", "erwartet"), [(6, False), (12, True), (None, False)])
+def test_zusammenfassung_nebenher_nur_wenn_sprachmodell_und_whisper_zugleich_passen(fenster, monkeypatch, gesamt_gb, erwartet):
+    monkeypatch.setattr(mw.ollama_service, "belegter_grafikspeicher", lambda timeout=5: 0)  # nicht geladen: Schaetzung
+    monkeypatch.setattr(
+        mw.model_service, "gesamter_grafikspeicher", lambda: None if gesamt_gb is None else gesamt_gb * 1024**3
+    )
+    fenster.nachbearbeitung_lokal_radio.setChecked(True)
+    assert fenster._zusammenfassung_nebenher_moeglich() is erwartet
+    fenster.nachbearbeitung_api_radio.setChecked(True)  # ueber eine API rechnet nichts hier
+    assert fenster._zusammenfassung_nebenher_moeglich() is True
+
+
+def test_geladenes_sprachmodell_zaehlt_mit_seinem_gemessenen_speicher(fenster, monkeypatch):
+    monkeypatch.setattr(mw.model_service, "gesamter_grafikspeicher", lambda: 12 * 1024**3)
+    monkeypatch.setattr(mw.ollama_service, "belegter_grafikspeicher", lambda timeout=5: 10 * 1024**3)
+    fenster.nachbearbeitung_lokal_radio.setChecked(True)
+    assert fenster._zusammenfassung_nebenher_moeglich() is False
+
+
+# --------------------------------------------------------------------------
 # Fragen per Sprache: Unterlagen merken, Frage beantworten
 # --------------------------------------------------------------------------
 def test_unterlagen_der_automatischen_verarbeitung_werden_fuer_fragen_gemerkt(fenster, geraeteaufnahme, tmp_path):

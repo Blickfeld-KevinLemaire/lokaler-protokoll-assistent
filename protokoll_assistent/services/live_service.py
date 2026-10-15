@@ -137,25 +137,41 @@ class Wunsch:
 
 
 class WunschRegister:
-    """Wuensche je Aufnahme (Geraet + Dateiname des Geraets); aus mehreren Faeden benutzt."""
+    """Wuensche je Aufnahme (Geraet + Dateiname des Geraets); aus mehreren Faeden benutzt.
+
+    Ein Geraet schickt Wuensche nur fuer die Aufnahme, die es gerade beobachtet (die zuletzt aufgenommene). Die
+    Aufnahme mit dem juengsten Wunsch ist deshalb die, nach der das Geraet noch fragen kann (``neueste``); kommt
+    ein Wunsch fuer eine andere, ist das Geraet weitergezogen."""
 
     def __init__(self, *, max_eintraege: int = 200):
         self._eintraege: OrderedDict[tuple[str, str], Wunsch] = OrderedDict()
+        self._neueste: dict[str, str] = {}
         self._sperre = threading.Lock()
         self._max = max_eintraege
 
-    def merke(self, geraet: str, datei: str, auftrag: str | None, rueckfrage: bool) -> None:
-        """Ein spaeter fehlender Auftrag loescht den frueheren nicht (nicht jede Anfrage traegt die Kopfzeile)."""
+    def merke(self, geraet: str, datei: str, auftrag: str | None, rueckfrage: bool) -> bool:
+        """Ein spaeter fehlender Auftrag loescht den frueheren nicht (nicht jede Anfrage traegt die Kopfzeile).
+
+        ``True``, wenn das Geraet damit zu einer anderen Aufnahme weitergezogen ist (nach der vorigen fragt es
+        nicht mehr)."""
         with self._sperre:
             alt = self._eintraege.get((geraet, datei), Wunsch())
             self._eintraege[(geraet, datei)] = Wunsch(auftrag or alt.auftrag, rueckfrage or alt.rueckfrage)
             self._eintraege.move_to_end((geraet, datei))
             while len(self._eintraege) > self._max:
                 self._eintraege.popitem(last=False)
+            vorher = self._neueste.get(geraet)
+            self._neueste[geraet] = datei
+            return vorher is not None and vorher != datei
 
     def hole(self, geraet: str, datei: str) -> Wunsch | None:
         with self._sperre:
             return self._eintraege.get((geraet, datei))
+
+    def neueste(self, geraet: str) -> str | None:
+        """Die Aufnahme, die das Geraet gerade beobachtet (``None``: noch keine mit Wunsch)."""
+        with self._sperre:
+            return self._neueste.get(geraet)
 
 
 # --------------------------------------------------------------------------

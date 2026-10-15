@@ -906,6 +906,52 @@ def test_freigabe_der_zusammenfassung_nur_wenn_das_transkript_steht(tmp_path):
         dienst.stoppen()
 
 
+def test_nein_am_geraet_beendet_die_aufnahme_ohne_zusammenfassung(tmp_path):
+    zustaende = {
+        ("S3-Audio", "H5_001.opus"): {"zustand": "transkript"},
+        ("S3-Audio", "H5_002.opus"): {"zustand": "transkription"},
+        ("S3-Audio", "H5_003.opus"): {"zustand": "auswertung"},
+        ("S3-Audio", "H5_004.opus"): {"zustand": "fertig"},
+    }
+    abgelehnt: list[tuple] = []
+    geraete = (Geraet("S3-Audio", empfang.token_hash(TOKEN)),)
+    dienst = GeraeteEmpfang(
+        tmp_path / "eingang",
+        geraete,
+        port=0,
+        adresse="127.0.0.1",
+        status_fn=lambda g, d: zustaende.get((g, d)),
+        bei_zusammenfassung=lambda g, d: pytest.fail("nicht die Freigabe"),
+        bei_keine_zusammenfassung=lambda g, d: abgelehnt.append((g, d)) or True,
+    )
+    dienst.starten()
+    try:
+        def post(name):
+            return anfrage(dienst, "POST", f"/api/v1/aufnahmen/{name}/keine_zusammenfassung")[:2]
+
+        assert post("H5_001.opus") == (200, {"zustand": "fertig"})
+        assert abgelehnt == [("S3-Audio", "H5_001.opus")]
+        assert post("H5_002.opus")[0] == 409  # zu frueh
+        status, antwort = post("H5_003.opus")
+        assert status == 409 and antwort["zustand"] == "auswertung"  # zu spaet: die Zusammenfassung laeuft
+        assert post("H5_004.opus") == (200, {"zustand": "fertig"})  # Wiederholung
+        assert post("H5_099.opus")[0] == 404
+        assert anfrage(dienst, "POST", "/api/v1/aufnahmen/mit%20leerzeichen.opus/keine_zusammenfassung")[0] == 400
+        assert abgelehnt == [("S3-Audio", "H5_001.opus")]
+    finally:
+        dienst.stoppen()
+
+
+def test_nein_kennt_eine_software_ohne_rueckfrage_nicht(tmp_path):
+    zustaende = {("S3-Audio", "H5_001.opus"): {"zustand": "transkript"}}
+    dienst = _freigabe_dienst(tmp_path, zustaende, [])
+    dienst.starten()
+    try:
+        assert anfrage(dienst, "POST", "/api/v1/aufnahmen/H5_001.opus/keine_zusammenfassung")[0] == 404
+    finally:
+        dienst.stoppen()
+
+
 def test_freigabe_wird_abgelehnt_wenn_die_software_sie_nicht_annimmt(tmp_path):
     zustaende = {("S3-Audio", "H5_001.opus"): {"zustand": "transkript"}}
     dienst = _freigabe_dienst(tmp_path, zustaende, [], ergebnis=False)

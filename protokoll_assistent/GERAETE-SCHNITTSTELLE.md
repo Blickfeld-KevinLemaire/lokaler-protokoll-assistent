@@ -208,6 +208,32 @@ Das Gerät gibt die Zusammenfassung frei (Nutzer hat „Ja“ gewählt). Kein In
 Vorab berechnete Teilergebnisse (siehe „Senden während der Aufnahme“) nutzt die Zusammenfassung wie bisher; nach der
 Freigabe bleibt deshalb nur das Endergebnis zu rechnen.
 
+### `POST /api/v1/aufnahmen/<Dateiname>/keine_zusammenfassung`
+
+Der Nutzer hat „Nein“ gewählt. Kein Inhalt nötig. Die Aufnahme ist damit fertig: Das Transkript bleibt, eine
+Zusammenfassung gibt es nicht. **Das Gerät muss „Nein“ melden** – sonst hält die Software die Rückfrage für
+unbeantwortet (siehe unten).
+
+| Antwort | Bedeutung |
+|---|---|
+| `200 {"zustand":"fertig"}` | Angenommen (auch bei einer Wiederholung). |
+| `409 {"zustand":"…"}` | Die Aufnahme wartet nicht (mehr) auf eine Antwort – etwa weil die Zusammenfassung schon läuft. |
+| `404` | Der Software ist die Aufnahme nicht bekannt – oder sie kennt den Aufruf nicht. |
+
+### Wenn niemand antwortet
+
+Wünsche (`X-Auftrag`, `X-Rueckfrage`) schickt das Gerät nur für die Aufnahme, die es gerade beobachtet – die zuletzt
+aufgenommene, solange ihr Upload läuft, und während der Aufnahme beim Senden der Stücke. Kommt ein Wunsch für eine
+**andere** Aufnahme desselben Geräts, ist es weitergezogen (neue Aufnahme, auch nach einem Neustart) und fragt nach
+der vorigen nicht mehr. Eine Aufnahme, die dann noch auf „Ja/Nein“ wartet (oder noch transkribiert wird), wartet nicht
+länger:
+
+* **Reicht die Grafikkarte**, um Sprachmodell und Whisper zugleich zu halten (oder rechnet die Zusammenfassung über
+  eine API), wird sie zusammengefasst – nach den neuen Aufnahmen, die vorgehen. `meldung` am Ende: `Zusammenfassung
+  fertig`.
+* **Sonst** bleibt es beim Transkript (`fertig`, `Transkription erfolgreich`): Die neue Aufnahme soll nicht warten,
+  bis das Sprachmodell den Grafikspeicher wieder freigibt.
+
 ### Fragen per Sprache
 
 Nach dem Transkript kann das Gerät Fragen zu dieser Aufnahme stellen („Wer hat welche Aufgabe?“). Alles rechnet
