@@ -567,10 +567,12 @@ def test_aufnahme_ueber_http_wird_laufend_transkribiert(tmp_path, welt):
 class _AuswertungAttrappe:
     def __init__(self):
         self.ereignisse: list[tuple] = []
+        self.auftraege: list[str | None] = []
         self.ausgewertet = 0
 
-    def fortschritt(self, schluessel, segmente, bis):
+    def fortschritt(self, schluessel, segmente, bis, auftrag=None):
         self.ereignisse.append(("fortschritt", schluessel, len(segmente), bis))
+        self.auftraege.append(auftrag)
 
     def beenden(self, schluessel):
         self.ereignisse.append(("beenden", schluessel))
@@ -629,6 +631,23 @@ def test_bestaetigte_segmente_gehen_an_die_teilauswertung(tmp_path, welt, teil):
     finally:
         live.stoppen()
     assert ("stoppen",) in auswertung.ereignisse
+
+
+def test_der_auftrag_des_geraets_geht_an_die_teilauswertung(tmp_path, welt, teil):
+    auswertung = _AuswertungAttrappe()
+    live = ls.LiveTranskription(
+        tmp_path / "arbeit",
+        welt.fabrik,
+        dauer_fn=welt.dauer_fn,
+        extrahieren=welt.extrahieren,
+        auswertung=auswertung,  # type: ignore[arg-type]
+        auftrag_fn=lambda geraet, datei: f"Auftrag fuer {geraet}/{datei}",
+    )
+    try:
+        wachsen(live, welt, teil, 25.0)
+        assert auswertung.auftraege == ["Auftrag fuer S3/H5_007.opus"]
+    finally:
+        live.stoppen()
 
 
 def test_ohne_teilauswertung_gibt_es_keine_vorab_ergebnisse(live, welt, teil, tmp_path):
@@ -702,3 +721,22 @@ def test_ein_fehler_in_einem_fenster_schaltet_die_live_transkription_nicht_ab(tm
         assert status.hole("S3", "H5_007.opus")["zustand"] == ls.EMPFANG  # type: ignore[index]
     finally:
         live.stoppen()
+
+
+def test_wunsch_register_behaelt_den_auftrag_und_die_rueckfrage():
+    wuensche = ls.WunschRegister(max_eintraege=2)
+    assert wuensche.hole("S3", "H5.opus") is None
+    wuensche.merke("S3", "H5.opus", "Agenda", False)
+    wuensche.merke("S3", "H5.opus", None, True)  # nicht jede Anfrage traegt den Auftrag
+    assert wuensche.hole("S3", "H5.opus") == ls.Wunsch("Agenda", True)
+    wuensche.merke("S3", "H5.opus", "ToDos", False)  # ein neuer Auftrag ersetzt den alten, die Rueckfrage bleibt
+    assert wuensche.hole("S3", "H5.opus") == ls.Wunsch("ToDos", True)
+    wuensche.merke("S3", "b.opus", None, False)
+    wuensche.merke("S3", "c.opus", None, False)
+    assert wuensche.hole("S3", "H5.opus") is None  # aelteste Eintraege fallen heraus
+
+
+def test_transkript_ist_ein_zustand_fuer_das_geraet():
+    status = ls.StatusRegister()
+    status.setze("S3", "H5.opus", ls.TRANSKRIPT, 1.0, "Transkription erfolgreich")
+    assert status.hole("S3", "H5.opus")["zustand"] == "transkript"

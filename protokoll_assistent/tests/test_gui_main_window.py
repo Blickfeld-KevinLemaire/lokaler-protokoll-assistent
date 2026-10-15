@@ -2645,3 +2645,164 @@ def test_automatische_auswertung_fragt_nicht_nach_ungespeicherten_aenderungen(
     fenster._start_protocol()
     assert len(_WorkerAttrappe.instanzen) == vorher + 1 and _WorkerAttrappe.instanzen[-1].gestartet
     monkeypatch.setattr(fenster, "_protocol_result_ungespeichert", lambda: False)  # Abbau ohne Rueckfrage
+
+
+# --------------------------------------------------------------------------
+# Auftrag am Geraet waehlen und Zusammenfassung nach dem Transkript freigeben
+# --------------------------------------------------------------------------
+def _vorlagen_mit_entscheidungen(monkeypatch):
+    monkeypatch.setattr(
+        mw, "alle_vorlagen", lambda: {"ToDos": "Liste die ToDos auf.", "Entscheidungen": "Halte die Entscheidungen fest."}
+    )
+
+
+def test_der_am_geraet_gewaehlte_auftrag_geht_vor_dem_aus_den_einstellungen(fenster, geraeteaufnahme, monkeypatch):
+    _vorlagen_mit_entscheidungen(monkeypatch)
+    fenster._wuensche.merke("S3", "H5_007.opus", "Entscheidungen", False)
+    fenster._geraete_aufnahme_bereit(str(geraeteaufnahme), "S3", "H5_007.opus")
+    assert fenster._systemprompt_automatik == "Halte die Entscheidungen fest."
+    assert fenster._protokoll_nach_transkription is True  # ohne Rueckfrage laeuft alles durch
+
+
+def test_unbekannter_auftrag_am_geraet_faellt_auf_die_einstellung_zurueck(fenster, geraeteaufnahme, monkeypatch):
+    _vorlagen_mit_entscheidungen(monkeypatch)
+    fenster._wuensche.merke("S3", "H5_007.opus", "Gibt es nicht mehr", False)
+    assert fenster._auftrag_des_geraets("S3", "H5_007.opus") is None
+    fenster._geraete_aufnahme_bereit(str(geraeteaufnahme), "S3", "H5_007.opus")
+    assert fenster._systemprompt_automatik == "Liste die ToDos auf."
+
+
+@pytest.fixture
+def mit_rueckfrage(fenster, geraeteaufnahme, tmp_path, monkeypatch):
+    """Das Geraet will nach dem Transkript gefragt werden; die Transkription ist gerade fertig geworden."""
+    _vorlagen_mit_entscheidungen(monkeypatch)
+    monkeypatch.setattr(ollama_service, "modell_fehlt", lambda *a, **k: False)
+    monkeypatch.setattr(QMessageBox, "information", staticmethod(lambda *a, **k: pytest.fail("kein Dialog")))
+    fenster._wuensche.merke("S3", "H5_007.opus", "Entscheidungen", True)
+    fenster._geraete_aufnahme_bereit(str(geraeteaufnahme), "S3", "H5_007.opus")
+    monkeypatch.setattr(fenster, "_arbeit_laeuft", lambda: False)  # die Arbeiter-Attrappen laufen "ewig"
+    fenster._on_transcription_finished_ok(_transkript_ergebnis_bauen(tmp_path, []))
+    return fenster
+
+
+def test_mit_rueckfrage_wartet_die_zusammenfassung_auf_die_freigabe(mit_rueckfrage, geraeteaufnahme):
+    fenster = mit_rueckfrage
+    assert fenster._protokoll_nach_transkription is False
+    assert _status(fenster)["zustand"] == "transkript" and _status(fenster)["meldung"] == "Transkription erfolgreich"
+    assert fenster._automatik is None  # die Software bleibt frei
+    assert ("S3", "H5_007.opus") in fenster._freigaben
+    assert not any(a.settings.__class__.__name__ == "ProtocolSettings" for a in _WorkerAttrappe.instanzen[-1:])
+
+
+def test_freigabe_erstellt_die_zusammenfassung_mit_dem_gewaehlten_auftrag(mit_rueckfrage, geraeteaufnahme, tmp_path):
+    fenster = mit_rueckfrage
+    freigegeben = []
+    fenster._live.freigeben = lambda pfad: freigegeben.append(pfad)  # type: ignore[method-assign]
+    vorher = len(_WorkerAttrappe.instanzen)
+
+    fenster._zusammenfassung_gewuenscht("S3", "H5_007.opus")
+
+    assert len(_WorkerAttrappe.instanzen) == vorher + 1 and _WorkerAttrappe.instanzen[-1].gestartet
+    einstellungen = _WorkerAttrappe.instanzen[-1].settings
+    assert einstellungen.system_prompt == "Halte die Entscheidungen fest."
+    assert einstellungen.ohne_sprecher is True and einstellungen.vorab_auswertung is not None
+    assert _status(fenster)["zustand"] == "auswertung"
+    assert ("S3", "H5_007.opus") not in fenster._freigaben
+
+    fenster._on_protocol_finished_ok(_protokoll_ergebnis_bauen(tmp_path))
+    assert _status(fenster)["zustand"] == "fertig" and _status(fenster)["meldung"] == "Zusammenfassung fertig"
+    assert fenster._automatik is None and freigegeben == [geraeteaufnahme]
+
+
+def test_freigabe_fuer_unbekannte_aufnahme_und_doppelte_freigabe_tun_nichts(mit_rueckfrage):
+    fenster = mit_rueckfrage
+    vorher = len(_WorkerAttrappe.instanzen)
+    fenster._zusammenfassung_gewuenscht("S3", "H5_099.opus")
+    assert len(_WorkerAttrappe.instanzen) == vorher and _status(fenster, "H5_099.opus") is None
+    fenster._zusammenfassung_gewuenscht("S3", "H5_007.opus")
+    fenster._zusammenfassung_gewuenscht("S3", "H5_007.opus")  # eine Wiederholung vom Geraet
+    assert len(_WorkerAttrappe.instanzen) == vorher + 1
+
+
+def test_freigabe_wartet_auf_eine_laufende_verarbeitung_und_geht_neuen_aufnahmen_vor(
+    mit_rueckfrage, geraeteaufnahme, tmp_path, qtbot
+):
+    fenster = mit_rueckfrage
+    zweite = tmp_path / "S3_H5_008.opus"
+    zweite.write_bytes(b"OggS-zweite")
+    fenster._geraete_aufnahme_bereit(str(zweite), "S3", "H5_008.opus")  # laeuft jetzt (Transkription)
+    vorher = len(_WorkerAttrappe.instanzen)
+
+    fenster._zusammenfassung_gewuenscht("S3", "H5_007.opus")  # muss warten
+    assert len(_WorkerAttrappe.instanzen) == vorher
+    assert _status(fenster)["zustand"] == "auswertung"  # das Geraet sieht sofort, dass es angekommen ist
+    assert fenster._freigabe_warteschlange == [("S3", "H5_007.opus")]
+
+    # Die andere Aufnahme ist durch. Die Freigabe startet dann von selbst -- auch ohne neue Aufnahme in der
+    # Warteschlange (vorher blieb sie dort liegen, bis die naechste Aufnahme kam).
+    assert fenster._geraete_warteschlange == []
+    fenster._automatik_beenden("fertig", "fertig")
+    qtbot.waitUntil(lambda: len(_WorkerAttrappe.instanzen) == vorher + 1, timeout=2000)
+    assert _WorkerAttrappe.instanzen[-1].settings.system_prompt == "Halte die Entscheidungen fest."
+
+
+def test_freigabe_waehrend_einer_handarbeit_startet_wenn_die_bedienung_frei_wird(mit_rueckfrage, monkeypatch, qtbot):
+    fenster = mit_rueckfrage
+    monkeypatch.setattr(fenster, "_arbeit_laeuft", lambda: True)  # z. B. eine von Hand gestartete Transkription
+    vorher = len(_WorkerAttrappe.instanzen)
+    fenster._zusammenfassung_gewuenscht("S3", "H5_007.opus")
+    assert fenster._freigabe_warteschlange == [("S3", "H5_007.opus")]
+
+    monkeypatch.setattr(fenster, "_arbeit_laeuft", lambda: False)
+    fenster._set_controls_running(False)  # der Arbeitsfaden ist beendet
+    qtbot.waitUntil(lambda: len(_WorkerAttrappe.instanzen) == vorher + 1, timeout=2000)
+    assert fenster._freigabe_warteschlange == []
+
+
+# --------------------------------------------------------------------------
+# Fragen per Sprache: Unterlagen merken, Frage beantworten
+# --------------------------------------------------------------------------
+def test_unterlagen_der_automatischen_verarbeitung_werden_fuer_fragen_gemerkt(fenster, geraeteaufnahme, tmp_path):
+    assert fenster._frage_bereit("S3", "H5_007.opus") is False
+    fenster._geraete_aufnahme_bereit(str(geraeteaufnahme), "S3", "H5_007.opus")
+    ergebnis = _transkript_ergebnis_bauen(tmp_path, [])
+    fenster._on_transcription_finished_ok(ergebnis)
+    assert fenster._frage_bereit("S3", "H5_007.opus") is True  # zum Transkript kann man schon fragen
+    assert fenster._ergebnisse[("S3", "H5_007.opus")] == {"transkript": ergebnis.export_paths.json}
+
+    protokoll = _protokoll_ergebnis_bauen(tmp_path)
+    fenster._on_protocol_finished_ok(protokoll)
+    assert fenster._ergebnisse[("S3", "H5_007.opus")]["zusammenfassung"] == protokoll.protocol_paths[1]
+
+
+def test_von_hand_gestartete_verarbeitung_wird_nicht_fuer_fragen_gemerkt(fenster, tmp_path, monkeypatch):
+    monkeypatch.setattr(QMessageBox, "information", staticmethod(lambda *a, **k: None))
+    fenster._on_transcription_finished_ok(_transkript_ergebnis_bauen(tmp_path, []))
+    assert fenster._ergebnisse == {}
+
+
+def test_frage_wird_lokal_und_aus_den_unterlagen_der_aufnahme_beantwortet(fenster, tmp_path, monkeypatch):
+    transkript = tmp_path / "t.json"
+    transkript.write_text("{}", encoding="utf-8")
+    zusammenfassung = tmp_path / "z.txt"
+    zusammenfassung.write_text("Z", encoding="utf-8")
+    fenster._ergebnisse[("S3", "H5_007.opus")] = {"transkript": transkript, "zusammenfassung": zusammenfassung}
+    app_config.update_config(chatbot_ollama_modell="mein-chat:8b")
+    gesehen = {}
+
+    def antwort_aus_unterlagen(frage, unterlagen, chat_fn, ausgabe):
+        gesehen.update(frage=frage, unterlagen=unterlagen, chat=chat_fn, ausgabe=ausgabe)
+        return "Antwort"
+
+    monkeypatch.setattr(mw.geraete_fragen, "antwort_aus_unterlagen", antwort_aus_unterlagen)
+    aufrufe = []
+    monkeypatch.setattr(
+        mw.chat_service.ollama_service,
+        "chat_stream",
+        lambda nachrichten, modell, on_token=None, num_ctx=None: aufrufe.append((modell, num_ctx)) or "ok",
+    )
+    assert fenster._frage_beantworten("Was macht Fritz?", "S3", "H5_007.opus", "anzeige") == "Antwort"
+    assert gesehen["ausgabe"] == "anzeige"
+    assert gesehen["frage"] == "Was macht Fritz?" and gesehen["unterlagen"] == [zusammenfassung, transkript]
+    gesehen["chat"]([{"role": "user", "content": "x"}], None)
+    assert aufrufe == [("mein-chat:8b", mw.chat_service.VOLLTEXT_NUM_CTX)]  # lokal, mit dem ganzen Text

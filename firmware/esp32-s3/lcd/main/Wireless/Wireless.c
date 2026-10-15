@@ -181,6 +181,19 @@ void VERMERK_Live_Schritt(void)
     }
 }
 
+int VERMERK_Anfrage(bool post, const char *pfad, const char *inhalt_typ, const uint8_t *inhalt, size_t laenge,
+                    const char *ausgabe, char *antwort, size_t antwort_max, int timeout_ms)
+{
+    vermerk_ziel_t ziel;
+    if (antwort != NULL && antwort_max > 0) {
+        antwort[0] = '\0';
+    }
+    if (!ziel_waehlen(&ziel)) {
+        return -2;
+    }
+    return vermerk_anfrage(ziel, post, pfad, inhalt_typ, inhalt, laenge, ausgabe, antwort, antwort_max, timeout_ms);
+}
+
 vermerk_statusabfrage_t VERMERK_Status_Abfragen(const char *dateiname, vermerk_status_t *status)
 {
     vermerk_ziel_t ziel;

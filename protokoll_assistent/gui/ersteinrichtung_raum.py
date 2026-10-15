@@ -1,9 +1,9 @@
-"""Ersteinrichtung, Schritt "Vermerk Raum": das Aufnahmegeraet (Waveshare
+"""Ersteinrichtung, Schritt "VERMERK Raum": das Aufnahmegeraet (Waveshare
 ESP32-S3) gleich beim ersten Start verbinden -- oder den Schritt ueberspringen.
 
 Gefuehrt in vier Unterseiten, das Geraet haengt dabei per USB am Rechner:
 
-1. Frage       -- Gibt es ein Vermerk Raum? Nein: "Ueberspringen".
+1. Frage       -- Gibt es ein VERMERK Raum? Nein: "Ueberspringen".
 2. Anschliessen -- USB-Anschluss suchen, Geraet erkennen (automatisch, wenn
                   genau ein ESP32 angeschlossen ist).
 3. WLAN        -- WLAN-Name und Passwort; Adresse dieses PCs und ein neues
@@ -45,7 +45,7 @@ from protokoll_assistent.utils import app_config
 
 (U_FRAGE, U_ANSCHLIESSEN, U_WLAN, U_FERTIG) = range(4)
 
-KEIN_ANSCHLUSS = "Kein serieller Anschluss gefunden. Ist das Vermerk Raum per USB angeschlossen und eingeschaltet?"
+KEIN_ANSCHLUSS = "Kein serieller Anschluss gefunden. Ist das VERMERK Raum per USB angeschlossen und eingeschaltet?"
 
 
 def _text(text: str, eltern: QWidget, *, untertitel: bool = False) -> QLabel:
@@ -88,7 +88,7 @@ class VermerkRaumSeite(QWidget):
         self.ergebnis: dict[str, Any] | None = None
 
         layout = QVBoxLayout(self)
-        titel = QLabel("Vermerk Raum einrichten (optional)", self)
+        titel = QLabel("VERMERK Raum einrichten (optional)", self)
         titel.setObjectName("PageTitle")
         layout.addWidget(titel)
         self.fortschritt_label = _text("", self, untertitel=True)
@@ -108,7 +108,7 @@ class VermerkRaumSeite(QWidget):
         unten.addWidget(self.zurueck_button)
         self.ueberspringen_button = QPushButton("Überspringen", self)
         self.ueberspringen_button.setToolTip(
-            "Ohne Vermerk Raum weitermachen. Später: Einstellungen → Aufnahmegeräte."
+            "Ohne VERMERK Raum weitermachen. Später: Einstellungen → Aufnahmegeräte."
         )
         self.ueberspringen_button.clicked.connect(self.weiter.emit)
         unten.addWidget(self.ueberspringen_button)
@@ -129,7 +129,7 @@ class VermerkRaumSeite(QWidget):
         layout = QVBoxLayout(seite)
         layout.addWidget(
             _text(
-                "Das <b>Vermerk Raum</b> ist das Aufnahmegerät für Besprechungsräume (Waveshare ESP32-S3). "
+                "Das <b>VERMERK Raum</b> ist das Aufnahmegerät für Besprechungsräume (Waveshare ESP32-S3). "
                 "Es nimmt auf und schickt die Aufnahmen per WLAN an diesen Computer; sie erscheinen dort im "
                 "Eingabeordner.",
                 seite,
@@ -137,7 +137,7 @@ class VermerkRaumSeite(QWidget):
         )
         layout.addWidget(
             _text(
-                "<p><b>Haben Sie ein Vermerk Raum?</b> Dann verbinden wir es jetzt mit diesem Computer – "
+                "<p><b>Haben Sie ein VERMERK Raum?</b> Dann verbinden wir es jetzt mit diesem Computer – "
                 "das dauert etwa eine Minute. Sie brauchen das USB-Kabel und den Namen und das Passwort Ihres "
                 "WLANs.</p>"
                 "<p>Wenn nicht, wählen Sie „Überspringen“. Die Einrichtung ist jederzeit nachholbar unter "
@@ -153,7 +153,7 @@ class VermerkRaumSeite(QWidget):
         layout = QVBoxLayout(seite)
         layout.addWidget(
             _text(
-                "<ol><li>Schließen Sie das Vermerk Raum mit einem <b>USB-Kabel</b> an diesen Computer an.</li>"
+                "<ol><li>Schließen Sie das VERMERK Raum mit einem <b>USB-Kabel</b> an diesen Computer an.</li>"
                 "<li>Schalten Sie es ein und warten Sie einen Moment, bis Windows es erkannt hat.</li>"
                 "<li>Das Gerät wird dann automatisch gesucht. Es kann ein paar Sekunden dauern.</li></ol>",
                 seite,
@@ -328,11 +328,11 @@ class VermerkRaumSeite(QWidget):
             return
         espressif = [a for a in gefunden if a.espressif]
         if len(espressif) == 1:
-            # Genau ein ESP32 angeschlossen: Es ist das Vermerk Raum.
+            # Genau ein ESP32 angeschlossen: Es ist das VERMERK Raum.
             self.anschluss_combo.setCurrentIndex(self.anschluss_combo.findData(espressif[0].port))
             self._erkennen()
         else:
-            self.geraet_label.setText("Bitte den Anschluss des Vermerk Raums wählen und „Gerät erkennen“ drücken.")
+            self.geraet_label.setText("Bitte den Anschluss des VERMERK Raums wählen und „Gerät erkennen“ drücken.")
 
     def _erkennen(self) -> None:
         port = self.anschluss_combo.currentData()
@@ -352,8 +352,12 @@ class VermerkRaumSeite(QWidget):
 
     def _erkannt(self, info: usb.GeraeteInfo) -> None:
         self._info = info
-        zustand = f"bereits für WLAN „{info.wlan}“ eingerichtet" if info.eingerichtet else "noch nicht eingerichtet"
-        self.geraet_label.setText(f"✅ Erkannt: {info.board}, Id {info.geraete_id}, Firmware {info.firmware} ({zustand}).")
+        erkannt = f"✅ Erkannt: {info.board}, Id {info.geraete_id}, Firmware {info.firmware}"
+        if info.eingerichtet:
+            self.geraet_label.setText(f"{erkannt} (bereits für WLAN „{info.wlan}“ eingerichtet).")
+        else:
+            # Frisch oder zurückgesetzt: Im Gerät steht noch kein WLAN. Das ist der Normalfall, kein Fehler.
+            self.geraet_label.setText(f"{erkannt}. Das Gerät ist noch nicht mit einem WLAN verbunden – das richten wir gleich ein.")
         self._beschaeftigt(False, "")
 
     # ------------------------------------------------------------------

@@ -10,6 +10,28 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 ### Added
 
+- **Firmware S3 mit Display: Hinweis nach einem Neustart:** Wird das Gerät zurückgesetzt oder aus- und wieder eingeschaltet (etwa
+  durch einen versehentlichen Druck auf die Ein/Aus-Taste, die den Strom in der Hardware unterbricht und von der Firmware nicht
+  abgefangen werden kann), zeigt die Statuszeile 8 Sekunden „NEUSTART“; war dabei eine Aufnahme aktiv, „NEUSTART: AUFNAHME
+  GESICHERT“. Die Aufnahme bleibt auf der SD-Karte (die Firmware sichert alle 30 s) und wird wie jede andere hochgeladen. Ein
+  gewollter Neustart per Software (USB-Einrichtung) zeigt nichts.
+- **Firmware S3 mit Display: Auftrag wählen, Zusammenfassung freigeben, Fragen stellen:** Unter „AUFNAHME STARTEN“ steht
+  eine Auswahlliste mit den Aufträgen der Software (Namen ohne Umlaute). Nach dem Transkript zeigt das Gerät den grünen Haken
+  und fragt „ZUSAMMENFASSUNG ERSTELLEN?“ (JA/NEIN); nach „Ja“ erstellt die Software die Zusammenfassung, am Ende erscheint
+  „ZUSAMMENFASSUNG FERTIG“. Danach lässt sich mit der **BOOT-Taste an der Seite** (gedrückt halten, sprechen, loslassen)
+  eine Frage stellen; die Antwort erscheint als scrollbarer Text auf dem Display (Tippen schließt). Die Bedienung läuft
+  im Upload-Task und legt große Puffer im PSRAM ab, weil der interne RAM knapp ist.
+- **Fragen per Sprache zu einer Aufnahme (PC-Seite):** Ein Gerät kann nach dem Transkript eine gesprochene Frage stellen
+  (`POST …/frage`, Stand über `GET /api/v1/fragen/<Kennung>`, Antwort als Ton über `…/ton`). Whisper (Prozessor)
+  versteht die Frage, das lokale Sprachmodell beantwortet sie kurz aus Zusammenfassung und Transkript der Aufnahme,
+  die Antwort kommt standardmäßig als kurze Liste fürs Display des Geräts (nur ASCII, `X-Ausgabe: anzeige`); eine
+  Sprachausgabe (`X-Ausgabe: ton`) ist vorbereitet, die Engine wird von außen eingesetzt. Alles läuft lokal; die Antwort gehört nur dem fragenden Gerät.
+- **Auftrag am Gerät wählen und Zusammenfassung nach dem Transkript freigeben (PC-Seite):** Neuer Aufruf
+  `GET /api/v1/auftraege` (Namen der Vorlagen für eine Auswahlliste am Gerät), Kopfzeilen `X-Auftrag` und
+  `X-Rueckfrage` beim Hochladen, neuer Zustand `transkript` und `POST …/zusammenfassung`. Der am Gerät gewählte
+  Auftrag gilt für diese Aufnahme (auch für die Vorab-Auswertung). Mit Rückfrage meldet die Software nach dem
+  Transkript „Transkription erfolgreich“ und erstellt die Zusammenfassung erst, wenn das Gerät sie freigibt;
+  eine Freigabe geht neuen Aufnahmen in der Warteschlange vor. Geräte ohne diese Kopfzeilen laufen unverändert.
 - **Zweites lokales Sprachmodell zur Wahl – LFM2.5 2.6B:** Neben Qwen3.5 4B
   steht jetzt LFM2.5 2.6B (Liquid AI) zur Auswahl – schneller und mit weniger
   Arbeitsspeicher (~4,6 GB statt ~5 GB), dafür etwas knapper als Qwen. Die
@@ -79,8 +101,8 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
   abtippen. Danach steht das Gerät mit seiner Id in der Liste, und eine Zeile
   für das Geräte-Inventar lässt sich kopieren. Meldet sich unter dem Namen
   eines Geräts plötzlich andere Hardware, zeigt die Liste eine Warnung.
-- **Vermerk Raum gleich bei der Ersteinrichtung verbinden:** Direkt nach der
-  Begrüßung fragt der Assistent, ob es ein Vermerk Raum gibt, und koppelt das
+- **VERMERK Raum gleich bei der Ersteinrichtung verbinden:** Direkt nach der
+  Begrüßung fragt der Assistent, ob es ein VERMERK Raum gibt, und koppelt das
   Aufnahmegerät auf Wunsch per USB – Gerät anschließen, WLAN-Name und Passwort
   eingeben, fertig; der Empfang wird dabei eingeschaltet. Wer kein Gerät hat,
   überspringt den Schritt. Die Einrichtung unter *Einstellungen →

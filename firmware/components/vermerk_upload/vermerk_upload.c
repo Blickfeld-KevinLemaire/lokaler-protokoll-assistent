@@ -39,6 +39,7 @@ typedef struct {
     char antwort[VERMERK_ANTWORT_MAX];
     int antwort_laenge;
     char zahl[24];
+    char auftrag_kopf[3 * VERMERK_AUFTRAG_NAME_MAX + 1];
     char sha_hex[VERMERK_SHA256_HEX_GROESSE];
     mbedtls_sha256_context sha;
     uint64_t gehasht;            /* so viele Bytes vom Dateianfang stecken in sha; HASH_UNBEKANNT = neu rechnen */
@@ -50,6 +51,24 @@ typedef struct {
     uint64_t gesendet;
     uint32_t stuecke;
 } vermerk_arbeit_t;
+
+/* Auftrag und Rueckfrage fuer die Kopfzeilen: werden vom Geraet beim Start einer Aufnahme gesetzt und von den
+ * Upload- und Fragen-Tasks gelesen. */
+static char wunsch_auftrag[3 * VERMERK_AUFTRAG_NAME_MAX + 1];
+static bool wunsch_rueckfrage;
+static portMUX_TYPE wunsch_sperre = portMUX_INITIALIZER_UNLOCKED;
+
+void vermerk_wunsch_setzen(const char *auftrag_utf8, bool rueckfrage)
+{
+    char kodiert[sizeof(wunsch_auftrag)];
+    if (vermerk_prozent_kodieren(auftrag_utf8, kodiert, sizeof(kodiert)) == 0) {
+        kodiert[0] = '\0';
+    }
+    portENTER_CRITICAL(&wunsch_sperre);
+    memcpy(wunsch_auftrag, kodiert, sizeof(wunsch_auftrag));
+    wunsch_rueckfrage = rueckfrage;
+    portEXIT_CRITICAL(&wunsch_sperre);
+}
 
 static bool ziel_lesen(vermerk_ziel_t ziel, const char **url, const char **token)
 {
@@ -77,6 +96,17 @@ static bool client_anlegen(vermerk_arbeit_t *a, const char *token, int timeout_m
         esp_http_client_set_header(a->client, "X-Geraete-Id", vermerk_geraete_id());
     }
     esp_http_client_set_header(a->client, "X-Firmware", vermerk_firmware());
+    bool rueckfrage;
+    portENTER_CRITICAL(&wunsch_sperre);
+    memcpy(a->auftrag_kopf, wunsch_auftrag, sizeof(a->auftrag_kopf));
+    rueckfrage = wunsch_rueckfrage;
+    portEXIT_CRITICAL(&wunsch_sperre);
+    if (a->auftrag_kopf[0] != '\0') {
+        esp_http_client_set_header(a->client, "X-Auftrag", a->auftrag_kopf);
+    }
+    if (rueckfrage) {
+        esp_http_client_set_header(a->client, "X-Rueckfrage", "1");
+    }
     return true;
 }
 
@@ -180,6 +210,84 @@ int vermerk_aufnahme_abfragen(vermerk_ziel_t ziel, const char *name, const char 
         if (anfrage_oeffnen(a, HTTP_METHOD_GET, 0) == ESP_OK) {
             status = anfrage_beenden(a);
             antwort_uebergeben(a, antwort, antwort_max);
+        }
+        esp_http_client_cleanup(a->client);
+    }
+    free(a);
+    return status;
+}
+
+static bool pfad_gueltig(const char *pfad)
+{
+    static const char vorsatz[] = "/api/v1/";
+    if (pfad == NULL || strncmp(pfad, vorsatz, sizeof(vorsatz) - 1) != 0 || strlen(pfad) > 100) {
+        return false;
+    }
+    for (const char *p = pfad; *p != '\0'; p++) {
+        char c = *p;
+        bool ok = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
+                  c == '/' || c == '_' || c == '.' || c == '-';
+        if (!ok) {
+            return false;
+        }
+    }
+    return true;
+}
+
+int vermerk_anfrage(vermerk_ziel_t ziel, bool post, const char *pfad, const char *inhalt_typ,
+                    const uint8_t *inhalt, size_t inhalt_laenge, const char *ausgabe,
+                    char *antwort, size_t antwort_max, int timeout_ms)
+{
+    if (antwort != NULL && antwort_max > 0) {
+        antwort[0] = '\0';
+    }
+    const char *url;
+    const char *token;
+    if (!ziel_lesen(ziel, &url, &token) || !pfad_gueltig(pfad) || (!post && inhalt_laenge > 0) ||
+        (inhalt_laenge > 0 && inhalt == NULL) || inhalt_laenge > (size_t)INT32_MAX) {
+        return -1;
+    }
+    vermerk_arbeit_t *a = calloc(1, sizeof(*a));
+    if (a == NULL) {
+        return 0;
+    }
+    int status = 0;
+    int n = snprintf(a->url, sizeof(a->url), "%s%s", url, pfad);
+    if (n > 0 && (size_t)n < sizeof(a->url) && client_anlegen(a, token, timeout_ms)) {
+        if (post && inhalt_typ != NULL) {
+            esp_http_client_set_header(a->client, "Content-Type", inhalt_typ);
+        }
+        if (ausgabe != NULL) {
+            esp_http_client_set_header(a->client, "X-Ausgabe", ausgabe);
+        }
+        if (anfrage_oeffnen(a, post ? HTTP_METHOD_POST : HTTP_METHOD_GET, post ? (int)inhalt_laenge : 0) == ESP_OK) {
+            bool ok = true;
+            size_t versatz = 0;
+            while (ok && versatz < inhalt_laenge) {
+                int geschrieben = esp_http_client_write(a->client, (const char *)inhalt + versatz,
+                                                        (int)(inhalt_laenge - versatz));
+                if (geschrieben <= 0) {
+                    ok = false;
+                } else {
+                    versatz += (size_t)geschrieben;
+                }
+            }
+            if (ok && esp_http_client_fetch_headers(a->client) >= 0) {
+                status = esp_http_client_get_status_code(a->client);
+                size_t gelesen = 0;
+                while (antwort != NULL && antwort_max > 1 && gelesen < antwort_max - 1) {
+                    int r = esp_http_client_read_response(a->client, antwort + gelesen,
+                                                          (int)(antwort_max - 1 - gelesen));
+                    if (r <= 0) {
+                        break;
+                    }
+                    gelesen += (size_t)r;
+                }
+                if (antwort != NULL && antwort_max > 0) {
+                    antwort[gelesen] = '\0';
+                }
+            }
+            esp_http_client_close(a->client);
         }
         esp_http_client_cleanup(a->client);
     }

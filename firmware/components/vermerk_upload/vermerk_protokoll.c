@@ -360,6 +360,320 @@ bool vermerk_mac_hex(const uint8_t mac[6], char *ziel, size_t ziel_groesse)
     return vermerk_hex(mac, 6, ziel, ziel_groesse);
 }
 
+/* ---- freie Texte, Listen, Kopfzeilen ---- */
+
+static int hex_wert(char c)
+{
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
+/* Ein Zeichen als UTF-8 anhaengen; false, wenn es nicht mehr passt (dann bleibt ziel unveraendert) */
+static bool utf8_anhaengen(char *ziel, size_t *n, size_t max_n, uint32_t zeichen)
+{
+    uint8_t bytes[4];
+    size_t anzahl;
+    if (zeichen < 0x80u) {
+        bytes[0] = (uint8_t)zeichen;
+        anzahl = 1;
+    } else if (zeichen < 0x800u) {
+        bytes[0] = (uint8_t)(0xC0u | (zeichen >> 6));
+        bytes[1] = (uint8_t)(0x80u | (zeichen & 0x3Fu));
+        anzahl = 2;
+    } else {
+        bytes[0] = (uint8_t)(0xE0u | (zeichen >> 12));
+        bytes[1] = (uint8_t)(0x80u | ((zeichen >> 6) & 0x3Fu));
+        bytes[2] = (uint8_t)(0x80u | (zeichen & 0x3Fu));
+        anzahl = 3;
+    }
+    if (*n + anzahl > max_n) {
+        return false;
+    }
+    for (size_t i = 0; i < anzahl; i++) {
+        ziel[(*n)++] = (char)bytes[i];
+    }
+    return true;
+}
+
+/* Einen JSON-Text ab p (hinter dem Anfuehrungszeichen) lesen. Setzt *pp hinter das schliessende Anfuehrungszeichen.
+ * Passt der Text nicht in ziel (ziel_groesse mit Nullbyte), wird er abgeschnitten und der Rest uebersprungen.
+ * false: nicht abgeschlossen oder ungueltiges Escape. */
+static bool zeichenkette_lesen(const char **pp, const char *ende, char *ziel, size_t ziel_groesse, bool *abgeschnitten)
+{
+    const char *p = *pp;
+    size_t n = 0;
+    const size_t max_n = ziel_groesse - 1;
+    bool voll = false;
+    while (p < ende && *p != '"') {
+        unsigned char c = (unsigned char)*p;
+        uint32_t zeichen = c;
+        bool roh = true;   /* Byte unveraendert uebernehmen (UTF-8 bleibt so) */
+        if (c == '\\') {
+            if (p + 1 >= ende) {
+                return false;
+            }
+            char e = p[1];
+            p += 2;
+            roh = false;
+            switch (e) {
+            case '"': zeichen = '"'; break;
+            case '\\': zeichen = '\\'; break;
+            case '/': zeichen = '/'; break;
+            case 'n': zeichen = '\n'; break;
+            case 't': zeichen = '\t'; break;
+            case 'r': zeichen = '\r'; break;
+            case 'b': zeichen = '\b'; break;
+            case 'f': zeichen = '\f'; break;
+            case 'u': {
+                if (ende - p < 4) {
+                    return false;
+                }
+                uint32_t wert = 0;
+                for (int i = 0; i < 4; i++) {
+                    int h = hex_wert(p[i]);
+                    if (h < 0) {
+                        return false;
+                    }
+                    wert = (wert << 4) | (uint32_t)h;
+                }
+                p += 4;
+                /* Ersatzpaare (ausserhalb der BMP) gibt es in unseren Texten nicht: als '?' */
+                zeichen = (wert >= 0xD800u && wert <= 0xDFFFu) ? (uint32_t)'?' : wert;
+                break;
+            }
+            default:
+                return false;
+            }
+        } else {
+            p++;
+        }
+        if (voll) {
+            continue;
+        }
+        if (roh) {
+            /* UTF-8-Folgebytes gehoeren zum Zeichen davor: Ein Zeichen passt ganz oder gar nicht */
+            size_t laenge = 1;
+            if (c >= 0xF0u) laenge = 4;
+            else if (c >= 0xE0u) laenge = 3;
+            else if (c >= 0xC0u) laenge = 2;
+            if (laenge > 1 && (size_t)(ende - p) >= laenge - 1 && n + laenge <= max_n) {
+                ziel[n++] = (char)c;
+                for (size_t i = 1; i < laenge; i++) {
+                    ziel[n++] = *p++;
+                }
+            } else if (laenge == 1 && n + 1 <= max_n) {
+                ziel[n++] = (char)c;
+            } else {
+                voll = true;
+                p += (laenge > 1 && (size_t)(ende - p) >= laenge - 1) ? laenge - 1 : 0;
+            }
+        } else if (!utf8_anhaengen(ziel, &n, max_n, zeichen)) {
+            voll = true;
+        }
+    }
+    if (p >= ende) {
+        return false;   /* kein schliessendes Anfuehrungszeichen */
+    }
+    ziel[n] = '\0';
+    *pp = p + 1;
+    if (abgeschnitten != NULL) {
+        *abgeschnitten = voll;
+    }
+    return true;
+}
+
+bool vermerk_json_zeichenkette(const char *text, size_t laenge, const char *schluessel, char *ziel,
+                               size_t ziel_groesse, bool *abgeschnitten)
+{
+    if (abgeschnitten != NULL) {
+        *abgeschnitten = false;
+    }
+    if (ziel == NULL || ziel_groesse == 0) {
+        return false;
+    }
+    ziel[0] = '\0';
+    const char *p = finde_wert(text, laenge, schluessel);
+    const char *ende = text + laenge;
+    if (p == NULL || p >= ende || *p != '"') {
+        return false;
+    }
+    p++;
+    if (!zeichenkette_lesen(&p, ende, ziel, ziel_groesse, abgeschnitten)) {
+        ziel[0] = '\0';
+        return false;
+    }
+    return true;
+}
+
+int vermerk_json_zeichenketten(const char *text, size_t laenge, const char *schluessel, char *ziel,
+                               size_t eintrag_groesse, size_t abstand, int max)
+{
+    if (ziel == NULL || eintrag_groesse == 0 || abstand < eintrag_groesse || max <= 0) {
+        return -1;
+    }
+    const char *p = finde_wert(text, laenge, schluessel);
+    const char *ende = text + laenge;
+    if (p == NULL || p >= ende || *p != '[') {
+        return -1;
+    }
+    p++;
+    int anzahl = 0;
+    while (p < ende) {
+        if (*p == ']') {
+            return anzahl;
+        }
+        if (*p == ',') {
+            p++;
+            continue;
+        }
+        if (*p != '"') {
+            return -1;
+        }
+        p++;
+        char *eintrag = anzahl < max ? ziel + (size_t)anzahl * abstand : NULL;
+        if (eintrag != NULL) {
+            if (!zeichenkette_lesen(&p, ende, eintrag, eintrag_groesse, NULL)) {
+                return -1;
+            }
+            anzahl++;
+        } else {
+            char weg[8];   /* mehr Eintraege als Platz: lesen, nicht speichern */
+            if (!zeichenkette_lesen(&p, ende, weg, sizeof(weg), NULL)) {
+                return -1;
+            }
+        }
+    }
+    return -1;   /* ']' fehlt */
+}
+
+size_t vermerk_prozent_kodieren(const char *utf8, char *ziel, size_t ziel_groesse)
+{
+    static const char hexziffern[] = "0123456789ABCDEF";
+    if (ziel == NULL || ziel_groesse == 0) {
+        return 0;
+    }
+    ziel[0] = '\0';
+    if (utf8 == NULL) {
+        return 0;
+    }
+    size_t n = 0;
+    for (const unsigned char *p = (const unsigned char *)utf8; *p != '\0'; p++) {
+        bool frei = ist_buchstabe((char)*p) || ist_ziffer((char)*p) || *p == '-' || *p == '_' || *p == '.' || *p == '~';
+        size_t brauche = frei ? 1u : 3u;
+        if (n + brauche + 1u > ziel_groesse) {
+            ziel[0] = '\0';
+            return 0;
+        }
+        if (frei) {
+            ziel[n++] = (char)*p;
+        } else {
+            ziel[n++] = '%';
+            ziel[n++] = hexziffern[*p >> 4];
+            ziel[n++] = hexziffern[*p & 0x0Fu];
+        }
+    }
+    ziel[n] = '\0';
+    return n;
+}
+
+int vermerk_auftraege_lesen(const char *text, size_t laenge, vermerk_auftrag_t *liste, int max)
+{
+    if (liste == NULL || max <= 0) {
+        return -1;
+    }
+    /* Namen und Anzeigen stehen in zwei Listen gleicher Reihenfolge; beide werden direkt in die Eintraege gelesen
+     * (kein Zwischenspeicher: das Geraet hat wenig internen RAM). */
+    if (max > VERMERK_AUFTRAEGE_MAX) {
+        max = VERMERK_AUFTRAEGE_MAX;
+    }
+    int n = vermerk_json_zeichenketten(text, laenge, "auftraege", liste[0].name, sizeof(liste[0].name),
+                                       sizeof(liste[0]), max);
+    if (n < 0) {
+        return -1;
+    }
+    for (int i = 0; i < n; i++) {
+        liste[i].anzeige[0] = '\0';
+    }
+    int m = vermerk_json_zeichenketten(text, laenge, "anzeige", liste[0].anzeige, sizeof(liste[0].anzeige),
+                                       sizeof(liste[0]), max);
+    int ergebnis = 0;
+    for (int i = 0; i < n; i++) {
+        if (liste[i].name[0] == '\0') {
+            continue;   /* leere Namen gibt es nicht */
+        }
+        vermerk_auftrag_t a = liste[i];
+        if (m != n || a.anzeige[0] == '\0') {
+            size_t k = 0;
+            for (; a.name[k] != '\0' && k + 1 < sizeof(a.anzeige); k++) {
+                unsigned char c = (unsigned char)a.name[k];
+                a.anzeige[k] = (c >= 32 && c < 127) ? (char)c : '?';
+            }
+            a.anzeige[k] = '\0';
+        }
+        liste[ergebnis++] = a;
+    }
+    return ergebnis;
+}
+
+bool vermerk_frage_id_lesen(const char *text, size_t laenge, char id[VERMERK_FRAGE_ID_MAX])
+{
+    if (id == NULL) {
+        return false;
+    }
+    id[0] = '\0';
+    const char *p = finde_wert(text, laenge, "frage_id");
+    const char *ende = text + laenge;
+    if (p == NULL || ende - p < 18 || p[0] != '"' || p[17] != '"') {
+        return false;
+    }
+    for (int i = 1; i <= 16; i++) {
+        char c = p[i];
+        if (!(ist_ziffer(c) || (c >= 'a' && c <= 'f'))) {
+            return false;
+        }
+    }
+    memcpy(id, p + 1, 16);
+    id[16] = '\0';
+    return true;
+}
+
+bool vermerk_frage_stand_lesen(const char *text, size_t laenge, vermerk_frage_stand_t *stand)
+{
+    static const struct {
+        const char *name;
+        vermerk_frage_zustand_t zustand;
+    } zustaende[] = {
+        {"verstehen", VERMERK_FRAGE_VERSTEHEN},
+        {"antworten", VERMERK_FRAGE_ANTWORTEN},
+        {"sprechen", VERMERK_FRAGE_SPRECHEN},
+        {"fertig", VERMERK_FRAGE_FERTIG},
+        {"fehler", VERMERK_FRAGE_FEHLER},
+    };
+    if (stand == NULL) {
+        return false;
+    }
+    stand->zustand = VERMERK_FRAGE_UNBEKANNT;
+    stand->frage[0] = '\0';
+    stand->anzeige[0] = '\0';
+    stand->meldung[0] = '\0';
+
+    char name[16];
+    if (!vermerk_json_text(text, laenge, "zustand", name, sizeof(name))) {
+        return false;
+    }
+    for (size_t i = 0; i < sizeof(zustaende) / sizeof(zustaende[0]); i++) {
+        if (strcmp(name, zustaende[i].name) == 0) {
+            stand->zustand = zustaende[i].zustand;
+        }
+    }
+    vermerk_json_zeichenkette(text, laenge, "frage", stand->frage, sizeof(stand->frage), NULL);
+    vermerk_json_zeichenkette(text, laenge, "anzeige", stand->anzeige, sizeof(stand->anzeige), NULL);
+    vermerk_json_zeichenkette(text, laenge, "meldung", stand->meldung, sizeof(stand->meldung), NULL);
+    return stand->zustand != VERMERK_FRAGE_UNBEKANNT;
+}
+
 /* ---- Verarbeitungsstand ---- */
 
 bool vermerk_status_pruefen(const char *text, size_t laenge, vermerk_status_t *status)
@@ -371,6 +685,7 @@ bool vermerk_status_pruefen(const char *text, size_t laenge, vermerk_status_t *s
         {"empfang", VERMERK_VERARB_EMPFANG},
         {"wartet", VERMERK_VERARB_WARTET},
         {"transkription", VERMERK_VERARB_TRANSKRIPTION},
+        {"transkript", VERMERK_VERARB_TRANSKRIPT},
         {"auswertung", VERMERK_VERARB_AUSWERTUNG},
         {"fertig", VERMERK_VERARB_FERTIG},
         {"fehler", VERMERK_VERARB_FEHLER},
@@ -408,6 +723,7 @@ const char *vermerk_verarbeitung_text(vermerk_verarbeitung_t zustand)
     case VERMERK_VERARB_EMPFANG:       return "empfang";
     case VERMERK_VERARB_WARTET:        return "wartet";
     case VERMERK_VERARB_TRANSKRIPTION: return "transkription";
+    case VERMERK_VERARB_TRANSKRIPT:    return "transkript";
     case VERMERK_VERARB_AUSWERTUNG:    return "auswertung";
     case VERMERK_VERARB_FERTIG:        return "fertig";
     case VERMERK_VERARB_FEHLER:        return "fehler";

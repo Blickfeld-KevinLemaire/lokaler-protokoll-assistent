@@ -18,6 +18,7 @@ from pathlib import Path
 
 import pytest
 
+from protokoll_assistent.services import frage_service
 from protokoll_assistent.services import geraete_empfang_service as empfang
 from protokoll_assistent.services.geraete_empfang_service import Ablage, Geraet, GeraeteEmpfang
 
@@ -399,7 +400,8 @@ def test_andere_anmeldeart_wird_abgelehnt(dienst):
 def test_unbekannte_pfade_und_methoden(dienst):
     assert anfrage(dienst, "GET", "/")[0] == 404
     assert anfrage(dienst, "PUT", "/upload", b"x", X_Offset="0")[0] == 404
-    assert anfrage(dienst, "POST", "/upload", b"x")[0] == 405
+    assert anfrage(dienst, "POST", "/upload", b"x")[0] == 404
+    assert anfrage(dienst, "PATCH", "/upload", b"x")[0] == 405
     assert anfrage(dienst, "DELETE", "/api/v1/aufnahmen/H5.opus")[0] == 405
 
 
@@ -591,7 +593,8 @@ def test_abgelehnte_anfragen_mit_inhalt_kommen_immer_an(dienst):
     fehl. Viele Wiederholungen machen den Zufall sichtbar."""
     for _ in range(40):
         assert anfrage(dienst, "PUT", "/upload", b"x" * 2000, X_Offset="0")[0] == 404
-        assert anfrage(dienst, "POST", "/upload", b"x" * 2000)[0] == 405
+        assert anfrage(dienst, "POST", "/upload", b"x" * 2000)[0] == 413  # zu gross fuer einen Befehl
+        assert anfrage(dienst, "PATCH", "/upload", b"x" * 2000)[0] == 405
         assert anfrage(dienst, "PUT", "/api/v1/aufnahmen/H5.opus", b"x" * 2000, token="falsch", X_Offset="0")[0] == 401
 
 
@@ -766,3 +769,279 @@ def test_stand_nennt_kein_halb_angekommenes_stueck(tmp_path):
     assert gemeldet == 4  # gemeldet wird nur, was vollstaendig angekommen ist
     assert ablage.stand("S3", "H5.opus").daten["naechstes_byte"] == 4
     assert ablage.anhaengen("S3", "H5.opus", 4, 2, leser(b"ef")).status == 200  # dort geht es weiter
+
+
+# --------------------------------------------------------------------------
+# Auftraege, Wuensche des Geraets, Freigabe der Zusammenfassung
+# --------------------------------------------------------------------------
+def test_auftrag_lesen_prozentcodiert_und_begrenzt():
+    assert empfang.auftrag_lesen("Meeting%20Protokoll") == "Meeting Protokoll"
+    assert empfang.auftrag_lesen("Aufgaben%20f%C3%BCr%20Fritz") == "Aufgaben für Fritz"
+    assert empfang.auftrag_lesen(None) is None and empfang.auftrag_lesen("") is None and empfang.auftrag_lesen("  ") is None
+    assert empfang.auftrag_lesen("%FF%FE") is None  # kein gueltiges UTF-8
+    assert empfang.auftrag_lesen("a%0Ab") is None  # Steuerzeichen
+    assert empfang.auftrag_lesen("x" * (empfang.AUFTRAG_MAX_ZEICHEN + 1)) is None
+
+
+def test_auftraege_ueber_http(tmp_path):
+    geraete = (Geraet("S3-Audio", empfang.token_hash(TOKEN)),)
+    # 58 Zeichen, aber mit sechs Umlauten 64 Byte: passt nicht ins Geraet und fehlt deshalb
+    namen = ["ToDos", "Entscheidungen", "ToDos", "x" * 200, "", "ä" * 6 + "x" * 52, "Agenda"]
+    dienst = GeraeteEmpfang(tmp_path / "eingang", geraete, port=0, adresse="127.0.0.1", auftraege_fn=lambda: namen)
+    dienst.starten()
+    try:
+        assert anfrage(dienst, "GET", "/api/v1/auftraege")[:2] == (
+            200,
+            {
+                "auftraege": ["ToDos", "Entscheidungen", "Agenda"],
+                "anzeige": ["ToDos", "Entscheidungen", "Agenda"],
+            },
+        )
+        assert anfrage(dienst, "GET", "/api/v1/auftraege", token=None)[0] == 401
+    finally:
+        dienst.stoppen()
+
+
+def test_hoechstens_so_viele_auftraege_wie_die_firmware_fasst(tmp_path):
+    geraete = (Geraet("S3-Audio", empfang.token_hash(TOKEN)),)
+    namen = [f"Vorlage {i}" for i in range(20)]
+    dienst = GeraeteEmpfang(tmp_path / "eingang", geraete, port=0, adresse="127.0.0.1", auftraege_fn=lambda: namen)
+    dienst.starten()
+    try:
+        assert anfrage(dienst, "GET", "/api/v1/auftraege")[1]["auftraege"] == namen[: empfang.MAX_AUFTRAEGE]
+    finally:
+        dienst.stoppen()
+
+
+def test_ohne_vorlagen_ist_die_liste_leer(dienst):
+    assert anfrage(dienst, "GET", "/api/v1/auftraege")[:2] == (200, {"auftraege": [], "anzeige": []})
+
+
+def test_auftragsnamen_mit_umlauten_haben_eine_anzeige_ohne_umlaute(tmp_path):
+    geraete = (Geraet("S3-Audio", empfang.token_hash(TOKEN)),)
+    namen = ["Aufgaben für Fritz", "Größe Runde"]
+    dienst = GeraeteEmpfang(tmp_path / "eingang", geraete, port=0, adresse="127.0.0.1", auftraege_fn=lambda: namen)
+    dienst.starten()
+    try:
+        antwort = anfrage(dienst, "GET", "/api/v1/auftraege")[1]
+        assert antwort["auftraege"] == namen  # gesendet wird der echte Name
+        assert antwort["anzeige"] == ["Aufgaben fuer Fritz", "Groesse Runde"]
+    finally:
+        dienst.stoppen()
+
+
+def test_wunsch_des_geraets_wird_beim_upload_gemeldet(tmp_path):
+    wuensche: list[tuple] = []
+    geraete = (Geraet("S3-Audio", empfang.token_hash(TOKEN)),)
+    dienst = GeraeteEmpfang(
+        tmp_path / "eingang", geraete, port=0, adresse="127.0.0.1", bei_wunsch=lambda *a: wuensche.append(a)
+    )
+    dienst.ablage._freier_platz = lambda _p: 10**12
+    dienst.starten()
+    try:
+        pfad = "/api/v1/aufnahmen/H5_007.opus"
+        anfrage(dienst, "PUT", pfad, b"abc", X_Offset="0", X_Auftrag="Aufgaben%20f%C3%BCr%20Fritz", X_Rueckfrage="1")
+        anfrage(dienst, "PUT", pfad, b"def", X_Offset="3")  # ohne Kopfzeilen: nichts zu melden
+        anfrage(dienst, "PUT", pfad, b"ghi", X_Offset="6", X_Rueckfrage="0", X_Auftrag="%FF")  # nichts Brauchbares
+        assert wuensche == [("S3-Audio", "H5_007.opus", "Aufgaben für Fritz", True)]
+    finally:
+        dienst.stoppen()
+
+
+def test_fehler_beim_merken_des_wunsches_stoert_den_upload_nicht(tmp_path):
+    def kaputt(*_a):
+        raise RuntimeError("weg")
+
+    geraete = (Geraet("S3-Audio", empfang.token_hash(TOKEN)),)
+    dienst = GeraeteEmpfang(tmp_path / "eingang", geraete, port=0, adresse="127.0.0.1", bei_wunsch=kaputt)
+    dienst.ablage._freier_platz = lambda _p: 10**12
+    dienst.starten()
+    try:
+        status, antwort, _ = anfrage(
+            dienst, "PUT", "/api/v1/aufnahmen/H5_007.opus", b"abc", X_Offset="0", X_Rueckfrage="1"
+        )
+        assert status == 200 and antwort["naechstes_byte"] == 3
+    finally:
+        dienst.stoppen()
+
+
+def _freigabe_dienst(tmp_path, zustaende, freigaben, ergebnis=True):
+    geraete = (Geraet("S3-Audio", empfang.token_hash(TOKEN)),)
+    return GeraeteEmpfang(
+        tmp_path / "eingang",
+        geraete,
+        port=0,
+        adresse="127.0.0.1",
+        status_fn=lambda g, d: zustaende.get((g, d)),
+        bei_zusammenfassung=lambda g, d: freigaben.append((g, d)) or ergebnis,
+    )
+
+
+def test_freigabe_der_zusammenfassung_nur_wenn_das_transkript_steht(tmp_path):
+    zustaende = {
+        ("S3-Audio", "H5_001.opus"): {"zustand": "transkript"},
+        ("S3-Audio", "H5_002.opus"): {"zustand": "transkription"},
+        ("S3-Audio", "H5_003.opus"): {"zustand": "auswertung"},
+        ("S3-Audio", "H5_004.opus"): {"zustand": "fertig"},
+    }
+    freigaben: list[tuple] = []
+    dienst = _freigabe_dienst(tmp_path, zustaende, freigaben)
+    dienst.starten()
+    try:
+        def post(name):
+            return anfrage(dienst, "POST", f"/api/v1/aufnahmen/{name}/zusammenfassung")[:2]
+
+        assert post("H5_001.opus") == (202, {"zustand": "auswertung"})
+        assert freigaben == [("S3-Audio", "H5_001.opus")]
+        status, antwort = post("H5_002.opus")
+        assert status == 409 and antwort["zustand"] == "transkription"
+        # Wiederholungen sind harmlos und loesen nichts erneut aus
+        assert post("H5_003.opus") == (202, {"zustand": "auswertung"})
+        assert post("H5_004.opus") == (200, {"zustand": "fertig"})
+        assert post("H5_099.opus")[0] == 404  # unbekannt
+        assert anfrage(dienst, "POST", "/api/v1/aufnahmen/mit%20leerzeichen.opus/zusammenfassung")[0] == 400
+        assert anfrage(dienst, "POST", "/api/v1/aufnahmen/H5_001.opus/zusammenfassung", token=None)[0] == 401
+        assert len(freigaben) == 1
+    finally:
+        dienst.stoppen()
+
+
+def test_freigabe_wird_abgelehnt_wenn_die_software_sie_nicht_annimmt(tmp_path):
+    zustaende = {("S3-Audio", "H5_001.opus"): {"zustand": "transkript"}}
+    dienst = _freigabe_dienst(tmp_path, zustaende, [], ergebnis=False)
+    dienst.starten()
+    try:
+        status, antwort, _ = anfrage(dienst, "POST", "/api/v1/aufnahmen/H5_001.opus/zusammenfassung")
+        assert status == 409 and antwort["zustand"] == "transkript"
+    finally:
+        dienst.stoppen()
+
+
+def test_freigabe_ohne_unterstuetzung_und_zu_grosse_anfragen(dienst):
+    assert anfrage(dienst, "POST", "/api/v1/aufnahmen/H5_001.opus/zusammenfassung")[0] == 404
+    gross = b"x" * (empfang.POST_MAX_BYTES + 1)
+    assert anfrage(dienst, "POST", "/api/v1/aufnahmen/H5_001.opus/zusammenfassung", gross)[0] == 413
+
+
+# --------------------------------------------------------------------------
+# Fragen per Sprache
+# --------------------------------------------------------------------------
+class _FragenAttrappe:
+    def __init__(self, *, bereit=True, spricht=True):
+        self.bereit = bereit
+        self.spricht = spricht
+        self.eingereicht: list[tuple] = []
+        self.zustand = {"zustand": "fertig", "frage": "Was macht Fritz?", "antwort": "Er schreibt.", "ton_bytes": 4}
+        self.wav = b"RIFF"
+
+    def bereit_fuer(self, geraet, datei):
+        return self.bereit
+
+    def einreichen(self, geraet, datei, ton, endung, ausgabe):
+        self.eingereicht.append((geraet, datei, ton, endung, ausgabe))
+        return "0123456789abcdef"
+
+    def stand(self, geraet, kennung):
+        return self.zustand if (geraet, kennung) == ("S3-Audio", "0123456789abcdef") else None
+
+    def ton(self, geraet, kennung):
+        return self.wav if self.stand(geraet, kennung) else None
+
+
+def _fragen_dienst(tmp_path, fragen):
+    geraete = (Geraet("S3-Audio", empfang.token_hash(TOKEN)), Geraet("C6", empfang.token_hash(TOKEN_ZWEI)))
+    dienst = GeraeteEmpfang(tmp_path / "eingang", geraete, port=0, adresse="127.0.0.1", fragen=fragen)
+    dienst.starten()
+    return dienst
+
+
+def _roh_holen(dienst, pfad, token=TOKEN):
+    verbindung = http.client.HTTPConnection("127.0.0.1", dienst.port, timeout=10)
+    verbindung.request("GET", pfad, headers={"Authorization": f"Bearer {token}"})
+    antwort = verbindung.getresponse()
+    inhalt = antwort.read()
+    verbindung.close()
+    return antwort.status, antwort.getheader("Content-Type"), inhalt
+
+
+def test_frage_einreichen_stand_und_ton_ueber_http(tmp_path):
+    fragen = _FragenAttrappe()
+    dienst = _fragen_dienst(tmp_path, fragen)
+    try:
+        status, antwort, _ = anfrage(
+            dienst, "POST", "/api/v1/aufnahmen/H5_007.opus/frage", b"RIFF-frage", Content_Type="audio/wav"
+        )
+        assert (status, antwort) == (202, {"frage_id": "0123456789abcdef", "ton": False})  # Standard: Anzeige
+        status, antwort, _ = anfrage(
+            dienst, "POST", "/api/v1/aufnahmen/H5_007.opus/frage", b"OggS",
+            Content_Type="audio/ogg; codecs=opus", X_Ausgabe="ton",
+        )
+        assert antwort["ton"] is True
+        assert fragen.eingereicht == [
+            ("S3-Audio", "H5_007.opus", b"RIFF-frage", ".wav", "anzeige"),
+            ("S3-Audio", "H5_007.opus", b"OggS", ".opus", "ton"),
+        ]
+
+        assert anfrage(dienst, "GET", "/api/v1/fragen/0123456789abcdef")[:2] == (200, fragen.zustand)
+        assert _roh_holen(dienst, "/api/v1/fragen/0123456789abcdef/ton") == (200, "audio/wav", b"RIFF")
+    finally:
+        dienst.stoppen()
+
+
+def test_frage_fehlerfaelle_ueber_http(tmp_path):
+    fragen = _FragenAttrappe()
+    dienst = _fragen_dienst(tmp_path, fragen)
+    try:
+        pfad = "/api/v1/aufnahmen/H5_007.opus/frage"
+        assert anfrage(dienst, "POST", pfad, b"x")[0] == 415  # kein Content-Type
+        assert anfrage(dienst, "POST", pfad, b"x", Content_Type="text/plain")[0] == 415
+        assert anfrage(dienst, "POST", pfad, b"", Content_Type="audio/wav")[0] == 400  # kein Ton
+        assert anfrage(dienst, "POST", pfad, b"x", Content_Type="audio/wav", X_Ausgabe="fernseher")[0] == 400
+        assert anfrage(dienst, "POST", pfad, b"x", token=None, Content_Type="audio/wav")[0] == 401
+        assert anfrage(dienst, "POST", "/api/v1/aufnahmen/mit%20leerzeichen.opus/frage", b"x", Content_Type="audio/wav")[0] == 400
+        zu_gross = b"x" * (empfang.FRAGE_MAX_BYTES + 1)
+        assert anfrage(dienst, "POST", pfad, zu_gross, Content_Type="audio/wav")[0] == 413
+        fragen.bereit = False
+        assert anfrage(dienst, "POST", pfad, b"x", Content_Type="audio/wav")[0] == 409  # noch kein Transkript
+        assert fragen.eingereicht == []
+        fragen.bereit = True
+
+        def voll(*_args):
+            raise frage_service.Ueberlastet("Es warten schon zu viele Fragen.")
+
+        fragen.einreichen = voll  # type: ignore[method-assign]
+        assert anfrage(dienst, "POST", pfad, b"x", Content_Type="audio/wav")[0] == 503  # spaeter noch einmal
+    finally:
+        dienst.stoppen()
+
+
+def test_fremde_und_unbekannte_fragen_sind_nicht_zu_sehen(tmp_path):
+    fragen = _FragenAttrappe()
+    dienst = _fragen_dienst(tmp_path, fragen)
+    try:
+        assert anfrage(dienst, "GET", "/api/v1/fragen/0123456789abcdef", token=TOKEN_ZWEI)[0] == 404  # anderes Geraet
+        assert _roh_holen(dienst, "/api/v1/fragen/0123456789abcdef/ton", TOKEN_ZWEI)[0] == 404
+        assert anfrage(dienst, "GET", "/api/v1/fragen/ffffffffffffffff")[0] == 404
+        assert anfrage(dienst, "GET", "/api/v1/fragen/nicht-hex")[0] == 404
+        assert anfrage(dienst, "GET", "/api/v1/fragen/0123456789abcdef", token=None)[0] == 401
+    finally:
+        dienst.stoppen()
+
+
+def test_ton_gibt_es_erst_wenn_die_frage_fertig_ist(tmp_path):
+    fragen = _FragenAttrappe()
+    fragen.zustand = {"zustand": "antworten", "frage": "Was macht Fritz?"}
+    dienst = _fragen_dienst(tmp_path, fragen)
+    try:
+        status, _typ, inhalt = _roh_holen(dienst, "/api/v1/fragen/0123456789abcdef/ton")
+        assert status == 409 and json.loads(inhalt)["zustand"] == "antworten"
+        fragen.zustand = {"zustand": "fertig", "antwort": "Text", "ton_bytes": 0}
+        fragen.wav = b""
+        assert _roh_holen(dienst, "/api/v1/fragen/0123456789abcdef/ton")[0] == 404  # ohne Sprachausgabe kein Ton
+    finally:
+        dienst.stoppen()
+
+
+def test_ohne_fragendienst_gibt_es_keine_fragen(dienst):
+    assert anfrage(dienst, "POST", "/api/v1/aufnahmen/H5_007.opus/frage", b"x", Content_Type="audio/wav")[0] == 404
+    assert anfrage(dienst, "GET", "/api/v1/fragen/0123456789abcdef")[0] == 404

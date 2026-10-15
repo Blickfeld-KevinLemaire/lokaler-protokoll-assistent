@@ -137,6 +137,7 @@ das ab, nachdem es die Aufnahme abgeschlossen hat, und zeigt den Stand an.
 | `empfang` | Die Aufnahme läuft noch oder das Ende steht aus. `meldung` nennt, wie viele Blöcke die Software schon transkribiert hat. | – |
 | `wartet` | Aufnahme komplett angekommen, die Verarbeitung ist eingereiht. | „Wird verarbeitet …" |
 | `transkription` | Transkription läuft (nur noch der Rest, wenn schon während der Aufnahme transkribiert wurde). | Fortschritt |
+| `transkript` | **Nur mit Rückfrage** (`X-Rueckfrage: 1`, siehe unten): Das Transkript steht, die Zusammenfassung wartet auf die Freigabe am Gerät. `meldung` ist `Transkription erfolgreich`. | **grünes Häkchen, „Transkription erfolgreich“**, dann die Frage „Zusammenfassung erstellen?“ |
 | `auswertung` | Die Auswertung nach dem Auftrag läuft. | Fortschritt |
 | `fertig` | Alles ist da. `meldung` ist `Transkription erfolgreich`. | **grünes Häkchen, „Transkription erfolgreich"** |
 | `fehler` | Transkription oder Auswertung ist fehlgeschlagen oder wurde abgebrochen; `meldung` nennt, welcher Schritt. | Fehler |
@@ -166,6 +167,93 @@ meldet sie `unbekannt`; die Aufnahme selbst ist dann trotzdem sicher abgelegt.
 Lädt ein Gerät eine schon abgelegte Aufnahme noch einmal hoch (die Bestätigung
 ging verloren), bleibt der bisherige Stand stehen – ein `fertig` wird dadurch
 nicht zurückgenommen.
+
+### `GET /api/v1/auftraege`
+
+Die Namen der Vorlagen (Systemprompts), aus denen das Gerät **vor der Aufnahme** einen Auftrag wählen lässt
+(Auswahlliste am Display). Es sind höchstens 12 Namen mit je höchstens 60 Zeichen und höchstens 63 Byte UTF-8
+(so passt jeder Name ungekürzt in die Liste der Firmware; längere Vorlagen bietet die Software nicht an).
+
+```json
+{"auftraege":["Aufgaben und Zuständigkeiten","Entscheidungen","Meetingprotokoll"],
+ "anzeige":["Aufgaben und Zustaendigkeiten","Entscheidungen","Meetingprotokoll"]}
+```
+
+`anzeige` sind dieselben Namen in gleicher Reihenfolge nur mit ASCII-Zeichen (Umlaute als ae, oe, ue, ss; höchstens 38 Zeichen) fürs Display, gesendet wird der echte Name aus `auftraege`.
+
+Ältere Software kennt den Aufruf nicht (`404`): Das Gerät zeigt dann keine Auswahl.
+
+### Auftrag und Rückfrage bei der Aufnahme
+
+Zwei zusätzliche Kopfzeilen bei `PUT /api/v1/aufnahmen/<Dateiname>` (am besten bei jedem Stück, mindestens beim ersten):
+
+| Kopfzeile | Bedeutung |
+|---|---|
+| `X-Auftrag` | Name der gewählten Vorlage, **UTF-8 prozentcodiert** (`Aufgaben%20f%C3%BCr%20Fritz`). Fehlt sie oder gibt es die Vorlage nicht (mehr), gilt der Auftrag aus den Einstellungen der Software. |
+| `X-Rueckfrage` | `1`: Das Gerät will nach dem Transkript gefragt werden, ob die Zusammenfassung erstellt werden soll. Ohne die Kopfzeile läuft die Auswertung wie bisher von selbst weiter. |
+
+Mit Rückfrage geht der Stand nach der Transkription auf `transkript` (siehe oben) und die Software wartet auf:
+
+### `POST /api/v1/aufnahmen/<Dateiname>/zusammenfassung`
+
+Das Gerät gibt die Zusammenfassung frei (Nutzer hat „Ja“ gewählt). Kein Inhalt nötig (höchstens 1 KB).
+
+| Antwort | Bedeutung |
+|---|---|
+| `202 {"zustand":"auswertung"}` | Angenommen (auch bei einer Wiederholung, solange die Auswertung läuft). Ab jetzt wieder `/status` abfragen: `auswertung` → `fertig` (`meldung`: `Zusammenfassung fertig`). |
+| `200 {"zustand":"fertig"}` | Die Zusammenfassung ist schon da. |
+| `409 {"zustand":"…"}` | Das Transkript steht noch nicht (oder die Software nimmt es gerade nicht an): später noch einmal. |
+| `404` | Der Software ist die Aufnahme nicht bekannt (Neustart) – oder sie kennt den Aufruf nicht. |
+
+Vorab berechnete Teilergebnisse (siehe „Senden während der Aufnahme“) nutzt die Zusammenfassung wie bisher; nach der
+Freigabe bleibt deshalb nur das Endergebnis zu rechnen.
+
+### Fragen per Sprache
+
+Nach dem Transkript kann das Gerät Fragen zu dieser Aufnahme stellen („Wer hat welche Aufgabe?“). Alles rechnet
+lokal auf dem PC: Whisper versteht die Frage, das Sprachmodell antwortet aus Transkript und Zusammenfassung, eine
+lokale Sprachausgabe spricht die Antwort. Die Frage läuft im Hintergrund; das Gerät fragt den Stand ab (wie bei `/status`).
+
+**Ausgabe:** Standard ist **Text für das Display** (`X-Ausgabe: anzeige`): `anzeige` im Stand ist eine kurze nummerierte Liste, nur ASCII
+(Umlaute als ae, oe, ue, ss, weil die Schriften der Geräte keine Umlaute haben), jeder Punkt höchstens zwölf Wörter, bis sechs Punkte;
+fragt man nach einer bestimmten Anzahl („die vier wichtigsten Punkte“), hält die Antwort sie ein. Mit `X-Ausgabe: ton` wird die Antwort
+zusätzlich gesprochen (siehe unten, sobald eine Sprachausgabe eingerichtet ist).
+
+**`POST /api/v1/aufnahmen/<Dateiname>/frage`** – der Ton der Frage im Inhalt, `Content-Type: audio/wav` (16 kHz, 16 Bit,
+mono) oder `audio/ogg` (Opus), höchstens 3 MB (etwa 90 s). Antworten:
+
+| Antwort | Bedeutung |
+|---|---|
+| `202 {"frage_id":"…","ton":false}` | Angenommen. `ton` ist `true` nur, wenn das Gerät `X-Ausgabe: ton` verlangt hat **und** die Software eine Sprachausgabe hat. |
+| `409` | Zu dieser Aufnahme gibt es noch kein Transkript (die Software kennt sie nicht oder sie ist noch in Arbeit). |
+| `413` / `415` / `400` | Zu groß / kein `audio/wav` oder `audio/ogg` / kein Ton oder ungültiger Dateiname. |
+| `503` | Es warten schon zu viele unbearbeitete Fragen: etwas später noch einmal. |
+| `404` | Die Software beantwortet keine Fragen per Sprache. |
+
+**`GET /api/v1/fragen/<frage_id>`** – Stand der Frage:
+
+```json
+{"zustand":"antworten","frage":"Was macht Fritz?","meldung":"Antwort wird gesucht"}
+```
+
+| `zustand` | Bedeutung | Gerät zeigt |
+|---|---|---|
+| `verstehen` | Die Frage wird in Text umgewandelt. | „Ich höre …“ |
+| `antworten` | Das Sprachmodell sucht die Antwort. `frage` ist schon da. | „Ich suche …“ |
+| `sprechen` | Die Antwort wird gesprochen (`antwort` als Text ist schon da). | „Ich antworte …“ |
+| `fertig` | `anzeige` (Text fürs Display) und `antwort` sind da; `ton_bytes` ist die Größe der WAV-Datei (0: kein Ton). | Liste anzeigen, ggf. Ton abspielen |
+| `fehler` | `meldung` nennt den Grund (Frage nicht verstanden, Sprachmodell nicht erreichbar …). | Fehler |
+
+`frage` und `anzeige` sind nur ASCII; `anzeige` hat höchstens 1000 Zeichen. Die Felder kommen in der Reihenfolge
+`zustand`, `frage`, `anzeige`, `meldung`, `ton_bytes`, `antwort`: Die ungekürzte `antwort` steht zuletzt, damit ein
+Gerät mit festem Puffer auch dann alles fürs Display bekommt, wenn sie nicht mehr hineinpasst.
+
+**`GET /api/v1/fragen/<frage_id>/ton`** – die Antwort als WAV (`audio/wav`, 16 kHz, 16 Bit, mono) mit `Content-Length`;
+nur bei `fertig` (sonst `409`, ohne Ton `404`). Die Kennung gehört dem Gerät, das gefragt hat: ein anderes Gerät bekommt
+`404`. Fragen und Töne bleiben höchstens 15 Minuten im Speicher der Software.
+
+Mit `X-Ausgabe: ton` ist die Antwort kurz und gesprochen formuliert (höchstens vier Sätze, ohne Aufzählungen und
+Quellenangaben); sonst ist sie die Liste fürs Display (siehe **Ausgabe** oben).
 
 ## Ablauf im Gerät
 

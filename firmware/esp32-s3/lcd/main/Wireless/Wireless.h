@@ -27,6 +27,10 @@ void VERMERK_Wifi_Fast_Mode(bool on);
  * Tut nichts, wenn kein Ziel erreichbar ist. */
 void VERMERK_Live_Schritt(void);
 
+/* Kleine Anfrage an die Software (siehe vermerk_anfrage). Ziel wie beim Upload; -2: gerade kein Ziel erreichbar. */
+int VERMERK_Anfrage(bool post, const char *pfad, const char *inhalt_typ, const uint8_t *inhalt, size_t laenge,
+                    const char *ausgabe, char *antwort, size_t antwort_max, int timeout_ms);
+
 /* Verarbeitungsstand einer hochgeladenen Aufnahme bei der Software abfragen (GET .../status).
  * VERMERK_STATUSABFRAGE_ZUSTAND: status ist gefuellt (auch "unbekannt"); _SPAETER: kein Ziel, Netz, 5xx;
  * _ENDE: die Software lehnt die Abfrage dauerhaft ab (4xx, z. B. eine aeltere Software ohne .../status). */

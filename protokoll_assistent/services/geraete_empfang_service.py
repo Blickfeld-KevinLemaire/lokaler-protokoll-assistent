@@ -33,12 +33,15 @@ import socket
 import tempfile
 import threading
 import time
+import urllib.parse
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
+from protokoll_assistent.services.anzeigetext import fuer_display
+from protokoll_assistent.services.frage_service import Ueberlastet
 from protokoll_assistent.services.manifest_service import _ersetzen_mit_wiederholung
 
 logger = logging.getLogger(__name__)
@@ -180,6 +183,20 @@ def geraete_id_lesen(wert: str | None) -> str | None:
     return text if _GERAETE_ID.match(text) else None
 
 
+def auftrag_lesen(wert: str | None) -> str | None:
+    """``X-Auftrag``: Name der gewaehlten Vorlage, als UTF-8 prozentcodiert (Umlaute). Leeres, zu Langes und
+    Steuerzeichen werden ignoriert."""
+    if not wert:
+        return None
+    try:
+        name = urllib.parse.unquote(wert, errors="strict").strip()
+    except UnicodeDecodeError:
+        return None
+    if not name or len(name) > AUFTRAG_MAX_ZEICHEN or any(ord(z) < 32 or ord(z) == 127 for z in name):
+        return None
+    return name
+
+
 def firmware_lesen(wert: str | None) -> str | None:
     text = (wert or "").strip()
     return text if _FIRMWARE.match(text) else None
@@ -210,8 +227,13 @@ def lokale_adressen() -> list[str]:
 class Antwort:
     status: int
     daten: dict[str, Any]
+    # Ton statt JSON (Antwort auf eine Frage): dann gilt ``roh`` mit diesem Inhaltstyp
+    roh: bytes | None = None
+    inhalt_typ: str = "application/json"
 
     def als_bytes(self) -> bytes:
+        if self.roh is not None:
+            return self.roh
         # Kompakt und ohne Leerzeichen: Die Firmware liest Felder per Textsuche.
         return json.dumps(self.daten, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
 
@@ -521,6 +543,31 @@ def _ordner_sichern(ordner: Path) -> None:
 _PFAD_HALLO = "/api/v1/hallo"
 _PFAD_AUFNAHMEN = "/api/v1/aufnahmen/"
 _ENDE_STATUS = "/status"
+_ENDE_ZUSAMMENFASSUNG = "/zusammenfassung"
+_PFAD_AUFTRAEGE = "/api/v1/auftraege"
+_ENDE_FRAGE = "/frage"
+_PFAD_FRAGEN = "/api/v1/fragen/"
+_ENDE_TON = "/ton"
+# Eine gesprochene Frage: 60 s WAV (16 kHz, 16 Bit) sind 1,9 MB
+FRAGE_MAX_BYTES = 3 * 1024 * 1024
+_TON_TYPEN = {
+    "audio/wav": ".wav",
+    "audio/x-wav": ".wav",
+    "audio/wave": ".wav",
+    "audio/ogg": ".opus",
+    "audio/opus": ".opus",
+}
+_FRAGE_KENNUNG = re.compile(r"^[0-9a-f]{16}$")
+# Auftraege (Namen der Vorlagen), die ein Geraet auswaehlen kann
+AUFTRAG_MAX_ZEICHEN = 60
+# Das Geraet haelt einen Namen in 64 Byte (mit Nullbyte): Mit Umlauten werden 60 Zeichen mehr als 63 Byte UTF-8,
+# der Name kaeme gekuerzt zurueck und passte zu keiner Vorlage mehr.
+AUFTRAG_MAX_BYTES = 63
+AUFTRAG_ANZEIGE_MAX = 38
+# So viele Eintraege fasst die Liste der Firmware (VERMERK_AUFTRAEGE_MAX)
+MAX_AUFTRAEGE = 12
+# Eine Anfrage ohne Aufnahme (Freigabe der Zusammenfassung) ist klein
+POST_MAX_BYTES = 1024
 
 
 class _Server(ThreadingHTTPServer):
@@ -571,7 +618,7 @@ class _Anfrage(BaseHTTPRequestHandler):
             self.close_connection = True
         try:
             self.send_response(antwort.status)
-            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Type", antwort.inhalt_typ)
             self.send_header("Content-Length", str(len(text)))
             if self.close_connection:
                 self.send_header("Connection", "close")
@@ -623,6 +670,14 @@ class _Anfrage(BaseHTTPRequestHandler):
         elif pfad.startswith(_PFAD_AUFNAHMEN) and pfad.endswith(_ENDE_STATUS):
             name = pfad[len(_PFAD_AUFNAHMEN) : -len(_ENDE_STATUS)]
             self._senden(self.server.empfang.status(geraet.name, name))
+        elif pfad == _PFAD_AUFTRAEGE:
+            self._senden(self.server.empfang.auftraege())
+        elif pfad.startswith(_PFAD_FRAGEN):
+            rest = pfad[len(_PFAD_FRAGEN) :]
+            if rest.endswith(_ENDE_TON):
+                self._senden(self.server.empfang.frage_ton(geraet.name, rest[: -len(_ENDE_TON)]))
+            else:
+                self._senden(self.server.empfang.frage_stand(geraet.name, rest))
         elif pfad.startswith(_PFAD_AUFNAHMEN):
             self._senden(self.server.empfang.ablage.stand(geraet.name, pfad[len(_PFAD_AUFNAHMEN):]))
         else:
@@ -661,6 +716,12 @@ class _Anfrage(BaseHTTPRequestHandler):
             gelesen += len(block)
             return block
 
+        self.server.empfang.wunsch_merken(
+            geraet.name,
+            pfad[len(_PFAD_AUFNAHMEN):],
+            auftrag_lesen(self.headers.get("X-Auftrag")),
+            (self.headers.get("X-Rueckfrage") or "").strip() == "1",
+        )
         antwort = self.server.empfang.ablage.anhaengen(
             geraet.name, pfad[len(_PFAD_AUFNAHMEN):], offset, laenge, lesen, gesamt, sha256
         )
@@ -676,10 +737,50 @@ class _Anfrage(BaseHTTPRequestHandler):
         # wuerde als naechste Anfrage gedeutet: Verbindung schliessen.
         self._senden(antwort, schliessen=gelesen != laenge)
 
+    def do_POST(self) -> None:
+        """Kleine Befehle ohne Aufnahme: ``POST /api/v1/aufnahmen/<Name>/zusammenfassung``."""
+        geraet = self._vorpruefung()
+        if geraet is None:
+            return
+        if self.headers.get("Transfer-Encoding"):
+            self._senden(_fehler(411, "Content-Length fehlt (Chunked Transfer wird nicht angenommen)."), schliessen=True)
+            return
+        try:
+            laenge = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            self._senden(_fehler(400, "Content-Length muss eine Zahl sein."), schliessen=True)
+            return
+        pfad = self._pfad()
+        ist_frage = pfad.startswith(_PFAD_AUFNAHMEN) and pfad.endswith(_ENDE_FRAGE)
+        if laenge < 0 or laenge > (FRAGE_MAX_BYTES if ist_frage else POST_MAX_BYTES):
+            self._senden(_fehler(413, "Inhalt zu gross."), schliessen=True)
+            return
+        inhalt = b""
+        if laenge:
+            try:
+                inhalt = self.rfile.read(laenge)
+            except OSError:
+                self.close_connection = True
+                return
+            if len(inhalt) != laenge:
+                self.close_connection = True
+                return
+        if pfad.startswith(_PFAD_AUFNAHMEN) and pfad.endswith(_ENDE_ZUSAMMENFASSUNG):
+            name = pfad[len(_PFAD_AUFNAHMEN) : -len(_ENDE_ZUSAMMENFASSUNG)]
+            self._senden(self.server.empfang.zusammenfassung(geraet.name, name))
+        elif ist_frage:
+            name = pfad[len(_PFAD_AUFNAHMEN) : -len(_ENDE_FRAGE)]
+            typ = (self.headers.get("Content-Type") or "").split(";", 1)[0].strip().lower()
+            self._senden(self.server.empfang.frage_einreichen(
+                    geraet.name, name, inhalt, _TON_TYPEN.get(typ), self.headers.get("X-Ausgabe")
+                ))
+        else:
+            self._senden(_fehler(404, "Unbekannter Pfad."))
+
     def _nicht_erlaubt(self) -> None:
         self._senden(_fehler(405, "Methode nicht erlaubt."), schliessen=True)
 
-    do_POST = do_DELETE = do_PATCH = do_HEAD = _nicht_erlaubt
+    do_DELETE = do_PATCH = do_HEAD = _nicht_erlaubt
 
 
 def _sanft_schliessen(verbindung: socket.socket) -> None:
@@ -724,6 +825,10 @@ class GeraeteEmpfang:
         bei_abschluss: Callable[[str, str, Path], None] | None = None,
         bei_verworfen: Callable[[str, str], None] | None = None,
         status_fn: Callable[[str, str], dict[str, Any] | None] | None = None,
+        auftraege_fn: Callable[[], Iterable[str]] | None = None,
+        bei_wunsch: Callable[[str, str, str | None, bool], None] | None = None,
+        bei_zusammenfassung: Callable[[str, str], bool] | None = None,
+        fragen: Any = None,
     ):
         self.geraete: tuple[Geraet, ...] = tuple(geraete)
         self.ablage = Ablage(
@@ -735,6 +840,11 @@ class GeraeteEmpfang:
             bei_verworfen=bei_verworfen,
         )
         self._status_fn = status_fn
+        self._auftraege_fn = auftraege_fn
+        self._bei_wunsch = bei_wunsch
+        self._bei_zusammenfassung = bei_zusammenfassung
+        # ``frage_service.FragenDienst`` (oder eine Attrappe): Fragen per Sprache zu einer Aufnahme
+        self._fragen = fragen
         self._adresse = (adresse, port)
         self._server: _Server | None = None
         self._faden: threading.Thread | None = None
@@ -751,6 +861,98 @@ class GeraeteEmpfang:
             return _fehler(400, "Ungueltiger Dateiname.")
         eintrag = self._status_fn(geraet, datei) if self._status_fn is not None else None
         return Antwort(200, eintrag if eintrag is not None else {"zustand": "unbekannt"})
+
+    def auftraege(self) -> Antwort:
+        """``GET /api/v1/auftraege``: Namen der Vorlagen, aus denen das Geraet vor der Aufnahme waehlen kann."""
+        namen: list[str] = []
+        if self._auftraege_fn is not None:
+            for name in self._auftraege_fn():
+                if (
+                    isinstance(name, str)
+                    and 0 < len(name) <= AUFTRAG_MAX_ZEICHEN
+                    and len(name.encode("utf-8")) <= AUFTRAG_MAX_BYTES
+                    and name not in namen
+                ):
+                    namen.append(name)
+                if len(namen) >= MAX_AUFTRAEGE:
+                    break
+        # ``anzeige``: dieselben Namen nur mit ASCII, fuers Display (gleiche Reihenfolge); gesendet wird der echte Name
+        return Antwort(200, {"auftraege": namen, "anzeige": [fuer_display(n)[:AUFTRAG_ANZEIGE_MAX] for n in namen]})
+
+    def wunsch_merken(self, geraet: str, datei: str, auftrag: str | None, rueckfrage: bool) -> None:
+        """Auftrag und Rueckfrage-Wunsch einer Aufnahme (Kopfzeilen ``X-Auftrag``, ``X-Rueckfrage``)."""
+        if self._bei_wunsch is None or not (auftrag or rueckfrage) or not dateiname_gueltig(datei):
+            return
+        try:
+            self._bei_wunsch(geraet, datei, auftrag, rueckfrage)
+        except Exception:  # Ein Fehler der Verarbeitung darf den Upload nicht stoeren.
+            logger.exception("Wunsch des Geraets %s fuer %s nicht uebernommen", geraet, datei)
+
+    def zusammenfassung(self, geraet: str, datei: str) -> Antwort:
+        """``POST .../zusammenfassung``: Das Geraet gibt die Zusammenfassung frei, nachdem das Transkript steht.
+
+        Eine Wiederholung ist harmlos (``auswertung`` und ``fertig`` antworten mit dem Stand)."""
+        if not dateiname_gueltig(datei):
+            return _fehler(400, "Ungueltiger Dateiname.")
+        if self._bei_zusammenfassung is None:
+            return _fehler(404, "Die Software erstellt Zusammenfassungen nicht auf Anfrage.")
+        eintrag = self._status_fn(geraet, datei) if self._status_fn is not None else None
+        zustand = str(eintrag.get("zustand")) if eintrag else "unbekannt"
+        if zustand == "unbekannt":
+            return _fehler(404, "Die Aufnahme ist der Software nicht bekannt.")
+        if zustand in ("auswertung", "fertig"):
+            return Antwort(202 if zustand == "auswertung" else 200, {"zustand": zustand})
+        if zustand != "transkript":
+            return _fehler(409, "Das Transkript steht noch nicht.", zustand=zustand)
+        if not self._bei_zusammenfassung(geraet, datei):
+            return _fehler(409, "Die Zusammenfassung kann gerade nicht erstellt werden.", zustand=zustand)
+        return Antwort(202, {"zustand": "auswertung"})
+
+    def frage_einreichen(
+        self, geraet: str, datei: str, ton: bytes, endung: str | None, ausgabe: str | None = None
+    ) -> Antwort:
+        """``POST /api/v1/aufnahmen/<Name>/frage``: Der Ton einer gesprochenen Frage (WAV oder Ogg-Opus) zu dieser
+        Aufnahme. Antwort ``202 {"frage_id": ...}``; den Stand liefert ``GET /api/v1/fragen/<Kennung>``."""
+        if self._fragen is None:
+            return _fehler(404, "Die Software beantwortet keine Fragen per Sprache.")
+        if not dateiname_gueltig(datei):
+            return _fehler(400, "Ungueltiger Dateiname.")
+        if endung is None:
+            return _fehler(415, "Content-Type muss audio/wav oder audio/ogg sein.")
+        if not ton:
+            return _fehler(400, "Kein Ton.")
+        art = (ausgabe or "anzeige").strip().lower()
+        if art not in ("anzeige", "ton"):
+            return _fehler(400, "X-Ausgabe muss anzeige oder ton sein.")
+        if not self._fragen.bereit_fuer(geraet, datei):
+            return _fehler(409, "Zu dieser Aufnahme gibt es noch kein Transkript.")
+        try:
+            kennung = self._fragen.einreichen(geraet, datei, ton, endung, art)
+        except Ueberlastet:
+            return _fehler(503, "Es warten schon zu viele Fragen. Bitte gleich noch einmal.")
+        return Antwort(202, {"frage_id": kennung, "ton": art == "ton" and bool(self._fragen.spricht)})
+
+    def frage_stand(self, geraet: str, kennung: str) -> Antwort:
+        """``GET /api/v1/fragen/<Kennung>``: ``zustand`` (verstehen, antworten, sprechen, fertig, fehler), dazu
+        ``frage``, ``antwort``, ``meldung`` und bei ``fertig`` die Groesse des Tons (``ton_bytes``)."""
+        if self._fragen is None or not _FRAGE_KENNUNG.match(kennung):
+            return _fehler(404, "Unbekannte Frage.")
+        stand = self._fragen.stand(geraet, kennung)
+        return Antwort(200, stand) if stand is not None else _fehler(404, "Unbekannte Frage.")
+
+    def frage_ton(self, geraet: str, kennung: str) -> Antwort:
+        """``GET /api/v1/fragen/<Kennung>/ton``: die gesprochene Antwort als WAV (16 kHz, 16 Bit, mono)."""
+        if self._fragen is None or not _FRAGE_KENNUNG.match(kennung):
+            return _fehler(404, "Unbekannte Frage.")
+        stand = self._fragen.stand(geraet, kennung)
+        if stand is None:
+            return _fehler(404, "Unbekannte Frage.")
+        if stand["zustand"] != "fertig":
+            return _fehler(409, "Die Antwort ist noch nicht fertig.", zustand=stand["zustand"])
+        ton = self._fragen.ton(geraet, kennung)
+        if not ton:
+            return _fehler(404, "Zu dieser Frage gibt es keinen Ton.")
+        return Antwort(200, {}, roh=ton, inhalt_typ="audio/wav")
 
     def kontakte(self) -> dict[str, Kontakt]:
         """Letzter Kontakt je Geraetename (seit dem Start des Dienstes)."""
