@@ -832,6 +832,232 @@ static void test_warteliste(void)
     PRUEFE(vermerk_warteliste_bereit(NULL, 1, 0, t0));
 }
 
+/* ---- Auftraege, Texte, Kopfzeilen, Fragen ---- */
+
+static char *kopie(const char *text, size_t *n)
+{
+    return ohne_null(text, n);
+}
+
+static void test_zeichenkette(void)
+{
+    char aus[64];
+    bool abg = true;
+    size_t n;
+    char *t = kopie("{\"frage\":\"Was macht Fritz?\",\"x\":1}", &n);
+    PRUEFE(vermerk_json_zeichenkette(t, n, "frage", aus, sizeof(aus), &abg));
+    PRUEFE(strcmp(aus, "Was macht Fritz?") == 0 && !abg);
+    free(t);
+
+    /* Escapes werden aufgeloest, UTF-8 bleibt */
+    t = kopie("{\"anzeige\":\"1. Eins\\n2. \\\"Zwei\\\" \\\\ \\/ \\u00e4\\u20ac\",\"z\":1}", &n);
+    PRUEFE(vermerk_json_zeichenkette(t, n, "anzeige", aus, sizeof(aus), NULL));
+    PRUEFE(strcmp(aus, "1. Eins\n2. \"Zwei\" \\ / \xC3\xA4\xE2\x82\xAC") == 0);
+    free(t);
+    t = kopie("{\"a\":\"Gr\xC3\xB6\xC3\x9F" "e\"}", &n);
+    PRUEFE(vermerk_json_zeichenkette(t, n, "a", aus, sizeof(aus), NULL) && strcmp(aus, "Gr\xC3\xB6\xC3\x9F" "e") == 0);
+    free(t);
+
+    /* zu lang: an einer Zeichengrenze abgeschnitten, nie mitten in einem UTF-8-Zeichen */
+    char klein[6];
+    t = kopie("{\"a\":\"abc\xC3\xA4\xC3\xA4\"}", &n);   /* a b c ae ae = 7 Bytes */
+    PRUEFE(vermerk_json_zeichenkette(t, n, "a", klein, sizeof(klein), &abg) && abg);
+    PRUEFE(strcmp(klein, "abc\xC3\xA4") == 0);
+    free(t);
+
+    /* kaputt */
+    t = kopie("{\"a\":\"offen", &n);
+    PRUEFE(!vermerk_json_zeichenkette(t, n, "a", aus, sizeof(aus), NULL) && aus[0] == '\0');
+    free(t);
+    t = kopie("{\"a\":\"\\x\"}", &n);
+    PRUEFE(!vermerk_json_zeichenkette(t, n, "a", aus, sizeof(aus), NULL));
+    free(t);
+    t = kopie("{\"a\":\"\\u12\"}", &n);
+    PRUEFE(!vermerk_json_zeichenkette(t, n, "a", aus, sizeof(aus), NULL));
+    free(t);
+    t = kopie("{\"a\":5}", &n);
+    PRUEFE(!vermerk_json_zeichenkette(t, n, "a", aus, sizeof(aus), NULL));
+    PRUEFE(!vermerk_json_zeichenkette(t, n, "fehlt", aus, sizeof(aus), NULL));
+    free(t);
+    PRUEFE(!vermerk_json_zeichenkette(NULL, 0, "a", aus, sizeof(aus), NULL));
+    PRUEFE(!vermerk_json_zeichenkette("{}", 2, "a", NULL, 0, NULL));
+}
+
+static void test_zeichenketten_liste(void)
+{
+    char liste[4][12];
+    size_t n;
+    char *t = kopie("{\"auftraege\":[\"ToDos\",\"Agenda\",\"Lang_und_laenger\"],\"x\":1}", &n);
+    PRUEFE(vermerk_json_zeichenketten(t, n, "auftraege", &liste[0][0], 12, 12, 4) == 3);
+    PRUEFE(strcmp(liste[0], "ToDos") == 0 && strcmp(liste[1], "Agenda") == 0);
+    PRUEFE(strcmp(liste[2], "Lang_und_la") == 0);   /* abgeschnitten */
+    free(t);
+
+    t = kopie("{\"auftraege\":[]}", &n);
+    PRUEFE(vermerk_json_zeichenketten(t, n, "auftraege", &liste[0][0], 12, 12, 4) == 0);
+    free(t);
+
+    /* mehr Eintraege als Platz: die ersten, der Rest wird uebersprungen */
+    t = kopie("{\"a\":[\"1\",\"2\",\"3\",\"4\",\"5\"]}", &n);
+    PRUEFE(vermerk_json_zeichenketten(t, n, "a", &liste[0][0], 12, 12, 2) == 2);
+    PRUEFE(strcmp(liste[1], "2") == 0);
+    free(t);
+
+    /* keine Liste von Texten */
+    t = kopie("{\"a\":[1,2]}", &n);
+    PRUEFE(vermerk_json_zeichenketten(t, n, "a", &liste[0][0], 12, 12, 4) == -1);
+    free(t);
+    t = kopie("{\"a\":[\"x\"", &n);   /* abgeschnitten */
+    PRUEFE(vermerk_json_zeichenketten(t, n, "a", &liste[0][0], 12, 12, 4) == -1);
+    free(t);
+    t = kopie("{\"a\":\"text\"}", &n);
+    PRUEFE(vermerk_json_zeichenketten(t, n, "a", &liste[0][0], 12, 12, 4) == -1);
+    PRUEFE(vermerk_json_zeichenketten(t, n, "fehlt", &liste[0][0], 12, 12, 4) == -1);
+    free(t);
+}
+
+static void test_zeichenketten_abstand(void)
+{
+    char feld[3][20];
+    memset(feld, 'X', sizeof(feld));
+    size_t n;
+    char *t = kopie("{\"a\":[\"eins\",\"zwei\"]}", &n);
+    PRUEFE(vermerk_json_zeichenketten(t, n, "a", &feld[0][0], 8, 20, 3) == 2);
+    PRUEFE(strcmp(feld[0], "eins") == 0 && strcmp(feld[1], "zwei") == 0);
+    PRUEFE(feld[0][10] == 'X' && feld[2][0] == 'X');   /* dazwischen und danach bleibt alles unberuehrt */
+    PRUEFE(vermerk_json_zeichenketten(t, n, "a", &feld[0][0], 8, 4, 3) == -1);   /* Abstand kleiner als der Eintrag */
+    free(t);
+}
+
+static void test_prozent_kodieren(void)
+{
+    char aus[64];
+    PRUEFE(vermerk_prozent_kodieren("ToDos-1_a.b~", aus, sizeof(aus)) == 12 && strcmp(aus, "ToDos-1_a.b~") == 0);
+    PRUEFE(vermerk_prozent_kodieren("Aufgaben f\xC3\xBCr Fritz", aus, sizeof(aus)) > 0);
+    PRUEFE(strcmp(aus, "Aufgaben%20f%C3%BCr%20Fritz") == 0);
+    PRUEFE(vermerk_prozent_kodieren("a/b%c", aus, sizeof(aus)) > 0 && strcmp(aus, "a%2Fb%25c") == 0);
+    /* zu klein: leer, 0 */
+    char klein[8];
+    PRUEFE(vermerk_prozent_kodieren("Aufgaben f\xC3\xBCr", klein, sizeof(klein)) == 0 && klein[0] == '\0');
+    PRUEFE(vermerk_prozent_kodieren("", aus, sizeof(aus)) == 0 && aus[0] == '\0');
+    PRUEFE(vermerk_prozent_kodieren(NULL, aus, sizeof(aus)) == 0);
+    PRUEFE(vermerk_prozent_kodieren("a", NULL, 0) == 0);
+    /* passt genau */
+    char genau[4];
+    PRUEFE(vermerk_prozent_kodieren("abc", genau, sizeof(genau)) == 3 && strcmp(genau, "abc") == 0);
+    PRUEFE(vermerk_prozent_kodieren("abcd", genau, sizeof(genau)) == 0);
+}
+
+static void test_auftraege_lesen(void)
+{
+    vermerk_auftrag_t liste[VERMERK_AUFTRAEGE_MAX];
+    size_t n;
+    char *t = kopie("{\"auftraege\":[\"Aufgaben f\xC3\xBCr Fritz\",\"Agenda\"],\"anzeige\":[\"Aufgaben fuer Fritz\",\"Agenda\"]}", &n);
+    PRUEFE(vermerk_auftraege_lesen(t, n, liste, VERMERK_AUFTRAEGE_MAX) == 2);
+    PRUEFE(strcmp(liste[0].name, "Aufgaben f\xC3\xBCr Fritz") == 0);
+    PRUEFE(strcmp(liste[0].anzeige, "Aufgaben fuer Fritz") == 0);
+    PRUEFE(strcmp(liste[1].name, "Agenda") == 0 && strcmp(liste[1].anzeige, "Agenda") == 0);
+    free(t);
+
+    /* ohne "anzeige" (aeltere Software): der Name, Nicht-ASCII als '?' */
+    t = kopie("{\"auftraege\":[\"Gr\xC3\xB6\xC3\x9F" "e\"]}", &n);
+    PRUEFE(vermerk_auftraege_lesen(t, n, liste, VERMERK_AUFTRAEGE_MAX) == 1);
+    PRUEFE(strcmp(liste[0].anzeige, "Gr??e") == 0 || strlen(liste[0].anzeige) >= 4);
+    free(t);
+
+    /* Anzeige passt nicht zur Liste: wie ohne */
+    t = kopie("{\"auftraege\":[\"A\",\"B\"],\"anzeige\":[\"X\"]}", &n);
+    PRUEFE(vermerk_auftraege_lesen(t, n, liste, VERMERK_AUFTRAEGE_MAX) == 2);
+    PRUEFE(strcmp(liste[0].anzeige, "A") == 0 && strcmp(liste[1].anzeige, "B") == 0);
+    free(t);
+
+    t = kopie("{\"auftraege\":[]}", &n);
+    PRUEFE(vermerk_auftraege_lesen(t, n, liste, VERMERK_AUFTRAEGE_MAX) == 0);
+    free(t);
+    t = kopie("{\"fehler\":\"Unbekannter Pfad.\"}", &n);
+    PRUEFE(vermerk_auftraege_lesen(t, n, liste, VERMERK_AUFTRAEGE_MAX) == -1);
+    free(t);
+    PRUEFE(vermerk_auftraege_lesen("{}", 2, NULL, 4) == -1);
+
+    /* weniger Platz als Eintraege */
+    t = kopie("{\"auftraege\":[\"A\",\"B\",\"C\"],\"anzeige\":[\"A\",\"B\",\"C\"]}", &n);
+    PRUEFE(vermerk_auftraege_lesen(t, n, liste, 2) == 2);
+    free(t);
+}
+
+static void test_frage(void)
+{
+    char id[VERMERK_FRAGE_ID_MAX];
+    size_t n;
+    char *t = kopie("{\"frage_id\":\"0123456789abcdef\",\"ton\":false}", &n);
+    PRUEFE(vermerk_frage_id_lesen(t, n, id) && strcmp(id, "0123456789abcdef") == 0);
+    free(t);
+    t = kopie("{\"frage_id\":\"0123456789ABCDEF\"}", &n);   /* nur klein */
+    PRUEFE(!vermerk_frage_id_lesen(t, n, id) && id[0] == '\0');
+    free(t);
+    t = kopie("{\"frage_id\":\"0123456789abcde\"}", &n);   /* zu kurz */
+    PRUEFE(!vermerk_frage_id_lesen(t, n, id));
+    free(t);
+    t = kopie("{\"fehler\":\"x\"}", &n);
+    PRUEFE(!vermerk_frage_id_lesen(t, n, id));
+    free(t);
+    PRUEFE(!vermerk_frage_id_lesen("{}", 2, NULL));
+
+    vermerk_frage_stand_t *st = malloc(sizeof(*st));
+    if (st == NULL) {
+        abort();
+    }
+    t = kopie("{\"zustand\":\"verstehen\",\"meldung\":\"Frage wird verstanden\"}", &n);
+    PRUEFE(vermerk_frage_stand_lesen(t, n, st) && st->zustand == VERMERK_FRAGE_VERSTEHEN);
+    PRUEFE(strcmp(st->meldung, "Frage wird verstanden") == 0 && st->frage[0] == '\0' && st->anzeige[0] == '\0');
+    free(t);
+
+    t = kopie("{\"zustand\":\"fertig\",\"frage\":\"Nenne die vier wichtigsten Punkte.\","
+              "\"antwort\":\"1. A\\n2. B\",\"anzeige\":\"1. Angebot schreiben\\n2. Termin kl\\u00e4ren\","
+              "\"meldung\":\"Antwort (ohne Sprachausgabe)\",\"ton_bytes\":0}", &n);
+    PRUEFE(vermerk_frage_stand_lesen(t, n, st) && st->zustand == VERMERK_FRAGE_FERTIG);
+    PRUEFE(strcmp(st->frage, "Nenne die vier wichtigsten Punkte.") == 0);
+    PRUEFE(strcmp(st->anzeige, "1. Angebot schreiben\n2. Termin kl\xC3\xA4ren") == 0);
+    free(t);
+
+    t = kopie("{\"zustand\":\"fehler\",\"meldung\":\"Die Frage war nicht zu verstehen.\"}", &n);
+    PRUEFE(vermerk_frage_stand_lesen(t, n, st) && st->zustand == VERMERK_FRAGE_FEHLER);
+    free(t);
+
+    t = kopie("{\"zustand\":\"unsinn\"}", &n);
+    PRUEFE(!vermerk_frage_stand_lesen(t, n, st) && st->zustand == VERMERK_FRAGE_UNBEKANNT);
+    free(t);
+    t = kopie("{\"fehler\":\"Unbekannte Frage.\"}", &n);
+    PRUEFE(!vermerk_frage_stand_lesen(t, n, st));
+    free(t);
+    PRUEFE(!vermerk_frage_stand_lesen("{}", 2, NULL));
+
+    /* sehr lange Antwort: wird abgeschnitten, nicht ueberlaufen */
+    char *lang = malloc(3000);
+    if (lang == NULL) {
+        abort();
+    }
+    strcpy(lang, "{\"zustand\":\"fertig\",\"anzeige\":\"");
+    size_t k = strlen(lang);
+    memset(lang + k, 'x', 2000);
+    strcpy(lang + k + 2000, "\"}");
+    PRUEFE(vermerk_frage_stand_lesen(lang, strlen(lang), st) && strlen(st->anzeige) == VERMERK_FRAGE_ANZEIGE_MAX - 1);
+    free(lang);
+    free(st);
+}
+
+static void test_transkript_zustand(void)
+{
+    vermerk_status_t st;
+    size_t n;
+    char *t = kopie("{\"zustand\":\"transkript\",\"fortschritt\":1.0,\"meldung\":\"Transkription erfolgreich\"}", &n);
+    PRUEFE(vermerk_status_pruefen(t, n, &st) && st.zustand == VERMERK_VERARB_TRANSKRIPT);
+    PRUEFE(!vermerk_verarbeitung_beendet(VERMERK_VERARB_TRANSKRIPT));   /* es wird weiter gefragt, bis die Zusammenfassung da ist */
+    PRUEFE(strcmp(vermerk_verarbeitung_text(VERMERK_VERARB_TRANSKRIPT), "transkript") == 0);
+    PRUEFE(vermerk_status_entscheiden(200, t, n, &st) == VERMERK_STATUSABFRAGE_ZUSTAND);
+    free(t);
+}
+
 int main(void)
 {
     test_name();
@@ -853,6 +1079,13 @@ int main(void)
     test_live_entscheiden();
     test_wartezeit();
     test_warteliste();
+    test_zeichenkette();
+    test_zeichenketten_liste();
+    test_zeichenketten_abstand();
+    test_prozent_kodieren();
+    test_auftraege_lesen();
+    test_frage();
+    test_transkript_zustand();
 
     if (fehler > 0) {
         fprintf(stderr, "%d von %d Pruefungen fehlgeschlagen\n", fehler, pruefungen);

@@ -790,7 +790,10 @@ def test_auftraege_ueber_http(tmp_path):
     try:
         assert anfrage(dienst, "GET", "/api/v1/auftraege")[:2] == (
             200,
-            {"auftraege": ["ToDos", "Entscheidungen", "Agenda"]},
+            {
+                "auftraege": ["ToDos", "Entscheidungen", "Agenda"],
+                "anzeige": ["ToDos", "Entscheidungen", "Agenda"],
+            },
         )
         assert anfrage(dienst, "GET", "/api/v1/auftraege", token=None)[0] == 401
     finally:
@@ -798,7 +801,20 @@ def test_auftraege_ueber_http(tmp_path):
 
 
 def test_ohne_vorlagen_ist_die_liste_leer(dienst):
-    assert anfrage(dienst, "GET", "/api/v1/auftraege")[:2] == (200, {"auftraege": []})
+    assert anfrage(dienst, "GET", "/api/v1/auftraege")[:2] == (200, {"auftraege": [], "anzeige": []})
+
+
+def test_auftragsnamen_mit_umlauten_haben_eine_anzeige_ohne_umlaute(tmp_path):
+    geraete = (Geraet("S3-Audio", empfang.token_hash(TOKEN)),)
+    namen = ["Aufgaben für Fritz", "Größe Runde"]
+    dienst = GeraeteEmpfang(tmp_path / "eingang", geraete, port=0, adresse="127.0.0.1", auftraege_fn=lambda: namen)
+    dienst.starten()
+    try:
+        antwort = anfrage(dienst, "GET", "/api/v1/auftraege")[1]
+        assert antwort["auftraege"] == namen  # gesendet wird der echte Name
+        assert antwort["anzeige"] == ["Aufgaben fuer Fritz", "Groesse Runde"]
+    finally:
+        dienst.stoppen()
 
 
 def test_wunsch_des_geraets_wird_beim_upload_gemeldet(tmp_path):

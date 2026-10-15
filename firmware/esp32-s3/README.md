@@ -87,6 +87,13 @@ Bedienung ausschließlich über den Touchscreen. Die zwei Tasten am Gehäuse hab
   blendet es früher aus); danach steht in der Statuszeile dauerhaft **„✓ TRANSKRIPTION ERFOLGREICH“**, bis eine neue Aufnahme
   beginnt. Bei einem Fehler steht 10 Minuten lang in Rot „VERARBEITUNG FEHLGESCHLAGEN“. Kennt die Software
   die Aufnahme nicht (Live-Verarbeitung dort aus), bleibt es bei „GESPEICHERT“.
+* **Auftrag wählen:** Unter „AUFNAHME STARTEN“ steht eine Auswahlliste („Standard-Auftrag“ und die Vorlagen der Software). Die
+  Wahl gilt für die nächste Aufnahme; die Liste holt das Gerät beim PC (`GET /api/v1/auftraege`).
+* **Zusammenfassung freigeben:** Steht das Transkript, fragt das Gerät „ZUSAMMENFASSUNG ERSTELLEN?“ (JA/NEIN). Nach „JA“
+  (`POST …/zusammenfassung`) erstellt die Software sie; am Ende zeigt das Gerät den Haken und „ZUSAMMENFASSUNG FERTIG“.
+* **Fragen stellen:** Nach dem Transkript die **BOOT-Taste an der Seite** gedrückt halten, die Frage sprechen (bis 25 s), loslassen.
+  Die Antwort der Software (z. B. „die vier wichtigsten Punkte“) erscheint als Text, nur ASCII (Umlaute als ae, oe, ue, ss);
+  Tippen schließt sie.
 * Oben: **LOKAL / WLAN / PC / SERVER** zeigt, ob und wohin hochgeladen werden kann (Pfeil = Upload läuft).
   **AKKU xx %** mit Blitz, wenn geladen wird. Unten: „n AUFNAHMEN OFFEN“, wenn noch etwas hochzuladen ist.
 * „MIKROFON PRUEFEN“ erscheint nur, wenn ein Mikrofon nichts mehr liefert.

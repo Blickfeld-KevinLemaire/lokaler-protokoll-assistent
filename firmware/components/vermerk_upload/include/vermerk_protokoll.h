@@ -71,6 +71,71 @@ bool vermerk_json_text(const char *text, size_t laenge, const char *schluessel, 
  * Nachkommastellen, kein Vorzeichen, kein Exponent; danach muss ',' oder '}' folgen. */
 bool vermerk_json_promille(const char *text, size_t laenge, const char *schluessel, uint32_t *promille);
 
+/* Freier Text ("schluessel":"wert") in ziel kopieren, mit Nullbyte. Die JSON-Escapes (\" \\ \/ \n \t \r \b \f
+ * und \uXXXX) werden aufgeloest, UTF-8 bleibt wie es ist. Passt der Text nicht, wird er an einer Zeichengrenze
+ * abgeschnitten (true, *abgeschnitten = true). false: Schluessel fehlt, kein Text, nicht abgeschlossen. */
+bool vermerk_json_zeichenkette(const char *text, size_t laenge, const char *schluessel, char *ziel,
+                               size_t ziel_groesse, bool *abgeschnitten);
+
+/* Liste von Texten ("schluessel":["a","b"]) schreiben: Eintrag i nach ziel + i * abstand, jeweils hoechstens
+ * eintrag_groesse Bytes (mit Nullbyte; zu lange Eintraege werden abgeschnitten). Rueckgabe: Anzahl der Eintraege
+ * (hoechstens max), -1 wenn der Schluessel fehlt oder keine Liste von Texten ist. */
+int vermerk_json_zeichenketten(const char *text, size_t laenge, const char *schluessel, char *ziel,
+                               size_t eintrag_groesse, size_t abstand, int max);
+
+/* Text fuer eine Kopfzeile prozentcodieren (UTF-8-Bytes ausser A-Z a-z 0-9 - _ . ~ als %XX). Rueckgabe: Laenge
+ * ohne Nullbyte, 0 wenn nichts da ist oder ziel zu klein ist (ziel ist dann leer). */
+size_t vermerk_prozent_kodieren(const char *utf8, char *ziel, size_t ziel_groesse);
+
+/* ---- Auftraege: GET /api/v1/auftraege ----
+ * Namen der Vorlagen, aus denen das Geraet vor der Aufnahme waehlt. "name" ist der echte Name (UTF-8, wird in
+ * X-Auftrag prozentcodiert gesendet), "anzeige" dieselbe Bezeichnung nur mit ASCII fuers Display. */
+
+#define VERMERK_AUFTRAG_NAME_MAX    64   /* Bytes inklusive Nullbyte (die Software liefert hoechstens 60 Zeichen) */
+#define VERMERK_AUFTRAG_ANZEIGE_MAX 40
+#define VERMERK_AUFTRAEGE_MAX       12
+
+typedef struct {
+    char name[VERMERK_AUFTRAG_NAME_MAX];
+    char anzeige[VERMERK_AUFTRAG_ANZEIGE_MAX];
+} vermerk_auftrag_t;
+
+/* Antwort von GET /api/v1/auftraege lesen. Rueckgabe: Anzahl (0 bis max), -1 wenn die Antwort keine Liste ist.
+ * Fehlt "anzeige" oder passt es nicht zur Liste, gilt der Name (nur ASCII-Zeichen, sonst '?'). */
+int vermerk_auftraege_lesen(const char *text, size_t laenge, vermerk_auftrag_t *liste, int max);
+
+/* ---- Fragen per Sprache ----
+ * POST /api/v1/aufnahmen/<Name>/frage -> 202 {"frage_id":"<16 Hex>","ton":false}
+ * GET  /api/v1/fragen/<frage_id>      -> {"zustand":"...","frage":"...","anzeige":"...","meldung":"..."} */
+
+#define VERMERK_FRAGE_ID_MAX      17     /* 16 Hex-Zeichen + Nullbyte */
+#define VERMERK_FRAGE_TEXT_MAX    160
+#define VERMERK_FRAGE_ANZEIGE_MAX 1024
+#define VERMERK_FRAGE_MELDUNG_MAX 96
+
+typedef enum {
+    VERMERK_FRAGE_UNBEKANNT = 0,
+    VERMERK_FRAGE_VERSTEHEN,
+    VERMERK_FRAGE_ANTWORTEN,
+    VERMERK_FRAGE_SPRECHEN,
+    VERMERK_FRAGE_FERTIG,
+    VERMERK_FRAGE_FEHLER
+} vermerk_frage_zustand_t;
+
+typedef struct {
+    vermerk_frage_zustand_t zustand;
+    char frage[VERMERK_FRAGE_TEXT_MAX];
+    char anzeige[VERMERK_FRAGE_ANZEIGE_MAX];
+    char meldung[VERMERK_FRAGE_MELDUNG_MAX];
+} vermerk_frage_stand_t;
+
+/* "frage_id" aus der Antwort auf POST .../frage (genau 16 Hex-Zeichen, klein) */
+bool vermerk_frage_id_lesen(const char *text, size_t laenge, char id[VERMERK_FRAGE_ID_MAX]);
+
+/* Stand einer Frage lesen. true, wenn ein bekannter "zustand" da ist; frage/anzeige/meldung sind optional
+ * (leer, wenn sie fehlen). */
+bool vermerk_frage_stand_lesen(const char *text, size_t laenge, vermerk_frage_stand_t *stand);
+
 /* Stueckgroesse: VERMERK_TEIL_BYTES, oder weniger, wenn die Software weniger annimmt (0 = unbekannt) */
 uint32_t vermerk_teil_bytes(uint32_t teil_max_server);
 
@@ -115,6 +180,7 @@ typedef enum {
     VERMERK_VERARB_EMPFANG,        /* Aufnahme laeuft noch oder das Ende steht aus */
     VERMERK_VERARB_WARTET,         /* angekommen, Verarbeitung eingereiht */
     VERMERK_VERARB_TRANSKRIPTION,
+    VERMERK_VERARB_TRANSKRIPT,     /* Transkript steht, die Zusammenfassung wartet auf die Freigabe am Geraet */
     VERMERK_VERARB_AUSWERTUNG,
     VERMERK_VERARB_FERTIG,         /* "Transkription erfolgreich" */
     VERMERK_VERARB_FEHLER

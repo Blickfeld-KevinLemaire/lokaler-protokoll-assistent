@@ -10,6 +10,12 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 ### Added
 
+- **Firmware S3 mit Display: Auftrag wählen, Zusammenfassung freigeben, Fragen stellen:** Unter „AUFNAHME STARTEN“ steht
+  eine Auswahlliste mit den Aufträgen der Software (Namen ohne Umlaute). Nach dem Transkript zeigt das Gerät den grünen Haken
+  und fragt „ZUSAMMENFASSUNG ERSTELLEN?“ (JA/NEIN); nach „Ja“ erstellt die Software die Zusammenfassung, am Ende erscheint
+  „ZUSAMMENFASSUNG FERTIG“. Danach lässt sich mit der **BOOT-Taste an der Seite** (gedrückt halten, sprechen, loslassen)
+  eine Frage stellen; die Antwort erscheint als scrollbarer Text auf dem Display (Tippen schließt). Die Bedienung läuft
+  im Upload-Task und legt große Puffer im PSRAM ab, weil der interne RAM knapp ist.
 - **Fragen per Sprache zu einer Aufnahme (PC-Seite):** Ein Gerät kann nach dem Transkript eine gesprochene Frage stellen
   (`POST …/frage`, Stand über `GET /api/v1/fragen/<Kennung>`, Antwort als Ton über `…/ton`). Whisper (Prozessor)
   versteht die Frage, das lokale Sprachmodell beantwortet sie kurz aus Zusammenfassung und Transkript der Aufnahme,

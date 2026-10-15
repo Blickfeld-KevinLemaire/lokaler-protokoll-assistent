@@ -12,7 +12,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from protokoll_assistent.services import chat_service
+from protokoll_assistent.services import anzeigetext, chat_service
 
 # Ausgabearten einer Antwort
 AUSGABE_ANZEIGE = "anzeige"  # Text fuers Display des Geraets (Standard)
@@ -34,31 +34,8 @@ ANZEIGE_HINWEIS = (
     "gefragt, halte genau diese Anzahl ein. Steht die Antwort nicht in den Unterlagen, sage das in einem Satz.)"
 )
 
-_ERSETZUNGEN = str.maketrans(
-    {
-        "\u00e4": "ae", "\u00f6": "oe", "\u00fc": "ue", "\u00c4": "Ae", "\u00d6": "Oe", "\u00dc": "Ue", "\u00df": "ss",
-        "\u2013": "-", "\u2014": "-", "\u2012": "-", "\u2018": "'", "\u2019": "'", "\u201a": "'", "\u201c": '"',
-        "\u201d": '"', "\u201e": '"', "\u2026": "...", "\u2022": "-", "\u00a0": " ", "\u20ac": "EUR",
-    }
-)
-
-
-def fuer_display(text: str) -> str:
-    """Macht eine Antwort fuers Display des Geraets tauglich: Die eingebauten Schriften haben nur ASCII (keine Umlaute),
-    also werden Umlaute umschrieben (ae, oe, ue, ss), typografische Zeichen ersetzt und Markdown entfernt. Zeilenumbrueche
-    und Nummerierung bleiben."""
-    zeilen = []
-    for zeile in text.replace("\r", "").split("\n"):
-        zeile = zeile.translate(_ERSETZUNGEN).replace("**", "").replace("__", "").replace("`", "")
-        zeile = zeile.lstrip("#> ").rstrip()
-        if zeile.startswith(("* ", "- ")):
-            zeile = "- " + zeile[2:].lstrip()
-        zeile = "".join(z if 32 <= ord(z) < 127 else "?" for z in zeile)
-        zeilen.append(zeile)
-    kompakt = "\n".join(zeilen)
-    while "\n\n\n" in kompakt:
-        kompakt = kompakt.replace("\n\n\n", "\n\n")
-    return kompakt.strip()
+# Wie fuers Display aufbereitet wird, steht in anzeigetext (auch die Auftragsnamen brauchen es)
+fuer_display = anzeigetext.fuer_display
 
 
 def frage_verstehen(

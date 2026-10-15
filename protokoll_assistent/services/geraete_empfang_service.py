@@ -40,6 +40,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
+from protokoll_assistent.services.anzeigetext import fuer_display
 from protokoll_assistent.services.manifest_service import _ersetzen_mit_wiederholung
 
 logger = logging.getLogger(__name__)
@@ -558,7 +559,8 @@ _TON_TYPEN = {
 _FRAGE_KENNUNG = re.compile(r"^[0-9a-f]{16}$")
 # Auftraege (Namen der Vorlagen), die ein Geraet auswaehlen kann
 AUFTRAG_MAX_ZEICHEN = 60
-MAX_AUFTRAEGE = 40
+AUFTRAG_ANZEIGE_MAX = 38
+MAX_AUFTRAEGE = 16
 # Eine Anfrage ohne Aufnahme (Freigabe der Zusammenfassung) ist klein
 POST_MAX_BYTES = 1024
 
@@ -864,7 +866,8 @@ class GeraeteEmpfang:
                     namen.append(name)
                 if len(namen) >= MAX_AUFTRAEGE:
                     break
-        return Antwort(200, {"auftraege": namen})
+        # ``anzeige``: dieselben Namen nur mit ASCII, fuers Display (gleiche Reihenfolge); gesendet wird der echte Name
+        return Antwort(200, {"auftraege": namen, "anzeige": [fuer_display(n)[:AUFTRAG_ANZEIGE_MAX] for n in namen]})
 
     def wunsch_merken(self, geraet: str, datei: str, auftrag: str | None, rueckfrage: bool) -> None:
         """Auftrag und Rueckfrage-Wunsch einer Aufnahme (Kopfzeilen ``X-Auftrag``, ``X-Rueckfrage``)."""

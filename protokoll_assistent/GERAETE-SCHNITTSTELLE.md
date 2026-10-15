@@ -171,11 +171,14 @@ nicht zurückgenommen.
 ### `GET /api/v1/auftraege`
 
 Die Namen der Vorlagen (Systemprompts), aus denen das Gerät **vor der Aufnahme** einen Auftrag wählen lässt
-(Auswahlliste am Display). Es sind höchstens 40 Namen mit je höchstens 60 Zeichen.
+(Auswahlliste am Display). Es sind höchstens 16 Namen mit je höchstens 60 Zeichen.
 
 ```json
-{"auftraege":["Aufgaben und Zuständigkeiten","Entscheidungen","Meetingprotokoll"]}
+{"auftraege":["Aufgaben und Zuständigkeiten","Entscheidungen","Meetingprotokoll"],
+ "anzeige":["Aufgaben und Zustaendigkeiten","Entscheidungen","Meetingprotokoll"]}
 ```
+
+`anzeige` sind dieselben Namen in gleicher Reihenfolge nur mit ASCII-Zeichen (Umlaute als ae, oe, ue, ss; höchstens 38 Zeichen) fürs Display, gesendet wird der echte Name aus `auftraege`.
 
 Ältere Software kennt den Aufruf nicht (`404`): Das Gerät zeigt dann keine Auswahl.
 

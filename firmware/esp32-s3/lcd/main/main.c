@@ -22,6 +22,7 @@
 #include "nvs.h"
 #include "driver/usb_serial_jtag.h"
 #include "esp_timer.h"
+#include "driver/gpio.h"
 
 #include <stdint.h>
 #include <string.h>
@@ -82,6 +83,47 @@ static volatile bool verarbeitung_sichtbar = false;
 static volatile uint32_t verarbeitung_ende_ms = 0;      /* seit wann das Ergebnis feststeht (esp_timer, ms) */
 static volatile bool storage_full_stop = false;   /* Aufnahme wegen vollem Speicher beendet */
 
+/* ---- Auftrag vor der Aufnahme, Rueckfrage nach dem Transkript, Fragen per Sprache ----
+ * Ablauf (siehe protokoll_assistent/GERAETE-SCHNITTSTELLE.md): Vor der Aufnahme waehlt man einen Auftrag (Liste
+ * von der Software, GET /api/v1/auftraege). Nach dem Transkript fragt das Geraet "Zusammenfassung erstellen?"
+ * (POST .../zusammenfassung). Danach laesst sich mit der BOOT-Taste an der Seite (gedrueckt halten und sprechen)
+ * eine Frage stellen; die Antwort erscheint als Text auf dem Display. */
+#define PTT_GPIO                 GPIO_NUM_0      /* BOOT-Taste an der Seite, gedrueckt = 0 */
+#define FRAGE_MAX_SEKUNDEN       25u
+#define FRAGE_PFAD               REC_DIR "/FRAGE." REC_EXT
+#define FRAGE_ANTWORT_TIMEOUT_MS (120u * 1000u)
+#define FRAGE_FEHLER_ANZEIGE_MS  4000u
+#define AUFTRAEGE_ERNEUERN_MS    (5u * 60u * 1000u)
+#define BEDIENUNG_PUFFER         6144            /* Antworttext der Software (Auftraege, Stand einer Frage) */
+
+typedef enum {
+    FRAGE_AUS = 0,
+    FRAGE_AUFNAHME,    /* Taste gehalten, das Geraet nimmt die Frage auf */
+    FRAGE_SENDEN,      /* aufgenommen, wird gesendet */
+    FRAGE_WARTEN,      /* gesendet, die Software sucht die Antwort */
+    FRAGE_ANTWORT,     /* Antwort da, wird angezeigt */
+    FRAGE_FEHLER       /* kurzer Hinweis, dann wieder FRAGE_AUS */
+} frage_phase_t;
+
+static volatile frage_phase_t frage_phase = FRAGE_AUS;
+static volatile bool frage_modus = false;                  /* die naechste Aufnahme ist eine Frage (nicht auf SD-Nummer, nicht hochladen) */
+static char frage_datei[32] = "";                           /* Aufnahme, nach der gefragt wird (Name wie beim Upload) */
+static vermerk_frage_stand_t *frage_ergebnis = NULL;        /* Heap; gefuellt, bevor frage_phase = FRAGE_ANTWORT */
+static char frage_hinweis[96] = "";
+static volatile uint32_t frage_hinweis_seit_ms = 0;         /* lv_tick_get() */
+
+static vermerk_auftrag_t *auftraege = NULL;                 /* Liste von der Software (PSRAM: der interne RAM ist knapp) */
+static volatile int auftraege_anzahl = 0;
+static volatile bool auftraege_neu = false;                 /* Liste geaendert: Auswahl neu aufbauen */
+static volatile int auftrag_gewaehlt = 0;                   /* 0 = Standard (Auftrag aus den Einstellungen der Software) */
+static char letzter_auftrag_name[VERMERK_AUFTRAG_NAME_MAX] = "";   /* Auftrag der zuletzt gestarteten Aufnahme */
+static volatile bool rueckfrage_beantwortet = false;        /* "Zusammenfassung erstellen?" fuer die Aufnahme schon beantwortet */
+static volatile bool rueckfrage_gesehen = false;            /* die Software hat "transkript" gemeldet: Zwei-Schritt-Ablauf */
+static volatile bool zusammenfassung_gewuenscht = false;    /* "Ja" gedrueckt, noch nicht an die Software gemeldet */
+static volatile bool status_neu_erzwingen = false;          /* Statustext aus dem Zustand neu setzen */
+static int vz_shown_key = -2;
+static rec_state_t vz_shown_state = (rec_state_t)-1;
+
 static uint8_t wave_levels[WAVE_BARS];
 static lv_color_t wave_color;
 
@@ -99,7 +141,13 @@ static lv_obj_t *battery_charge_icon;
 static lv_obj_t *connection_label;
 static lv_obj_t *fertig_vollbild;                /* "Transkription erfolgreich" ueber den ganzen Bildschirm */
 static uint32_t fertig_vollbild_start = 0;       /* lv_tick_get() beim Einblenden */
-static bool fertig_vollbild_gezeigt = false;     /* fuer diese Verarbeitung schon gezeigt */
+static vermerk_verarbeitung_t fertig_vollbild_zustand = VERMERK_VERARB_UNBEKANNT;   /* fuer diesen Zustand schon gezeigt */
+static lv_obj_t *fertig_vollbild_text;
+static lv_obj_t *auftrag_dropdown;
+static lv_obj_t *rueckfrage_box;
+static lv_obj_t *antwort_box;
+static lv_obj_t *antwort_frage_label;
+static lv_obj_t *antwort_text_label;
 
 /* Pegel 0..100 fuer die Wellenform. Wurzel-Kennlinie, damit leise Sprache
  * noch sichtbar ist und laute Stellen nicht sofort anschlagen. */
@@ -269,6 +317,23 @@ static FILE *open_new_recording(char *path, size_t path_len)
     return NULL;
 }
 
+/* Die Frage per Sprache wird wie eine Aufnahme codiert, aber unter festem Namen abgelegt: keine Nummer, kein
+ * Senden waehrend der Aufnahme, kein Upload (der Upload kennt nur H5_<Nummer>). */
+static FILE *open_frage_recording(char *path, size_t path_len)
+{
+    snprintf(path, path_len, "%s", FRAGE_PFAD);
+    FILE *f = fopen(path, "wb");
+    if (f == NULL) {
+        return NULL;
+    }
+    if (!rec_enc_begin(f)) {
+        fclose(f);
+        remove(path);
+        return NULL;
+    }
+    return f;
+}
+
 static esp_err_t finalize_recording(FILE *f)
 {
     if (f == NULL) {
@@ -363,7 +428,8 @@ static void audio_task(void *arg)
                 record_file = NULL;
                 rec_state = REC_ERROR;
             } else {
-                record_file = open_new_recording(record_path, sizeof(record_path));
+                record_file = frage_modus ? open_frage_recording(record_path, sizeof(record_path))
+                                          : open_new_recording(record_path, sizeof(record_path));
                 rec_state = (record_file == NULL) ? REC_ERROR : REC_RECORDING;
             }
         }
@@ -427,20 +493,38 @@ static void audio_task(void *arg)
     }
 }
 
-static void record_button_cb(lv_event_t *e)
+/* Aufnahme starten oder beenden (Taste auf dem Bildschirm) */
+static void record_toggle(void)
 {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) {
-        return;
+    if (frage_phase == FRAGE_AUFNAHME || frage_phase == FRAGE_SENDEN || frage_phase == FRAGE_WARTEN) {
+        return;   /* eine Frage ist in Arbeit */
     }
-
     if (rec_state == REC_IDLE ||
         rec_state == REC_DONE ||
         rec_state == REC_ERROR) {
+        /* Der gewaehlte Auftrag gilt fuer diese Aufnahme (Kopfzeile X-Auftrag bei jedem Senden), auch wenn danach
+         * eine andere Auswahl getroffen wird. */
+        int wahl = auftrag_gewaehlt;
+        if (wahl >= 1 && wahl <= auftraege_anzahl) {
+            snprintf(letzter_auftrag_name, sizeof(letzter_auftrag_name), "%s", auftraege[wahl - 1].name);
+        } else {
+            letzter_auftrag_name[0] = '\0';
+        }
+        vermerk_wunsch_setzen(letzter_auftrag_name[0] != '\0' ? letzter_auftrag_name : NULL, true);
+        frage_modus = false;
         rec_elapsed_seconds = 0;
         rec_state = REC_REQUESTED;
     } else if (rec_state == REC_RECORDING || rec_state == REC_PAUSED) {
         rec_state = REC_STOP_REQUESTED;
     }
+}
+
+static void record_button_cb(lv_event_t *e)
+{
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) {
+        return;
+    }
+    record_toggle();
 }
 
 static void pause_button_cb(lv_event_t *e)
@@ -558,6 +642,7 @@ static void fertig_vollbild_erstellen(void)
     lv_obj_set_pos(haken, 0, 0);
 
     lv_obj_t *text = lv_label_create(fertig_vollbild);
+    fertig_vollbild_text = text;
     lv_label_set_text(text, "TRANSKRIPTION\nERFOLGREICH");
     lv_obj_set_style_text_font(text, &lv_font_montserrat_28, 0);
     lv_obj_set_style_text_color(text, lv_color_hex(0xFFFFFF), 0);
@@ -567,6 +652,252 @@ static void fertig_vollbild_erstellen(void)
     lv_obj_add_flag(fertig_vollbild, LV_OBJ_FLAG_HIDDEN);
 }
 
+/* ---- Auftragswahl, Rueckfrage und Antwort: Oberflaeche ---- */
+
+static void auftrag_dropdown_cb(lv_event_t *e)
+{
+    lv_obj_t *dd = lv_event_get_target(e);
+    lv_event_code_t code = lv_event_get_code(e);
+    if (code == LV_EVENT_VALUE_CHANGED) {
+        auftrag_gewaehlt = (int)lv_dropdown_get_selected(dd);
+    } else if (code == LV_EVENT_READY) {
+        /* Die Liste gibt es erst, wenn sie aufgeht: jetzt dunkel gestalten */
+        lv_obj_t *liste = lv_dropdown_get_list(dd);
+        if (liste != NULL) {
+            lv_obj_set_style_bg_color(liste, lv_color_hex(0x1C1C1E), 0);
+            lv_obj_set_style_text_color(liste, lv_color_hex(0xFFFFFF), 0);
+            lv_obj_set_style_text_font(liste, &lv_font_montserrat_16, 0);
+            lv_obj_set_style_border_color(liste, lv_color_hex(0x4AB7F4), 0);
+            lv_obj_set_style_max_height(liste, 126, 0);
+        }
+    }
+}
+
+static void rueckfrage_ja_cb(lv_event_t *e)
+{
+    (void)e;
+    rueckfrage_beantwortet = true;
+    zusammenfassung_gewuenscht = true;
+}
+
+static void rueckfrage_nein_cb(lv_event_t *e)
+{
+    (void)e;
+    rueckfrage_beantwortet = true;
+}
+
+static void antwort_schliessen_cb(lv_event_t *e)
+{
+    (void)e;
+    if (antwort_box != NULL) {
+        lv_obj_add_flag(antwort_box, LV_OBJ_FLAG_HIDDEN);
+    }
+    frage_phase = FRAGE_AUS;
+    status_neu_erzwingen = true;
+}
+
+static lv_obj_t *vollbild_schicht_erstellen(void)
+{
+    lv_obj_t *box = lv_obj_create(lv_layer_top());
+    lv_obj_remove_style_all(box);
+    lv_obj_set_size(box, lv_pct(100), lv_pct(100));
+    lv_obj_set_style_bg_color(box, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_bg_opa(box, LV_OPA_COVER, 0);
+    lv_obj_clear_flag(box, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(box, LV_OBJ_FLAG_HIDDEN);
+    return box;
+}
+
+static void bedienung_ui_erstellen(void)
+{
+    /* Auftrag waehlen: unter der Aufnahme-Taste, solange nicht aufgenommen wird */
+    auftrag_dropdown = lv_dropdown_create(lv_scr_act());
+    lv_dropdown_set_options(auftrag_dropdown, "Standard-Auftrag");
+    lv_dropdown_set_dir(auftrag_dropdown, LV_DIR_TOP);
+    lv_dropdown_set_symbol(auftrag_dropdown, LV_SYMBOL_UP);
+    lv_obj_set_size(auftrag_dropdown, 170, 34);
+    lv_obj_align(auftrag_dropdown, LV_ALIGN_TOP_MID, 0, 292);
+    lv_obj_set_style_bg_color(auftrag_dropdown, lv_color_hex(0x1C1C1E), 0);
+    lv_obj_set_style_text_color(auftrag_dropdown, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_font(auftrag_dropdown, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_border_color(auftrag_dropdown, lv_color_hex(0x4AB7F4), 0);
+    lv_obj_set_style_border_width(auftrag_dropdown, 1, 0);
+    lv_obj_set_style_radius(auftrag_dropdown, 10, 0);
+    lv_obj_add_event_cb(auftrag_dropdown, auftrag_dropdown_cb, LV_EVENT_ALL, NULL);
+
+    /* "Zusammenfassung erstellen?" */
+    rueckfrage_box = vollbild_schicht_erstellen();
+    lv_obj_t *titel = lv_label_create(rueckfrage_box);
+    lv_label_set_text(titel, "ZUSAMMENFASSUNG\nERSTELLEN?");
+    lv_obj_set_style_text_font(titel, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_color(titel, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_align(titel, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(titel, LV_ALIGN_TOP_MID, 0, 62);
+
+    lv_obj_t *ja = lv_btn_create(rueckfrage_box);
+    lv_obj_set_size(ja, 120, 60);
+    lv_obj_align(ja, LV_ALIGN_TOP_MID, -68, 190);
+    lv_obj_set_style_bg_color(ja, lv_color_hex(0x59D65C), 0);
+    lv_obj_set_style_radius(ja, 12, 0);
+    lv_obj_add_event_cb(ja, rueckfrage_ja_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_t *ja_text = lv_label_create(ja);
+    lv_label_set_text(ja_text, "JA");
+    lv_obj_set_style_text_font(ja_text, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_color(ja_text, lv_color_hex(0x000000), 0);
+    lv_obj_center(ja_text);
+
+    lv_obj_t *nein = lv_btn_create(rueckfrage_box);
+    lv_obj_set_size(nein, 120, 60);
+    lv_obj_align(nein, LV_ALIGN_TOP_MID, 68, 190);
+    lv_obj_set_style_bg_color(nein, lv_color_hex(0x3A3A3C), 0);
+    lv_obj_set_style_radius(nein, 12, 0);
+    lv_obj_add_event_cb(nein, rueckfrage_nein_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_t *nein_text = lv_label_create(nein);
+    lv_label_set_text(nein_text, "NEIN");
+    lv_obj_set_style_text_font(nein_text, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_color(nein_text, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_center(nein_text);
+
+    /* Antwort auf eine Frage: Text zum Scrollen, Tippen schliesst */
+    antwort_box = vollbild_schicht_erstellen();
+    lv_obj_add_flag(antwort_box, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(antwort_box, antwort_schliessen_cb, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_t *antwort_titel = lv_label_create(antwort_box);
+    lv_label_set_text(antwort_titel, "ANTWORT");
+    lv_obj_set_style_text_font(antwort_titel, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_color(antwort_titel, lv_color_hex(0x59D65C), 0);
+    lv_obj_align(antwort_titel, LV_ALIGN_TOP_MID, 0, 30);
+
+    antwort_frage_label = lv_label_create(antwort_box);
+    lv_label_set_long_mode(antwort_frage_label, LV_LABEL_LONG_DOT);
+    lv_obj_set_width(antwort_frage_label, 230);
+    lv_label_set_text(antwort_frage_label, "");
+    lv_obj_set_style_text_font(antwort_frage_label, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_color(antwort_frage_label, lv_color_hex(0x8E8E93), 0);
+    lv_obj_set_style_text_align(antwort_frage_label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(antwort_frage_label, LV_ALIGN_TOP_MID, 0, 54);
+
+    lv_obj_t *flaeche = lv_obj_create(antwort_box);
+    lv_obj_remove_style_all(flaeche);
+    lv_obj_set_size(flaeche, 262, 208);
+    lv_obj_align(flaeche, LV_ALIGN_TOP_MID, 0, 80);
+    lv_obj_set_scroll_dir(flaeche, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(flaeche, LV_SCROLLBAR_MODE_OFF);
+    lv_obj_add_flag(flaeche, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(flaeche, antwort_schliessen_cb, LV_EVENT_CLICKED, NULL);
+
+    antwort_text_label = lv_label_create(flaeche);
+    lv_label_set_long_mode(antwort_text_label, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(antwort_text_label, 262);
+    lv_label_set_text(antwort_text_label, "");
+    lv_obj_set_style_text_font(antwort_text_label, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_color(antwort_text_label, lv_color_hex(0xFFFFFF), 0);
+
+    lv_obj_t *hinweis = lv_label_create(antwort_box);
+    lv_label_set_text(hinweis, "TIPPEN = SCHLIESSEN");
+    lv_obj_set_style_text_font(hinweis, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_color(hinweis, lv_color_hex(0x8E8E93), 0);
+    lv_obj_align(hinweis, LV_ALIGN_TOP_MID, 0, 308);
+}
+
+/* Auswahlliste neu aufbauen: "Standard-Auftrag" und die Namen der Software (ASCII-Anzeige) */
+static void auftraege_anzeigen(void)
+{
+    static char optionen[1 + VERMERK_AUFTRAEGE_MAX * (VERMERK_AUFTRAG_ANZEIGE_MAX + 1) + 24];
+    int anzahl = auftraege_anzahl;
+    snprintf(optionen, sizeof(optionen), "Standard-Auftrag");
+    size_t n = strlen(optionen);
+    for (int i = 0; i < anzahl && i < VERMERK_AUFTRAEGE_MAX; i++) {
+        n += (size_t)snprintf(optionen + n, sizeof(optionen) - n, "\n%s", auftraege[i].anzeige);
+        if (n >= sizeof(optionen)) {
+            break;
+        }
+    }
+    int vorher = auftrag_gewaehlt;
+    lv_dropdown_set_options(auftrag_dropdown, optionen);
+    if (vorher > anzahl) {
+        vorher = 0;
+    }
+    lv_dropdown_set_selected(auftrag_dropdown, (uint16_t)vorher);
+    auftrag_gewaehlt = vorher;
+}
+
+static void bedienung_ui_update(rec_state_t state)
+{
+    const bool ruhe = (state == REC_IDLE || state == REC_DONE || state == REC_ERROR);
+    const frage_phase_t phase = frage_phase;
+
+    if (auftraege_neu) {
+        auftraege_neu = false;
+        auftraege_anzeigen();
+    }
+
+    /* Auswahl nur zeigen, solange nicht aufgenommen oder gefragt wird */
+    bool auswahl = ruhe && (phase == FRAGE_AUS || phase == FRAGE_ANTWORT || phase == FRAGE_FEHLER);
+    if (auswahl == lv_obj_has_flag(auftrag_dropdown, LV_OBJ_FLAG_HIDDEN)) {
+        if (auswahl) {
+            lv_obj_clear_flag(auftrag_dropdown, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(auftrag_dropdown, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+    if (phase == FRAGE_AUFNAHME) {
+        lv_obj_add_flag(pause_button, LV_OBJ_FLAG_HIDDEN);   /* eine Frage wird gehalten, nicht pausiert */
+    }
+
+    /* "Zusammenfassung erstellen?" erst nach dem Haken, und nur in Ruhe */
+    bool frage_noetig = ruhe && phase == FRAGE_AUS && verarbeitung_sichtbar &&
+                        verarbeitung_zustand == VERMERK_VERARB_TRANSKRIPT && !rueckfrage_beantwortet &&
+                        lv_obj_has_flag(fertig_vollbild, LV_OBJ_FLAG_HIDDEN);
+    if (frage_noetig == lv_obj_has_flag(rueckfrage_box, LV_OBJ_FLAG_HIDDEN)) {
+        if (frage_noetig) {
+            lv_obj_clear_flag(rueckfrage_box, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(rueckfrage_box, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+
+    /* Antwort zeigen */
+    if (phase == FRAGE_ANTWORT && lv_obj_has_flag(antwort_box, LV_OBJ_FLAG_HIDDEN) && frage_ergebnis != NULL) {
+        lv_label_set_text(antwort_frage_label, frage_ergebnis->frage);
+        lv_label_set_text(antwort_text_label, frage_ergebnis->anzeige[0] != '\0' ? frage_ergebnis->anzeige : "(keine Antwort)");
+        lv_obj_scroll_to_y(lv_obj_get_parent(antwort_text_label), 0, LV_ANIM_OFF);
+        lv_obj_clear_flag(antwort_box, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (phase != FRAGE_ANTWORT && !lv_obj_has_flag(antwort_box, LV_OBJ_FLAG_HIDDEN)) {
+        lv_obj_add_flag(antwort_box, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    /* Statustext waehrend einer Frage; danach der normale wieder */
+    static bool text_aktiv = false;
+    const char *text = NULL;
+    lv_color_t farbe = lv_color_hex(0x4AB7F4);
+    if (phase == FRAGE_AUFNAHME) {
+        text = "FRAGE: JETZT SPRECHEN";
+        farbe = lv_color_hex(0xFF9F0A);
+    } else if (phase == FRAGE_SENDEN || phase == FRAGE_WARTEN) {
+        text = "ICH SUCHE DIE ANTWORT";
+    } else if (phase == FRAGE_FEHLER) {
+        text = frage_hinweis;
+        farbe = lv_color_hex(0xFF6B6B);
+        if (lv_tick_elaps(frage_hinweis_seit_ms) >= FRAGE_FEHLER_ANZEIGE_MS) {
+            frage_phase = FRAGE_AUS;
+            text = NULL;
+        }
+    }
+    if (text != NULL) {
+        if (strcmp(lv_label_get_text(status_label), text) != 0) {
+            lv_label_set_text(status_label, text);
+        }
+        lv_obj_set_style_text_color(status_label, farbe, 0);
+        text_aktiv = true;
+    } else if (text_aktiv) {
+        text_aktiv = false;
+        status_neu_erzwingen = true;
+    }
+}
+
 static void update_ui(void)
 {
     static uint32_t last_update = 0;
@@ -574,6 +905,12 @@ static void update_ui(void)
     static uint32_t last_wifi_update = 0;
     static uint32_t last_mic_update = 0;
     static rec_state_t last_state = (rec_state_t)-1;
+
+    if (status_neu_erzwingen) {
+        status_neu_erzwingen = false;
+        last_state = (rec_state_t)-1;   /* Statustext aus dem Zustand neu setzen */
+        vz_shown_key = -2;
+    }
 
     uint32_t now = lv_tick_get();
     if ((now - last_update) < 50) {
@@ -908,28 +1245,35 @@ static void update_ui(void)
         last_state = state;
     }
 
-    /* Verarbeitung der zuletzt hochgeladenen Aufnahme: waehrend sie laeuft "TRANSKRIPTION WIRD VERARBEITET", am Ende
-     * einmal ca. 4 s das gruene Haekchen ueber den ganzen Bildschirm, danach dauerhaft "TRANSKRIPTION ERFOLGREICH",
+    /* Verarbeitung der zuletzt hochgeladenen Aufnahme:
+     *  - waehrend sie laeuft "TRANSKRIPTION WIRD VERARBEITET",
+     *  - steht das Transkript ("transkript"): einmal ca. 4 s das gruene Haekchen ueber den ganzen Bildschirm, dann die
+     *    Frage "Zusammenfassung erstellen?", dauerhaft "TRANSKRIPTION ERFOLGREICH",
+     *  - nach "Ja": "ZUSAMMENFASSUNG WIRD ERSTELLT", am Ende wieder Haekchen und dauerhaft "ZUSAMMENFASSUNG FERTIG",
+     *  - (aeltere Software ohne Rueckfrage: wie bisher "fertig" = "TRANSKRIPTION ERFOLGREICH"),
      * bis eine neue Aufnahme beginnt. Ersetzt nur den Statustext, solange nicht aufgenommen wird. */
     {
         const bool ruhe = (state == REC_IDLE || state == REC_DONE);
-        if (!verarbeitung_sichtbar || verarbeitung_zustand != VERMERK_VERARB_FERTIG) {
-            fertig_vollbild_gezeigt = false;   /* die naechste fertige Verarbeitung zeigt es wieder */
+        const vermerk_verarbeitung_t z = verarbeitung_zustand;
+        const bool haken_zustand = (z == VERMERK_VERARB_TRANSKRIPT || z == VERMERK_VERARB_FERTIG);
+        if (!verarbeitung_sichtbar) {
+            fertig_vollbild_zustand = VERMERK_VERARB_UNBEKANNT;   /* die naechste Verarbeitung zeigt es wieder */
         }
         if (fertig_vollbild != NULL && !lv_obj_has_flag(fertig_vollbild, LV_OBJ_FLAG_HIDDEN) &&
             (!ruhe || lv_tick_elaps(fertig_vollbild_start) >= FERTIG_VOLLBILD_MS)) {
             fertig_vollbild_ausblenden();   /* Zeit um, oder eine Aufnahme beginnt */
         }
-        if (fertig_vollbild != NULL && ruhe && verarbeitung_sichtbar && verarbeitung_zustand == VERMERK_VERARB_FERTIG &&
-            !fertig_vollbild_gezeigt) {
-            fertig_vollbild_gezeigt = true;
+        if (fertig_vollbild != NULL && ruhe && verarbeitung_sichtbar && haken_zustand && frage_phase == FRAGE_AUS &&
+            fertig_vollbild_zustand != z) {
+            fertig_vollbild_zustand = z;
             fertig_vollbild_start = lv_tick_get();
+            lv_label_set_text(fertig_vollbild_text, (z == VERMERK_VERARB_FERTIG && rueckfrage_gesehen)
+                                                        ? "ZUSAMMENFASSUNG\nFERTIG"
+                                                        : "TRANSKRIPTION\nERFOLGREICH");
             lv_obj_clear_flag(fertig_vollbild, LV_OBJ_FLAG_HIDDEN);
         }
     }
     {
-        static int shown_key = -2;
-        static rec_state_t shown_state = (rec_state_t)-1;
         int key = -1;   /* -1 = nichts Besonderes anzeigen */
 
         if ((state == REC_IDLE || state == REC_DONE) && verarbeitung_sichtbar) {
@@ -937,27 +1281,37 @@ static void update_ui(void)
             bool abgelaufen = (z == VERMERK_VERARB_FEHLER) &&
                               ((uint32_t)(esp_timer_get_time() / 1000) - verarbeitung_ende_ms) > VERARBEITUNG_ANZEIGE_MS;
             if (!abgelaufen && z >= VERMERK_VERARB_WARTET) {
-                key = (int)z * 1000;
+                key = (int)z * 10 + (rueckfrage_gesehen ? 1 : 0);
             }
         }
-        if (state != shown_state) {
-            shown_state = state;
-            shown_key = -2;   /* der Statustext wurde oben neu gesetzt: noch einmal darueberschreiben */
+        if (state != vz_shown_state) {
+            vz_shown_state = state;
+            vz_shown_key = -2;   /* der Statustext wurde oben neu gesetzt: noch einmal darueberschreiben */
         }
-        if (key != shown_key) {
-            int vorher = shown_key;
-            shown_key = key;
+        if (key != vz_shown_key) {
+            int vorher = vz_shown_key;
+            vz_shown_key = key;
             if (key >= 0) {
                 switch (verarbeitung_zustand) {
-                    case VERMERK_VERARB_FERTIG:
+                    case VERMERK_VERARB_TRANSKRIPT:
                         lv_label_set_text(status_label, LV_SYMBOL_OK " TRANSKRIPTION ERFOLGREICH");
+                        lv_obj_set_style_text_color(status_label, lv_color_hex(0x59D65C), 0);
+                        break;
+                    case VERMERK_VERARB_FERTIG:
+                        lv_label_set_text(status_label, rueckfrage_gesehen ? LV_SYMBOL_OK " ZUSAMMENFASSUNG FERTIG"
+                                                                           : LV_SYMBOL_OK " TRANSKRIPTION ERFOLGREICH");
                         lv_obj_set_style_text_color(status_label, lv_color_hex(0x59D65C), 0);
                         break;
                     case VERMERK_VERARB_FEHLER:
                         lv_label_set_text(status_label, "VERARBEITUNG FEHLGESCHLAGEN");
                         lv_obj_set_style_text_color(status_label, lv_color_hex(0xFF6B6B), 0);
                         break;
-                    default:   /* WARTET, TRANSKRIPTION, AUSWERTUNG: fuer das Geraet ein einziger Zustand */
+                    case VERMERK_VERARB_AUSWERTUNG:
+                        lv_label_set_text(status_label, rueckfrage_gesehen ? "ZUSAMMENFASSUNG WIRD ERSTELLT"
+                                                                           : "TRANSKRIPTION WIRD VERARBEITET");
+                        lv_obj_set_style_text_color(status_label, lv_color_hex(0x4AB7F4), 0);
+                        break;
+                    default:   /* WARTET, TRANSKRIPTION: fuer das Geraet ein einziger Zustand */
                         lv_label_set_text(status_label, "TRANSKRIPTION WIRD VERARBEITET");
                         lv_obj_set_style_text_color(status_label, lv_color_hex(0x4AB7F4), 0);
                         break;
@@ -967,6 +1321,8 @@ static void update_ui(void)
             }
         }
     }
+
+    bedienung_ui_update(state);
 }
 
 static lv_obj_t *make_label(lv_obj_t *parent, const char *text, lv_color_t color)
@@ -1064,8 +1420,10 @@ static void vermerk_h3_ui_create(void)
     lv_obj_center(pause_button_label);
 
     pending_label = make_label(scr, "", lv_color_hex(0xAAAAAA));
-    lv_obj_align(pending_label, LV_ALIGN_TOP_MID, 0, 300);
+    lv_obj_align(pending_label, LV_ALIGN_TOP_MID, 0, 330);   /* unter der Auftragswahl */
     lv_obj_add_flag(pending_label, LV_OBJ_FLAG_HIDDEN);
+
+    bedienung_ui_erstellen();
 }
 
 /* Upload: Wartezeit je Datei, nur im RAM. Eine Datei, die scheitert, wartet (5 s, doppelt so lang
@@ -1152,6 +1510,10 @@ static int status_unbekannt = 0;
 static void status_beobachten(const char *dateiname)
 {
     snprintf(status_name, sizeof(status_name), "%s", dateiname);
+    snprintf(frage_datei, sizeof(frage_datei), "%s", dateiname);   /* nach dieser Aufnahme wird gefragt */
+    rueckfrage_beantwortet = false;
+    rueckfrage_gesehen = false;
+    zusammenfassung_gewuenscht = false;
     status_start_ms = upload_now_ms();
     status_naechste_ms = status_start_ms;
     status_unbekannt = 0;
@@ -1164,6 +1526,7 @@ static void status_beobachten(const char *dateiname)
 static void status_beenden(void)
 {
     status_name[0] = '\0';
+    frage_datei[0] = '\0';
     verarbeitung_sichtbar = false;
 }
 
@@ -1209,6 +1572,9 @@ static void status_schritt(void)
             printf("VERMERK Verarbeitung %s: %s\n", status_name, vermerk_verarbeitung_text(st.zustand));
         }
     }
+    if (st.zustand == VERMERK_VERARB_TRANSKRIPT) {
+        rueckfrage_gesehen = true;   /* die Software fragt zweistufig: Transkript, dann Zusammenfassung */
+    }
     verarbeitung_zustand = st.zustand;
     verarbeitung_prozent = st.fortschritt_prozent;
     verarbeitung_sichtbar = true;
@@ -1224,6 +1590,251 @@ static bool upload_abbrechen(void)
 {
     status_schritt();
     return recording_has_priority();
+}
+
+/* ---- BOOT-Taste: Frage stellen ---- */
+
+static bool frage_moeglich(void)
+{
+    vermerk_verarbeitung_t z = verarbeitung_zustand;
+    return frage_datei[0] != '\0' && verarbeitung_sichtbar &&
+           (z == VERMERK_VERARB_TRANSKRIPT || z == VERMERK_VERARB_AUSWERTUNG || z == VERMERK_VERARB_FERTIG);
+}
+
+static void frage_hinweis_zeigen(const char *text)
+{
+    snprintf(frage_hinweis, sizeof(frage_hinweis), "%s", text);
+    frage_hinweis_seit_ms = lv_tick_get();
+    frage_phase = FRAGE_FEHLER;
+}
+
+/* Wird aus der Hauptschleife alle 10 ms gerufen. Gedrueckt halten = Frage aufnehmen, loslassen = senden. */
+static void ptt_poll(void)
+{
+    static int unten_zaehler = 0;        /* entprellt: mehrere gleiche Messungen hintereinander */
+    static bool gedrueckt = false;
+    static bool loslassen_gemerkt = false;
+    static bool stoppt = false;
+
+    bool roh_unten = gpio_get_level(PTT_GPIO) == 0;
+    if (roh_unten) {
+        if (unten_zaehler < 5) unten_zaehler++;
+    } else {
+        if (unten_zaehler > -5) unten_zaehler--;
+    }
+    bool war_gedrueckt = gedrueckt;
+    if (unten_zaehler >= 3) gedrueckt = true;
+    if (unten_zaehler <= -3) gedrueckt = false;
+    bool neu_gedrueckt = gedrueckt && !war_gedrueckt;
+    bool los = !gedrueckt && war_gedrueckt;
+
+    rec_state_t rs = rec_state;
+    if (neu_gedrueckt && frage_phase == FRAGE_AUS && (rs == REC_IDLE || rs == REC_DONE || rs == REC_ERROR)) {
+        if (!frage_moeglich()) {
+            frage_hinweis_zeigen(frage_datei[0] == '\0' ? "ERST AUFNEHMEN, DANN FRAGEN" : "ERST NACH DEM TRANSKRIPT");
+        } else if (Storage_Free_Bytes() < STORAGE_MIN_FREE_START) {
+            frage_hinweis_zeigen("SPEICHER VOLL");
+        } else {
+            frage_modus = true;
+            loslassen_gemerkt = false;
+            stoppt = false;
+            rec_elapsed_seconds = 0;
+            frage_phase = FRAGE_AUFNAHME;
+            rec_state = REC_REQUESTED;
+        }
+        return;
+    }
+
+    if (frage_phase != FRAGE_AUFNAHME) {
+        return;
+    }
+    if (los) {
+        loslassen_gemerkt = true;
+    }
+    if (rs == REC_ERROR) {
+        frage_modus = false;
+        frage_hinweis_zeigen("AUFNAHME FEHLGESCHLAGEN");
+        return;
+    }
+    if (rs == REC_RECORDING && !stoppt && (loslassen_gemerkt || rec_elapsed_seconds >= FRAGE_MAX_SEKUNDEN)) {
+        stoppt = true;
+        rec_state = REC_STOP_REQUESTED;
+    }
+    if (stoppt && rs == REC_DONE) {
+        frage_modus = false;
+        stoppt = false;
+        if (rec_elapsed_seconds < 1) {
+            remove(FRAGE_PFAD);   /* zu kurz angetippt */
+            frage_phase = FRAGE_AUS;
+        } else {
+            frage_phase = FRAGE_SENDEN;
+        }
+    }
+}
+
+/* Text der Software fuers Display ASCII-sicher machen (Meldungen koennen Umlaute haben) */
+static void ascii_kopieren(char *ziel, size_t ziel_groesse, const char *quelle)
+{
+    size_t n = 0;
+    for (; quelle[n] != '\0' && n + 1 < ziel_groesse; n++) {
+        unsigned char c = (unsigned char)quelle[n];
+        ziel[n] = (c >= 32 && c < 127) ? (char)c : '?';
+    }
+    ziel[n] = '\0';
+}
+
+/* Die aufgenommene Frage senden und auf die Antwort warten */
+static void frage_abwickeln(char *antwort)
+{
+    FILE *f = fopen(FRAGE_PFAD, "rb");
+    if (f == NULL) {
+        frage_hinweis_zeigen("AUFNAHME NICHT GEFUNDEN");
+        return;
+    }
+    fseek(f, 0, SEEK_END);
+    long groesse = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    if (groesse < 100 || groesse > 400 * 1024) {
+        fclose(f);
+        remove(FRAGE_PFAD);
+        frage_hinweis_zeigen("FRAGE ZU KURZ");
+        return;
+    }
+    uint8_t *ton = heap_caps_malloc((size_t)groesse, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (ton == NULL) {
+        ton = malloc((size_t)groesse);
+    }
+    if (ton == NULL) {
+        fclose(f);
+        remove(FRAGE_PFAD);
+        frage_hinweis_zeigen("KEIN SPEICHER");
+        return;
+    }
+    size_t gelesen = fread(ton, 1, (size_t)groesse, f);
+    fclose(f);
+    remove(FRAGE_PFAD);
+
+    char pfad[96];
+    snprintf(pfad, sizeof(pfad), "/api/v1/aufnahmen/%s/frage", frage_datei);
+    frage_phase = FRAGE_WARTEN;
+    int http = VERMERK_Anfrage(true, pfad, "audio/ogg", ton, gelesen, "anzeige", antwort, 512, 20000);
+    free(ton);
+    printf("VERMERK Frage gesendet: HTTP %d\n", http);
+
+    char id[VERMERK_FRAGE_ID_MAX];
+    if (http != 202 || !vermerk_frage_id_lesen(antwort, strlen(antwort), id)) {
+        const char *text = "FRAGE NICHT ANGENOMMEN";
+        if (http == -2 || http == 0) text = "KEINE VERBINDUNG ZUM PC";
+        else if (http == 409) text = "ERST NACH DEM TRANSKRIPT";
+        else if (http == 404) text = "SOFTWARE KENNT KEINE FRAGEN";
+        else if (http == 401) text = "KOPPLUNG PRUEFEN";
+        frage_hinweis_zeigen(text);
+        return;
+    }
+
+    snprintf(pfad, sizeof(pfad), "/api/v1/fragen/%s", id);
+    uint64_t start = upload_now_ms();
+    while (upload_now_ms() - start < FRAGE_ANTWORT_TIMEOUT_MS) {
+        vTaskDelay(pdMS_TO_TICKS(1000));
+        int h = VERMERK_Anfrage(false, pfad, NULL, NULL, 0, NULL, antwort, BEDIENUNG_PUFFER, 6000);
+        if (h != 200) {
+            if (h == 404 || h == 401) {
+                frage_hinweis_zeigen("FRAGE VERLOREN");
+                return;
+            }
+            continue;   /* Netz kurz weg: weiter versuchen */
+        }
+        if (!vermerk_frage_stand_lesen(antwort, strlen(antwort), frage_ergebnis)) {
+            continue;
+        }
+        if (frage_ergebnis->zustand == VERMERK_FRAGE_FERTIG) {
+            frage_phase = FRAGE_ANTWORT;
+            return;
+        }
+        if (frage_ergebnis->zustand == VERMERK_FRAGE_FEHLER) {
+            char text[VERMERK_FRAGE_MELDUNG_MAX];
+            ascii_kopieren(text, sizeof(text), frage_ergebnis->meldung[0] != '\0' ? frage_ergebnis->meldung : "KEINE ANTWORT");
+            frage_hinweis_zeigen(text);
+            return;
+        }
+    }
+    frage_hinweis_zeigen("KEINE ANTWORT ERHALTEN");
+}
+
+/* Hintergrundaufgaben der Bedienung: Auftragsliste holen, "Ja" melden, Frage senden. Laeuft im Upload-Manager (kein
+ * eigener Task-Stack: der interne RAM ist knapp); die Oberflaeche wartet nie darauf. */
+static void bedienung_schritt(void)
+{
+    static char *antwort = NULL;
+    static vermerk_auftrag_t *neu = NULL;
+    static bool bereit = false;
+    static uint64_t auftraege_naechste_ms = 0;
+    static int freigabe_versuche = 0;
+
+    if (!bereit) {
+        /* Alles im PSRAM: der interne RAM reicht gerade fuer Aufnahme, Encoder und SD-Zugriff */
+        antwort = heap_caps_malloc(BEDIENUNG_PUFFER, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        neu = heap_caps_calloc(VERMERK_AUFTRAEGE_MAX, sizeof(*neu), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        frage_ergebnis = heap_caps_calloc(1, sizeof(*frage_ergebnis), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        vermerk_auftrag_t *liste = heap_caps_calloc(VERMERK_AUFTRAEGE_MAX, sizeof(*liste), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (antwort == NULL || neu == NULL || frage_ergebnis == NULL || liste == NULL) {
+            printf("VERMERK Bedienung: kein PSRAM\n");
+            return;
+        }
+        auftraege = liste;
+        bereit = true;
+    }
+
+    {
+        uint64_t jetzt = upload_now_ms();
+        rec_state_t rs = rec_state;
+        bool ruhe = (rs == REC_IDLE || rs == REC_DONE || rs == REC_ERROR);
+
+        /* Auftraege: vor der ersten Aufnahme und dann alle paar Minuten neu */
+        if (ruhe && jetzt >= auftraege_naechste_ms && WIFI_CONNECTED && (PC_REACHABLE || SERVER_REACHABLE)) {
+            int http = VERMERK_Anfrage(false, "/api/v1/auftraege", NULL, NULL, 0, NULL, antwort, BEDIENUNG_PUFFER, 6000);
+            int n = (http == 200) ? vermerk_auftraege_lesen(antwort, strlen(antwort), neu, VERMERK_AUFTRAEGE_MAX) : -1;
+            if (n >= 0) {
+                if (n != auftraege_anzahl || memcmp(neu, auftraege, (size_t)n * sizeof(neu[0])) != 0) {
+                    memcpy(auftraege, neu, (size_t)n * sizeof(neu[0]));
+                    auftraege_anzahl = n;
+                    auftraege_neu = true;
+                    printf("VERMERK Auftraege: %d\n", n);
+                }
+                auftraege_naechste_ms = jetzt + AUFTRAEGE_ERNEUERN_MS;
+            } else if (http == 404 || http == 401) {
+                auftraege_naechste_ms = jetzt + 30u * 60u * 1000u;   /* aeltere Software: nur der Standard-Auftrag */
+            } else {
+                auftraege_naechste_ms = jetzt + 20u * 1000u;
+            }
+        }
+
+        /* "Ja": Zusammenfassung freigeben */
+        if (zusammenfassung_gewuenscht && frage_datei[0] != '\0') {
+            char pfad[96];
+            snprintf(pfad, sizeof(pfad), "/api/v1/aufnahmen/%s/zusammenfassung", frage_datei);
+            int http = VERMERK_Anfrage(true, pfad, NULL, NULL, 0, NULL, antwort, 256, 8000);
+            printf("VERMERK Zusammenfassung freigegeben: HTTP %d\n", http);
+            if (http == 200 || http == 202) {
+                zusammenfassung_gewuenscht = false;
+                freigabe_versuche = 0;
+            } else if (++freigabe_versuche >= 5 || http == 404 || http == 401) {
+                zusammenfassung_gewuenscht = false;   /* gibt auf: die Frage erscheint erneut */
+                freigabe_versuche = 0;
+                rueckfrage_beantwortet = false;
+                frage_hinweis_zeigen("SENDEN FEHLGESCHLAGEN");
+            } else {
+                vTaskDelay(pdMS_TO_TICKS(1500));
+            }
+        } else if (zusammenfassung_gewuenscht) {
+            zusammenfassung_gewuenscht = false;
+        }
+
+        /* Frage senden */
+        if (frage_phase == FRAGE_SENDEN) {
+            frage_abwickeln(antwort);
+        }
+    }
 }
 
 /* Eine Aufnahme (Endung upload_exts[art]) hochladen.
@@ -1283,6 +1894,13 @@ static int upload_one(uint32_t i, uint8_t art)
 
     upload_active = true;
     int64_t upload_start_us = esp_timer_get_time();
+    /* Auftrag und Rueckfrage gelten nur fuer die zuletzt aufgenommene Aufnahme (die das Geraet beobachtet);
+     * aeltere Aufnahmen auf der SD werden wie bisher ganz ausgewertet. */
+    if (i == upload_vorrang_id) {
+        vermerk_wunsch_setzen(letzter_auftrag_name[0] != '\0' ? letzter_auftrag_name : NULL, true);
+    } else {
+        vermerk_wunsch_setzen(NULL, false);
+    }
     vermerk_ergebnis_t result = VERMERK_Upload_File(path, filename, upload_abbrechen);
     upload_active = false;
     printf("VERMERK Upload-Dauer: %s %lld ms\n", filename,
@@ -1337,6 +1955,8 @@ static void upload_manager_task(void *arg)
     vermerk_warteliste_leeren(&upload_warteliste);
 
     while (1) {
+        bedienung_schritt();
+
         rec_state_t s = rec_state;
         bool recording_busy = (s == REC_REQUESTED ||
                                s == REC_RECORDING ||
@@ -1353,7 +1973,9 @@ static void upload_manager_task(void *arg)
         bool target_ok = (transfer_mode == TRANSFER_MODE_PC && PC_REACHABLE) ||
                          (transfer_mode == TRANSFER_MODE_SERVER && SERVER_REACHABLE);
         if (recording_busy) {
-            status_beenden();
+            if (!frage_modus) {
+                status_beenden();   /* eine neue Aufnahme: der alte Stand ist uninteressant (eine Frage dazu aber nicht) */
+            }
             if (target_ok) {
                 VERMERK_Live_Schritt();   /* waehrend der Aufnahme: neue Bytes an die Software senden (alle 15 s) */
             }
@@ -1451,7 +2073,18 @@ void app_main(void)
         NULL,
         0);
 
+    /* BOOT-Taste an der Seite: Frage stellen (gedrueckt halten) */
+    gpio_config_t taste = {
+        .pin_bit_mask = 1ULL << PTT_GPIO,
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    gpio_config(&taste);
+
     while (1) {
+        ptt_poll();
         update_ui();
         lv_timer_handler();
         vTaskDelay(pdMS_TO_TICKS(10));
