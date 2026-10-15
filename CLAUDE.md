@@ -313,6 +313,19 @@ damit sich niemand aussperrt. Das ist als Notausgang gedacht, nicht als
 Normalweg — und auch dann erst zusammenführen, wenn alle Prüfungen grün sind.
 Der Notausgang ersetzt die fehlende Freigabe, nicht die CI.
 
+**Reine Dokumentation prüft die CI nur verkürzt.** Ändert ein Pull Request (oder
+ein Push auf `main`) nichts außer `*.md`, `research/`, `lizenzen/` oder `LICENSE`,
+entfallen in `ci.yml` Linting, Typen, Tests, Paketprüfung und pip-audit;
+gitleaks und CodeQL laufen immer. Übersprungen wird per `if` – ein so
+übersprungener Job meldet „skipped", und das zählt für Pflichtprüfungen als
+bestanden. Nie per `paths-ignore` am Workflow: Dann meldet die Pflichtprüfung
+gar nicht und der Pull Request hängt auf „Expected". Aus demselben Grund läuft
+der Testjob (eine Matrix) immer an und überspringt nur seine Schritte, und
+CodeQL läuft auch bei Dokumentation (die Pflichtprüfung „CodeQL" entsteht erst
+mit einer Analyse). Der nächtliche Build entfällt nach reiner Dokumentation
+ebenfalls. Liest künftig ein Test oder die Anwendung eine dieser Dateien, gehört
+sie aus der Ausnahmeliste – sie steht zweimal, in `ci.yml` und `nightly.yml`.
+
 Die Linux-Läufer sind auf `ubuntu-24.04` festgelegt, nicht `ubuntu-latest`:
 GitHub stellt `ubuntu-latest` ab dem 19.10.2026 auf Ubuntu 26 um, und ein
 solcher Wechsel soll die CI nicht unangekündigt verändern. Umstellen bewusst

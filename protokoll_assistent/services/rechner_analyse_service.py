@@ -50,6 +50,11 @@ BEREICH_SUCHE = "Frag mein Meeting (Suche)"
 SPEICHER_RESERVE_GB = 3.0
 # Arbeitsspeicher fuer den Kontext eines Sprachmodells (Ollama, 8192 Token).
 KONTEXT_ZUSCHLAG_GB = 1.5
+# Ein kleines Sprachmodell laeuft auf dem Prozessor nur dann flott ("gut"), wenn
+# genug Arbeitsspeicher frei bleibt. Auf einem 8-GB-Rechner belegen Windows und
+# die ueblichen Programme schon 5-6 GB; ein 4B-Modell (gemessen ~5 GB) wird dort
+# eng und langsam. Erst ab diesem Wert ist bequem Platz -- darunter nur "maessig".
+NACHBEARBEITUNG_GUT_RAM_GB = 16.0
 
 # Vielfaches der Echtzeit, in dem ein Whisper-Modell auf einem durchschnittlichen
 # Rechner (>= 8 Kerne) ohne Grafikkarte transkribiert. 'large-v3-turbo' ist
@@ -470,9 +475,16 @@ def _sprachmodell_auf_dem_prozessor(
 
     kerne = profil.cpu_kerne or 4
     if option.groesse_gb <= 3.5:
-        if kerne >= 6:
+        genug_ram = profil.ram_gb is None or profil.ram_gb >= NACHBEARBEITUNG_GUT_RAM_GB
+        if kerne >= 6 and genug_ram:
             return ergebnis(GUT, "Klein genug, um auch auf dem Prozessor zügig zu laufen.")
-        return ergebnis(MAESSIG, "Läuft auf dem Prozessor, bei wenigen Kernen aber spürbar langsam.")
+        if kerne < 6:
+            return ergebnis(MAESSIG, "Läuft auf dem Prozessor, bei wenigen Kernen aber spürbar langsam.")
+        return ergebnis(
+            MAESSIG,
+            "Läuft auf dem Prozessor, aber der Arbeitsspeicher ist knapp – am besten andere "
+            "Programme schließen; ein Online-Dienst ist hier meist die bessere Wahl.",
+        )
     if option.groesse_gb <= 6.0:
         return ergebnis(MAESSIG, "Läuft auf dem Prozessor, die Auswertung dauert aber einige Minuten.")
     return ergebnis(NICHT, "Ohne passende Grafikkarte zu langsam.")
@@ -502,10 +514,19 @@ def analysiere(profil: RechnerProfil) -> Analyse:
     sprache = [_bewerte_sprachmodell(profil, o) for o in ollama_service.OLLAMA_MODELLE]
     suche = [_bewerte_einbettung(profil, o) for o in ollama_service.OLLAMA_EMBEDDING_MODELLE]
 
+    # Qwen 4B ist die beste Wahl, LFM2.5 der leichtere Ersatz. Auf einem knappen
+    # Rechner (wenig Arbeitsspeicher, keine Grafikkarte -- beide laufen dort nur
+    # "maessig") ist das kleinere LFM2.5 die realistische lokale Wahl und steht
+    # deshalb vorn; '_waehle' entscheidet bei gleicher Stufe nach dieser Reihenfolge.
+    lfm = "hf.co/LiquidAI/LFM2.5-2.6B-GGUF:Q4_K_M"
+    knapper_ram = profil.ram_gb is not None and profil.ram_gb < NACHBEARBEITUNG_GUT_RAM_GB
+    nachbearbeitung_bevorzugt = (
+        [lfm, ollama_service.DEFAULT_MODEL] if knapper_ram else [ollama_service.DEFAULT_MODEL, lfm]
+    )
     empfehlung: dict[str, str | None] = {
         # Qualitaet vor Tempo: Turbo, solange es nicht ausfaellt, sonst das genuegsame 'small'.
         BEREICH_TRANSKRIPTION: _waehle(whisper, [model_service.WHISPER_MODEL_NAME, "small"]),
-        BEREICH_NACHBEARBEITUNG: _waehle(sprache, [ollama_service.DEFAULT_MODEL]),
+        BEREICH_NACHBEARBEITUNG: _waehle(sprache, nachbearbeitung_bevorzugt),
         BEREICH_SUCHE: _waehle(suche, ["bge-m3", "nomic-embed-text"]),
     }
     # 'GUT' vor 'MAESSIG' gilt je ID; fuer Transkription soll Turbo (auch maessig)

@@ -76,6 +76,11 @@ class OllamaModellOption:
     label: str
     groesse_gb: float
     hinweis: str
+    # True: Das Modell denkt intern vor der Antwort und laesst diese Gedanken
+    # ueber '/api/generate' in die Antwort durchsickern. Es muss deshalb ueber
+    # '/api/chat' aufgerufen werden, wo Ollama die Denkphase als eigenes Feld
+    # ('thinking') abtrennt und nur die eigentliche Antwort im 'content' liefert.
+    chat_endpunkt: bool = False
 
 
 # Kuratierte Auswahl fuer die Protokollauswertung. Wie bei den Whisper-Modellen
@@ -91,6 +96,18 @@ OLLAMA_MODELLE: list[OllamaModellOption] = [
         hinweis=(
             "Nachfolger von Qwen3 8B: trotz halber Groesse leistungsfaehiger, solide auf Deutsch. "
             "Ab etwa 6 GB Grafikspeicher oder 16 GB RAM."
+        ),
+    ),
+    OllamaModellOption(
+        id="hf.co/LiquidAI/LFM2.5-2.6B-GGUF:Q4_K_M",
+        label="LFM2.5 2.6B (schneller, auch fuer Rechner ohne Grafikkarte)",
+        groesse_gb=1.6,
+        chat_endpunkt=True,
+        hinweis=(
+            "Von Liquid AI; gut und fluessig auf Deutsch, etwas knapper als Qwen. Laeuft auf dem "
+            "Prozessor spuerbar schneller als Qwen 4B und braucht weniger Arbeitsspeicher (~4,6 GB). "
+            "Denkt intern vor der Antwort, daher etwas langsamer als die Groesse vermuten laesst. "
+            "Hinweis zur Lizenz: LFM Open License - kommerzielle Nutzung bis 10 Mio. USD Jahresumsatz kostenlos."
         ),
     ),
     OllamaModellOption(
@@ -466,6 +483,55 @@ def _generate_request(body: dict[str, Any], base_url: str, timeout: float) -> st
     return str(result.get("response", ""))
 
 
+def _chat_request(
+    model: str,
+    messages: list[dict[str, str]],
+    base_url: str,
+    timeout: float,
+    num_ctx: int,
+    temperature: float,
+) -> str:
+    """Wie ``_generate_request``, aber ueber ``/api/chat`` (nicht gestroemt) und
+    liefert ``message.content``.
+
+    Fuer Modelle mit interner Denkphase (``chat_endpunkt``): Ueber
+    ``/api/generate`` sickern deren Gedanken in die Antwort, ``/api/chat`` trennt
+    sie als eigenes Feld (``message.thinking``) ab, das hier bewusst verworfen
+    wird. Fehlerbehandlung und die Pruefung auf ``done_reason: length`` sind
+    dieselben wie in ``_generate_request``."""
+    body = {
+        "model": model,
+        "messages": messages,
+        "stream": False,
+        "think": False,
+        "options": {"num_ctx": num_ctx, "temperature": temperature},
+    }
+    data = json.dumps(body, ensure_ascii=False).encode("utf-8")
+    request = urllib.request.Request(
+        f"{base_url}/api/chat",
+        data=data,
+        headers={"Content-Type": "application/json; charset=utf-8"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            result = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as error:
+        details = error.read().decode("utf-8", errors="replace")[:1000]
+        raise OllamaError(f"Ollama-Fehler HTTP {error.code}: {details}") from error
+    except urllib.error.URLError as error:
+        raise OllamaError(f"Ollama ist nicht erreichbar: {error}") from error
+    except TimeoutError as error:
+        raise OllamaError("Die Anfrage an das lokale Modell hat das Zeitlimit ueberschritten.") from error
+    if result.get("done_reason") == "length":
+        raise OllamaError(
+            "Die Antwort des lokalen Modells wurde abgeschnitten: Es hat die Laengen- bzw. "
+            "Kontextgrenze erreicht. Das unvollstaendige Ergebnis wird nicht verwendet. Bitte den "
+            "Auftrag (Systemprompt) knapper fassen oder ein Modell mit groesserem Kontext waehlen."
+        )
+    return str((result.get("message") or {}).get("content", ""))
+
+
 def generate_text(
     prompt: str,
     system: str,
@@ -478,8 +544,19 @@ def generate_text(
     """Ruft ``/api/generate`` mit Temperatur 0 auf und liefert die Antwort des
     Modells als Freitext zurueck -- ohne ``format: json``. Das Modell
     bestimmt Aufbau und Form der Antwort allein nach dem Systemprompt.
-    Denkphase abgeschaltet und Kontextgroesse wie bei ``generate_json``."""
+    Denkphase abgeschaltet und Kontextgroesse wie bei ``generate_json``.
+
+    Modelle mit ``chat_endpunkt`` (interne Denkphase) werden ueber ``/api/chat``
+    aufgerufen, damit die Gedanken nicht in die Antwort durchsickern; alle
+    uebrigen Modelle laufen unveraendert ueber ``/api/generate``."""
     num_ctx = num_ctx or kontext_fuer_protokoll(system, prompt)
+    option = get_modell_option(model)
+    if option is not None and option.chat_endpunkt:
+        messages = [
+            {"role": "system", "content": system},
+            {"role": "user", "content": prompt},
+        ]
+        return _chat_request(model, messages, base_url, timeout, num_ctx, temperature)
     body = {
         "model": model,
         "system": system,

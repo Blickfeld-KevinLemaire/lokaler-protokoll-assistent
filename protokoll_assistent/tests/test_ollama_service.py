@@ -290,10 +290,69 @@ def test_generate_json_liest_antwort_mit_klammer_in_zeichenkette(monkeypatch):
 def test_modellliste_beginnt_mit_dem_standard_und_hat_eindeutige_namen():
     ids = [option.id for option in ollama_service.OLLAMA_MODELLE]
     assert ids[0] == ollama_service.DEFAULT_MODEL
-    assert len(ids) == len(set(ids)) >= 4
-    assert all("q4" in modell_id for modell_id in ids)  # Quantisierung ausdruecklich festgelegt
+    # LFM2.5 steht als leichtere Alternative direkt hinter dem Standard.
+    assert ids[1] == "hf.co/LiquidAI/LFM2.5-2.6B-GGUF:Q4_K_M"
+    assert len(ids) == len(set(ids)) >= 5
+    # Quantisierung ausdruecklich festgelegt (LFM schreibt sie gross: Q4_K_M).
+    assert all("q4" in modell_id.lower() for modell_id in ids)
     assert ollama_service.get_modell_option("qwen3.5:9b-q4_K_M").groesse_gb < 7
     assert ollama_service.get_modell_option("gibt-es-nicht") is None
+
+
+def test_lfm_option_nutzt_den_chat_endpunkt():
+    option = ollama_service.get_modell_option("hf.co/LiquidAI/LFM2.5-2.6B-GGUF:Q4_K_M")
+    assert option is not None and option.chat_endpunkt is True
+    assert option.groesse_gb == 1.6
+    # Die uebrigen Modelle laufen weiter ueber '/api/generate'.
+    assert ollama_service.get_modell_option(ollama_service.DEFAULT_MODEL).chat_endpunkt is False
+
+
+def test_generate_text_nutzt_api_chat_fuer_chat_modelle(monkeypatch):
+    captured = {}
+
+    def fake_urlopen(request, timeout=None):
+        captured["url"] = request.full_url
+        captured["body"] = json.loads(request.data.decode("utf-8"))
+        # '/api/chat' liefert Denkphase und Antwort getrennt; nur 'content' zaehlt.
+        return _FakeResponse({"message": {"thinking": "erst nachdenken ...", "content": "## Protokoll\n- fertig"}})
+
+    monkeypatch.setattr(ollama_service.urllib.request, "urlopen", fake_urlopen)
+    ergebnis = ollama_service.generate_text("Frage", "System", model="hf.co/LiquidAI/LFM2.5-2.6B-GGUF:Q4_K_M")
+    assert ergebnis == "## Protokoll\n- fertig"  # das 'thinking' wird verworfen
+    assert captured["url"].endswith("/api/chat")
+    assert captured["body"]["messages"] == [
+        {"role": "system", "content": "System"},
+        {"role": "user", "content": "Frage"},
+    ]
+    assert captured["body"]["stream"] is False
+    assert captured["body"]["think"] is False
+    assert captured["body"]["options"]["temperature"] == 0.0
+
+
+def test_generate_text_chat_modell_meldet_abgeschnittene_antwort(monkeypatch):
+    monkeypatch.setattr(
+        ollama_service.urllib.request,
+        "urlopen",
+        lambda request, timeout=None: _FakeResponse(
+            {"message": {"content": "## Protokoll\n- ha"}, "done": True, "done_reason": "length"}
+        ),
+    )
+    with pytest.raises(ollama_service.OllamaError, match="abgeschnitten"):
+        ollama_service.generate_text("Frage", "System", model="hf.co/LiquidAI/LFM2.5-2.6B-GGUF:Q4_K_M")
+
+
+def test_generate_text_bleibt_fuer_qwen_bei_api_generate(monkeypatch):
+    captured = {}
+
+    def fake_urlopen(request, timeout=None):
+        captured["url"] = request.full_url
+        captured["body"] = json.loads(request.data.decode("utf-8"))
+        return _FakeResponse({"response": "Fertig."})
+
+    monkeypatch.setattr(ollama_service.urllib.request, "urlopen", fake_urlopen)
+    assert ollama_service.generate_text("Frage", "System", model=ollama_service.DEFAULT_MODEL) == "Fertig."
+    assert captured["url"].endswith("/api/generate")
+    assert "messages" not in captured["body"] and captured["body"]["prompt"] == "Frage"
 
 
 class _PullAntwort:

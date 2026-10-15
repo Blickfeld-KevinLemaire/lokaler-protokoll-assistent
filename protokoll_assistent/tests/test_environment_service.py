@@ -331,3 +331,17 @@ def test_laufzeitumgebung_enthaelt_sounddevice_fuer_die_mikrofonaufnahme():
 def test_laufzeitumgebung_enthaelt_keyring_fuer_gemerkte_schluessel():
     namen = {re.split(r"[<>=~!\[; ]", requirement)[0].lower() for requirement in env.RUNTIME_PACKAGES}
     assert "keyring" in namen
+
+
+def test_laufzeitumgebung_enthaelt_alle_pakete_der_anwendung():
+    """Die lokale Anwendung laeuft in der selbst eingerichteten Umgebung ('runtime\venv'), nicht in der EXE. Was
+    die Anwendung braucht ('requirements-anwendung.txt'), muss deshalb auch hier stehen. Dreimal vergessen:
+    sounddevice (leere Geraeteliste), keyring (Schluessel nicht speicherbar), pyserial (USB-Einrichtung findet
+    kein Geraet). Ausgenommen ist nur, was allein zum Bauen der EXE dient."""
+    nur_zum_bauen = {"pyinstaller"}
+
+    def namen(pakete: list[str]) -> set[str]:
+        return {re.split(r"[<>=~!\[; ]", paket)[0].lower().replace("_", "-") for paket in pakete}
+
+    anwendung = namen(env.read_requirements(env.REQUIREMENTS_DIR / "requirements-anwendung.txt"))
+    assert anwendung - nur_zum_bauen - namen(env.RUNTIME_PACKAGES) == set()

@@ -45,9 +45,70 @@ env:
   UV_FROZEN: "1"
 
 jobs:
+  # Hat sich ausser Dokumentation etwas geaendert? Wenn nicht, laufen Linting,
+  # Typen, Tests, Paketpruefung und pip-audit nicht -- fuer eine reine
+  # .md-Aenderung pruefen sie nichts. gitleaks laeuft trotzdem: Ein Token in
+  # einer Markdown-Datei waere genauso schlimm wie im Code.
+  #
+  # Uebersprungen wird ueber 'if' an Job oder Schritt, NICHT ueber 'paths-ignore'
+  # am Workflow: Die Pruefungen sind fuer 'main' Pflicht, und ein per Pfadfilter
+  # gar nicht gestarteter Workflow meldet nie zurueck -- der Pull Request hinge
+  # dann ewig auf "Expected". Ein per 'if' uebersprungener Job meldet dagegen
+  # "skipped", und das zaehlt fuer Pflichtpruefungen als bestanden.
+  #
+  # Im Zweifel laeuft alles: Kann die Pruefung die Aenderungen nicht bestimmen
+  # (oder scheitert sie ganz), ist die Ausgabe nicht 'false', und die Jobs
+  # unten laufen vollstaendig.
+  aenderungen:
+    name: Was hat sich geaendert?
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.pruefung.outputs.code }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - id: pruefung
+        env:
+          PUSH_VORHER: ${{ github.event.before }}
+        run: |
+          set -uo pipefail
+          # Pull Request: ausgecheckt ist der Merge-Commit, sein erster
+          # Elternteil ist der aktuelle Stand von 'main'. Push auf 'main':
+          # der Stand vor dem Push. Manuell gestartet: immer alles.
+          case "$GITHUB_EVENT_NAME" in
+            pull_request) VON="HEAD^1"; BIS="HEAD" ;;
+            push)         VON="$PUSH_VORHER"; BIS="$GITHUB_SHA" ;;
+            *)            VON="" ;;
+          esac
+          code=true
+          if [ -n "$VON" ] && alle=$(git diff --name-only "$VON" "$BIS") && [ -n "$alle" ]; then
+            # Was als Dokumentation gilt. Kein Test liest eine dieser Dateien;
+            # NOTICES.md und lizenzen/ wandern nur in den Installer-Build
+            # (nightly.yml, release.yml), nicht in diese Pruefungen.
+            if rest=$(git diff --name-only "$VON" "$BIS" -- . \
+                  ':(exclude)*.md' ':(exclude)research' ':(exclude)lizenzen' ':(exclude)LICENSE') \
+               && [ -z "$rest" ]; then
+              code=false
+            fi
+          fi
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          if [ "$code" = "false" ]; then
+            echo "Nur Dokumentation geaendert - Linting, Typen, Tests und pip-audit werden uebersprungen."
+            { echo "### Nur Dokumentation geaendert"; echo; echo "Linting, Typen, Tests und pip-audit uebersprungen; gitleaks lief."; echo; echo '```'; echo "$alle"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Code geaendert (oder nicht bestimmbar) - alle Pruefungen laufen."
+          fi
+
   qualitaet:
     name: Format, Linting und Typen
+    needs: aenderungen
+    # '!cancelled()': auch dann laufen, wenn 'aenderungen' selbst scheitert.
+    if: ${{ !cancelled() && needs.aenderungen.outputs.code != 'false' }}
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
 
@@ -74,7 +135,17 @@ jobs:
 
   tests:
     name: Tests (Windows, Python ${{ matrix.python-version }})
+    needs: aenderungen
+    # Anders als die uebrigen Jobs wird dieser bei reiner Dokumentation NICHT
+    # als Ganzes uebersprungen, sondern nur seine Schritte: Ein uebersprungener
+    # Matrix-Job wird nicht aufgefaechert und meldet sich als
+    # "Tests (Windows, Python ${{ matrix.python-version }})" -- die
+    # Pflichtpruefungen "... Python 3.10" und "... 3.11" warteten dann ewig.
+    if: ${{ !cancelled() }}
     runs-on: windows-latest
+    # Ein haengender Fenstertest soll keinen Windows-Laeufer sechs Stunden
+    # (die Vorgabe von GitHub) belegen. Normal sind gut zwei Minuten.
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -82,18 +153,26 @@ jobs:
         # (siehe services/environment_service.py).
         python-version: ["3.10", "3.11"]
     steps:
+      - name: Nur Dokumentation geaendert
+        if: needs.aenderungen.outputs.code == 'false'
+        run: echo "Nur Dokumentation geaendert - Tests uebersprungen."
+
       - uses: actions/checkout@v7
+        if: needs.aenderungen.outputs.code != 'false'
 
       - name: uv einrichten
+        if: needs.aenderungen.outputs.code != 'false'
         uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
           cache-dependency-glob: uv.lock
 
       - name: Abhaengigkeiten installieren
+        if: needs.aenderungen.outputs.code != 'false'
         run: uv sync --python ${{ matrix.python-version }}
 
       - name: Tests mit Abdeckung
+        if: needs.aenderungen.outputs.code != 'false'
         # Die Fenstertests brauchen eine Desktop-Sitzung; die haben die
         # Windows-Laeufer von GitHub. Qt laeuft trotzdem unsichtbar.
         env:
@@ -104,11 +183,11 @@ jobs:
         # Fehlgeschlagene Tests stehen danach mit Name und Meldung in der
         # Zusammenfassung des Laufs und als Fehler-Annotation direkt in der
         # Pruefliste des Pull Requests -- statt nur tief im Rohprotokoll.
-        if: always()
+        if: always() && needs.aenderungen.outputs.code != 'false'
         run: uv run python -m protokoll_assistent.tools.testergebnis_zusammenfassen testergebnis.xml "Tests (Windows, Python ${{ matrix.python-version }})"
 
       - name: Abdeckungsbericht hochladen
-        if: always()
+        if: always() && needs.aenderungen.outputs.code != 'false'
         uses: actions/upload-artifact@v7
         with:
           name: coverage-py${{ matrix.python-version }}
@@ -118,7 +197,14 @@ jobs:
 
   sicherheit:
     name: Geheimnisse und Schwachstellen
+    needs: aenderungen
+    # Laeuft immer (gitleaks gilt auch fuer Dokumentation); nur pip-audit
+    # entfaellt bei reiner Dokumentation -- sonst koennte eine eben
+    # veroeffentlichte Luecke in einer Abhaengigkeit einen reinen
+    # Dokumentations-PR blockieren. Neue Luecken findet ohnehin nightly.yml.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
         with:
@@ -135,15 +221,18 @@ jobs:
           ./gitleaks detect --source . --redact --verbose --exit-code 1
 
       - name: uv einrichten
+        if: needs.aenderungen.outputs.code != 'false'
         uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
           cache-dependency-glob: uv.lock
 
       - name: Abhaengigkeiten installieren
+        if: needs.aenderungen.outputs.code != 'false'
         run: uv sync --python 3.11
 
       - name: pip-audit (bekannte Sicherheitsluecken in Abhaengigkeiten)
+        if: needs.aenderungen.outputs.code != 'false'
         run: |
           uv export --quiet --format requirements-txt --no-hashes --no-emit-project > abhaengigkeiten.txt
           uv run pip-audit --requirement abhaengigkeiten.txt --strict
@@ -152,13 +241,17 @@ jobs:
         # Das sind die Pakete, die die Einrichtungsskripte tatsaechlich
         # installieren - sie stehen nicht in 'uv.lock'. Seit der
         # Vereinheitlichung gibt es dafuer genau eine Liste.
+        if: needs.aenderungen.outputs.code != 'false'
         run: |
           uv run pip-audit \
             --requirement protokoll_assistent/requirements-anwendung.txt
 
   laufzeit_pakete:
     name: Laufzeit-Pakete der lokalen Anwendung
+    needs: aenderungen
+    if: ${{ !cancelled() && needs.aenderungen.outputs.code != 'false' }}
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
 

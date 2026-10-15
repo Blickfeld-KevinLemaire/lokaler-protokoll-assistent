@@ -260,7 +260,9 @@ def test_schwacher_laptop_mit_vier_kernen():
     assert _stufe(analyse, "large-v3") == NICHT
     assert _stufe(analyse, "qwen3.5:4b-q4_K_M") == MAESSIG  # wenige Kerne
     assert _stufe(analyse, "qwen3.5:9b-q4_K_M") == NICHT  # 8 GB RAM reichen nicht fuer 8,1 + 3 GB
-    assert analyse.empfehlung[ra.BEREICH_NACHBEARBEITUNG] == "qwen3.5:4b-q4_K_M"
+    # Bei knappem Arbeitsspeicher (8 GB, < 16) ist das leichtere LFM2.5 die
+    # realistische lokale Wahl -- beide nur "maessig", darum entscheidet die Reihenfolge.
+    assert analyse.empfehlung[ra.BEREICH_NACHBEARBEITUNG] == "hf.co/LiquidAI/LFM2.5-2.6B-GGUF:Q4_K_M"
 
 
 def test_mittelgrosses_modell_laeuft_auf_dem_prozessor_nur_maessig(monkeypatch):
@@ -271,12 +273,47 @@ def test_mittelgrosses_modell_laeuft_auf_dem_prozessor_nur_maessig(monkeypatch):
     assert _stufe(analyse, "mittel:8b") == MAESSIG
 
 
-def test_unter_7_8_gb_gibt_es_kein_lokales_sprachmodell():
-    # Der Standard braucht 3,3 + 1,5 + 3 GB; ein kleineres Modell hat die Auswahl nicht mehr.
-    analyse = ra.analysiere(RechnerProfil(ram_gb=7.5, cpu_kerne=8))
+def test_unter_rund_sechs_gb_gibt_es_kein_lokales_sprachmodell():
+    # Selbst das kleinste Modell (LFM2.5: 1,6 + 1,5 + 3 GB, also ~6,1 GB) passt
+    # darunter nicht mehr; Qwen 4B (3,3 + 1,5 + 3) faellt schon frueher aus.
+    analyse = ra.analysiere(RechnerProfil(ram_gb=5.5, cpu_kerne=8))
     assert _stufe(analyse, "qwen3.5:4b-q4_K_M") == NICHT
+    assert _stufe(analyse, "hf.co/LiquidAI/LFM2.5-2.6B-GGUF:Q4_K_M") == NICHT
     assert analyse.empfehlung[ra.BEREICH_NACHBEARBEITUNG] is None
     assert any("kein lokales Sprachmodell" in h for h in analyse.hinweise)
+
+
+def test_lfm_laeuft_mit_16_gb_ohne_grafik_gut():
+    analyse = ra.analysiere(NORMALER_LAPTOP)  # 16 GB, 8 Kerne, keine Grafikkarte
+    assert _stufe(analyse, "qwen3.5:4b-q4_K_M") == GUT
+    assert _stufe(analyse, "hf.co/LiquidAI/LFM2.5-2.6B-GGUF:Q4_K_M") == GUT
+
+
+def test_kleines_modell_auf_8_gb_ist_nur_maessig():
+    # 8 GB, viele Kerne: Nicht die Kerne, sondern der knappe Arbeitsspeicher
+    # druecken auf "maessig" (Windows und Programme belegen schon 5-6 GB).
+    analyse = ra.analysiere(RechnerProfil(ram_gb=8, cpu_kerne=8, freier_platz_gb=100))
+    for modell in ("qwen3.5:4b-q4_K_M", "hf.co/LiquidAI/LFM2.5-2.6B-GGUF:Q4_K_M"):
+        assert _stufe(analyse, modell) == MAESSIG
+    text = next(b.text for b in analyse.bewertungen if b.modell_id == "hf.co/LiquidAI/LFM2.5-2.6B-GGUF:Q4_K_M")
+    assert "Arbeitsspeicher ist knapp" in text
+
+
+def test_knapper_ram_empfiehlt_lfm_viel_ram_empfiehlt_qwen():
+    # 8 GB (< 16) ohne Grafikkarte: beide nur "maessig", das leichtere LFM2.5 wird empfohlen.
+    knapp = ra.analysiere(RechnerProfil(ram_gb=8, cpu_kerne=8, freier_platz_gb=100))
+    assert knapp.empfehlung[ra.BEREICH_NACHBEARBEITUNG] == "hf.co/LiquidAI/LFM2.5-2.6B-GGUF:Q4_K_M"
+    # 32 GB ohne Grafikkarte: genug Platz, Qwen 4B (beste Qualitaet) wird empfohlen.
+    reichlich = ra.analysiere(RechnerProfil(ram_gb=32, cpu_kerne=8, freier_platz_gb=300))
+    assert reichlich.empfehlung[ra.BEREICH_NACHBEARBEITUNG] == "qwen3.5:4b-q4_K_M"
+
+
+def test_lfm_traegt_die_nachbearbeitung_wo_qwen_nicht_mehr_passt():
+    # Zwischen ~6,1 und ~7,8 GB faellt Qwen 4B aus, das leichtere LFM2.5 passt noch.
+    analyse = ra.analysiere(RechnerProfil(ram_gb=7, cpu_kerne=8, freier_platz_gb=100))
+    assert _stufe(analyse, "qwen3.5:4b-q4_K_M") == NICHT
+    assert _stufe(analyse, "hf.co/LiquidAI/LFM2.5-2.6B-GGUF:Q4_K_M") == MAESSIG
+    assert analyse.empfehlung[ra.BEREICH_NACHBEARBEITUNG] == "hf.co/LiquidAI/LFM2.5-2.6B-GGUF:Q4_K_M"
 
 
 def test_alter_pc_bekommt_nur_hinweise():
