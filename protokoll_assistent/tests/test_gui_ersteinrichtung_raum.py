@@ -115,6 +115,24 @@ def test_ein_esp32_wird_automatisch_erkannt(qt_widgets, konfig, geraet):
     assert seite.primaer_button.isEnabled()
 
 
+def test_unkonfiguriertes_geraet_wird_als_normalfall_erklaert(qt_widgets, konfig, geraet):
+    seite = seite_bauen(qt_widgets, geraet)
+    seite.primaer_button.click()
+    text = seite.geraet_label.text()
+    assert "Erkannt" in text and "noch nicht mit einem WLAN verbunden" in text and "gleich ein" in text
+    assert "noch nicht eingerichtet" not in text  # klang nach einem Fehler
+
+
+def test_bereits_eingerichtetes_geraet_nennt_das_wlan(qt_widgets, konfig, geraet):
+    seite = seite_bauen(qt_widgets, geraet)
+    info = usb.GeraeteInfo(
+        geraete_id="1a2b3c4d5e6f", board="esp32-s3-lcd", firmware="1.0.0", eingerichtet=True, wlan="Buero",
+        pc_url="http://192.168.0.10:8765", server_url="", token_pc=True, token_server=False,
+    )
+    seite._erkannt(info)
+    assert "bereits für WLAN „Buero“ eingerichtet" in seite.geraet_label.text()
+
+
 def test_mehrere_oder_kein_esp32_verlangen_die_auswahl(qt_widgets, konfig, geraet):
     seite = seite_bauen(qt_widgets, geraet, anschluesse=(ANDERES,))
     seite.primaer_button.click()

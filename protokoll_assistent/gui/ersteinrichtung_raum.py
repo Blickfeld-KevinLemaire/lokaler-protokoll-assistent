@@ -352,8 +352,12 @@ class VermerkRaumSeite(QWidget):
 
     def _erkannt(self, info: usb.GeraeteInfo) -> None:
         self._info = info
-        zustand = f"bereits für WLAN „{info.wlan}“ eingerichtet" if info.eingerichtet else "noch nicht eingerichtet"
-        self.geraet_label.setText(f"✅ Erkannt: {info.board}, Id {info.geraete_id}, Firmware {info.firmware} ({zustand}).")
+        erkannt = f"✅ Erkannt: {info.board}, Id {info.geraete_id}, Firmware {info.firmware}"
+        if info.eingerichtet:
+            self.geraet_label.setText(f"{erkannt} (bereits für WLAN „{info.wlan}“ eingerichtet).")
+        else:
+            # Frisch oder zurückgesetzt: Im Gerät steht noch kein WLAN. Das ist der Normalfall, kein Fehler.
+            self.geraet_label.setText(f"{erkannt}. Das Gerät ist noch nicht mit einem WLAN verbunden – das richten wir gleich ein.")
         self._beschaeftigt(False, "")
 
     # ------------------------------------------------------------------
