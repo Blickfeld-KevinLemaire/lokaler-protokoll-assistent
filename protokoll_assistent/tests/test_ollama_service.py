@@ -567,3 +567,165 @@ def test_find_ollama_executable_ohne_fund(monkeypatch, tmp_path):
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
     monkeypatch.setenv("PROGRAMFILES", str(tmp_path))
     assert ollama_service.find_ollama_executable() is None
+
+
+# --------------------------------------------------------------------------
+# Dienst im Hintergrund halten
+# --------------------------------------------------------------------------
+class _Uhr:
+    def __init__(self):
+        self.jetzt = 1000.0
+
+    def __call__(self) -> float:
+        return self.jetzt
+
+    def schlafen(self, sekunden: float) -> None:
+        self.jetzt += sekunden
+
+
+@pytest.fixture
+def start_erlaubt(monkeypatch):
+    monkeypatch.setattr(ollama_service, "AUTO_START", True)
+    monkeypatch.setattr(ollama_service, "_letzter_startversuch", None)
+
+
+def test_laeuft_der_dienst_wird_nichts_gestartet(start_erlaubt):
+    gestartet = []
+    assert ollama_service.dienst_starten(laeuft_fn=lambda *a: True, popen_fn=lambda *a, **k: gestartet.append(a))
+    assert gestartet == []
+
+
+def test_start_ist_in_tests_und_fuer_fremde_adressen_aus(monkeypatch):
+    gestartet = []
+    nie = lambda *a, **k: gestartet.append(a)  # noqa: E731
+    kein_dienst = lambda *a: False  # noqa: E731
+    assert not ollama_service.dienst_starten(laeuft_fn=kein_dienst, popen_fn=nie)  # AUTO_START ist aus (conftest)
+    monkeypatch.setattr(ollama_service, "AUTO_START", True)
+    assert not ollama_service.dienst_starten("http://ollama:11434", laeuft_fn=kein_dienst, popen_fn=nie)
+    assert not ollama_service.dienst_starten("http://192.168.0.5:11434", laeuft_fn=kein_dienst, popen_fn=nie)
+    assert gestartet == []
+    assert ollama_service.ist_lokale_adresse("http://127.0.0.1:11434") and ollama_service.ist_lokale_adresse("http://localhost:11434")
+
+
+def test_dienst_wird_unsichtbar_als_server_gestartet_und_abgewartet(start_erlaubt, tmp_path):
+    uhr = _Uhr()
+    aufrufe = []
+    antworten = iter([False, False, False, False, True])  # vor der Sperre, in der Sperre, dann nach 2 s
+
+    def starte(befehl, **kwargs):
+        aufrufe.append((befehl, kwargs))
+
+    programm = tmp_path / "ollama.exe"
+    assert ollama_service.dienst_starten(
+        ausfuehrbar_fn=lambda: programm,
+        popen_fn=starte,
+        laeuft_fn=lambda *a: next(antworten),
+        schlafen_fn=uhr.schlafen,
+        uhr_fn=uhr,
+    )
+    befehl, kwargs = aufrufe[0]
+    assert befehl == [str(programm), "serve"]  # nur der Dienst, nicht die Oberflaeche
+    assert kwargs["creationflags"] == (
+        ollama_service.LOSGELOEST | ollama_service.NEUE_PROZESSGRUPPE | ollama_service.KEIN_FENSTER
+    )
+    assert uhr.jetzt > 1000.0
+
+
+def test_antwortet_der_dienst_nie_wird_nach_der_wartezeit_aufgegeben(start_erlaubt, tmp_path):
+    uhr = _Uhr()
+    assert not ollama_service.dienst_starten(
+        ausfuehrbar_fn=lambda: tmp_path / "ollama.exe",
+        popen_fn=lambda *a, **k: None,
+        laeuft_fn=lambda *a: False,
+        schlafen_fn=uhr.schlafen,
+        uhr_fn=uhr,
+        warten=5.0,
+    )
+    assert 1005.0 <= uhr.jetzt < 1010.0
+
+
+def test_nach_einem_fehlschlag_gibt_es_eine_pause_vor_dem_naechsten_start(start_erlaubt, tmp_path):
+    uhr = _Uhr()
+    gestartet = []
+    argumente = {
+        "ausfuehrbar_fn": lambda: tmp_path / "ollama.exe",
+        "popen_fn": lambda *a, **k: gestartet.append(a),
+        "laeuft_fn": lambda *a: False,
+        "schlafen_fn": uhr.schlafen,
+        "uhr_fn": uhr,
+        "warten": 2.0,
+    }
+    assert not ollama_service.dienst_starten(**argumente)
+    assert not ollama_service.dienst_starten(**argumente)  # zu bald: kein zweiter Start
+    assert len(gestartet) == 1
+    uhr.jetzt += ollama_service.START_PAUSE_SEKUNDEN
+    assert not ollama_service.dienst_starten(**argumente)
+    assert len(gestartet) == 2
+
+
+def test_ohne_programm_oder_bei_startfehler_gibt_es_false(start_erlaubt, tmp_path):
+    uhr = _Uhr()
+    gemeinsam = {"laeuft_fn": lambda *a: False, "schlafen_fn": uhr.schlafen, "uhr_fn": uhr}
+    assert not ollama_service.dienst_starten(ausfuehrbar_fn=lambda: None, popen_fn=pytest.fail, **gemeinsam)
+
+    def verboten(*_a, **_k):
+        raise PermissionError("AppLocker")
+
+    uhr.jetzt += 100
+    assert not ollama_service.dienst_starten(ausfuehrbar_fn=lambda: tmp_path / "ollama.exe", popen_fn=verboten, **gemeinsam)
+
+
+def test_anfrage_startet_den_dienst_bei_verweigerter_verbindung_und_wiederholt_einmal(monkeypatch):
+    versuche = []
+
+    class Antwort:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_a):
+            return False
+
+        def read(self):
+            return b'{"response": "Hallo", "done_reason": "stop"}'
+
+    def urlopen(request, timeout):
+        versuche.append(request.full_url)
+        if len(versuche) == 1:
+            raise urllib.error.URLError(ConnectionRefusedError(10061, "verweigert"))
+        return Antwort()
+
+    gestartet = []
+    monkeypatch.setattr(ollama_service.urllib.request, "urlopen", urlopen)
+    monkeypatch.setattr(ollama_service, "dienst_starten", lambda url, **k: gestartet.append(url) or True)
+    assert ollama_service.generate_text("Frage", "System", model="m") == "Hallo"
+    assert gestartet == ["http://127.0.0.1:11434"] and len(versuche) == 2
+
+
+def test_anfrage_meldet_den_fehler_wenn_der_dienst_nicht_startet(monkeypatch):
+    def urlopen(request, timeout):
+        raise urllib.error.URLError(ConnectionRefusedError(10061, "verweigert"))
+
+    monkeypatch.setattr(ollama_service.urllib.request, "urlopen", urlopen)
+    monkeypatch.setattr(ollama_service, "dienst_starten", lambda url, **k: False)
+    with pytest.raises(ollama_service.OllamaError, match="nicht erreichbar"):
+        ollama_service.generate_text("Frage", "System", model="m")
+
+
+def test_andere_fehler_starten_den_dienst_nicht(monkeypatch):
+    def timeout_fehler(request, timeout):
+        raise urllib.error.URLError(TimeoutError("zu langsam"))
+
+    monkeypatch.setattr(ollama_service.urllib.request, "urlopen", timeout_fehler)
+    monkeypatch.setattr(ollama_service, "dienst_starten", lambda *a, **k: pytest.fail("kein Start bei Zeitueberschreitung"))
+    with pytest.raises(ollama_service.OllamaError):
+        ollama_service.generate_text("Frage", "System", model="m")
+
+
+def test_mit_eigenem_oeffner_wird_nie_gestartet(monkeypatch):
+    monkeypatch.setattr(ollama_service, "dienst_starten", lambda *a, **k: pytest.fail("Tests starten nichts"))
+
+    def oeffner(request, timeout):
+        raise urllib.error.URLError(ConnectionRefusedError(10061, "verweigert"))
+
+    with pytest.raises(ollama_service.OllamaError):
+        ollama_service.embed("m", ["a"], opener=oeffner)

@@ -398,3 +398,20 @@ def test_falsche_signatur_verhindert_die_installation(tmp_path):
             install_fn=pytest.fail,
         )
     assert not installer.exists()
+
+
+def test_app_starten_startet_den_dienst_und_nicht_die_oberflaeche(tmp_path, monkeypatch):
+    aufrufe = []
+    monkeypatch.setattr(oes.subprocess, "Popen", lambda befehl, **kwargs: aufrufe.append((befehl, kwargs)))
+    (tmp_path / "ollama.exe").write_bytes(b"")
+    (tmp_path / "ollama app.exe").write_bytes(b"")
+    oes._starte_app(tmp_path)
+    assert [befehl for befehl, _ in aufrufe] == [[str(tmp_path / "ollama.exe"), "serve"]]
+
+
+def test_app_starten_nimmt_ohne_dienstprogramm_die_anwendung(tmp_path, monkeypatch):
+    aufrufe = []
+    monkeypatch.setattr(oes.subprocess, "Popen", lambda befehl, **kwargs: aufrufe.append(befehl))
+    (tmp_path / "ollama app.exe").write_bytes(b"")
+    oes._starte_app(tmp_path)
+    assert aufrufe == [[str(tmp_path / "ollama app.exe")]]

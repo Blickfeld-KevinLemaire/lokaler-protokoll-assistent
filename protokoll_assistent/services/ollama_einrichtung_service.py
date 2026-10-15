@@ -58,6 +58,7 @@ _DEINSTALLATIONS_SCHLUESSEL = (
 )
 _KEIN_FENSTER = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 _LOSGELOEST = getattr(subprocess, "DETACHED_PROCESS", 0)
+_NEUE_GRUPPE = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
 
 INSTALLATION_ZEITLIMIT_SEKUNDEN = 15 * 60
 DIENST_ZEITLIMIT_SEKUNDEN = 120
@@ -312,8 +313,21 @@ def installiere_still(
 
 
 def _starte_app(ordner: Path | None) -> None:
-    """Startet die Ollama-Anwendung (sie startet den Dienst), losgeloest von uns."""
+    """Startet den Ollama-Dienst (``ollama serve``), losgeloest von uns. Nur wenn es ``ollama.exe`` nicht gibt, die
+    Ollama-Anwendung: Sie beendete sich bei Tests mitten in einem Modell-Download selbst (Ollama 0.40.4), der reine
+    Dienst nicht -- und fuer das Aufnahmegeraet muss der Dienst laufen, ohne dass jemand ein Fenster bedient."""
     if ordner is None:
+        return
+    dienst = ordner / "ollama.exe"
+    if dienst.is_file():
+        subprocess.Popen(
+            [str(dienst), "serve"],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=_LOSGELOEST | _KEIN_FENSTER | _NEUE_GRUPPE,
+            close_fds=True,
+        )
         return
     programm = ordner / "ollama app.exe"
     if programm.is_file():

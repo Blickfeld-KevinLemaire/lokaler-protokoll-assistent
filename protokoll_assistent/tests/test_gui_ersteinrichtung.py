@@ -549,6 +549,7 @@ def test_einrichtungsworker_kompletter_ablauf(qt_app):
         aufgaben=["ffmpeg", "ollama"], modelle=["a", "b"],
         ffmpeg_fn=lambda log: True, ollama_fn=lambda log: True,
         pull_fn=lambda modell, progress_cb: gezogen.append(modell) or progress_cb("pulling", 5, 10),
+        verifiziere_fn=lambda modell: True,
     )
     assert ergebnis == {"ffmpeg": True, "ollama": True, "modell:a": True, "modell:b": True}
     assert gezogen == ["a", "b"]
@@ -660,3 +661,57 @@ def test_prozessstart_ist_losgeloest(monkeypatch, tmp_path):
     flags = kwargs["creationflags"]
     assert flags & KEIN_FENSTER == KEIN_FENSTER
     assert not flags & getattr(subprocess, "DETACHED_PROCESS", 0)
+
+
+def test_modell_gilt_erst_als_geladen_wenn_es_wirklich_bei_ollama_liegt(qt_app):
+    log = []
+    worker = ee.EinrichtungsWorker(
+        [], ["m"], pull_fn=lambda modell, progress_cb: None, verifiziere_fn=lambda modell: False
+    )
+    worker.log_line.connect(log.append)
+    ergebnis = []
+    worker.fertig.connect(ergebnis.append)
+    worker.run()
+    assert ergebnis == [{"modell:m": False}]
+    assert "nicht vollständig geladen" in log[-1]
+
+
+def test_ollama_faellt_beim_download_weg_dienst_startet_neu_und_der_download_geht_weiter(qt_app):
+    from protokoll_assistent.services import ollama_service
+
+    versuche, neustarts, log = [], [], []
+
+    def ziehen(modell, progress_cb):
+        versuche.append(modell)
+        if len(versuche) < 3:
+            raise ollama_service.OllamaError("Ollama ist nicht erreichbar")
+
+    worker = ee.EinrichtungsWorker(
+        [], ["m"], pull_fn=ziehen, verifiziere_fn=lambda modell: True, dienst_fn=lambda: neustarts.append(1) or True
+    )
+    worker.log_line.connect(log.append)
+    ergebnis = []
+    worker.fertig.connect(ergebnis.append)
+    worker.run()
+    assert ergebnis == [{"modell:m": True}]
+    assert len(versuche) == 3 and len(neustarts) == 2
+    assert any("neu gestartet" in zeile for zeile in log)
+
+
+def test_nach_dem_dritten_abbruch_gibt_der_download_auf(qt_app):
+    from protokoll_assistent.services import ollama_service
+
+    versuche = []
+
+    def ziehen(modell, progress_cb):
+        versuche.append(modell)
+        raise ollama_service.OllamaError("weg")
+
+    worker = ee.EinrichtungsWorker(
+        [], ["m"], pull_fn=ziehen, verifiziere_fn=lambda modell: True, dienst_fn=lambda: True
+    )
+    ergebnis = []
+    worker.fertig.connect(ergebnis.append)
+    worker.run()
+    assert ergebnis == [{"modell:m": False}]
+    assert len(versuche) == ee.MODELL_VERSUCHE

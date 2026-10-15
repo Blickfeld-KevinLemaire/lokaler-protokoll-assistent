@@ -11,7 +11,10 @@ import json
 import os
 import shutil
 import subprocess
+import threading
+import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -19,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from protokoll_assistent.utils.json_validation import extract_json_object
+from protokoll_assistent.utils.prozess import KEIN_FENSTER, LOSGELOEST, NEUE_PROZESSGRUPPE
 
 
 # Im Container laeuft Ollama als eigener Dienst: Adresse ueber 'OLLAMA_URL'
@@ -212,6 +216,99 @@ def find_ollama_executable():
     return None
 
 
+# ----------------------------------------------------------------------------------------------
+# Dienst im Hintergrund halten
+# ----------------------------------------------------------------------------------------------
+# Das Aufnahmegeraet liefert, wann es will -- und die Zusammenfassung braucht Ollama genau dann. Der Dienst muss deshalb
+# laufen, ohne dass jemand ihn bedient. Gestartet wird ``ollama serve`` (nur der Dienst), nicht die Ollama-Oberflaeche:
+# Deren Fenster ist nicht noetig, und sie beendete sich in Tests mitten in einem Modell-Download (Ollama 0.40.4).
+
+# Tests schalten das ab: Sie duerfen nie einen echten Dienst starten.
+AUTO_START = True
+START_WARTEN_SEKUNDEN = 40.0
+# So lange nach einem Startversuch kein zweiter: Scheitert der Start, soll nicht jede Anfrage es neu versuchen.
+START_PAUSE_SEKUNDEN = 20.0
+_start_sperre = threading.Lock()
+_letzter_startversuch: float | None = None
+
+
+def ist_lokale_adresse(base_url: str) -> bool:
+    """Nur der Dienst auf diesem Rechner wird von uns gestartet (nicht ein Ollama im Container oder im Netz)."""
+    host = (urllib.parse.urlparse(base_url).hostname or "").lower()
+    return host in ("127.0.0.1", "localhost", "::1")
+
+
+def dienst_starten(
+    base_url: str = OLLAMA_BASE_URL,
+    *,
+    ausfuehrbar_fn: Callable[[], Path | None] | None = None,
+    popen_fn: Callable[..., Any] | None = None,
+    laeuft_fn: Callable[..., bool] | None = None,
+    schlafen_fn: Callable[[float], None] = time.sleep,
+    uhr_fn: Callable[[], float] = time.monotonic,
+    warten: float | None = None,
+) -> bool:
+    """Stellt sicher, dass der lokale Ollama-Dienst antwortet. Laeuft er nicht, wird ``ollama serve`` unsichtbar und
+    vom Programm geloest gestartet und gewartet, bis er antwortet. ``True``, wenn der Dienst danach laeuft.
+
+    Mehrere gleichzeitige Aufrufe starten ihn nur einmal; nach einem fehlgeschlagenen Versuch gibt es eine Pause
+    (``START_PAUSE_SEKUNDEN``). Ist ``AUTO_START`` aus oder die Adresse nicht der eigene Rechner, wird nur geprueft."""
+    laeuft = laeuft_fn or is_service_running
+    if laeuft(base_url, 2):
+        return True
+    if not AUTO_START or not ist_lokale_adresse(base_url):
+        return False
+    global _letzter_startversuch
+    with _start_sperre:
+        if laeuft(base_url, 2):  # ein anderer Aufruf war schneller
+            return True
+        jetzt = uhr_fn()
+        if _letzter_startversuch is not None and jetzt - _letzter_startversuch < START_PAUSE_SEKUNDEN:
+            return False
+        programm = (ausfuehrbar_fn or find_ollama_executable)()
+        if programm is None:
+            return False
+        _letzter_startversuch = jetzt
+        starte = popen_fn or subprocess.Popen
+        try:
+            starte(
+                [str(programm), "serve"],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                close_fds=True,
+                creationflags=LOSGELOEST | NEUE_PROZESSGRUPPE | KEIN_FENSTER,
+            )
+        except OSError:
+            return False
+        ende = uhr_fn() + (START_WARTEN_SEKUNDEN if warten is None else warten)
+        while uhr_fn() < ende:
+            if laeuft(base_url, 2):
+                return True
+            schlafen_fn(1.0)
+        return laeuft(base_url, 2)
+
+
+def _verbindung_verweigert(fehler: urllib.error.URLError) -> bool:
+    grund = fehler.reason
+    return isinstance(grund, ConnectionRefusedError) or getattr(grund, "winerror", None) == 10061
+
+
+def _oeffnen(request: urllib.request.Request, timeout: float, opener: OeffneFn | None = None) -> Any:
+    """Wie ``urlopen``. Ist der lokale Dienst nicht erreichbar (Verbindung verweigert), wird er gestartet und die
+    Anfrage einmal wiederholt. Mit ``opener`` (Tests) wird nichts gestartet."""
+    oeffnen = opener or urllib.request.urlopen
+    try:
+        return oeffnen(request, timeout=timeout)
+    except urllib.error.URLError as fehler:
+        if opener is not None or isinstance(fehler, urllib.error.HTTPError) or not _verbindung_verweigert(fehler):
+            raise
+        adresse = urllib.parse.urlparse(request.full_url)
+        if not dienst_starten(f"{adresse.scheme}://{adresse.netloc}"):
+            raise
+    return oeffnen(request, timeout=timeout)
+
+
 def _get_json(url: str, timeout: float) -> dict[str, Any]:
     request = urllib.request.Request(url, method="GET")
     with urllib.request.urlopen(request, timeout=timeout) as response:
@@ -372,7 +469,7 @@ def _post_json(url: str, payload: dict[str, Any], timeout: float, opener: Oeffne
         headers={"Content-Type": "application/json; charset=utf-8"},
         method="POST",
     )
-    return (opener or urllib.request.urlopen)(request, timeout=timeout)
+    return _oeffnen(request, timeout, opener)
 
 
 def _ollama_fehler(error: Exception) -> OllamaError:
@@ -474,7 +571,7 @@ def _generate_request(body: dict[str, Any], base_url: str, timeout: float) -> st
         method="POST",
     )
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with _oeffnen(request, timeout) as response:
             result = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as error:
         details = error.read().decode("utf-8", errors="replace")[:1000]
@@ -528,7 +625,7 @@ def _chat_request(
         method="POST",
     )
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with _oeffnen(request, timeout) as response:
             result = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as error:
         details = error.read().decode("utf-8", errors="replace")[:1000]

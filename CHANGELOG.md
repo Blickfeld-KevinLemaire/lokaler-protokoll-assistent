@@ -10,6 +10,15 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 ### Added
 
+- **Ollama läuft im Hintergrund, solange Geräte liefern:** Ollama wird nicht mehr über seine Oberfläche gestartet
+  (`ollama app.exe` beendete sich bei Tests mitten in einem Modell-Download selbst, Ollama 0.40.4), sondern als Dienst
+  (`ollama serve`, unsichtbar, vom Programm gelöst). Fällt der Dienst weg, startet ihn jede Anfrage an das lokale Modell
+  neu und wiederholt sich einmal, und eine Wache (alle 30 s, solange der Geräteempfang an ist und lokal ausgewertet wird)
+  startet ihn bei Bedarf neu und meldet im Empfangshinweis, wenn das Sprachmodell fehlt. So klappt auch die
+  Zusammenfassung vom Aufnahmegerät, wenn niemand am PC sitzt.
+- **Einrichtung: Sprachmodell wirklich geladen:** Fällt Ollama während des Downloads weg, startet der Dienst neu und der
+  Download geht dort weiter (bis zu dreimal). „Fertig“ gilt erst, wenn das Modell bei Ollama liegt; sonst steht auf der
+  letzten Seite deutlich, dass Protokoll und Zusammenfassung ohne das Modell nicht gehen.
 - **Rückfrage „Zusammenfassung erstellen?“ ohne Antwort bleibt nicht mehr hängen:** Beginnt das Gerät eine neue
   Aufnahme (oder startet es neu), bevor die Frage zur vorigen beantwortet ist, wartet die vorige nicht länger. Reicht
   die Grafikkarte für Sprachmodell und Whisper zugleich (oder läuft die Zusammenfassung über eine API), wird sie nach
