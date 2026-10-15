@@ -103,7 +103,7 @@ def dialog(qt_widgets, konfig, monkeypatch):
 
 
 def _zum_rechner(dialog):
-    """Willkommen -> Vermerk Raum (ohne Geraet: ueberspringen) -> Ihr Computer."""
+    """Willkommen -> VERMERK Raum (ohne Geraet: ueberspringen) -> Ihr Computer."""
     dialog.los_button.click()
     assert dialog.stack.currentIndex() == dialog.S_RAUM
     dialog.raum_seite.ueberspringen_button.click()

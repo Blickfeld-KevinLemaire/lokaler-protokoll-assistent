@@ -4,7 +4,7 @@ moeglich ist und was es kostet -- und laedt erst nach Zustimmung.
 Acht Schritte, alle in einem Dialog ueber dem Hauptfenster:
 
 1. Willkommen        -- was das Programm macht.
-2. Vermerk Raum      -- optional: das Aufnahmegeraet (Waveshare ESP32-S3) per
+2. VERMERK Raum      -- optional: das Aufnahmegeraet (Waveshare ESP32-S3) per
                         USB mit dem WLAN und diesem Rechner verbinden
                         (``gui/ersteinrichtung_raum.py``); ohne Geraet
                         ueberspringen -- nachholbar in den Einstellungen.
@@ -316,7 +316,7 @@ class ErsteinrichtungDialog(QDialog):
     NEUSTART = 2
     SCHRITTE = (
         "Willkommen",
-        "Vermerk Raum",
+        "VERMERK Raum",
         "Ihr Computer",
         "Arbeitsweise",
         "Was nötig ist",
@@ -327,7 +327,7 @@ class ErsteinrichtungDialog(QDialog):
     (S_WILLKOMMEN, S_RAUM, S_RECHNER, S_ARBEITSWEISE, S_KOSTEN, S_EINRICHTUNG, S_MITSCHRIFT, S_FERTIG) = range(8)
 
     def __init__(self, parent=None, start_bei: str = "", *, mit_raum: bool = True):
-        """``mit_raum=False`` laesst den Schritt "Vermerk Raum" weg -- fuer den
+        """``mit_raum=False`` laesst den Schritt "VERMERK Raum" weg -- fuer den
         Aufruf aus den Einstellungen, wo es dafuer den Reiter "Aufnahmegeräte"
         gibt (der Einstellungsdialog haelt die Geraeteliste selbst im Speicher
         und wuerde eine hier eingetragene sonst beim Speichern ueberschreiben)."""
@@ -352,7 +352,7 @@ class ErsteinrichtungDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 20, 24, 16)
         schritte = QHBoxLayout()
-        # Nach Seitenindex; ohne den Schritt "Vermerk Raum" fehlt dort ein Eintrag
+        # Nach Seitenindex; ohne den Schritt "VERMERK Raum" fehlt dort ein Eintrag
         # und die Zaehlung geht trotzdem lueckenlos weiter.
         self._schritt_labels: dict[int, QLabel] = {}
         sichtbar = [i for i in range(len(self.SCHRITTE)) if mit_raum or i != self.S_RAUM]
@@ -429,7 +429,7 @@ class ErsteinrichtungDialog(QDialog):
     def reject(self) -> None:
         """Schliessen ohne Abschluss: Der Dialog kommt beim naechsten Start
         wieder -- ausser mit "Nicht mehr fragen"."""
-        # Schreibt der Schritt "Vermerk Raum" gerade ins Geraet, bleibt der
+        # Schreibt der Schritt "VERMERK Raum" gerade ins Geraet, bleibt der
         # Dialog offen (Esc, "Später einrichten"): halb beschrieben waere das
         # Geraet unbrauchbar, und der Faden wuerde mit dem Dialog zerstoert.
         if self.raum_seite.muss_warten():
@@ -487,7 +487,7 @@ class ErsteinrichtungDialog(QDialog):
         return seite
 
     # ------------------------------------------------------------------
-    # 2. Vermerk Raum (optional)
+    # 2. VERMERK Raum (optional)
     # ------------------------------------------------------------------
     def _baue_raum(self) -> QWidget:
         self.raum_seite = VermerkRaumSeite(self)

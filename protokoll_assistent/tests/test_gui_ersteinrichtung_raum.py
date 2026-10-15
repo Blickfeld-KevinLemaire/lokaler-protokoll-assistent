@@ -1,4 +1,4 @@
-"""Tests fuer den Schritt "Vermerk Raum" der Ersteinrichtung
+"""Tests fuer den Schritt "VERMERK Raum" der Ersteinrichtung
 ('gui/ersteinrichtung_raum.py' und seine Einbindung in 'gui/ersteinrichtung.py').
 
 Das Geraet ist die Attrappe aus 'test_geraete_usb_service.py'. Die Arbeit, die
@@ -268,7 +268,7 @@ def assistent(qt_widgets, konfig, monkeypatch):
 
 
 def test_der_schritt_steht_direkt_nach_dem_willkommen(assistent):
-    assert ee.ErsteinrichtungDialog.SCHRITTE[:2] == ("Willkommen", "Vermerk Raum")
+    assert ee.ErsteinrichtungDialog.SCHRITTE[:2] == ("Willkommen", "VERMERK Raum")
     assert assistent.S_WILLKOMMEN + 1 == assistent.S_RAUM and assistent.S_RAUM + 1 == assistent.S_RECHNER
     assistent.los_button.click()
     assert assistent.stack.currentIndex() == assistent.S_RAUM
@@ -288,7 +288,7 @@ def test_ohne_raum_springt_der_assistent_ueber_den_schritt(qt_widgets, konfig, m
     monkeypatch.setattr(ee, "laufzeit_vorhanden", lambda: False)
     dialog = qt_widgets(ee.ErsteinrichtungDialog(mit_raum=False))
     texte = [label.text() for label in dialog._schritt_labels.values()]
-    assert "Vermerk Raum" not in " ".join(texte) and texte[0] == "1. Willkommen" and texte[1] == "2. Ihr Computer"
+    assert "VERMERK Raum" not in " ".join(texte) and texte[0] == "1. Willkommen" and texte[1] == "2. Ihr Computer"
     dialog.los_button.click()
     assert dialog.stack.currentIndex() == dialog.S_RECHNER
     assert [e.gestartet for e in _Ermittlung.instanzen] == [True]

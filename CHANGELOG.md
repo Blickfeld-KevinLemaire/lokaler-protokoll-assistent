@@ -96,8 +96,8 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
   abtippen. Danach steht das Gerät mit seiner Id in der Liste, und eine Zeile
   für das Geräte-Inventar lässt sich kopieren. Meldet sich unter dem Namen
   eines Geräts plötzlich andere Hardware, zeigt die Liste eine Warnung.
-- **Vermerk Raum gleich bei der Ersteinrichtung verbinden:** Direkt nach der
-  Begrüßung fragt der Assistent, ob es ein Vermerk Raum gibt, und koppelt das
+- **VERMERK Raum gleich bei der Ersteinrichtung verbinden:** Direkt nach der
+  Begrüßung fragt der Assistent, ob es ein VERMERK Raum gibt, und koppelt das
   Aufnahmegerät auf Wunsch per USB – Gerät anschließen, WLAN-Name und Passwort
   eingeben, fertig; der Empfang wird dabei eingeschaltet. Wer kein Gerät hat,
   überspringt den Schritt. Die Einrichtung unter *Einstellungen →
