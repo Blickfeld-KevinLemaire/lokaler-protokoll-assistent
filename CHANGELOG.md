@@ -10,6 +10,11 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 ### Added
 
+- **Firmware S3 mit Display: Hinweis nach einem Neustart:** Wird das Gerät zurückgesetzt oder aus- und wieder eingeschaltet (etwa
+  durch einen versehentlichen Druck auf die Ein/Aus-Taste, die den Strom in der Hardware unterbricht und von der Firmware nicht
+  abgefangen werden kann), zeigt die Statuszeile 8 Sekunden „NEUSTART“; war dabei eine Aufnahme aktiv, „NEUSTART: AUFNAHME
+  GESICHERT“. Die Aufnahme bleibt auf der SD-Karte (die Firmware sichert alle 30 s) und wird wie jede andere hochgeladen. Ein
+  gewollter Neustart per Software (USB-Einrichtung) zeigt nichts.
 - **Firmware S3 mit Display: Auftrag wählen, Zusammenfassung freigeben, Fragen stellen:** Unter „AUFNAHME STARTEN“ steht
   eine Auswahlliste mit den Aufträgen der Software (Namen ohne Umlaute). Nach dem Transkript zeigt das Gerät den grünen Haken
   und fragt „ZUSAMMENFASSUNG ERSTELLEN?“ (JA/NEIN); nach „Ja“ erstellt die Software die Zusammenfassung, am Ende erscheint
