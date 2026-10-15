@@ -126,13 +126,18 @@ def ermittle_status(
     registry_fn: Callable[[], tuple[Path | None, str | None] | None] = _registry_eintrag,
     dienst_fn: Callable[[], bool] = ollama_service.is_service_running,
 ) -> OllamaStatus:
+    """Ist Ollama wirklich da? Nur, wenn es ``ollama.exe`` gibt oder ein Dienst antwortet. Ein Deinstallationseintrag
+    allein genuegt nicht: Wurde Ollama von Hand geloescht oder nur halb installiert, bleibt er stehen -- die
+    Einrichtung hielt Ollama dann fuer installiert, und die Nachbearbeitung scheiterte spaeter mit "nicht gefunden"."""
     pfad = finde_fn()
+    if pfad is not None and not pfad.is_file():
+        pfad = None
     eintrag = registry_fn()
     ordner, version = eintrag if eintrag is not None else (None, None)
     if pfad is None and ordner is not None and (ordner / "ollama.exe").is_file():
         pfad = ordner / "ollama.exe"
     dienst = dienst_fn()
-    return OllamaStatus(installiert=pfad is not None or eintrag is not None or dienst, pfad=pfad, version=version, dienst_laeuft=dienst)
+    return OllamaStatus(installiert=pfad is not None or dienst, pfad=pfad, version=version, dienst_laeuft=dienst)
 
 
 # --------------------------------------------------------------------------

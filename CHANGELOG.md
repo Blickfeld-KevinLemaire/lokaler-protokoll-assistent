@@ -19,6 +19,9 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 - **Einrichtung: Sprachmodell wirklich geladen:** Fällt Ollama während des Downloads weg, startet der Dienst neu und der
   Download geht dort weiter (bis zu dreimal). „Fertig“ gilt erst, wenn das Modell bei Ollama liegt; sonst steht auf der
   letzten Seite deutlich, dass Protokoll und Zusammenfassung ohne das Modell nicht gehen.
+- **Einrichtung hält Ollama nicht mehr fälschlich für installiert:** Ein stehengebliebener Deinstallationseintrag (nach
+  einer von Hand gelöschten oder halb abgebrochenen Installation) genügte bisher; dann wurde nichts installiert, und die
+  Nachbearbeitung scheiterte später. Jetzt zählt nur ein vorhandenes `ollama.exe` oder ein antwortender Dienst.
 - **Rückfrage „Zusammenfassung erstellen?“ ohne Antwort bleibt nicht mehr hängen:** Beginnt das Gerät eine neue
   Aufnahme (oder startet es neu), bevor die Frage zur vorigen beantwortet ist, wartet die vorige nicht länger. Reicht
   die Grafikkarte für Sprachmodell und Whisper zugleich (oder läuft die Zusammenfassung über eine API), wird sie nach
