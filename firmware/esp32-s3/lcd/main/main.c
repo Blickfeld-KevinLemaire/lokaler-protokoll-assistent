@@ -22,6 +22,7 @@
 #include "nvs.h"
 #include "driver/usb_serial_jtag.h"
 #include "esp_timer.h"
+#include "esp_system.h"
 #include "driver/gpio.h"
 
 #include <stdint.h>
@@ -122,6 +123,13 @@ static volatile bool rueckfrage_gesehen = false;            /* die Software hat 
 static volatile bool zusammenfassung_gewuenscht = false;    /* "Ja" gedrueckt, noch nicht an die Software gemeldet */
 static volatile bool status_neu_erzwingen = false;          /* Statustext aus dem Zustand neu setzen */
 static int vz_shown_key = -2;
+
+/* Hinweis nach einem Neustart (z. B. versehentlich die Ein/Aus-Taste gedrueckt): Die Taste unterbricht die Stromversorgung
+ * in der Hardware, die Firmware kann das nicht abfangen -- sie kann aber zeigen, was passiert ist. */
+static char neustart_hinweis[40] = "";
+static bool neustart_hinweis_gestartet = false;
+static uint32_t neustart_hinweis_seit_ms = 0;
+#define NEUSTART_HINWEIS_MS 8000u
 static rec_state_t vz_shown_state = (rec_state_t)-1;
 
 static uint8_t wave_levels[WAVE_BARS];
@@ -243,6 +251,39 @@ static uint32_t find_next_sd_record_id(void)
     return highest + 1;
 }
 
+/* Merker im NVS: Eine Aufnahme laeuft. Bleibt er nach einem Neustart gesetzt, wurde sie unterbrochen (Strom weg). */
+static void rec_aktiv_setzen(bool aktiv)
+{
+    nvs_handle_t handle;
+    if (nvs_open("vermerk", NVS_READWRITE, &handle) != ESP_OK) {
+        return;
+    }
+    nvs_set_u8(handle, "rec_aktiv", aktiv ? 1 : 0);
+    nvs_commit(handle);
+    nvs_close(handle);
+}
+
+/* Nach dem Start: Warum? Zeigt den Hinweis fuer den Statustext (und loescht den Merker). */
+static void neustart_auswerten(void)
+{
+    uint8_t aktiv = 0;
+    nvs_handle_t handle;
+    if (nvs_open("vermerk", NVS_READONLY, &handle) == ESP_OK) {
+        nvs_get_u8(handle, "rec_aktiv", &aktiv);
+        nvs_close(handle);
+    }
+    esp_reset_reason_t grund = esp_reset_reason();
+    printf("VERMERK Start: Grund %d, Aufnahme war aktiv: %d\n", (int)grund, (int)aktiv);
+    if (aktiv != 0) {
+        rec_aktiv_setzen(false);
+        snprintf(neustart_hinweis, sizeof(neustart_hinweis), "NEUSTART: AUFNAHME GESICHERT");
+        printf("VERMERK Neustart: Die Aufnahme wurde unterbrochen; was auf der SD-Karte steht, wird hochgeladen\n");
+    } else if (grund != ESP_RST_SW && grund != ESP_RST_DEEPSLEEP) {
+        /* Ein- und Ausschalten, Reset oder Absturz; ein gewollter Neustart per Software (USB-Einrichtung) zaehlt nicht */
+        snprintf(neustart_hinweis, sizeof(neustart_hinweis), "NEUSTART");
+    }
+}
+
 static esp_err_t save_next_record_id(uint32_t id)
 {
     nvs_handle_t handle;
@@ -311,6 +352,7 @@ static FILE *open_new_recording(char *path, size_t path_len)
         }
 
         next_record_id = id + 1;
+        rec_aktiv_setzen(true);
         upload_vorrang_id = id;   /* nach dem Stopp zuerst hochladen, ihr Ergebnis anzeigen */
         printf("VERMERK Aufnahme-ID reserviert: %u\n", (unsigned)id);
         return f;
@@ -338,6 +380,7 @@ static FILE *open_frage_recording(char *path, size_t path_len)
 
 static esp_err_t finalize_recording(FILE *f)
 {
+    rec_aktiv_setzen(false);   /* ordentlich beendet (auch bei einem Fehler: dann ist nichts mehr "unterbrochen") */
     if (f == NULL) {
         return ESP_FAIL;
     }
@@ -932,6 +975,17 @@ static void bedienung_ui_update(rec_state_t state)
         if (lv_tick_elaps(frage_hinweis_seit_ms) >= FRAGE_FEHLER_ANZEIGE_MS) {
             frage_phase = FRAGE_AUS;
             text = NULL;
+        }
+    } else if (neustart_hinweis[0] != '\0' && ruhe) {
+        if (!neustart_hinweis_gestartet) {
+            neustart_hinweis_gestartet = true;
+            neustart_hinweis_seit_ms = lv_tick_get();
+        }
+        if (lv_tick_elaps(neustart_hinweis_seit_ms) < NEUSTART_HINWEIS_MS) {
+            text = neustart_hinweis;
+            farbe = lv_color_hex(0xFF9F0A);
+        } else {
+            neustart_hinweis[0] = '\0';   /* vorbei: der normale Statustext kommt zurueck */
         }
     }
     if (text != NULL) {
@@ -2101,6 +2155,7 @@ void app_main(void)
     Wireless_Init();
     vermerk_konsole_starten(recording_has_priority);   /* Einrichtung ueber USB; nie waehrend einer Aufnahme speichern */
     recording_counter_init();
+    neustart_auswerten();
 
     xTaskCreatePinnedToCore(
         audio_task,
