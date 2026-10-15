@@ -144,6 +144,8 @@ static uint32_t fertig_vollbild_start = 0;       /* lv_tick_get() beim Einblende
 static vermerk_verarbeitung_t fertig_vollbild_zustand = VERMERK_VERARB_UNBEKANNT;   /* fuer diesen Zustand schon gezeigt */
 static lv_obj_t *fertig_vollbild_text;
 static lv_obj_t *auftrag_dropdown;
+static lv_obj_t *auftrag_label;        /* "Zusammenfassung:" ueber der Auswahl */
+static lv_obj_t *scroll_pfeil;         /* Hinweis: nach unten bzw. oben wischen */
 static lv_obj_t *rueckfrage_box;
 static lv_obj_t *antwort_box;
 static lv_obj_t *antwort_frage_label;
@@ -710,13 +712,38 @@ static lv_obj_t *vollbild_schicht_erstellen(void)
 
 static void bedienung_ui_erstellen(void)
 {
-    /* Auftrag waehlen: unter der Aufnahme-Taste, solange nicht aufgenommen wird */
-    auftrag_dropdown = lv_dropdown_create(lv_scr_act());
+    /* Der Bildschirm laesst sich nach unten wischen: darunter steht die Auswahl des Auftrags fuer die Zusammenfassung.
+     * Solange nicht aufgenommen wird; ein kleiner Pfeil unten zeigt, dass es weitergeht. */
+    lv_obj_t *scr = lv_scr_act();
+    lv_obj_set_scroll_dir(scr, LV_DIR_VER);
+    lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLL_ELASTIC);
+
+    auftrag_label = lv_label_create(scr);
+    lv_label_set_text(auftrag_label, "Zusammenfassung:");
+    lv_obj_set_style_text_font(auftrag_label, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_color(auftrag_label, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_align(auftrag_label, LV_ALIGN_TOP_MID, 0, 420);
+
+    /* Ende des Wischbereichs: der Inhalt endet 180 px unter dem Bildschirm */
+    lv_obj_t *ende = lv_obj_create(scr);
+    lv_obj_remove_style_all(ende);
+    lv_obj_set_size(ende, 1, 1);
+    lv_obj_align(ende, LV_ALIGN_TOP_MID, 0, 539);
+    lv_obj_clear_flag(ende, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+
+    scroll_pfeil = lv_label_create(scr);
+    lv_obj_add_flag(scroll_pfeil, LV_OBJ_FLAG_FLOATING);   /* bleibt stehen, wenn der Bildschirm wischt */
+    lv_label_set_text(scroll_pfeil, LV_SYMBOL_DOWN);
+    lv_obj_set_style_text_font(scroll_pfeil, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_color(scroll_pfeil, lv_color_hex(0x4AB7F4), 0);
+    lv_obj_align(scroll_pfeil, LV_ALIGN_TOP_MID, 0, 326);
+
+    auftrag_dropdown = lv_dropdown_create(scr);
     lv_dropdown_set_options(auftrag_dropdown, "Standard-Auftrag");
     lv_dropdown_set_dir(auftrag_dropdown, LV_DIR_TOP);
     lv_dropdown_set_symbol(auftrag_dropdown, LV_SYMBOL_UP);
-    lv_obj_set_size(auftrag_dropdown, 170, 34);
-    lv_obj_align(auftrag_dropdown, LV_ALIGN_TOP_MID, 0, 292);
+    lv_obj_set_size(auftrag_dropdown, 220, 40);
+    lv_obj_align(auftrag_dropdown, LV_ALIGN_TOP_MID, 0, 446);
     lv_obj_set_style_bg_color(auftrag_dropdown, lv_color_hex(0x1C1C1E), 0);
     lv_obj_set_style_text_color(auftrag_dropdown, lv_color_hex(0xFFFFFF), 0);
     lv_obj_set_style_text_font(auftrag_dropdown, &lv_font_montserrat_16, 0);
@@ -833,13 +860,34 @@ static void bedienung_ui_update(rec_state_t state)
         auftraege_anzeigen();
     }
 
-    /* Auswahl nur zeigen, solange nicht aufgenommen oder gefragt wird */
+    /* Auswahl nur zeigen (und den Bildschirm nur wischen lassen), solange nicht aufgenommen oder gefragt wird */
     bool auswahl = ruhe && (phase == FRAGE_AUS || phase == FRAGE_ANTWORT || phase == FRAGE_FEHLER);
+    lv_obj_t *scr = lv_scr_act();
     if (auswahl == lv_obj_has_flag(auftrag_dropdown, LV_OBJ_FLAG_HIDDEN)) {
         if (auswahl) {
             lv_obj_clear_flag(auftrag_dropdown, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_clear_flag(auftrag_label, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_scroll_dir(scr, LV_DIR_VER);
         } else {
             lv_obj_add_flag(auftrag_dropdown, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(auftrag_label, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_scroll_dir(scr, LV_DIR_NONE);
+            lv_obj_scroll_to_y(scr, 0, LV_ANIM_OFF);   /* STOPP und PAUSE muessen sofort erreichbar sein */
+        }
+    }
+    {
+        /* Pfeil: unten "es geht weiter nach unten", ganz unten oben "zurueck nach oben" */
+        static int pfeil = -1;
+        int neu_pfeil = !auswahl ? 0 : (lv_obj_get_scroll_y(scr) < 40 ? 1 : 2);
+        if (neu_pfeil != pfeil) {
+            pfeil = neu_pfeil;
+            if (pfeil == 0) {
+                lv_obj_add_flag(scroll_pfeil, LV_OBJ_FLAG_HIDDEN);
+            } else {
+                lv_label_set_text(scroll_pfeil, pfeil == 1 ? LV_SYMBOL_DOWN : LV_SYMBOL_UP);
+                lv_obj_align(scroll_pfeil, LV_ALIGN_TOP_MID, 0, pfeil == 1 ? 326 : 18);
+                lv_obj_clear_flag(scroll_pfeil, LV_OBJ_FLAG_HIDDEN);
+            }
         }
     }
     if (phase == FRAGE_AUFNAHME) {
@@ -1420,7 +1468,7 @@ static void vermerk_h3_ui_create(void)
     lv_obj_center(pause_button_label);
 
     pending_label = make_label(scr, "", lv_color_hex(0xAAAAAA));
-    lv_obj_align(pending_label, LV_ALIGN_TOP_MID, 0, 330);   /* unter der Auftragswahl */
+    lv_obj_align(pending_label, LV_ALIGN_TOP_MID, 0, 300);
     lv_obj_add_flag(pending_label, LV_OBJ_FLAG_HIDDEN);
 
     bedienung_ui_erstellen();
