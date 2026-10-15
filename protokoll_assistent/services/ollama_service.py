@@ -228,8 +228,16 @@ AUTO_START = True
 START_WARTEN_SEKUNDEN = 40.0
 # So lange nach einem Startversuch kein zweiter: Scheitert der Start, soll nicht jede Anfrage es neu versuchen.
 START_PAUSE_SEKUNDEN = 20.0
+
+
+class _StartZustand:
+    """Wann zuletzt ein Start versucht wurde (Monotonuhr); ``None``: noch nie."""
+
+    letzter_versuch: float | None = None
+
+
 _start_sperre = threading.Lock()
-_letzter_startversuch: float | None = None
+_start = _StartZustand()
 
 
 def ist_lokale_adresse(base_url: str) -> bool:
@@ -258,17 +266,16 @@ def dienst_starten(
         return True
     if not AUTO_START or not ist_lokale_adresse(base_url):
         return False
-    global _letzter_startversuch
     with _start_sperre:
         if laeuft(base_url, 2):  # ein anderer Aufruf war schneller
             return True
         jetzt = uhr_fn()
-        if _letzter_startversuch is not None and jetzt - _letzter_startversuch < START_PAUSE_SEKUNDEN:
+        if _start.letzter_versuch is not None and jetzt - _start.letzter_versuch < START_PAUSE_SEKUNDEN:
             return False
         programm = (ausfuehrbar_fn or find_ollama_executable)()
         if programm is None:
             return False
-        _letzter_startversuch = jetzt
+        _start.letzter_versuch = jetzt
         starte = popen_fn or subprocess.Popen
         try:
             starte(

@@ -586,12 +586,17 @@ class _Uhr:
 @pytest.fixture
 def start_erlaubt(monkeypatch):
     monkeypatch.setattr(ollama_service, "AUTO_START", True)
-    monkeypatch.setattr(ollama_service, "_letzter_startversuch", None)
+    monkeypatch.setattr(ollama_service._start, "letzter_versuch", None)
 
 
 def test_laeuft_der_dienst_wird_nichts_gestartet(start_erlaubt):
     gestartet = []
-    assert ollama_service.dienst_starten(laeuft_fn=lambda *a: True, popen_fn=lambda *a, **k: gestartet.append(a))
+
+    def merke(*argumente, **_k):
+        gestartet.append(argumente)
+
+    ergebnis = ollama_service.dienst_starten(laeuft_fn=lambda *a: True, popen_fn=merke)
+    assert ergebnis is True
     assert gestartet == []
 
 
