@@ -3042,3 +3042,25 @@ def test_der_info_hinweis_neu_gestartet_bleibt_stehen(fenster, monkeypatch):
     monkeypatch.setattr(mw.ollama_service, "modell_fehlt", lambda modell: False)
     fenster._ollama_wache_arbeit("m")
     assert "wurde neu gestartet" in fenster._empfang_zuletzt
+
+
+def test_neu_gestartet_bleibt_auch_nach_einem_problem_hinweis_stehen(fenster, monkeypatch):
+    monkeypatch.setattr(mw.ollama_service, "is_service_running", lambda **k: False)
+    monkeypatch.setattr(mw.ollama_service, "dienst_starten", lambda *a, **k: False)
+    fenster._ollama_wache_arbeit("m")
+    assert "nicht erreichbar" in fenster._empfang_zuletzt
+    monkeypatch.setattr(mw.ollama_service, "dienst_starten", lambda *a, **k: True)
+    monkeypatch.setattr(mw.ollama_service, "modell_fehlt", lambda modell: False)
+    fenster._ollama_wache_arbeit("m")
+    assert "wurde neu gestartet" in fenster._empfang_zuletzt
+
+
+def test_modell_fehlt_wird_nach_einem_neustart_wieder_gemeldet(fenster, monkeypatch):
+    """Der Neustart-Hinweis ersetzt "Modell fehlt" -- fehlt es danach noch, muss das wieder dastehen."""
+    monkeypatch.setattr(mw.ollama_service, "is_service_running", lambda **k: True)
+    monkeypatch.setattr(mw.ollama_service, "modell_fehlt", lambda modell: True)
+    fenster._ollama_wache_arbeit("mein-modell")
+    monkeypatch.setattr(mw.ollama_service, "is_service_running", lambda **k: False)
+    monkeypatch.setattr(mw.ollama_service, "dienst_starten", lambda *a, **k: True)
+    fenster._ollama_wache_arbeit("mein-modell")
+    assert "fehlt bei Ollama" in fenster._empfang_zuletzt

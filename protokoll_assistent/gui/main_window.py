@@ -1240,6 +1240,8 @@ class MainWindow(QMainWindow):
     def _ollama_wache_arbeit(self, modell: str) -> None:
         lief = ollama_service.is_service_running(timeout=2)
         if not lief:
+            # Jede dieser Meldungen ersetzt einen Hinweis "Modell fehlt": Fehlt es danach noch, wird es neu gemeldet.
+            self._ollama_modell_gemeldet = None
             if not ollama_service.dienst_starten():
                 self._ollama_problem_aktiv = True
                 self.ollama_hinweis.emit(
@@ -1247,6 +1249,8 @@ class MainWindow(QMainWindow):
                     "schlagen so fehl. Bitte Ollama starten (Eingabeaufforderung: ollama serve)."
                 )
                 return
+            # Die Meldung zum Neustart ersetzt einen alten Problem-Hinweis schon -- sie soll stehen bleiben.
+            self._ollama_problem_aktiv = False
             self.ollama_hinweis.emit("Ollama war beendet und wurde neu gestartet.")
         if ollama_service.modell_fehlt(modell):
             if self._ollama_modell_gemeldet != modell:

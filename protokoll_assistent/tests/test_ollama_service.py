@@ -734,3 +734,22 @@ def test_mit_eigenem_oeffner_wird_nie_gestartet(monkeypatch):
 
     with pytest.raises(ollama_service.OllamaError):
         ollama_service.embed("m", ["a"], opener=oeffner)
+
+
+def test_nach_einem_erfolgreichen_start_gibt_es_keine_pause(start_erlaubt, tmp_path):
+    """Faellt der Dienst kurz nach einem geglueckten Start wieder weg (mitten im Modell-Download der Einrichtung), muss
+    der naechste Aufruf ihn sofort neu starten -- sonst scheitern die weiteren Download-Versuche in Millisekunden."""
+    uhr = _Uhr()
+    gestartet = []
+    antworten = iter([False, False, True, False, False, True])
+    argumente = {
+        "ausfuehrbar_fn": lambda: tmp_path / "ollama.exe",
+        "popen_fn": lambda *a, **k: gestartet.append(a),
+        "laeuft_fn": lambda *a: next(antworten),
+        "schlafen_fn": uhr.schlafen,
+        "uhr_fn": uhr,
+    }
+    assert ollama_service.dienst_starten(**argumente)
+    uhr.jetzt += 1.0  # weit unter START_PAUSE_SEKUNDEN
+    assert ollama_service.dienst_starten(**argumente)
+    assert len(gestartet) == 2

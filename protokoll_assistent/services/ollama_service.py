@@ -289,11 +289,14 @@ def dienst_starten(
         except OSError:
             return False
         ende = uhr_fn() + (START_WARTEN_SEKUNDEN if warten is None else warten)
-        while uhr_fn() < ende:
-            if laeuft(base_url, 2):
-                return True
+        while not laeuft(base_url, 2):
+            if uhr_fn() >= ende:
+                return False
             schlafen_fn(1.0)
-        return laeuft(base_url, 2)
+        # Geklappt: Die Pause gilt nur nach einem Fehlschlag. Faellt der Dienst kurz darauf wieder weg (etwa mitten im
+        # Modell-Download der Einrichtung), darf der naechste Aufruf ihn sofort neu starten.
+        _start.letzter_versuch = None
+        return True
 
 
 def _verbindung_verweigert(fehler: urllib.error.URLError) -> bool:
