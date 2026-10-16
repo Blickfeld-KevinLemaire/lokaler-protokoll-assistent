@@ -813,14 +813,14 @@ static void bedienung_ui_erstellen(void)
     rueckfrage_box = vollbild_schicht_erstellen();
     lv_obj_t *titel = lv_label_create(rueckfrage_box);
     lv_label_set_text(titel, "ZUSAMMENFASSUNG\nERSTELLEN?");
-    lv_obj_set_style_text_font(titel, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_font(titel, &lv_font_montserrat_20, 0);   /* 28 war fuer "ZUSAMMENFASSUNG" zu gross */
     lv_obj_set_style_text_color(titel, lv_color_hex(0xFFFFFF), 0);
     lv_obj_set_style_text_align(titel, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(titel, LV_ALIGN_TOP_MID, 0, 62);
+    lv_obj_align(titel, LV_ALIGN_TOP_MID, 0, 84);
 
     lv_obj_t *ja = lv_btn_create(rueckfrage_box);
     lv_obj_set_size(ja, 120, 60);
-    lv_obj_align(ja, LV_ALIGN_TOP_MID, -68, 190);
+    lv_obj_align(ja, LV_ALIGN_TOP_MID, -68, 176);
     lv_obj_set_style_bg_color(ja, lv_color_hex(0x59D65C), 0);
     lv_obj_set_style_radius(ja, 12, 0);
     lv_obj_add_event_cb(ja, rueckfrage_ja_cb, LV_EVENT_CLICKED, NULL);
@@ -832,7 +832,7 @@ static void bedienung_ui_erstellen(void)
 
     lv_obj_t *nein = lv_btn_create(rueckfrage_box);
     lv_obj_set_size(nein, 120, 60);
-    lv_obj_align(nein, LV_ALIGN_TOP_MID, 68, 190);
+    lv_obj_align(nein, LV_ALIGN_TOP_MID, 68, 176);
     lv_obj_set_style_bg_color(nein, lv_color_hex(0x3A3A3C), 0);
     lv_obj_set_style_radius(nein, 12, 0);
     lv_obj_add_event_cb(nein, rueckfrage_nein_cb, LV_EVENT_CLICKED, NULL);
