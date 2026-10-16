@@ -2919,11 +2919,15 @@ def test_frage_wird_lokal_und_aus_den_unterlagen_der_aufnahme_beantwortet(fenste
 # Ollama im Hintergrund halten (Wache)
 # --------------------------------------------------------------------------
 def test_wache_wird_nur_gebraucht_wenn_geraete_liefern_und_lokal_ausgewertet_wird(fenster):
-    app_config.update_config(geraete_empfang_aktiv=False)
+    app_config.update_config(geraete_empfang_aktiv=False, einrichtung_abgeschlossen=True)
     fenster.nachbearbeitung_lokal_radio.setChecked(True)
     assert fenster._ollama_wird_gebraucht() is False
     app_config.update_config(geraete_empfang_aktiv=True)
     assert fenster._ollama_wird_gebraucht() is True
+    # Waehrend der Ersteinrichtung (installiert Ollama, laedt Modelle) waere ein Hinweis Modell fehlt falsch
+    app_config.update_config(einrichtung_abgeschlossen=False)
+    assert fenster._ollama_wird_gebraucht() is False
+    app_config.update_config(einrichtung_abgeschlossen=True)
     fenster.nachbearbeitung_api_radio.setChecked(True)  # online ausgewertet: Ollama ist nicht noetig
     assert fenster._ollama_wird_gebraucht() is False
 
@@ -2959,7 +2963,7 @@ def test_wache_meldet_ein_fehlendes_modell_nur_einmal(fenster, monkeypatch):
     fenster._ollama_wache_arbeit("mein-modell")  # da: nichts zu melden, und eine spaetere Meldung waere wieder neu
     monkeypatch.setattr(mw.ollama_service, "modell_fehlt", lambda modell: True)
     fenster._ollama_wache_arbeit("mein-modell")
-    assert len(hinweise) == 2
+    assert len([h for h in hinweise if h]) == 2  # die Leermeldung nach dem Beheben zaehlt nicht
 
 
 def test_laeuft_ollama_wird_nichts_gemeldet(fenster, monkeypatch):
@@ -2975,7 +2979,7 @@ def test_laeuft_ollama_wird_nichts_gemeldet(fenster, monkeypatch):
 def test_wache_prueft_im_eigenen_faden_und_nur_einmal_gleichzeitig(fenster, monkeypatch):
     import threading
 
-    app_config.update_config(geraete_empfang_aktiv=True, ollama_modell="mein-modell")
+    app_config.update_config(geraete_empfang_aktiv=True, einrichtung_abgeschlossen=True, ollama_modell="mein-modell")
     fenster.nachbearbeitung_lokal_radio.setChecked(True)
     frei, laeuft, aufrufe = threading.Event(), threading.Event(), []
 
@@ -2995,4 +2999,46 @@ def test_wache_prueft_im_eigenen_faden_und_nur_einmal_gleichzeitig(fenster, monk
 
 def test_hinweis_der_wache_erscheint_im_empfangshinweis(fenster):
     fenster._ollama_hinweis_anzeigen("Ollama war beendet und wurde neu gestartet.")
+    assert "wurde neu gestartet" in fenster._empfang_zuletzt
+
+
+def test_hinweis_modell_fehlt_verschwindet_wenn_das_modell_da_ist(fenster, monkeypatch):
+    """Der Fehler aus dem ersten Durchlauf: Die Wache meldete "Modell fehlt", das Modell kam kurz darauf, und der Hinweis
+    blieb fuer immer stehen -- obwohl die Einstellungen es als installiert zeigten."""
+    monkeypatch.setattr(mw.ollama_service, "is_service_running", lambda **k: True)
+    monkeypatch.setattr(mw.ollama_service, "modell_fehlt", lambda modell: True)
+    fenster._ollama_wache_arbeit("mein-modell")
+    assert "fehlt bei Ollama" in fenster._empfang_zuletzt
+
+    monkeypatch.setattr(mw.ollama_service, "modell_fehlt", lambda modell: False)
+    fenster._ollama_wache_arbeit("mein-modell")
+    assert fenster._empfang_zuletzt == ""  # der Hinweis ist weg
+
+
+def test_hinweis_nicht_erreichbar_verschwindet_wenn_ollama_wieder_laeuft(fenster, monkeypatch):
+    monkeypatch.setattr(mw.ollama_service, "is_service_running", lambda **k: False)
+    monkeypatch.setattr(mw.ollama_service, "dienst_starten", lambda *a, **k: False)
+    fenster._ollama_wache_arbeit("m")
+    assert "nicht erreichbar" in fenster._empfang_zuletzt
+    monkeypatch.setattr(mw.ollama_service, "is_service_running", lambda **k: True)
+    monkeypatch.setattr(mw.ollama_service, "modell_fehlt", lambda modell: False)
+    fenster._ollama_wache_arbeit("m")
+    assert fenster._empfang_zuletzt == ""
+
+
+def test_die_wache_nimmt_nur_ihren_eigenen_hinweis_weg(fenster, monkeypatch):
+    monkeypatch.setattr(mw.ollama_service, "is_service_running", lambda **k: True)
+    monkeypatch.setattr(mw.ollama_service, "modell_fehlt", lambda modell: True)
+    fenster._ollama_wache_arbeit("m")
+    fenster._empfang_zuletzt = "Zuletzt angekommen: H5_007.opus von S3 (05:10)"  # inzwischen etwas Neues
+    monkeypatch.setattr(mw.ollama_service, "modell_fehlt", lambda modell: False)
+    fenster._ollama_wache_arbeit("m")
+    assert fenster._empfang_zuletzt.startswith("Zuletzt angekommen")
+
+
+def test_der_info_hinweis_neu_gestartet_bleibt_stehen(fenster, monkeypatch):
+    monkeypatch.setattr(mw.ollama_service, "is_service_running", lambda **k: False)
+    monkeypatch.setattr(mw.ollama_service, "dienst_starten", lambda *a, **k: True)
+    monkeypatch.setattr(mw.ollama_service, "modell_fehlt", lambda modell: False)
+    fenster._ollama_wache_arbeit("m")
     assert "wurde neu gestartet" in fenster._empfang_zuletzt

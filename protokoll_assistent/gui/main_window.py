@@ -326,6 +326,8 @@ class MainWindow(QMainWindow):
         # Ollama-Wache: Solange Aufnahmegeraete liefern und lokal ausgewertet wird, muss der Dienst laufen.
         self._ollama_wache_faden: threading.Thread | None = None
         self._ollama_modell_gemeldet: str | None = None
+        self._ollama_problem_aktiv = False  # ein Problem-Hinweis (nicht erreichbar, Modell fehlt) steht noch
+        self._ollama_hinweis_text = ""  # der Text, den die Wache zuletzt in den Empfangshinweis gesetzt hat
         self.ollama_hinweis.connect(self._ollama_hinweis_anzeigen)
         self._ollama_wache = QTimer(self)
         self._ollama_wache.setInterval(OLLAMA_WACHE_SEKUNDEN * 1000)
@@ -1212,9 +1214,14 @@ class MainWindow(QMainWindow):
     # Ollama im Hintergrund halten
     def _ollama_wird_gebraucht(self) -> bool:
         """Liefert ein Aufnahmegeraet an diese Software und wird lokal ausgewertet? Dann braucht es Ollama -- auch,
-        wenn niemand davor sitzt."""
+        wenn niemand davor sitzt. Nicht waehrend der Ersteinrichtung: Sie installiert Ollama und laedt die Modelle erst,
+        und der Empfang ist da schon an (Schritt "VERMERK Raum") -- ein "Modell fehlt" waere dann falsch."""
         config = app_config.load_config()
-        return bool(config.get("geraete_empfang_aktiv")) and not self.nachbearbeitung_api_radio.isChecked()
+        return (
+            bool(config.get("einrichtung_abgeschlossen"))
+            and bool(config.get("geraete_empfang_aktiv"))
+            and not self.nachbearbeitung_api_radio.isChecked()
+        )
 
     def _ollama_wache_pruefen(self) -> None:
         """Alle 30 s: laeuft der Dienst noch? Sonst wird er neu gestartet (``ollama serve``), und fehlt das gewaehlte
@@ -1234,6 +1241,7 @@ class MainWindow(QMainWindow):
         lief = ollama_service.is_service_running(timeout=2)
         if not lief:
             if not ollama_service.dienst_starten():
+                self._ollama_problem_aktiv = True
                 self.ollama_hinweis.emit(
                     "Ollama ist nicht erreichbar und ließ sich nicht starten – Zusammenfassungen vom Gerät "
                     "schlagen so fehl. Bitte Ollama starten (Eingabeaufforderung: ollama serve)."
@@ -1243,15 +1251,29 @@ class MainWindow(QMainWindow):
         if ollama_service.modell_fehlt(modell):
             if self._ollama_modell_gemeldet != modell:
                 self._ollama_modell_gemeldet = modell
+                self._ollama_problem_aktiv = True
                 self.ollama_hinweis.emit(
                     f"Das Sprachmodell {modell} fehlt bei Ollama – Zusammenfassungen vom Gerät gehen erst, "
                     "wenn es geladen ist (Einstellungen → Systemdiagnose)."
                 )
-        else:
-            self._ollama_modell_gemeldet = None
+            return
+        self._ollama_modell_gemeldet = None
+        if self._ollama_problem_aktiv:
+            # Das Problem ist behoben (Dienst laeuft, Modell da): Den alten Hinweis nicht stehen lassen.
+            self._ollama_problem_aktiv = False
+            self.ollama_hinweis.emit("")
 
     def _ollama_hinweis_anzeigen(self, text: str) -> None:
+        """Hinweis der Wache zeigen. Ein leerer Text nimmt den Hinweis der Wache wieder weg -- aber nur den: Steht dort
+        inzwischen etwas anderes (z. B. eine neue Aufnahme), bleibt es."""
+        if not text:
+            if self._ollama_hinweis_text and self._empfang_zuletzt == self._ollama_hinweis_text:
+                self._empfang_zuletzt = ""
+                self._empfang_anzeigen()
+            self._ollama_hinweis_text = ""
+            return
         self._empfang_zuletzt = f"{text} ({time.strftime('%H:%M')})"
+        self._ollama_hinweis_text = self._empfang_zuletzt
         self._empfang_anzeigen()
 
     def _live_auswertung_lesen(self) -> live_auswertung_service.AuswertungsEinstellungen | None:

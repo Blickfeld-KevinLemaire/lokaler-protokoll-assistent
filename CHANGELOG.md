@@ -16,6 +16,9 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
   neu und wiederholt sich einmal, und eine Wache (alle 30 s, solange der Geräteempfang an ist und lokal ausgewertet wird)
   startet ihn bei Bedarf neu und meldet im Empfangshinweis, wenn das Sprachmodell fehlt. So klappt auch die
   Zusammenfassung vom Aufnahmegerät, wenn niemand am PC sitzt.
+  Die Wache schweigt während der Ersteinrichtung (dort installiert sie Ollama und lädt die Modelle erst), und ein
+  Hinweis „Sprachmodell fehlt“ oder „Ollama nicht erreichbar“ verschwindet wieder, sobald das Problem behoben ist –
+  er blieb im ersten Durchlauf stehen, obwohl die Einstellungen das Modell als installiert zeigten.
 - **Einrichtung: Sprachmodell wirklich geladen:** Fällt Ollama während des Downloads weg, startet der Dienst neu und der
   Download geht dort weiter (bis zu dreimal). „Fertig“ gilt erst, wenn das Modell bei Ollama liegt; sonst steht auf der
   letzten Seite deutlich, dass Protokoll und Zusammenfassung ohne das Modell nicht gehen.
