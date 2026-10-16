@@ -167,6 +167,10 @@ class ErmittlungsWorker(QThread):
         self.fertig.emit(analyse, vorhanden)
 
 
+# So oft wird ein Modell-Download versucht, wenn Ollama dabei wegfaellt
+MODELL_VERSUCHE = 3
+
+
 class EinrichtungsWorker(QThread):
     """Laedt FFmpeg, installiert Ollama und holt die Sprachmodelle -- der Reihe nach."""
 
@@ -184,6 +188,8 @@ class EinrichtungsWorker(QThread):
         ffmpeg_fn: Callable[[Callable[[str], None]], bool] | None = None,
         ollama_fn: Callable[..., bool] | None = None,
         pull_fn: Callable[..., None] | None = None,
+        verifiziere_fn: Callable[[str], bool] | None = None,
+        dienst_fn: Callable[[], bool] | None = None,
     ):
         super().__init__(parent)
         self._aufgaben = aufgaben
@@ -191,6 +197,10 @@ class EinrichtungsWorker(QThread):
         self._ffmpeg_fn = ffmpeg_fn or self._ffmpeg
         self._ollama_fn = ollama_fn or self._ollama
         self._pull_fn = pull_fn or ollama_service.pull_model
+        # Ob das Modell nach dem Laden wirklich bei Ollama liegt, und wie der Dienst nach einem Abbruch wieder
+        # hochkommt (austauschbar fuer Tests).
+        self._verifiziere_fn = verifiziere_fn or ollama_service.is_model_available
+        self._dienst_fn = dienst_fn or ollama_service.dienst_starten
         self._abbrechen = False
 
     def abbrechen(self) -> None:
@@ -244,9 +254,24 @@ class EinrichtungsWorker(QThread):
 
             def ziehen(modell: str = modell) -> bool:
                 self.log_line.emit(f"Lade {modell} ...")
-                self._pull_fn(
-                    modell, progress_cb=lambda status, fertig, gesamt: self.fortschritt.emit(fertig, gesamt)
-                )
+                # Faellt Ollama mitten im Download weg, startet der Dienst neu und der Download geht dort weiter, wo er
+                # war (Ollama setzt ab). Hoechstens dreimal.
+                for versuch in range(1, MODELL_VERSUCHE + 1):
+                    try:
+                        self._pull_fn(
+                            modell, progress_cb=lambda status, fertig, gesamt: self.fortschritt.emit(fertig, gesamt)
+                        )
+                        break
+                    except ollama_service.OllamaError as fehler:
+                        if versuch == MODELL_VERSUCHE or self._abbrechen:
+                            raise
+                        self.log_line.emit(f"Der Download wurde unterbrochen ({fehler}). Ollama wird neu gestartet ...")
+                        self._dienst_fn()
+                # "Fertig" gilt erst, wenn das Modell wirklich da ist.
+                if not self._verifiziere_fn(modell):
+                    raise ollama_service.OllamaError(
+                        f"{modell} wurde nicht vollständig geladen. Bitte unter Einstellungen → Systemdiagnose erneut laden."
+                    )
                 return True
 
             ergebnis[kennung] = self._ausfuehren(kennung, ziehen)
@@ -1187,8 +1212,9 @@ class ErsteinrichtungDialog(QDialog):
         teile = ["<p>Der Protokoll-Assistent ist eingerichtet.</p>"]
         if fehlt:
             teile.append(
-                "<p>Noch nicht geklappt hat: " + ", ".join(fehlt) + ". Das lässt sich jederzeit über "
-                "Einstellungen → Systemdiagnose nachholen.</p>"
+                "<p><b>Noch nicht geklappt hat: " + ", ".join(fehlt) + ".</b> Ohne das Sprachmodell gibt es "
+                "kein Protokoll und keine Zusammenfassung – auch nicht vom Aufnahmegerät. Das lässt sich jederzeit "
+                "über Einstellungen → Systemdiagnose nachholen.</p>"
             )
         if online:
             teile.append(

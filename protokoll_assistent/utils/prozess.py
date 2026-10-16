@@ -21,3 +21,5 @@ import subprocess
 
 KEIN_FENSTER: int = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 NEUE_PROZESSGRUPPE: int = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+# Vom startenden Programm geloest: Der Prozess lebt weiter, wenn dieses endet.
+LOSGELOEST: int = getattr(subprocess, "DETACHED_PROCESS", 0)

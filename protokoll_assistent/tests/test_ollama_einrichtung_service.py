@@ -57,18 +57,47 @@ def _installer(groesse: int = GROESSE) -> bytes:
 # ermittle_status
 # --------------------------------------------------------------------------
 @pytest.mark.parametrize(
-    ("exe", "eintrag", "dienst", "installiert"),
+    ("exe_da", "eintrag", "dienst", "installiert"),
     [
-        (None, None, False, False),
-        (Path("C:/x/ollama.exe"), None, False, True),
-        (None, (None, "0.35.1"), False, True),
-        (None, None, True, True),  # Dienst laeuft (z. B. anders installiert): nie neu installieren
+        (False, None, False, False),
+        (True, None, False, True),
+        (False, (None, "0.35.1"), False, False),  # nur ein stehengebliebener Deinstallationseintrag: nicht installiert
+        (False, None, True, True),  # Dienst laeuft (z. B. anders installiert): nie neu installieren
     ],
 )
-def test_status_erkennt_jede_art_von_installation(exe, eintrag, dienst, installiert):
-    status = oes.ermittle_status(finde_fn=lambda: exe, registry_fn=lambda: eintrag, dienst_fn=lambda: dienst)
+def test_status_erkennt_jede_art_von_installation(tmp_path, exe_da, eintrag, dienst, installiert):
+    exe = tmp_path / "ollama.exe"
+    if exe_da:
+        exe.write_bytes(b"")
+    status = oes.ermittle_status(
+        finde_fn=lambda: exe if exe_da else None, registry_fn=lambda: eintrag, dienst_fn=lambda: dienst
+    )
     assert status.installiert is installiert
     assert status.dienst_laeuft is dienst
+
+
+def test_programm_das_es_nicht_mehr_gibt_zaehlt_nicht_als_installiert(tmp_path):
+    status = oes.ermittle_status(
+        finde_fn=lambda: tmp_path / "ollama.exe", registry_fn=lambda: (tmp_path, "0.40.4"), dienst_fn=lambda: False
+    )
+    assert status.installiert is False and status.pfad is None
+
+
+def test_eintrag_mit_ordner_ohne_programm_wird_neu_installiert(tmp_path):
+    # Der Eintrag zeigt auf einen Ordner, in dem nichts mehr liegt: Die Einrichtung muss installieren, nicht "starten".
+    ablauf = []
+    status = oes.ermittle_status(finde_fn=lambda: None, registry_fn=lambda: (tmp_path, "0.40.4"), dienst_fn=lambda: False)
+    assert status.installiert is False
+    oes.installiere_ollama(
+        tmp_path,
+        lambda text: None,
+        status_fn=lambda: status,
+        lade_fn=lambda *a, **k: ablauf.append("laden") or (tmp_path / "setup.exe"),
+        pruef_fn=lambda pfad: oes.SignaturErgebnis(True, "Ollama Inc.", "ok"),
+        install_fn=lambda pfad: ablauf.append("installieren"),
+        warte_fn=lambda: True,
+    )
+    assert ablauf == ["laden", "installieren"]
 
 
 def test_status_findet_das_programm_ueber_den_registryeintrag(tmp_path):
@@ -398,3 +427,20 @@ def test_falsche_signatur_verhindert_die_installation(tmp_path):
             install_fn=pytest.fail,
         )
     assert not installer.exists()
+
+
+def test_app_starten_startet_den_dienst_und_nicht_die_oberflaeche(tmp_path, monkeypatch):
+    aufrufe = []
+    monkeypatch.setattr(oes.subprocess, "Popen", lambda befehl, **kwargs: aufrufe.append((befehl, kwargs)))
+    (tmp_path / "ollama.exe").write_bytes(b"")
+    (tmp_path / "ollama app.exe").write_bytes(b"")
+    oes._starte_app(tmp_path)
+    assert [befehl for befehl, _ in aufrufe] == [[str(tmp_path / "ollama.exe"), "serve"]]
+
+
+def test_app_starten_nimmt_ohne_dienstprogramm_die_anwendung(tmp_path, monkeypatch):
+    aufrufe = []
+    monkeypatch.setattr(oes.subprocess, "Popen", lambda befehl, **kwargs: aufrufe.append(befehl))
+    (tmp_path / "ollama app.exe").write_bytes(b"")
+    oes._starte_app(tmp_path)
+    assert aufrufe == [[str(tmp_path / "ollama app.exe")]]

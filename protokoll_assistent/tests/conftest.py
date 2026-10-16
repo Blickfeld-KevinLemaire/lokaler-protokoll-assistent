@@ -63,6 +63,15 @@ def _keine_echten_tokens(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _kein_echter_ollama_start(monkeypatch):
+    """Kein Test darf einen echten Ollama-Dienst starten (``ollama_service.dienst_starten``): Auf einem Entwicklerrechner
+    mit Ollama wuerde sonst ein Prozess zurueckbleiben."""
+    from protokoll_assistent.services import ollama_service
+
+    monkeypatch.setattr(ollama_service, "AUTO_START", False)
+
+
+@pytest.fixture(autouse=True)
 def _empfang_nur_auf_loopback(monkeypatch):
     """Der Empfang fuer die Aufnahmegeraete darf in Tests nur auf 127.0.0.1
     lauschen. Bindet ein Test versehentlich an alle Schnittstellen (so ist es
