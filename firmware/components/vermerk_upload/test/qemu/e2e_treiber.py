@@ -202,6 +202,7 @@ class Proxy:
                 try:
                     sock.close()
                 except OSError:
+                    # Schon zu oder vom Gegenueber abgebrochen -- beim Aufraeumen egal.
                     pass
 
 
