@@ -46,14 +46,14 @@ ABSCHNITTSVORLAGEN: dict[str, str] = {
         "Du bist ein genauer deutschsprachiger Protokollfuehrer. Erstelle ein formelles "
         "Ergebnisprotokoll der Besprechung.",
         [
-            "Besprechungsdaten: Anlass als Titel und eine Kurzzusammenfassung in zwei bis vier "
-            "Saetzen. Datum, Ort und Uhrzeit nur, wenn sie ausdruecklich genannt wurden.",
+            ("Besprechungsdaten: Anlass als Titel und eine Kurzzusammenfassung in zwei bis vier "
+             "Saetzen. Datum, Ort und Uhrzeit nur, wenn sie ausdruecklich genannt wurden."),
             "Teilnehmende: alle erkennbaren Personen.",
-            "Tagesordnung und Diskussion: je Tagesordnungspunkt ein Eintrag, beginnend mit der "
-            "laufenden Nummer ('TOP 1: ...') in der besprochenen Reihenfolge.",
+            ("Tagesordnung und Diskussion: je Tagesordnungspunkt ein Eintrag, beginnend mit der "
+             "laufenden Nummer ('TOP 1: ...') in der besprochenen Reihenfolge."),
             "Beschluesse: nur was ausdruecklich beschlossen wurde.",
-            "Aufgaben: mit Aufgabe, Verantwortlichem und Frist - Verantwortliche und Fristen nur, "
-            "wenn sie genannt wurden.",
+            ("Aufgaben: mit Aufgabe, Verantwortlichem und Frist - Verantwortliche und Fristen nur, "
+             "wenn sie genannt wurden."),
             "Termine und offene Fragen.",
         ],
     ),
@@ -62,8 +62,8 @@ ABSCHNITTSVORLAGEN: dict[str, str] = {
         "Projektbesprechung.",
         [
             "Kurzueberblick: Projektstand in zwei bis vier Saetzen.",
-            "Fortschritt: je Arbeitspaket oder Thema ein Eintrag mit Stand, Ergebnissen und "
-            "Abweichungen.",
+            ("Fortschritt: je Arbeitspaket oder Thema ein Eintrag mit Stand, Ergebnissen und "
+             "Abweichungen."),
             "Risiken und Blockaden: jeweils als 'Risiko: ...' bzw. 'Blockade: ...'.",
             "Entscheidungen.",
             "Naechste Schritte: mit Verantwortlichem und Frist, wenn genannt.",
@@ -75,9 +75,9 @@ ABSCHNITTSVORLAGEN: dict[str, str] = {
         "Erstelle ein knappes Protokoll je Person.",
         [
             "Kurzueberblick in ein bis zwei Saetzen.",
-            "Je Person ein Abschnitt mit dem Namen als Ueberschrift und den Punkten "
-            "'Gestern/erledigt: ...', 'Heute/geplant: ...' und 'Hindernisse: ...'. Nicht genannte "
-            "Punkte weglassen.",
+            ("Je Person ein Abschnitt mit dem Namen als Ueberschrift und den Punkten "
+             "'Gestern/erledigt: ...', 'Heute/geplant: ...' und 'Hindernisse: ...'. Nicht genannte "
+             "Punkte weglassen."),
             "Aufgaben: nur ausdruecklich zugesagte Handlungen.",
             "Blockaden, die Hilfe brauchen, zusaetzlich als offene Fragen.",
         ],
@@ -88,9 +88,9 @@ ABSCHNITTSVORLAGEN: dict[str, str] = {
         "praezise wiedergibt.",
         [
             "Kontext und Ziel.",
-            "Technische Diskussion: je Fragestellung ein Eintrag mit Optionen, Argumenten und "
-            "Ergebnis. Fachbegriffe, Produktnamen, Versionen und Zahlen exakt wie gesprochen "
-            "uebernehmen.",
+            ("Technische Diskussion: je Fragestellung ein Eintrag mit Optionen, Argumenten und "
+             "Ergebnis. Fachbegriffe, Produktnamen, Versionen und Zahlen exakt wie gesprochen "
+             "uebernehmen."),
             "Entscheidungen mit der gewaehlten Loesung.",
             "Aufgaben mit Verantwortlichem und Frist, wenn genannt.",
             "Offene technische Fragen und Risiken.",
@@ -103,8 +103,8 @@ ABSCHNITTSVORLAGEN: dict[str, str] = {
         [
             "Rahmen: Anlass und Gespraechspartner, soweit genannt, in wenigen Saetzen.",
             "Gespraechspartner.",
-            "Themen und Kernaussagen: je Fragenkomplex ein Eintrag; gib die Position der "
-            "befragten Person in ihrem Sinn und ohne Wertung wieder.",
+            ("Themen und Kernaussagen: je Fragenkomplex ein Eintrag; gib die Position der "
+             "befragten Person in ihrem Sinn und ohne Wertung wieder."),
             "Wichtige Aussagen: woertliche oder sinngemaesse Kernzitate, mit Zeitstempel als Quelle.",
             "Zusagen und Folgeschritte, einschliesslich Terminen.",
             "Offene Punkte.",

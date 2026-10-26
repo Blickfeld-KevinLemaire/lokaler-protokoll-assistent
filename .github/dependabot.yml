@@ -31,6 +31,13 @@ updates:
       time: "06:00"
       timezone: Europe/Berlin
     open-pull-requests-limit: 5
+    # Auch indirekte Abhaengigkeiten im 'uv.lock' anheben. Ohne das sieht
+    # Dependabot nur die direkten - certifi, filelock und setuptools kamen
+    # so nie dran, und der naechtliche pip-audit war ab dem 21.10.2026 rot,
+    # bis sie von Hand angehoben wurden (GitHub meldete dafuer auch keine
+    # Dependabot-Warnung, es kam also kein Sicherheits-Update).
+    allow:
+      - dependency-type: all
     commit-message:
       prefix: "deps"
     groups:

@@ -41,11 +41,14 @@ class UsbFehler(Exception):
 
 
 class SerielleVerbindung(Protocol):
-    def write(self, daten: bytes) -> Any: ...
+    def write(self, daten: bytes) -> Any:
+        """Schickt Bytes an das Geraet."""
 
-    def readline(self) -> bytes: ...
+    def readline(self) -> bytes:
+        """Liest eine Zeile (bis zum Zeilenende oder zur Zeitgrenze)."""
 
-    def close(self) -> None: ...
+    def close(self) -> None:
+        """Schliesst die Verbindung."""
 
 
 # --------------------------------------------------------------------------

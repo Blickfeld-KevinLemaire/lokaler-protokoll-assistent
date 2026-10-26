@@ -129,7 +129,7 @@ def test_meldung_wird_als_signal_weitergegeben(steuerung, tmp_path):
 
 
 def test_konfiguration_wird_sonst_aus_der_datei_gelesen(steuerung, tmp_path, monkeypatch):
-    monkeypatch.setattr(app_config, "load_config", lambda: konfig())
+    monkeypatch.setattr(app_config, "load_config", konfig)
     steuerung.anwenden(tmp_path)
     assert steuerung.laeuft
 

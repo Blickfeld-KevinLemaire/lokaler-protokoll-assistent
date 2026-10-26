@@ -14,6 +14,7 @@ Zeitplanung bereit; das tatsaechliche Schneiden uebernimmt
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 DEFAULT_CHUNK_LENGTH_SECONDS = 600.0
@@ -30,7 +31,7 @@ def auswertungs_abschnitt(sekunden: object) -> float:
         wert = float(sekunden)  # type: ignore[arg-type]
     except (TypeError, ValueError):
         return DEFAULT_CHUNK_LENGTH_SECONDS
-    if wert != wert:  # NaN
+    if math.isnan(wert):
         return DEFAULT_CHUNK_LENGTH_SECONDS
     return min(max(wert, MIN_AUSWERTUNG_SECONDS), DEFAULT_CHUNK_LENGTH_SECONDS)
 
