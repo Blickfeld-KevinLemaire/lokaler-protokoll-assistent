@@ -403,8 +403,9 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
   (PYSEC-2026-4320, steckt über requests in der ausgelieferten EXE),
   setuptools 84.2.1 (GHSA-xmj3-9gf7-h52w) und filelock 4.2.4 (sechs
   Meldungen, nur Entwicklungswerkzeug pip-audit). Für Python 3.10 gibt es
-  keine bereinigte filelock-Version – sie verlangt 3.11; dort bleibt 4.1.0
-  stehen, betrifft aber nur die Entwicklungsumgebung. Die tägliche
+  keine bereinigte filelock-Version – sie verlangt 3.11; pip-audit wird
+  deshalb nur noch unter 3.11 installiert (dort läuft es ohnehin), und
+  filelock fällt unter 3.10 ganz weg. Die tägliche
   Schwachstellenprüfung war deshalb seit dem 21.10. rot.
 
 ### Added
