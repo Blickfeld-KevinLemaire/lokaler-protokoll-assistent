@@ -45,7 +45,11 @@ dev = [
     # Qualitaet und Sicherheit
     "ruff>=0.6",
     "mypy>=1.11",
-    "pip-audit>=2.7",
+    # Nur unter 3.11: pip-audit laeuft in CI und nightly ausschliesslich mit
+    # '--python 3.11'. Unter 3.10 zog es ueber cachecontrol[filecache] ein
+    # filelock 4.1.0 nach, fuer das es keine bereinigte Fassung gibt (ab
+    # 4.2.1 verlangt filelock 3.11) - Dependabot meldete das dauerhaft.
+    "pip-audit>=2.7; python_version >= '3.11'",
 ]
 
 [tool.uv]
