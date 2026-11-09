@@ -121,6 +121,17 @@ Name: "{autodesktop}\{#MeinName}"; Filename: "{app}\{#MeineExe}"; Tasks: desktop
 [Run]
 Filename: "{app}\{#MeineExe}"; Description: "{cm:LaunchProgram,{#MeinName}}"; Flags: nowait postinstall skipifsilent
 
+[InstallDelete]
+; Reste des alten Namens "Protokoll-Assistent" (bis 0.4.0-rc12). Ein Update
+; landet wegen derselben AppId im alten Programmordner - dort bliebe die alte
+; EXE neben der neuen liegen, und die alten Verknuepfungen im Startmenue und
+; auf dem Desktop starteten weiter sie: also die ALTE Programmfassung, nur mit
+; den neuen Bibliotheken aus '_internal'. Fehlt eine Datei, passiert nichts.
+Type: files; Name: "{app}\Protokoll-Assistent.exe"
+Type: files; Name: "{group}\Protokoll-Assistent.lnk"
+Type: files; Name: "{group}\{cm:UninstallProgram,Protokoll-Assistent}.lnk"
+Type: files; Name: "{autodesktop}\Protokoll-Assistent.lnk"
+
 [UninstallDelete]
 ; Die selbst eingerichtete Laufzeitumgebung und die Protokolldateien gehoeren
 ; zur Installation und wuerden sonst als mehrere Gigabyte zurueckbleiben.

@@ -15,7 +15,9 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 - **Neuer Name: „VERMERK Desktop“.** Die Windows-Anwendung heißt jetzt überall VERMERK Desktop (Fenstertitel,
   Einrichtung, Startmenü-Eintrag, Export-Kopf). Der Installer heißt `VERMERK-Desktop-Setup-<Version>.exe`, die
   Anwendung `VERMERK-Desktop.exe`, das Archiv `VERMERK-Desktop-windows.zip`. Eine vorhandene Installation wird beim
-  Aktualisieren erkannt und ersetzt (gleiche Installations-Kennung).
+  Aktualisieren erkannt und ersetzt (gleiche Installations-Kennung); sie bleibt dabei in ihrem bisherigen Ordner. Die
+  alte `Protokoll-Assistent.exe` und ihre Verknüpfungen im Startmenü und auf dem Desktop entfernt der Installer, damit
+  niemand versehentlich die alte Fassung startet.
 - **Die WLAN-Aufnahmegeräte heißen „VERMERK Raum“.** Der Reiter in den Einstellungen („Aufnahmegeräte“) heißt jetzt
   „VERMERK Raum“, ebenso die Statuszeile und die Meldungen des Servermodus. Die Geräte-Firmware und die
   Geräte-Schnittstelle bleiben unverändert: bereits eingerichtete Geräte funktionieren weiter, ohne neu geflasht zu werden.
