@@ -83,7 +83,7 @@ zugestimmt haben. Entsprechend gelten hier ein paar Punkte besonders:
   Status und Ordnerpfade, nie Inhalte; sein Token und `HF_TOKEN` kommen aus der
   Umgebung (nie ins Image, nie ins Repository, nie ins Log).
 * **Empfang fuer die WLAN-Aufnahmegeraete oeffnet einen Port – nur auf Wunsch.**
-  In der Anwendung (Einstellungen → „Aufnahmegeräte“) und im Servermodus
+  In der Anwendung (Einstellungen → „VERMERK Raum“) und im Servermodus
   (`PROTOKOLL_EMPFANG=1`) ist er ab Werk **aus**. Eingeschaltet lauscht ein
   HTTP-Dienst (Standardport 8765) im lokalen Netz und nimmt Aufnahmen der
   eingetragenen Geraete an

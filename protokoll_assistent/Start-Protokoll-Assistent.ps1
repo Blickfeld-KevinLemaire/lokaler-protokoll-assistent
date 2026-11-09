@@ -42,7 +42,7 @@ function Find-Python {
     return $null
 }
 
-Write-Host "=== Protokoll-Assistent ===" -ForegroundColor Cyan
+Write-Host "=== VERMERK Desktop ===" -ForegroundColor Cyan
 
 $pythonMatch = Find-Python
 if (-not $pythonMatch) {

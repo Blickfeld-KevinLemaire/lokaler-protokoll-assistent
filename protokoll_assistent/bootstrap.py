@@ -106,7 +106,7 @@ def _try_create_splash():
 
     try:
         root = tk.Tk()
-        root.title("Protokoll-Assistent Lokal -- Einrichtung")
+        root.title("VERMERK Desktop -- Einrichtung")
         root.geometry("700x420")
         tk.Label(
             root,

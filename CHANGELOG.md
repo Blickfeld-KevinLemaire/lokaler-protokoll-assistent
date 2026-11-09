@@ -8,6 +8,18 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.5.0-beta] - 2026-11-09
+
+### Changed
+
+- **Neuer Name: „VERMERK Desktop“.** Die Windows-Anwendung heißt jetzt überall VERMERK Desktop (Fenstertitel,
+  Einrichtung, Startmenü-Eintrag, Export-Kopf). Der Installer heißt `VERMERK-Desktop-Setup-<Version>.exe`, die
+  Anwendung `VERMERK-Desktop.exe`, das Archiv `VERMERK-Desktop-windows.zip`. Eine vorhandene Installation wird beim
+  Aktualisieren erkannt und ersetzt (gleiche Installations-Kennung).
+- **Die WLAN-Aufnahmegeräte heißen „VERMERK Raum“.** Der Reiter in den Einstellungen („Aufnahmegeräte“) heißt jetzt
+  „VERMERK Raum“, ebenso die Statuszeile und die Meldungen des Servermodus. Die Geräte-Firmware und die
+  Geräte-Schnittstelle bleiben unverändert: bereits eingerichtete Geräte funktionieren weiter, ohne neu geflasht zu werden.
+
 ### Added
 
 - **Ollama läuft im Hintergrund, solange Geräte liefern:** Ollama wird nicht mehr über seine Oberfläche gestartet
@@ -629,7 +641,8 @@ Installation.
 - Installer für Windows (ohne Administratorrechte, mit mitgelieferter
   Python-Laufzeitumgebung)
 
-[Unreleased]: https://github.com/Blickfeld-KevinLemaire/lokaler-protokoll-assistent/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/Blickfeld-KevinLemaire/lokaler-protokoll-assistent/compare/v0.5.0-beta...HEAD
+[0.5.0-beta]: https://github.com/Blickfeld-KevinLemaire/lokaler-protokoll-assistent/compare/v0.3.1...v0.5.0-beta
 [0.3.1]: https://github.com/Blickfeld-KevinLemaire/lokaler-protokoll-assistent/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/Blickfeld-KevinLemaire/lokaler-protokoll-assistent/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/Blickfeld-KevinLemaire/lokaler-protokoll-assistent/compare/v0.1.0...v0.2.0

@@ -1,7 +1,7 @@
 # Installer bauen
 
 Hier liegt das Inno-Setup-Skript, aus dem
-`Protokoll-Assistent-Setup-<Version>.exe` entsteht.
+`VERMERK-Desktop-Setup-<Version>.exe` entsteht.
 
 Normalerweise muss das niemand von Hand machen: Die GitHub-Ablaeufe bauen
 den Installer automatisch (siehe unten). Diese Anleitung ist fuer den Fall,
@@ -11,7 +11,7 @@ dass man das Ergebnis lokal ausprobieren will.
 
 | Bestandteil | Form | Woher |
 |---|---|---|
-| Die Anwendung | `Protokoll-Assistent.exe` | PyInstaller, `../protokoll_assistent.spec` |
+| Die Anwendung | `VERMERK-Desktop.exe` | PyInstaller, `../protokoll_assistent.spec` |
 | Dieselbe Anwendung als Quelltext | Programmdateien | `../protokoll_assistent/` (ohne `tests`, `runtime`, `logs`, `__pycache__`) |
 | Python-Laufzeitumgebung | `python\` (CPython 3.11) | `python-laufzeit-holen.ps1` |
 | Lizenztexte | `LICENSE`, `NOTICES.md`, `lizenzen/` | Projektstamm |
@@ -54,7 +54,7 @@ Das Ergebnis liegt in `..\dist-installer\` (nicht im Repository, siehe
 Zum Ausprobieren ohne Klickstrecke:
 
 ```powershell
-.\dist-installer\Protokoll-Assistent-Setup-0.0.0-test.exe `
+.\dist-installer\VERMERK-Desktop-Setup-0.0.0-test.exe `
     /VERYSILENT /SUPPRESSMSGBOXES /NOICONS /DIR=C:\Temp\PA-Test
 C:\Temp\PA-Test\unins000.exe /VERYSILENT   # wieder entfernen
 ```
@@ -62,7 +62,7 @@ C:\Temp\PA-Test\unins000.exe /VERYSILENT   # wieder entfernen
 ## Entscheidungen, die im Skript stecken
 
 * **Installation pro Benutzer** (`PrivilegesRequired=lowest`, Ziel
-  `%LOCALAPPDATA%\Programs\Protokoll-Assistent`). Zwei Gruende: keine
+  `%LOCALAPPDATA%\Programs\VERMERK Desktop`). Zwei Gruende: keine
   Administratorrechte noetig, und der Programmordner bleibt beschreibbar -
   das ist Pflicht, weil die lokale Anwendung ihre Umgebung (`runtime\venv`)
   und ihre Ausgabeordner neben der Anwendung anlegt. Unter

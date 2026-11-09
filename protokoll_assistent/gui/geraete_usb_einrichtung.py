@@ -1,4 +1,4 @@
-"""Dialog "Gerät per USB einrichten" (Reiter "Aufnahmegeräte").
+"""Dialog "Gerät per USB einrichten" (Reiter "VERMERK Raum").
 
 Der Anwender steckt das Geraet per USB an, gibt WLAN-Name und Passwort ein --
 die Anwendung erzeugt das Token und schreibt WLAN, eigene Adresse und Token in

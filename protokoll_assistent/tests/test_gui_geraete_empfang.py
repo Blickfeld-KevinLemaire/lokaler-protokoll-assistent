@@ -1,4 +1,4 @@
-"""Tests fuer 'gui/geraete_empfang.py': Steuerung des Empfangs und Reiter "Aufnahmegeräte".
+"""Tests fuer 'gui/geraete_empfang.py': Steuerung des Empfangs und Reiter "VERMERK Raum".
 
 Der echte HTTP-Dienst wird hier nie gestartet (dafuer gibt es
 'test_geraete_empfang_service.py'): Die Steuerung bekommt eine Attrappe, und
@@ -84,7 +84,7 @@ def test_an_startet_mit_zielordner_und_port(steuerung, tmp_path):
     assert dienst.gestartet and (dienst.ziel, dienst.port) == (tmp_path, 9000)
     assert dienst.geraete == (empfang.Geraet("S3", HASH),)
     assert steuerung.laeuft
-    assert steuerung.beschreibung() == f"Aufnahmegeräte: Empfang an (Port 9000, 1 Gerät) → {tmp_path}"
+    assert steuerung.beschreibung() == f"VERMERK Raum: Empfang an (Port 9000, 1 Gerät) → {tmp_path}"
     assert steuerung.kontakte()["S3"].geraete_id == "1a2b3c4d5e6f"
 
 
@@ -142,7 +142,7 @@ def test_kontakt_text():
 
 
 # --------------------------------------------------------------------------
-# Reiter "Aufnahmegeräte"
+# Reiter "VERMERK Raum"
 # --------------------------------------------------------------------------
 @pytest.fixture
 def seite(qt_widgets, monkeypatch):
@@ -263,7 +263,7 @@ def test_einstellungsdialog_speichert_die_geraete(qt_widgets, tmp_path, monkeypa
     assert gespeichert["geraete_empfang_aktiv"] is True
     assert gespeichert["geraete_empfang_geraete"] == [{"name": "S3", "token_sha256": HASH, "angelegt": "2026-10-12"}]
     tab_titel = [dialog.findChild(sd.QTabWidget).tabText(i) for i in range(dialog.findChild(sd.QTabWidget).count())]
-    assert "Aufnahmegeräte" in tab_titel
+    assert "VERMERK Raum" in tab_titel
 
 
 
@@ -351,7 +351,7 @@ def test_umschalten_der_live_verarbeitung_startet_den_dienst_neu(qt_app, tmp_pat
 def test_beschreibung_bleibt_wie_sie_war_mit_live(qt_app, tmp_path):
     steuerung = _live_steuerung(qt_app, _LiveAttrappe(), ls.StatusRegister())
     steuerung.anwenden(tmp_path, konfig())
-    assert steuerung.beschreibung().startswith("Aufnahmegeräte: Empfang an (Port 8765, 1 Gerät)")
+    assert steuerung.beschreibung().startswith("VERMERK Raum: Empfang an (Port 8765, 1 Gerät)")
 
 
 def test_seite_zeigt_und_liefert_live_einstellungen(qt_widgets, monkeypatch):

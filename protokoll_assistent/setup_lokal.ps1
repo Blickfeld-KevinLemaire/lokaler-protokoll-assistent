@@ -17,7 +17,7 @@ $ProjectRoot = Split-Path -Parent $ScriptDir
 $VenvDir = Join-Path $ProjectRoot ".venv-whisperx"
 $VenvPython = Join-Path $VenvDir "Scripts\python.exe"
 
-Write-Host "=== Protokoll-Assistent: Einrichtung der Python-Umgebung ===" -ForegroundColor Cyan
+Write-Host "=== VERMERK Desktop: Einrichtung der Python-Umgebung ===" -ForegroundColor Cyan
 
 if (-not (Test-Path $VenvPython)) {
     Write-Host "FEHLER: Virtuelle Umgebung nicht gefunden unter:" -ForegroundColor Red

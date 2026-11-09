@@ -1,4 +1,4 @@
-"""Protokoll-Assistent -- eine Anwendung fuer beide Wege.
+"""VERMERK Desktop -- eine Anwendung fuer beide Wege.
 
 Transkription und Nachbearbeitung laufen wahlweise lokal
 (faster-whisper/pyannote/Ollama) oder ueber eine API-Schnittstelle. Welcher

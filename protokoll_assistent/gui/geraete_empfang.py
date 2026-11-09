@@ -6,7 +6,7 @@ benutzt. Hier liegt nur, was die Windows-Anwendung zusaetzlich braucht:
 
 * :class:`EmpfangsSteuerung` startet und stoppt den Dienst nach den
   Einstellungen und meldet neue Aufnahmen als Qt-Signal an das Hauptfenster.
-* :class:`GeraeteSeite` ist der Reiter "Aufnahmegeräte" im Einstellungsdialog:
+* :class:`GeraeteSeite` ist der Reiter "VERMERK Raum" im Einstellungsdialog:
   Empfang an/aus, Port, Geraete anlegen und entfernen.
 
 Ein Token wird beim Anlegen genau einmal angezeigt; gespeichert wird nur sein
@@ -170,12 +170,12 @@ class EmpfangsSteuerung(QObject):
     def beschreibung(self) -> str:
         """Kurzer Zustand fuer das Hauptfenster; leer, wenn der Empfang aus ist."""
         if self.fehler:
-            return f"Aufnahmegeräte: {self.fehler}"
+            return f"VERMERK Raum: {self.fehler}"
         if self._dienst is None or self._stand is None:
             return ""
         _aktiv, port, geraete, ziel, _live = self._stand
         anzahl = len(geraete)
-        return f"Aufnahmegeräte: Empfang an (Port {port}, {anzahl} {'Gerät' if anzahl == 1 else 'Geräte'}) → {ziel}"
+        return f"VERMERK Raum: Empfang an (Port {port}, {anzahl} {'Gerät' if anzahl == 1 else 'Geräte'}) → {ziel}"
 
     def _melden(self, pfad: Path, geraet: str) -> None:
         self.neue_aufnahme.emit(str(pfad), geraet)
@@ -257,7 +257,7 @@ class TokenDialog(QDialog):
 
 
 class GeraeteSeite(QWidget):
-    """Reiter "Aufnahmegeräte" im Einstellungsdialog."""
+    """Reiter "VERMERK Raum" im Einstellungsdialog."""
 
     def __init__(
         self,
@@ -275,14 +275,14 @@ class GeraeteSeite(QWidget):
         layout = QVBoxLayout(self)
 
         erklaerung = QLabel(
-            "Die WLAN-Aufnahmegeräte laden ihre Aufnahmen selbst in den Eingabeordner dieser Anwendung "
+            "Die VERMERK-Raum-Geräte laden ihre Aufnahmen selbst in den Eingabeordner dieser Anwendung "
             "hoch (ohne Eingabeordner: in den Ordner „aufnahmen“). Jedes Gerät braucht ein eigenes Token.",
             self,
         )
         erklaerung.setWordWrap(True)
         layout.addWidget(erklaerung)
 
-        self.aktiv_checkbox = QCheckBox("Empfang für Aufnahmegeräte einschalten", self)
+        self.aktiv_checkbox = QCheckBox("Empfang für VERMERK Raum einschalten", self)
         self.aktiv_checkbox.setChecked(bool(config.get("geraete_empfang_aktiv")))
         layout.addWidget(self.aktiv_checkbox)
 

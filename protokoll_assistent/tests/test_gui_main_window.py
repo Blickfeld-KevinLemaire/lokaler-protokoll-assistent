@@ -174,7 +174,7 @@ def gemeldete_fehler(monkeypatch):
 # Aufbau
 # --------------------------------------------------------------------------
 def test_fenster_baut_sich_auf(fenster):
-    assert fenster.windowTitle() == "Protokoll-Assistent"
+    assert fenster.windowTitle() == "VERMERK Desktop"
     assert fenster.hardware_label.text() == "Testhardware"
     assert fenster.start_button.isEnabled()
     assert fenster.protocol_start_button.isEnabled()
@@ -1968,7 +1968,7 @@ def test_ohne_logodatei_steht_der_name_als_text_da(qt_widgets, isolierte_konfigu
     monkeypatch.setattr(mw.branding, "logo_pixmap", lambda *a, **k: None)
     monkeypatch.setattr(mw.MainWindow, "_lokale_laufzeitumgebung_verfuegbar", staticmethod(lambda: True))
     fenster_ohne_logo = qt_widgets(mw.MainWindow())
-    assert fenster_ohne_logo.brand_label.text() == "Protokoll-Assistent"
+    assert fenster_ohne_logo.brand_label.text() == "VERMERK"
 
 
 

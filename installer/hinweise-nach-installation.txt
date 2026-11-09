@@ -1,7 +1,7 @@
-Protokoll-Assistent - Hinweise nach der Installation
+VERMERK Desktop - Hinweise nach der Installation
 ====================================================
 
-Gestartet wird ueber das Auswahlfenster "Protokoll-Assistent" (Startmenue
+Gestartet wird ueber das Auswahlfenster "VERMERK Desktop" (Startmenue
 bzw. Desktop). Dort waehlen Sie zwischen den beiden Arbeitsweisen:
 
 Sie muessen nichts weiter installieren - auch kein Python. Alles Noetige

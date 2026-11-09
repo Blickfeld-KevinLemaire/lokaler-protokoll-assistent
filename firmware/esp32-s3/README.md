@@ -43,7 +43,7 @@ und in Stücken, die nach einem Abbruch dort weitergehen, wo sie aufgehört habe
 [`../README.md`](../README.md#gegenstelle-die-protokoll-software), die verbindliche Beschreibung der Schnittstelle:
 [`protokoll_assistent/GERAETE-SCHNITTSTELLE.md`](../../protokoll_assistent/GERAETE-SCHNITTSTELLE.md). Kurz:
 
-1. In der Software den Empfang einschalten (Anwendung: Einstellungen, „Aufnahmegeräte“; Servermodus: `PROTOKOLL_EMPFANG=1`).
+1. In der Software den Empfang einschalten (Anwendung: Einstellungen, „VERMERK Raum“; Servermodus: `PROTOKOLL_EMPFANG=1`).
 2. **Über USB einrichten** (ohne Neukompilieren): Gerät mit Datenkabel an den PC, in der Anwendung „Gerät einrichten“.
    Sie schreibt WLAN, Adresse und ein eigenes Token ins Gerät; es startet neu. Im Monitor steht danach
    `VERMERK Einstellungen: ueber USB eingerichtet`; `#VERMERK INFO` + Enter im Monitor zeigt, was eingerichtet ist.

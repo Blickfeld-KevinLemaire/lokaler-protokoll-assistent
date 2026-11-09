@@ -1,12 +1,12 @@
 # Hinweise zu Software von Dritten
 
-Der Protokoll-Assistent benutzt Software anderer Urheber. Dieser Text nennt
+VERMERK Desktop benutzt Software anderer Urheber. Dieser Text nennt
 sie, ihre Lizenzen und die Pflichten, die sich daraus ergeben.
 
 Die vollstaendigen Lizenztexte liegen im Ordner [`lizenzen/`](lizenzen/) und
 werden zusammen mit der Anwendung ausgeliefert.
 
-Die Lizenz fuer den Protokoll-Assistenten selbst steht in [`LICENSE`](LICENSE)
+Die Lizenz fuer VERMERK Desktop selbst steht in [`LICENSE`](LICENSE)
 und wird von diesem Text nicht beruehrt.
 
 ---
@@ -90,7 +90,7 @@ dieses Programm wird ausdruecklich die **LGPL-3.0** gewaehlt.
 * Aus Meet2Notes stammen die **Ideen** fuer: wortgenaue Sprecherzuordnung,
   wiederholte Verdichtung, Anhoeren/Export je Sprecher, dauerhafte
   Sprecherprofile und Protokollvorlagen mit festen Abschnitten. Die
-  Umsetzung im Protokoll-Assistenten ist eigener Code auf Basis der
+  Umsetzung in VERMERK Desktop ist eigener Code auf Basis der
   vorhandenen Dienste (pyannote-Embeddings, FFmpeg, Ollama/API).
 * Der Lizenztext liegt der Transparenz halber bei. Wird kuenftig Code oder
   Text unveraendert oder angepasst uebernommen, gehoert der Kopfkommentar
@@ -111,7 +111,7 @@ dieses Programm wird ausdruecklich die **LGPL-3.0** gewaehlt.
 * Die Ausnahme in der PyInstaller-Lizenz erlaubt ausdruecklich, die damit
   erzeugten Programme unter einer beliebigen Lizenz weiterzugeben — auch
   unter einer proprietaeren. Die GPL erstreckt sich also **nicht** auf den
-  Protokoll-Assistenten.
+  VERMERK Desktop.
 * Siehe https://pyinstaller.org/en/stable/license.html
 
 ### Python

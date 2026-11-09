@@ -353,11 +353,11 @@ class ErsteinrichtungDialog(QDialog):
 
     def __init__(self, parent=None, start_bei: str = "", *, mit_raum: bool = True):
         """``mit_raum=False`` laesst den Schritt "VERMERK Raum" weg -- fuer den
-        Aufruf aus den Einstellungen, wo es dafuer den Reiter "Aufnahmegeräte"
+        Aufruf aus den Einstellungen, wo es dafuer den Reiter "VERMERK Raum"
         gibt (der Einstellungsdialog haelt die Geraeteliste selbst im Speicher
         und wuerde eine hier eingetragene sonst beim Speichern ueberschreiben)."""
         super().__init__(parent)
-        self.setWindowTitle("Protokoll-Assistent einrichten")
+        self.setWindowTitle("VERMERK Desktop einrichten")
         self.setObjectName("WizardRoot")
         self.resize(860, 680)
 
@@ -482,8 +482,8 @@ class ErsteinrichtungDialog(QDialog):
         seite = QWidget(self)
         seite.setObjectName("WizardPage")
         layout = QVBoxLayout(seite)
-        layout.addWidget(_ueberschrift("Willkommen beim Protokoll-Assistenten", seite))
-        layout.addWidget(_text("Der Protokoll-Assistent macht aus einer Besprechung ein fertiges Protokoll.", seite, untertitel=True))
+        layout.addWidget(_ueberschrift("Willkommen bei VERMERK Desktop", seite))
+        layout.addWidget(_text("VERMERK Desktop macht aus einer Besprechung ein fertiges Protokoll.", seite, untertitel=True))
         layout.addWidget(
             _text(
                 "<ol>"
@@ -1209,11 +1209,11 @@ class ErsteinrichtungDialog(QDialog):
             if konfig[schluessel] == "api"
         ]
         fehlt = sorted(k.removeprefix("modell:") for k, ok in self.ergebnisse.items() if not ok)
-        teile = ["<p>Der Protokoll-Assistent ist eingerichtet.</p>"]
+        teile = ["<p>VERMERK Desktop ist eingerichtet.</p>"]
         if fehlt:
             teile.append(
                 "<p><b>Noch nicht geklappt hat: " + ", ".join(fehlt) + ".</b> Ohne das Sprachmodell gibt es "
-                "kein Protokoll und keine Zusammenfassung – auch nicht vom Aufnahmegerät. Das lässt sich jederzeit "
+                "kein Protokoll und keine Zusammenfassung – auch nicht von VERMERK Raum. Das lässt sich jederzeit "
                 "über Einstellungen → Systemdiagnose nachholen.</p>"
             )
         if online:

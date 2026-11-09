@@ -1026,7 +1026,7 @@ class GeraeteEmpfang:
         self._faden = threading.Thread(target=self._server.serve_forever, name="geraete-empfang", daemon=True)
         self._faden.start()
         logger.info(
-            "Empfang fuer Aufnahmegeraete auf Port %d (%d Geraete) -> %s", self.port, len(self.geraete), self.ablage.ziel
+            "Empfang fuer VERMERK Raum auf Port %d (%d Geraete) -> %s", self.port, len(self.geraete), self.ablage.ziel
         )
 
     def stoppen(self) -> None:

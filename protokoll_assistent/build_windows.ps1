@@ -40,12 +40,12 @@ try {
 # Lizenzhinweise zusaetzlich neben die EXE legen. PyInstaller packt alle
 # Datendateien nach '_internal'; dort findet sie niemand. Die LGPL verlangt,
 # dass der Lizenztext beiliegt - er soll auch auffindbar sein.
-$DistDir = Join-Path (Split-Path -Parent $ScriptDir) "dist\Protokoll-Assistent"
+$DistDir = Join-Path (Split-Path -Parent $ScriptDir) "dist\VERMERK-Desktop"
 Copy-Item (Join-Path $DistDir "_internal\NOTICES.md") $DistDir -Force
 Copy-Item (Join-Path $DistDir "_internal\LICENSE")    $DistDir -Force
 Copy-Item (Join-Path $DistDir "_internal\lizenzen")   $DistDir -Recurse -Force
 
-$ExePath = Join-Path (Split-Path -Parent $ScriptDir) "dist\Protokoll-Assistent\Protokoll-Assistent.exe"
+$ExePath = Join-Path (Split-Path -Parent $ScriptDir) "dist\VERMERK-Desktop\VERMERK-Desktop.exe"
 Write-Host "`n=== Build abgeschlossen ===" -ForegroundColor Green
 Write-Host "Ausfuehrbare Datei: $ExePath"
 Write-Host ""

@@ -62,7 +62,7 @@ class WelcomePage(QWidget):
         layout = QVBoxLayout(self)
         layout.setSpacing(14)
 
-        title = QLabel("Willkommen bei Protokoll-Assistent Lokal", self)
+        title = QLabel("Willkommen bei VERMERK Desktop", self)
         title.setObjectName("PageTitle")
         layout.addWidget(title)
 
@@ -836,7 +836,7 @@ class SetupWizard(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("WizardRoot")
-        self.setWindowTitle("Protokoll-Assistent Lokal -- Einrichtung")
+        self.setWindowTitle("VERMERK Desktop -- Einrichtung")
         self.resize(860, 660)
 
         outer = QVBoxLayout(self)

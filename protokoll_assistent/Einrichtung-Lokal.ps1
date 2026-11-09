@@ -62,7 +62,7 @@ function Set-PhaseDone {
 }
 
 Write-Host "=======================================================================" -ForegroundColor Cyan
-Write-Host " PROTOKOLL-ASSISTENT LOKAL -- VOLLSTAENDIGE EINRICHTUNG" -ForegroundColor Cyan
+Write-Host " VERMERK DESKTOP -- VOLLSTAENDIGE EINRICHTUNG" -ForegroundColor Cyan
 Write-Host "=======================================================================" -ForegroundColor Cyan
 Write-Host "Diese Einrichtung arbeitet in 5 nachvollziehbaren Phasen und kann nach"
 Write-Host "einem Fehler jederzeit erneut gestartet werden -- bereits erfolgreiche"
