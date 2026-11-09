@@ -293,6 +293,11 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 ### Fixed
 
+- **Lokaler Modus: GPU-Unterstützung bleibt bei der Einrichtung erhalten:** torchaudio 2.11.1 erschien am 28.10. auf
+  PyPI, aber nicht in den CUDA-Indizes von pytorch.org. Eine neue Einrichtung hätte deshalb den CUDA-Build von
+  torchaudio still durch die PyPI-Fassung ersetzt. torchaudio steht jetzt fest auf 2.11.0.
+- **Installer-Build:** Der Download der mitgelieferten Python-Laufzeit wird bei einem Netzfehler bis zu viermal
+  versucht (GitHub antwortete im nächtlichen Lauf einmal mit „504 Gateway Time-out“).
 - **USB-Einrichtung fand kein Gerät („Das Paket 'pyserial' fehlt“):** Im lokalen Modus
   läuft die Anwendung in ihrer eigenen Rechenumgebung; dort fehlte `pyserial`. Bestehende
   Installationen ziehen das Paket beim nächsten Start nach. Ein Test prüft jetzt, dass jedes
@@ -407,6 +412,9 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
   deshalb nur noch unter 3.11 installiert (dort läuft es ohnehin), und
   filelock fällt unter 3.10 ganz weg. Die tägliche
   Schwachstellenprüfung war deshalb seit dem 21.10. rot.
+- msgpack 1.2.4 (CVE-2026-114613). Steckt nur im Entwicklungswerkzeug
+  pip-audit (über cachecontrol), nicht in der Anwendung; die tägliche
+  Schwachstellenprüfung war deshalb seit dem 01.11. rot.
 
 ### Added
 

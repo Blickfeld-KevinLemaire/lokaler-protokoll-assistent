@@ -51,8 +51,24 @@ if (Test-Path $archiv) {
     # 'Invoke-WebRequest' unter Windows PowerShell spuerbar langsamer.
     $alterFortschritt = $ProgressPreference
     $ProgressPreference = "SilentlyContinue"
+    # Mehrere Versuche: GitHub antwortete im naechtlichen Lauf am 08.11.2026
+    # einmal mit "504 Gateway Time-out", und der ganze Installer-Build war
+    # rot. Ein halb geschriebenes Archiv wird vor dem naechsten Versuch
+    # geloescht - sonst hielte der Test oben es beim Wiederholen fuer fertig.
+    $versuche = 4
     try {
-        Invoke-WebRequest -Uri $Quelle -OutFile $archiv -UseBasicParsing
+        for ($versuch = 1; ; $versuch++) {
+            try {
+                Invoke-WebRequest -Uri $Quelle -OutFile $archiv -UseBasicParsing
+                break
+            } catch {
+                if (Test-Path $archiv) { Remove-Item $archiv -Force }
+                if ($versuch -ge $versuche) { throw }
+                $warten = 15 * $versuch
+                Write-Warning "Download fehlgeschlagen (Versuch $versuch von $versuche): $($_.Exception.Message). Neuer Versuch in $warten s."
+                Start-Sleep -Seconds $warten
+            }
+        }
     } finally {
         $ProgressPreference = $alterFortschritt
     }
