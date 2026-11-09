@@ -1,5 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller-Spezifikation fuer Protokoll-Assistent Lokal.
+"""PyInstaller-Spezifikation fuer VERMERK Desktop.
 
 One-Directory-Build (kein One-File), da WhisperX/PyTorch/CUDA fuer einen
 One-File-Build ungeeignet gross sind und das Entpacken bei jedem Start
@@ -145,7 +145,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name="Protokoll-Assistent",
+    name="VERMERK-Desktop",
     icon="protokoll_assistent/resources/vermerk_icon.ico",
     debug=False,
     bootloader_ignore_signals=False,
@@ -167,5 +167,5 @@ coll = COLLECT(
     strip=False,
     upx=False,
     upx_exclude=[],
-    name="Protokoll-Assistent",
+    name="VERMERK-Desktop",
 )

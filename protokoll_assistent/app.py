@@ -1,4 +1,4 @@
-"""Einstiegspunkt des Protokoll-Assistenten.
+"""Einstiegspunkt von VERMERK Desktop.
 
 EINE Oberflaeche fuer beide Wege: Transkription und Nachbearbeitung laufen
 wahlweise lokal (faster-whisper/pyannote/Ollama) oder ueber eine
@@ -68,7 +68,7 @@ from protokoll_assistent.utils.paths import ensure_system_prompt_file_exists  # 
 
 def main() -> int:
     logger = get_logger()
-    logger.info("Protokoll-Assistent wird gestartet.")
+    logger.info("VERMERK Desktop wird gestartet.")
 
     # Legt 'einstellungen/systemprompt_protokoll.txt' aus der mitgelieferten
     # Vorlage an, falls sie fehlt. Ohne das startet der Systemprompt-Editor im
@@ -87,7 +87,7 @@ def main() -> int:
     from protokoll_assistent.gui.main_window import MainWindow
 
     app = QApplication(sys.argv)
-    app.setApplicationName("Protokoll-Assistent")
+    app.setApplicationName("VERMERK Desktop")
     theme.apply_theme(app)
 
     window = MainWindow()
@@ -101,7 +101,7 @@ def main() -> int:
         QTimer.singleShot(0, lambda: _erstmalige_lokale_einrichtung_anbieten(window))
 
     exit_code = app.exec()
-    logger.info("Protokoll-Assistent wurde beendet (Code %s).", exit_code)
+    logger.info("VERMERK Desktop wurde beendet (Code %s).", exit_code)
     return exit_code
 
 

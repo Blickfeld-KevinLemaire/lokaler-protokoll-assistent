@@ -11,7 +11,7 @@ Gefuehrt in vier Unterseiten, das Geraet haengt dabei per USB am Rechner:
 4. Fertig      -- Das Geraet ist in der Liste, der Empfang eingeschaltet.
 
 Die Arbeit am Geraet ist dieselbe wie im Einstellungsdialog (Reiter
-"Aufnahmegeräte", ``gui/geraete_usb_einrichtung.py``) und nutzt denselben Dienst
+"VERMERK Raum", ``gui/geraete_usb_einrichtung.py``) und nutzt denselben Dienst
 (``services/geraete_usb_service.py``); dort bleibt die Einrichtung auch spaeter
 moeglich. Die serielle Verbindung blockiert bis zu einige Sekunden (Neustart des
 Geraets) und laeuft deshalb in einem eigenen Faden; Tests ersetzen
@@ -108,7 +108,7 @@ class VermerkRaumSeite(QWidget):
         unten.addWidget(self.zurueck_button)
         self.ueberspringen_button = QPushButton("Überspringen", self)
         self.ueberspringen_button.setToolTip(
-            "Ohne VERMERK Raum weitermachen. Später: Einstellungen → Aufnahmegeräte."
+            "Ohne VERMERK Raum weitermachen. Später: Einstellungen → VERMERK Raum."
         )
         self.ueberspringen_button.clicked.connect(self.weiter.emit)
         unten.addWidget(self.ueberspringen_button)
@@ -141,7 +141,7 @@ class VermerkRaumSeite(QWidget):
                 "das dauert etwa eine Minute. Sie brauchen das USB-Kabel und den Namen und das Passwort Ihres "
                 "WLANs.</p>"
                 "<p>Wenn nicht, wählen Sie „Überspringen“. Die Einrichtung ist jederzeit nachholbar unter "
-                "<b>Einstellungen → Aufnahmegeräte</b>.</p>",
+                "<b>Einstellungen → VERMERK Raum</b>.</p>",
                 seite,
             )
         )
@@ -472,7 +472,7 @@ class VermerkRaumSeite(QWidget):
             "<p>Sie können das USB-Kabel abziehen und das Gerät im Raum aufstellen.</p>"
             "<p>Beim ersten Start fragt die Windows-Firewall, ob die Anwendung Verbindungen annehmen darf – "
             "bitte für <b>private Netzwerke</b> zulassen.</p>"
-            "<p>Weitere Geräte lassen sich unter <b>Einstellungen → Aufnahmegeräte</b> hinzufügen.</p>"
+            "<p>Weitere Geräte lassen sich unter <b>Einstellungen → VERMERK Raum</b> hinzufügen.</p>"
         )
         self._unterseite(U_FERTIG)
         self.eingerichtet.emit()

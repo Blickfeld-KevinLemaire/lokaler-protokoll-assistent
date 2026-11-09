@@ -627,7 +627,7 @@ def test_pruefen_nennt_den_empfang(tmp_path):
         "PROTOKOLL_EMPFANG_GERAETE": f"S3:{empfang.token_hash('a')},C6:{empfang.token_hash('b')}",
     }
     texte = [t for _, t in pruefe_umgebung(ServerEinstellungen.aus_umgebung(umgebung))]
-    assert "Empfang fuer Aufnahmegeraete auf Port 8765: S3, C6" in texte
+    assert "Empfang fuer VERMERK Raum auf Port 8765: S3, C6" in texte
 
 
 def _start_vorbereiten(tmp_path, monkeypatch):

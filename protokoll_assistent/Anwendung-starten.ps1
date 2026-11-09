@@ -11,7 +11,7 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $VenvPython = Get-ActiveVenvPython -ScriptDir $ScriptDir
 $StatusFile = Join-Path $ScriptDir "Einrichtungsstatus.json"
 
-Write-Host "=== Protokoll-Assistent Lokal ===" -ForegroundColor Cyan
+Write-Host "=== VERMERK Desktop ===" -ForegroundColor Cyan
 
 function Start-Setup {
     & (Join-Path $ScriptDir "Einrichtung-Lokal.ps1")

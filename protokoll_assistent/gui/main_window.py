@@ -1,4 +1,4 @@
-"""Hauptfenster des Protokoll-Assistenten (PySide6).
+"""Hauptfenster von VERMERK Desktop (PySide6).
 
 Eine Oberflaeche fuer beide Wege: Datei/Aufnahme auswaehlen (Gruppe 1/2,
 loest noch nichts aus), dann getrennt Transkription starten (Gruppe 5,
@@ -201,7 +201,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self, initial_folder: Path | None = None, initial_file: str | None = None) -> None:
         super().__init__()
-        self.setWindowTitle("Protokoll-Assistent")
+        self.setWindowTitle("VERMERK Desktop")
         # Programmsymbol fuer dieses Fenster und alle Dialoge der Anwendung.
         symbol = branding.app_icon()
         self.setWindowIcon(symbol)
@@ -445,10 +445,10 @@ class MainWindow(QMainWindow):
             self.brand_label.setPixmap(logo)
             self.brand_label.setAccessibleName("VERMERK")
         else:
-            self.brand_label.setText("Protokoll-Assistent")
+            self.brand_label.setText("VERMERK")
             self.brand_label.setObjectName("BrandTitle")
         layout.addWidget(self.brand_label)
-        untermarke = QLabel("Protokoll-Assistent", self)
+        untermarke = QLabel("Desktop", self)
         untermarke.setObjectName("BrandSubtitle")
         layout.addWidget(untermarke)
         layout.addSpacing(14)
@@ -1245,7 +1245,7 @@ class MainWindow(QMainWindow):
             if not ollama_service.dienst_starten():
                 self._ollama_problem_aktiv = True
                 self.ollama_hinweis.emit(
-                    "Ollama ist nicht erreichbar und ließ sich nicht starten – Zusammenfassungen vom Gerät "
+                    "Ollama ist nicht erreichbar und ließ sich nicht starten – Zusammenfassungen von VERMERK Raum "
                     "schlagen so fehl. Bitte Ollama starten (Eingabeaufforderung: ollama serve)."
                 )
                 return
@@ -1257,7 +1257,7 @@ class MainWindow(QMainWindow):
                 self._ollama_modell_gemeldet = modell
                 self._ollama_problem_aktiv = True
                 self.ollama_hinweis.emit(
-                    f"Das Sprachmodell {modell} fehlt bei Ollama – Zusammenfassungen vom Gerät gehen erst, "
+                    f"Das Sprachmodell {modell} fehlt bei Ollama – Zusammenfassungen von VERMERK Raum gehen erst, "
                     "wenn es geladen ist (Einstellungen → Systemdiagnose)."
                 )
             return

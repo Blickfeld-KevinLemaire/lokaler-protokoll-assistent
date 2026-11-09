@@ -1,9 +1,9 @@
 ; ---------------------------------------------------------------------------
-; Inno-Setup-Skript fuer den Protokoll-Assistenten.
+; Inno-Setup-Skript fuer VERMERK Desktop.
 ;
 ; Baut aus den beiden fertigen Build-Ergebnissen EINEN Installer:
 ;
-;   ..\dist\Protokoll-Assistent\   die gebaute Anwendung,
+;   ..\dist\VERMERK-Desktop\   die gebaute Anwendung,
 ;                                  erzeugt von 'protokoll_assistent.spec'
 ;   ..\protokoll_assistent\        dieselben Programmdateien als Quelltext -
 ;                                  fuer den lokalen Modus (siehe bootstrap.py)
@@ -20,7 +20,7 @@
 ; mitgelieferten Python.
 ;
 ; Installiert wird ABSICHTLICH pro Benutzer (PrivilegesRequired=lowest, Ziel
-; '%LOCALAPPDATA%\Programs\Protokoll-Assistent'):
+; '%LOCALAPPDATA%\Programs\VERMERK Desktop'):
 ;   * keine Administratorrechte noetig,
 ;   * der Programmordner bleibt beschreibbar. Das ist Pflicht, weil die
 ;     lokale Anwendung ihre Umgebung ('runtime\venv') und ihre Ausgabeordner
@@ -33,10 +33,10 @@
   #define MeineVersion "0.0.0-entwicklung"
 #endif
 
-#define MeinName "Protokoll-Assistent"
+#define MeinName "VERMERK Desktop"
 #define MeinHersteller "Kevin Lemaire"
 #define MeineUrl "https://github.com/Blickfeld-KevinLemaire/lokaler-protokoll-assistent"
-#define MeineExe "Protokoll-Assistent.exe"
+#define MeineExe "VERMERK-Desktop.exe"
 
 [Setup]
 ; Diese GUID identifiziert die Anwendung dauerhaft - bitte NICHT aendern,
@@ -55,7 +55,7 @@ DisableProgramGroupPage=yes
 LicenseFile=..\LICENSE
 InfoAfterFile=hinweise-nach-installation.txt
 OutputDir=..\dist-installer
-OutputBaseFilename=Protokoll-Assistent-Setup-{#MeineVersion}
+OutputBaseFilename=VERMERK-Desktop-Setup-{#MeineVersion}
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
@@ -85,7 +85,7 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 ;
 ; Ohne 'createallsubdirs', sonst wuerden diese Ordner wenigstens leer
 ; mitinstalliert. Alles, was wirklich gebraucht wird, enthaelt Dateien.
-Source: "..\dist\Protokoll-Assistent\*"; DestDir: "{app}"; \
+Source: "..\dist\VERMERK-Desktop\*"; DestDir: "{app}"; \
     Flags: ignoreversion recursesubdirs; \
     Excludes: "eingabe\*,ausgabe\*,sprecherprofile\*,chatverlaeufe\*,zwischenstaende\*,einstellungen\*,Ergebnis des Meetings wie gew*"
 
@@ -120,6 +120,17 @@ Name: "{autodesktop}\{#MeinName}"; Filename: "{app}\{#MeineExe}"; Tasks: desktop
 
 [Run]
 Filename: "{app}\{#MeineExe}"; Description: "{cm:LaunchProgram,{#MeinName}}"; Flags: nowait postinstall skipifsilent
+
+[InstallDelete]
+; Reste des alten Namens "Protokoll-Assistent" (bis 0.4.0-rc12). Ein Update
+; landet wegen derselben AppId im alten Programmordner - dort bliebe die alte
+; EXE neben der neuen liegen, und die alten Verknuepfungen im Startmenue und
+; auf dem Desktop starteten weiter sie: also die ALTE Programmfassung, nur mit
+; den neuen Bibliotheken aus '_internal'. Fehlt eine Datei, passiert nichts.
+Type: files; Name: "{app}\Protokoll-Assistent.exe"
+Type: files; Name: "{group}\Protokoll-Assistent.lnk"
+Type: files; Name: "{group}\{cm:UninstallProgram,Protokoll-Assistent}.lnk"
+Type: files; Name: "{autodesktop}\Protokoll-Assistent.lnk"
 
 [UninstallDelete]
 ; Die selbst eingerichtete Laufzeitumgebung und die Protokolldateien gehoeren

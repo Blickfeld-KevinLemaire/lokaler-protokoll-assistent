@@ -97,10 +97,10 @@ def build_txt_content(
     diarization_enabled: bool = True,
 ) -> str:
     if diarization_enabled:
-        titel = "PROTOKOLL-ASSISTENT – LOKALES VOLLTRANSKRIPT MIT SPRECHERTRENNUNG"
+        titel = "VERMERK DESKTOP – LOKALES VOLLTRANSKRIPT MIT SPRECHERTRENNUNG"
         sprecher_zeile = f"Erkannte Sprecher: {speaker_count}"
     else:
-        titel = "PROTOKOLL-ASSISTENT – LOKALES VOLLTRANSKRIPT (ANONYM, OHNE SPRECHERTRENNUNG)"
+        titel = "VERMERK DESKTOP – LOKALES VOLLTRANSKRIPT (ANONYM, OHNE SPRECHERTRENNUNG)"
         sprecher_zeile = "Sprechertrennung: deaktiviert - kein Sprecherbezug enthalten."
     header = [
         titel,

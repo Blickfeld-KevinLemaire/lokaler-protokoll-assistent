@@ -46,7 +46,7 @@ def pruefe_umgebung(einstellungen: ServerEinstellungen) -> list[tuple[bool, str]
         ergebnisse.append((laeuft, f"Ollama erreichbar unter {ollama_service.OLLAMA_BASE_URL}"))
     if einstellungen.empfang:
         namen = ", ".join(g.name for g in einstellungen.empfang_geraete)
-        ergebnisse.append((True, f"Empfang fuer Aufnahmegeraete auf Port {einstellungen.empfang_port}: {namen}"))
+        ergebnisse.append((True, f"Empfang fuer VERMERK Raum auf Port {einstellungen.empfang_port}: {namen}"))
     return ergebnisse
 
 
@@ -114,7 +114,7 @@ def main(argv: Sequence[str] | None = None, umgebung: Mapping[str, str] | None =
         try:
             empfang.starten()
         except OSError as fehler:
-            print(f"Empfang fuer Aufnahmegeraete: Port {einstellungen.empfang_port} nicht nutzbar ({fehler}).", file=sys.stderr)
+            print(f"Empfang fuer VERMERK Raum: Port {einstellungen.empfang_port} nicht nutzbar ({fehler}).", file=sys.stderr)
             return 2
     try:
         dienst.lauf()

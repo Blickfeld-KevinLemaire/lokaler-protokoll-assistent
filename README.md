@@ -1,9 +1,12 @@
-# Protokoll-Assistent
+# VERMERK Desktop
 
 Transkribiert Besprechungsaufnahmen (mit Sprechertrennung) und erstellt daraus
 anschliessend - als getrennter, unabhaengiger Schritt - mit einem frei
 waehlbaren Sprachmodell ein Ergebnisdokument nach freier Wahl (Zusammenfassung,
 Agenda, Prioritaetenliste, ...).
+
+VERMERK Desktop ist die Windows-Anwendung. Die zugehoerigen WLAN-Aufnahmegeraete
+fuer Besprechungsraeume heissen **VERMERK Raum** (siehe [`firmware/`](firmware/)).
 
 Es ist **eine** Anwendung. Fuer beide Arbeitsschritte gibt es je zwei Wege, und
 die Wahl ist eine **Einstellung im Programm** - kein eigenes Programm, kein
@@ -77,7 +80,7 @@ ermitteln ihren Ordner automatisch anhand ihres eigenen Speicherorts.
 
 Der Installer aus dem
 [Release-Bereich](https://github.com/Blickfeld-KevinLemaire/lokaler-protokoll-assistent/releases)
-(`Protokoll-Assistent-Setup-<Version>.exe`) installiert ohne
+(`VERMERK-Desktop-Setup-<Version>.exe`) installiert ohne
 Administratorrechte pro Benutzer, legt einen Startmenue-Eintrag an und laesst
 sich normal ueber „Apps & Features" wieder entfernen.
 

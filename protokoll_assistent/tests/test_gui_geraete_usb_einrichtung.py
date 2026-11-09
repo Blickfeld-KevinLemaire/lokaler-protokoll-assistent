@@ -238,7 +238,7 @@ def test_im_hintergrund_startet_einen_faden(qt_widgets, geraet, monkeypatch):
 
 
 # --------------------------------------------------------------------------
-# Reiter "Aufnahmegeräte"
+# Reiter "VERMERK Raum"
 # --------------------------------------------------------------------------
 @pytest.fixture
 def seite(qt_widgets, tmp_path, monkeypatch):

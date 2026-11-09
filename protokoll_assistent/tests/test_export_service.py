@@ -32,7 +32,7 @@ def test_txt_content_matches_expected_format():
         _sample_segments(), {"SPEAKER_00": "Sprecher 1", "SPEAKER_01": "Sprecher 2"}
     )
     content = export_service.build_txt_content("aufnahme.mp3", "2026-01-01T10:00:00+01:00", "faster-whisper large-v3-turbo", "de", 2, segments)
-    assert "PROTOKOLL-ASSISTENT" in content
+    assert "VERMERK DESKTOP" in content
     assert "[00:00:02.780 --> 00:00:17.180] Sprecher 1: Hallo zusammen." in content
     assert "[00:00:35.300 --> 00:00:37.160] Sprecher 2: Guten Tag." in content
 

@@ -106,7 +106,7 @@ und Antworten stehen verbindlich in [`protokoll_assistent/GERAETE-SCHNITTSTELLE.
 
 **Einrichten über USB (ohne Neukompilieren):**
 
-1. Empfang einschalten: in der Anwendung unter Einstellungen, Bereich „Aufnahmegeräte“; im Servermodus mit
+1. Empfang einschalten: in der Anwendung unter Einstellungen, Reiter „VERMERK Raum“; im Servermodus mit
    `PROTOKOLL_EMPFANG=1`. Standardport 8765.
 2. Gerät per USB-Datenkabel an den PC, in der Anwendung „Gerät einrichten“: Sie fragt das Gerät ab, vergibt einen
    Gerätenamen, erzeugt ein eigenes Token und schreibt WLAN, Adresse und Token ins Gerät (NVS). Das Gerät startet neu und

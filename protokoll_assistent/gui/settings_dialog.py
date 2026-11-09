@@ -1,4 +1,4 @@
-"""Einstellungen des Protokoll-Assistenten.
+"""Einstellungen von VERMERK Desktop.
 
 Zwei Reiter, wie vom Auftrag verlangt: "Transkription" entscheidet lokal
 (installiertes Whisper-Modell) vs. API-Schnittstelle; "Nachbearbeitung"
@@ -88,7 +88,7 @@ class SettingsDialog(QDialog):
         kontakte_abfragen = getattr(parent, "geraete_kontakte", None)
         kontakte = kontakte_abfragen() if callable(kontakte_abfragen) else {}
         self.geraete_seite = GeraeteSeite(self._config, self, kontakte)
-        tabs.addTab(self.geraete_seite, "Aufnahmegeräte")
+        tabs.addTab(self.geraete_seite, "VERMERK Raum")
 
         buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel, self)
         buttons.accepted.connect(self._speichern_und_schliessen)

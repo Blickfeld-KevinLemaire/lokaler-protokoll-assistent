@@ -1,4 +1,4 @@
-# Protokoll-Assistent — technische Referenz
+# VERMERK Desktop — technische Referenz
 
 > Die Kurzanleitung (Installation, Bedienung, Einstellungen) steht in der
 > [README im Projektstamm](../README.md). Diese Datei geht in die Tiefe:
@@ -326,7 +326,7 @@ unbeabsichtigtes Überschreiben vorhandener Ergebnisse):
 TXT-Format-Beispiel:
 
 ```text
-PROTOKOLL-ASSISTENT – LOKALES VOLLTRANSKRIPT MIT SPRECHERTRENNUNG
+VERMERK DESKTOP – LOKALES VOLLTRANSKRIPT MIT SPRECHERTRENNUNG
 Quelldatei: dbb_TEST_10_Minuten.mp3
 Erstellt: 2026-01-01T10:00:00+01:00
 Transkriptionsmodell: large-v3-turbo (faster-whisper)
@@ -448,8 +448,8 @@ powershell -ExecutionPolicy Bypass -File .\build_windows.ps1
 ```
 
 Erstellt einen **One-Directory-Build** (kein One-File, da faster-whisper/PyTorch/CUDA
-dafür ungeeignet groß sind) unter `dist\Protokoll-Assistent\`. Startpunkt:
-`Protokoll-Assistent.exe`. Modelldateien werden **nicht** in den Build
+dafür ungeeignet groß sind) unter `dist\VERMERK-Desktop\`. Startpunkt:
+`VERMERK-Desktop.exe`. Modelldateien werden **nicht** in den Build
 kopiert — die EXE verwendet Ihren vorhandenen Hugging-Face-/Ollama-Cache. In
 einer gebauten EXE ist `bootstrap.py` automatisch inaktiv (alles ist bereits
 gebündelt) — der Einrichtungsassistent zeigt direkt Systemtest und
@@ -464,7 +464,7 @@ resultierende Anwendung startete tatsächlich bis zur vollständigen
 Oberfläche (Bootstrap wurde dabei korrekt als „bereits gebündelt"
 übersprungen). Bitte auf Ihrem Rechner nach dem Build zusätzlich prüfen:
 
-1. `dist\Protokoll-Assistent\Protokoll-Assistent.exe` startet und
+1. `dist\VERMERK-Desktop\VERMERK-Desktop.exe` startet und
    zeigt Einrichtungsassistent bzw. Datenschutzhinweis.
 2. Systemdiagnose in der Oberfläche zeigt PyTorch/faster-whisper/pyannote als „OK".
 3. Ein-Minuten-Testdatei (`dbb_TEST_1_Minute.mp3`) läuft vollständig durch.

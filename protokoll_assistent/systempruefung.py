@@ -118,7 +118,7 @@ def run_phase4_offline_check() -> bool:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Systempruefung fuer Protokoll-Assistent Lokal.")
+    parser = argparse.ArgumentParser(description="Systempruefung fuer VERMERK Desktop.")
     parser.add_argument(
         "--offline-check",
         action="store_true",

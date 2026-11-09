@@ -133,7 +133,7 @@ jobs:
       - name: Ist eine EXE entstanden?
         shell: pwsh
         run: |
-          $exe = "dist\Protokoll-Assistent\Protokoll-Assistent.exe"
+          $exe = "dist\VERMERK-Desktop\VERMERK-Desktop.exe"
           if (-not (Test-Path $exe)) {
             Write-Error "Der Build hat keine EXE erzeugt: $exe"
             exit 1
@@ -166,7 +166,7 @@ jobs:
       - name: Ergebnis pruefen
         shell: pwsh
         run: |
-          $setup = "dist-installer\Protokoll-Assistent-Setup-$env:VERSION.exe"
+          $setup = "dist-installer\VERMERK-Desktop-Setup-$env:VERSION.exe"
           if (-not (Test-Path $setup)) {
             Write-Error "Installer wurde nicht erzeugt: $setup"
             exit 1
@@ -180,6 +180,6 @@ jobs:
         # Laufs unter "Actions".
         uses: actions/upload-artifact@v7
         with:
-          name: Protokoll-Assistent-Setup-nightly
+          name: VERMERK-Desktop-Setup-nightly
           path: dist-installer\*.exe
           retention-days: 14
