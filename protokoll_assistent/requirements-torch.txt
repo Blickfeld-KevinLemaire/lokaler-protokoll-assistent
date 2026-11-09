@@ -36,5 +36,11 @@
 # 'requirements-laufzeit.txt' verlangen. Genau das prueft
 # 'tools/laufzeit_pakete_pruefen.py' - und zwar fuer jeden der
 # eingestellten Indizes, damit alte wie neue Karten bedient werden.
+#
+# torchaudio steht auf genau 2.11.0: Am 28.10.2026 erschien 2.11.1 auf
+# PyPI, in den CUDA-12-Indizes (cu126, cu128) aber nicht. Mit '~=2.11.0'
+# zog der zweite pip-Aufruf 2.11.1 von PyPI nach und ersetzte den
+# CUDA-Build. Lockern erst, wenn 'laufzeit_pakete_pruefen' die neue
+# Fassung in allen Indizes findet.
 torch~=2.11.0
-torchaudio~=2.11.0
+torchaudio==2.11.0
