@@ -282,3 +282,33 @@ def test_ensure_ffmpeg_available_meldet_kaputtes_paket_statt_abzustuerzen(monkey
     meldungen = []
     assert ffmpeg_service.ensure_ffmpeg_available(progress_cb=meldungen.append) is None
     assert any("not a zip" in m for m in meldungen)
+
+
+# --------------------------------------------------------------------------
+# Ausgabe von ffprobe/ffmpeg ist UTF-8
+# --------------------------------------------------------------------------
+def test_probe_liest_utf8_ausgabe_mit_zeichen_die_es_in_cp1252_nicht_gibt(monkeypatch, tmp_path):
+    # ffprobe gibt Dateinamen und Metadaten als UTF-8 aus. Ohne 'encoding' las Python cp1252; Bytes wie 0x81
+    # oder 0x9D (in "Tomáš", kyrillischer Schrift, Emojis) gibt es dort nicht -- 'stdout' war dann None, und
+    # die Verarbeitung scheiterte bei jedem Versuch mit "the JSON object must be str ... not NoneType".
+    import subprocess
+    import sys
+
+    echt = subprocess.run
+    skript = (
+        "import sys, json; sys.stdout.buffer.write(json.dumps({'format': {'duration': '12.5', "
+        "'filename': 'C:/Users/Tom\u00e1\u0161/\u0417\u0430\u043f\u0438\u0441\u044c \U0001f4dd.wav'}}, "
+        "ensure_ascii=False).encode('utf-8'))"
+    )
+    monkeypatch.setattr(
+        ffmpeg_service.subprocess, "run", lambda befehl, **kwargs: echt([sys.executable, "-c", skript], **kwargs)
+    )
+    assert ffmpeg_service.probe_duration_seconds(tmp_path / "x.wav", ffprobe_path=Path("ffprobe")) == 12.5
+
+
+def test_alle_ffmpeg_aufrufe_lesen_utf8():
+    import inspect
+
+    quelltext = inspect.getsource(ffmpeg_service)
+    assert quelltext.count("text=True") == quelltext.count('encoding="utf-8", errors="replace"') + 1 == 5
+    assert quelltext.count('errors="replace"') == 5

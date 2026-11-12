@@ -51,6 +51,41 @@ def to_global_segments(local_segments: list[dict[str, Any]], offset: float) -> l
     return global_segments
 
 
+# So nah an der Chunk-Grenze gilt ein Segment als dort abgeschnitten (Sekunden).
+_GRENZNAEHE_SEKUNDEN = 1.0
+
+
+def _ueberlappen_zeitlich(a: dict[str, Any], b: dict[str, Any]) -> bool:
+    return a["start"] < b["end"] + 0.5 and b["start"] < a["end"] + 0.5
+
+
+def _ist_am_chunk_ende_abgeschnitten(vorher: dict[str, Any], neu: dict[str, Any], chunk_ende: float) -> bool:
+    """Endet ``vorher`` am Ende seines Chunks, waehrend ``neu`` dasselbe Stueck weiterfuehrt?"""
+    return (
+        vorher["end"] >= chunk_ende - _GRENZNAEHE_SEKUNDEN
+        and neu["end"] > vorher["end"]
+        and _ueberlappen_zeitlich(vorher, neu)
+    )
+
+
+def _ist_anfang_von(vorher: dict[str, Any], neu: dict[str, Any]) -> bool:
+    kurz, lang = normalize_text_for_compare(vorher["text"]), normalize_text_for_compare(neu["text"])
+    return bool(kurz) and len(lang) > len(kurz) and lang.startswith(kurz)
+
+
+def _ist_am_chunk_anfang_abgeschnitten(vorher: dict[str, Any], neu: dict[str, Any], chunk_anfang: float) -> bool:
+    """Beginnt ``neu`` am Anfang seines Chunks mitten in dem Satz, den ``vorher`` ganz enthaelt?"""
+    kurz, lang = normalize_text_for_compare(neu["text"]), normalize_text_for_compare(vorher["text"])
+    return (
+        neu["start"] <= chunk_anfang + _GRENZNAEHE_SEKUNDEN
+        and neu["end"] <= vorher["end"] + 0.5
+        and _ueberlappen_zeitlich(vorher, neu)
+        and len(kurz.split()) >= 2
+        and len(lang) > len(kurz)
+        and lang.endswith(kurz)
+    )
+
+
 def merge_chunk_into_result(
     merged_segments: list[dict[str, Any]],
     new_chunk_segments: list[dict[str, Any]],
@@ -88,8 +123,34 @@ def merge_chunk_into_result(
         # gesprochenen Inhalt in den beiden ueberlappenden Chunks nicht
         # zwingend auf identische Sekundenbruchteile schneidet.
         best_similarity = 0.0
+        aehnlichstes: dict[str, Any] | None = None
         for previous in previous_candidates:
-            best_similarity = max(best_similarity, text_similarity(segment["text"], previous["text"]))
+            aehnlichkeit = text_similarity(segment["text"], previous["text"])
+            if aehnlichkeit > best_similarity:
+                best_similarity, aehnlichstes = aehnlichkeit, previous
+
+        # Derselbe Satz, an der Chunk-Grenze zerschnitten: Der vorige Chunk hoert mitten im Satz auf
+        # ("... treffen uns am Montag um"), der neue hat ihn ganz ("... am Montag um zehn."). Dann gilt die
+        # VOLLSTAENDIGE Fassung. Frueher blieb die abgeschnittene (bei hoher Aehnlichkeit fiel "zehn" weg),
+        # oder der Satz stand zweimal im Transkript (bei mittlerer).
+        abgeschnitten = next(
+            (
+                previous
+                for previous in previous_candidates
+                if _ist_am_chunk_ende_abgeschnitten(previous, segment, overlap_end)
+                and ((previous is aehnlichstes and best_similarity >= high_threshold) or _ist_anfang_von(previous, segment))
+            ),
+            None,
+        )
+        if abgeschnitten is not None:
+            stelle = next(i for i, vorhanden in enumerate(merged_segments) if vorhanden is abgeschnitten)
+            merged_segments[stelle] = segment
+            previous_candidates[previous_candidates.index(abgeschnitten)] = segment
+            continue
+
+        # Umgekehrt: Der neue Chunk beginnt mitten in einem Satz, den der vorige ganz hat.
+        if any(_ist_am_chunk_anfang_abgeschnitten(previous, segment, overlap_start) for previous in previous_candidates):
+            continue
 
         if best_similarity >= high_threshold:
             continue  # eindeutiges Duplikat -- verwerfen

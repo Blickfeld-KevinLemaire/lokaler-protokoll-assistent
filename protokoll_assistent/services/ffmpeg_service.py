@@ -211,6 +211,8 @@ def get_tool_version(executable: Path) -> str:
             [str(executable), "-version"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             check=False,
             timeout=15,
             creationflags=KEIN_FENSTER,
@@ -232,11 +234,11 @@ def probe_duration_seconds(source: Path, ffprobe_path: Path | None = None) -> fl
         "-show_format",
         str(source),
     ]
-    completed = subprocess.run(command, capture_output=True, text=True, check=False, timeout=120, creationflags=KEIN_FENSTER)
+    completed = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", errors="replace", check=False, timeout=120, creationflags=KEIN_FENSTER)
     if completed.returncode != 0:
         raise RuntimeError(f"ffprobe konnte die Datei nicht lesen: {completed.stderr.strip()[-800:]}")
     try:
-        data = json.loads(completed.stdout)
+        data = json.loads(completed.stdout or "")
         return float(data["format"]["duration"])
     except (KeyError, ValueError, json.JSONDecodeError) as error:
         raise RuntimeError(f"ffprobe-Ausgabe konnte nicht ausgewertet werden: {error}") from error
@@ -267,7 +269,7 @@ def normalize_audio(
         "-c:a", "pcm_s16le",
         str(unfertig),
     ]
-    completed = subprocess.run(command, capture_output=True, text=True, check=False, timeout=3600, creationflags=KEIN_FENSTER)
+    completed = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", errors="replace", check=False, timeout=3600, creationflags=KEIN_FENSTER)
     if completed.returncode != 0 or not unfertig.exists():
         _unfertige_reste_entfernen(unfertig)
         raise RuntimeError(f"FFmpeg konnte die Datei nicht normalisieren: {completed.stderr.strip()[-1000:]}")
@@ -310,7 +312,7 @@ def extract_chunk_wav(
         "-c:a", "pcm_s16le",
         str(unfertig),
     ]
-    completed = subprocess.run(command, capture_output=True, text=True, check=False, timeout=600, creationflags=KEIN_FENSTER)
+    completed = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", errors="replace", check=False, timeout=600, creationflags=KEIN_FENSTER)
     if completed.returncode != 0 or not unfertig.exists():
         _unfertige_reste_entfernen(unfertig)
         raise RuntimeError(f"FFmpeg konnte den Chunk nicht erstellen: {completed.stderr.strip()[-1000:]}")
@@ -365,7 +367,7 @@ def extract_speaker_audio(
             "-c:a", "pcm_s16le",
             str(unfertig),
         ]
-        completed = subprocess.run(command, capture_output=True, text=True, check=False, timeout=600, creationflags=KEIN_FENSTER)
+        completed = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", errors="replace", check=False, timeout=600, creationflags=KEIN_FENSTER)
     finally:
         skript.unlink(missing_ok=True)
     if completed.returncode != 0 or not unfertig.exists():

@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import html
 import json
+import re
 import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -332,31 +333,45 @@ def als_html(dokument: Dokument) -> str:
     return "\n".join(teile) + "\n"
 
 
+# Steuerzeichen, die in XML nicht vorkommen duerfen (python-docx/lxml: ValueError). Ein Sprachmodell
+# liefert so etwas selten, aber es kommt vor -- und die Word-Datei entsteht nach JEDER Verarbeitung.
+_STEUERZEICHEN = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+
+
+def _fuer_word(text: str) -> str:
+    return _STEUERZEICHEN.sub("", str(text))
+
+
 def schreibe_docx(dokument: Dokument, pfad: Path) -> None:
     try:
         import docx  # type: ignore
     except ImportError as fehler:
         raise ExportFehler("Fuer Word-Dateien wird das Paket python-docx benoetigt.") from fehler
 
-    word = docx.Document()
-    word.core_properties.title = dokument.titel
-    word.add_heading(dokument.titel, level=1)
-    for kopf in dokument.kopfzeilen:
-        word.add_paragraph(kopf)
-    for a in dokument.abschnitte:
-        if a.art == UEBERSCHRIFT:
-            word.add_heading(a.text, level=a.stufe)
-        elif a.art == ABSATZ:
-            absatz = word.add_paragraph()
-            if a.betont:
-                absatz.add_run(a.betont).bold = True
-            absatz.add_run(a.text)
-        elif a.art == LISTE:
-            for punkt in a.punkte:
-                word.add_paragraph(punkt, style="List Bullet")
-        elif a.art == SEITENUMBRUCH:
-            word.add_page_break()
-    word.save(str(pfad))
+    w = _fuer_word
+    try:
+        word = docx.Document()
+        # Word laesst im Titelfeld hoechstens 255 Zeichen zu (python-docx: ValueError).
+        word.core_properties.title = w(dokument.titel)[:255]
+        word.add_heading(w(dokument.titel), level=1)
+        for kopf in dokument.kopfzeilen:
+            word.add_paragraph(w(kopf))
+        for a in dokument.abschnitte:
+            if a.art == UEBERSCHRIFT:
+                word.add_heading(w(a.text), level=a.stufe)
+            elif a.art == ABSATZ:
+                absatz = word.add_paragraph()
+                if a.betont:
+                    absatz.add_run(w(a.betont)).bold = True
+                absatz.add_run(w(a.text))
+            elif a.art == LISTE:
+                for punkt in a.punkte:
+                    word.add_paragraph(w(punkt), style="List Bullet")
+            elif a.art == SEITENUMBRUCH:
+                word.add_page_break()
+        word.save(str(pfad))
+    except ValueError as fehler:
+        raise ExportFehler(f"Die Word-Datei konnte nicht erzeugt werden: {fehler}") from fehler
 
 
 # --------------------------------------------------------------------------

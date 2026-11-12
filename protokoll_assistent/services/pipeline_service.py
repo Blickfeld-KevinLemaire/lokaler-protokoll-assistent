@@ -160,6 +160,9 @@ class TranscriptionResult:
     # aufgerufen - 'run_pipeline' schreibt den gemeinsamen Bericht erst nach
     # der anschliessenden Protokollauswertung und laesst dieses Feld leer.
     report_paths: tuple[Path, Path] | None = None
+    # Gesetzt, wenn die Sprechertrennung gescheitert ist: Das Transkript ist dann trotzdem fertig, nur ohne
+    # Sprecher. Die Oberflaeche sagt das dem Anwender.
+    diarisierung_fehler: str | None = None
 
 
 @dataclass
@@ -208,6 +211,39 @@ def _check_cancel(callbacks: PipelineCallbacks) -> None:
         raise PipelineCancelled("Verarbeitung durch Benutzer abgebrochen.")
 
 
+def _auswertung_melden(callbacks: PipelineCallbacks, stage: str, current: int, total: int) -> None:
+    """Fortschritt der Protokollauswertung -- und die Stelle, an der ein Abbruch wirkt: vor JEDER Anfrage an
+    das Modell. Frueher wurde nur einmal ganz am Anfang gefragt; "Abbrechen" zeigte dann "Abbruch
+    angefordert", und Minuten spaeter erschien trotzdem das fertige Protokoll. Schon berechnete Teile bleiben
+    als Zwischenstand liegen und werden beim naechsten Lauf wiederverwendet."""
+    _check_cancel(callbacks)
+    callbacks.on_stage(
+        "protokoll_auswertung",
+        f"{STAGE_LABELS['protokoll_auswertung']} ({stage}: {current + 1}/{max(total, 1)})",
+    )
+
+
+def _geaenderte_einstellungen(manifest: dict[str, Any], settings: PipelineSettings, modus: str) -> list[str]:
+    """Was hat sich gegenueber dem Lauf geaendert, von dem die Zwischenstaende stammen -- soweit es das
+    Transkript der Abschnitte bestimmt? Aeltere Zwischenstaende kennen den Transkriptionsweg noch nicht;
+    was dort fehlt, wird nicht verglichen."""
+    alt = manifest.get("einstellungen")
+    if not isinstance(alt, dict):
+        return []
+    geaendert: list[str] = []
+    if "sprache" in alt and alt["sprache"] != settings.language:
+        geaendert.append("Sprache")
+    if alt.get("transkription_modus") not in (None, modus):
+        geaendert.append("Transkriptionsweg (lokal/API)")
+    if modus == "lokal":
+        if "modell" in alt and alt["modell"] != settings.whisper_model:
+            geaendert.append("Modell")
+    elif "sprechertrennung_aktiv" in alt and bool(alt["sprechertrennung_aktiv"]) != bool(settings.enable_diarization):
+        # Ueber eine API ist die Sprechertrennung Teil der Anfrage je Abschnitt.
+        geaendert.append("Sprechertrennung")
+    return geaendert
+
+
 def validate_source_file(source_path: Path) -> None:
     if not source_path.exists():
         raise PipelineError(f"Datei nicht gefunden: {source_path}")
@@ -223,9 +259,14 @@ def _build_protocol_chunk_texts(
     speaker_names: dict[str, str],
     diarization_enabled: bool = True,
     fliesstext: bool = False,
+    ende_offen: bool = False,
 ) -> list[dict[str, Any]]:
     """Baut je Chunk den zugehoerigen (bereits global datierten und
     deduplizierten) Transkriptausschnitt fuer die Ollama-Auswertung.
+
+    ``ende_offen`` (nur fuer das FERTIGE Transkript): Das letzte Fenster reicht bis zum letzten Segment. Ein
+    Segment ohne Dauer genau am Ende (Whisper liefert das gelegentlich, eine API ohne 'end' immer) laege
+    sonst in keinem Fenster und fehlte im Protokoll. Waehrend der Aufnahme ist der letzte Plan nicht das Ende.
 
     Die Chunks ueberlappen sich um ``overlap_with_previous`` Sekunden. Ein
     Segment aus diesem Ueberlappungsfenster gehoert bereits zum
@@ -248,9 +289,10 @@ def _build_protocol_chunk_texts(
     chunk_texts = []
     for plan in chunk_plans:
         fenster_start = plan.global_start + plan.overlap_with_previous
+        letztes = ende_offen and plan is chunk_plans[-1]
         lines = []
         for segment in merged_segments:
-            if fenster_start <= segment["start"] < plan.global_end:
+            if fenster_start <= segment["start"] < plan.global_end or (letztes and segment["start"] >= plan.global_end):
                 if diarization_enabled:
                     # 'sprecher_id' darf fehlen - dict.get(None) ist erlaubt
                     # und liefert dann den Standardwert.
@@ -299,7 +341,7 @@ def _automatisches_word(callbacks: PipelineCallbacks, transkript_json: Path, pro
     daran nicht verloren gehen."""
     try:
         ziel = dokument_export_service.automatisches_word(transkript_json, protokoll_json)
-    except dokument_export_service.ExportFehler as fehler:
+    except Exception as fehler:  # wirklich jeder Fehler: Transkript und Protokoll sind zu diesem Zeitpunkt fertig
         callbacks.on_log(f"Die Word-Datei wurde nicht erstellt: {fehler}")
         return
     if ziel is not None:
@@ -452,6 +494,19 @@ def _run_transcription_stage(
         existing_manifest = None
         callbacks.on_log("Vollstaendiger Neubeginn -- vorhandene Zwischenstaende wurden verworfen.")
 
+    transkription_modus = "api" if transcribe_chunk_fn is not None else "lokal"
+    if existing_manifest is not None:
+        geaendert = _geaenderte_einstellungen(existing_manifest, settings, transkription_modus)
+        if geaendert:
+            # "Fortsetzen" ist vorausgewaehlt, sobald es Zwischenstaende gibt. Ohne diesen Vergleich kam nach
+            # einer geaenderten Sprache (oder einem anderen Modell) stillschweigend das alte Transkript zurueck.
+            manifest_service.verwerfe_zwischenstaende(work_dir)
+            existing_manifest = None
+            callbacks.on_log(
+                f"Seit dem letzten Lauf geaendert: {', '.join(geaendert)} -- die vorhandenen Zwischenstaende "
+                "passen nicht mehr und wurden verworfen."
+            )
+
     callbacks.on_stage("audio_normalisierung", STAGE_LABELS["audio_normalisierung"])
     ffmpeg_service.ensure_ffmpeg_on_path()
     normalized_path = work_dir / "audio_normalisiert.wav"
@@ -483,6 +538,7 @@ def _run_transcription_stage(
                 "max_sprecher": settings.max_speakers,
                 "modell": settings.whisper_model,
                 "sprechertrennung_aktiv": settings.enable_diarization,
+                "transkription_modus": transkription_modus,
             },
         )
         manifest_service.save_manifest(work_dir, manifest)
@@ -604,6 +660,7 @@ def _run_transcription_stage(
         callbacks.on_overall_progress((plan.index + 1) / len(chunk_plans) * 0.5)
 
     callbacks.on_stage("diarisierung", STAGE_LABELS["diarisierung"])
+    diarisierung_fehler: str | None = None
     # Stimmabdruecke eines frueheren Laufs im selben Arbeitsordner duerfen nicht
     # stehen bleiben, wenn dieser Lauf keine liefert (API-Modus, ohne Sprechertrennung).
     sprecherprofil_service.speichere_lauf_embeddings(work_dir, {})
@@ -612,25 +669,43 @@ def _run_transcription_stage(
             "Sprechertrennung deaktiviert -- Transkript wird ohne Sprecherzuordnung erstellt."
         )
         diarization_turns: list[dict[str, Any]] = []
-    elif diarize_fn is None:
-        # Whisper wird hier nicht mehr gebraucht: vom Grafikspeicher nehmen,
-        # bevor pyannote rechnet (die Closure oben haelt sonst das Modell).
-        whisper_model = None
-        model_service.gpu_speicher_freigeben()
-        diarization_turns, sprecher_embeddings = _sprechertrennung(normalized_path, settings, device, callbacks)
-        # Fuer die dauerhaften Sprecherprofile; im Arbeitsordner, nicht in
-        # der Ausgabe. Ein Lauf ohne Embeddings loescht den alten Stand.
-        sprecherprofil_service.speichere_lauf_embeddings(work_dir, sprecher_embeddings)
     else:
-        diarization_turns = diarize_fn(normalized_path, settings.min_speakers, settings.max_speakers)
-    manifest["diarisierung_status"] = manifest_service.STATUS_ABGESCHLOSSEN
+        # Scheitert die Sprechertrennung (Token fehlt oder ist ungueltig, Modell im Offline-Modus nicht da,
+        # Speicher reicht nicht), ist die Transkription trotzdem fertig -- oft nach einer Stunde Rechenzeit.
+        # Frueher ging der Fehler hier durch, es wurde nichts geschrieben, und "Fortsetzen" scheiterte an
+        # derselben Stelle erneut. Jetzt entsteht das Transkript ohne Sprecher, und der Grund wird genannt.
+        try:
+            if diarize_fn is None:
+                # Whisper wird hier nicht mehr gebraucht: vom Grafikspeicher nehmen,
+                # bevor pyannote rechnet (die Closure oben haelt sonst das Modell).
+                whisper_model = None
+                model_service.gpu_speicher_freigeben()
+                diarization_turns, sprecher_embeddings = _sprechertrennung(normalized_path, settings, device, callbacks)
+                # Fuer die dauerhaften Sprecherprofile; im Arbeitsordner, nicht in
+                # der Ausgabe. Ein Lauf ohne Embeddings loescht den alten Stand.
+                sprecherprofil_service.speichere_lauf_embeddings(work_dir, sprecher_embeddings)
+            else:
+                diarization_turns = diarize_fn(normalized_path, settings.min_speakers, settings.max_speakers)
+        except PipelineCancelled:
+            raise
+        except Exception as fehler:
+            diarisierung_fehler = str(fehler) or type(fehler).__name__
+            diarization_turns = []
+            callbacks.on_log(
+                f"Die Sprechertrennung ist fehlgeschlagen: {diarisierung_fehler} -- das Transkript wird ohne "
+                "Sprecherzuordnung erstellt."
+            )
+    manifest["diarisierung_status"] = (
+        manifest_service.STATUS_ABGESCHLOSSEN if diarisierung_fehler is None else manifest_service.STATUS_FEHLGESCHLAGEN
+    )
     manifest_service.save_manifest(work_dir, manifest)
     _check_cancel(callbacks)
+    sprecher_aktiv = settings.enable_diarization and diarisierung_fehler is None
 
     callbacks.on_stage("zusammenfuehrung", STAGE_LABELS["zusammenfuehrung"])
     merged_segments = merge_service.merge_chunk_transcripts(chunk_plans, chunk_segment_lists)
     merged_segments = speaker_merge_service.assign_speakers_by_words(merged_segments, diarization_turns)
-    callbacks.on_preview(build_preview_text(merged_segments, settings.enable_diarization))
+    callbacks.on_preview(build_preview_text(merged_segments, sprecher_aktiv))
 
     callbacks.on_stage("export_transkript", STAGE_LABELS["export_transkript"])
     speaker_order = export_service.speaker_ids_in_order_of_appearance(merged_segments)
@@ -651,7 +726,7 @@ def _run_transcription_stage(
         processing_duration,
         merged_segments,
         speaker_names,
-        settings.enable_diarization,
+        sprecher_aktiv,
         diarization_turns,
         normalized_path,
     )
@@ -668,6 +743,7 @@ def _run_transcription_stage(
         total_duration=total_duration,
         run_timestamp=run_timestamp,
         timings=timings,
+        diarisierung_fehler=diarisierung_fehler,
     )
 
 
@@ -794,6 +870,7 @@ def run_protocol(
         speaker_names,
         diarization_enabled and not settings.ohne_sprecher,
         fliesstext=settings.ohne_sprecher,
+        ende_offen=True,
     )
     modell_kennung = settings.protokoll_modell_kennung or settings.ollama_model
     if settings.vorab_auswertung is not None:
@@ -832,10 +909,7 @@ def run_protocol(
             system_prompt,
             generate_fn,
             settings.protocol_group_size,
-            progress_cb=lambda stage, current, total: callbacks.on_stage(
-                "protokoll_auswertung",
-                f"{STAGE_LABELS['protokoll_auswertung']} ({stage}: {current + 1}/{max(total, 1)})",
-            ),
+            progress_cb=lambda stage, current, total: _auswertung_melden(callbacks, stage, current, total),
             modell=modell_kennung,
             abschnitt_sekunden=abschnitt_kennung,
             ohne_sprecher=settings.ohne_sprecher,
@@ -918,7 +992,7 @@ def run_pipeline(
 
         system_prompt = get_system_prompt_file().read_text(encoding="utf-8")
         chunk_texts = _build_protocol_chunk_texts(
-            chunk_plans, merged_segments, speaker_names, settings.enable_diarization
+            chunk_plans, merged_segments, speaker_names, settings.enable_diarization, ende_offen=True
         )
 
         def default_ollama_generate(prompt: str, system: str) -> str:
@@ -932,10 +1006,7 @@ def run_pipeline(
                 system_prompt,
                 generate_fn,
                 settings.protocol_group_size,
-                progress_cb=lambda stage, current, total: callbacks.on_stage(
-                    "protokoll_auswertung",
-                    f"{STAGE_LABELS['protokoll_auswertung']} ({stage}: {current + 1}/{max(total, 1)})",
-                ),
+                progress_cb=lambda stage, current, total: _auswertung_melden(callbacks, stage, current, total),
                 # Der kombinierte Ablauf (Servermodus) rechnet nur mit Ollama.
                 modell=settings.ollama_model,
             )

@@ -1266,3 +1266,172 @@ def test_ohne_sprecher_haengt_der_text_nicht_von_der_teilung_nach_sprechern_ab()
     assert pipeline_service.baue_protokoll_chunk_texte(plaene, live, {}, False) != (
         pipeline_service.baue_protokoll_chunk_texte(plaene, fertig, {}, False)
     )
+
+
+# --------------------------------------------------------------------------
+# Sprechertrennung scheitert: Das Transkript ist trotzdem fertig
+# --------------------------------------------------------------------------
+def test_gescheiterte_sprechertrennung_kostet_nicht_das_transkript(monkeypatch, tmp_path, source_file):
+    monkeypatch.setattr(utils_paths, "get_work_dir", lambda: tmp_path / "arbeitsdaten")
+    _patch_ffmpeg(monkeypatch, total_duration=300.0)
+    gerechnet: list = []
+
+    def transkribieren(pfad):
+        gerechnet.append(pfad)
+        return [{"start": 1.0, "end": 5.0, "text": "Hallo zusammen", "speaker": "SPEAKER_00"}]
+
+    def token_fehlt(normalized_path, min_speakers, max_speakers):
+        raise AttributeError("'NoneType' object has no attribute 'to'")
+
+    meldungen: list[str] = []
+    ergebnis = pipeline_service.run_transcription(
+        _make_settings(source_file, tmp_path),
+        pipeline_service.PipelineCallbacks(on_log=meldungen.append),
+        transcribe_chunk_fn=transkribieren,
+        diarize_fn=token_fehlt,
+    )
+
+    # Frueher: Ausnahme, keine Datei -- nach womoeglich einer Stunde Transkription.
+    assert ergebnis.export_paths.txt.is_file() and ergebnis.export_paths.json.is_file()
+    assert "Hallo zusammen" in ergebnis.export_paths.txt.read_text(encoding="utf-8")
+    assert "NoneType" in (ergebnis.diarisierung_fehler or "")
+    assert ergebnis.manifest["diarisierung_status"] == manifest_service.STATUS_FEHLGESCHLAGEN
+    assert any("Sprechertrennung ist fehlgeschlagen" in m for m in meldungen)
+    daten = json.loads(ergebnis.export_paths.json.read_text(encoding="utf-8"))
+    assert daten["sprechertrennung_aktiv"] is False  # ohne Sprecher, nicht "Sprecher unbekannt" in jeder Zeile
+    assert len(gerechnet) == 1
+
+
+def test_gelungene_sprechertrennung_setzt_keinen_fehler(monkeypatch, tmp_path, source_file):
+    monkeypatch.setattr(utils_paths, "get_work_dir", lambda: tmp_path / "arbeitsdaten")
+    _patch_ffmpeg(monkeypatch, total_duration=300.0)
+    ergebnis = pipeline_service.run_transcription(
+        _make_settings(source_file, tmp_path), transcribe_chunk_fn=_einfaches_segment, diarize_fn=_fake_diarize
+    )
+    assert ergebnis.diarisierung_fehler is None
+    assert ergebnis.manifest["diarisierung_status"] == manifest_service.STATUS_ABGESCHLOSSEN
+
+
+def test_abbruch_waehrend_der_sprechertrennung_bleibt_ein_abbruch(monkeypatch, tmp_path, source_file):
+    monkeypatch.setattr(utils_paths, "get_work_dir", lambda: tmp_path / "arbeitsdaten")
+    _patch_ffmpeg(monkeypatch, total_duration=300.0)
+
+    def abgebrochen(normalized_path, min_speakers, max_speakers):
+        raise pipeline_service.PipelineCancelled("Verarbeitung durch Benutzer abgebrochen.")
+
+    with pytest.raises(pipeline_service.PipelineCancelled):
+        pipeline_service.run_transcription(
+            _make_settings(source_file, tmp_path), transcribe_chunk_fn=_einfaches_segment, diarize_fn=abgebrochen
+        )
+
+
+# --------------------------------------------------------------------------
+# "Fortsetzen" mit geaenderten Einstellungen
+# --------------------------------------------------------------------------
+def _lauf_mit_sprache(source_file, tmp_path, sprache, gerechnet):
+    einstellungen = _make_settings(source_file, tmp_path)
+    einstellungen.language = sprache
+
+    def transkribieren(pfad):
+        gerechnet.append(sprache)
+        return [{"start": 1.0, "end": 5.0, "text": f"Text in {sprache}", "speaker": "SPEAKER_00"}]
+
+    meldungen: list[str] = []
+    ergebnis = pipeline_service.run_transcription(
+        einstellungen,
+        pipeline_service.PipelineCallbacks(on_log=meldungen.append),
+        transcribe_chunk_fn=transkribieren,
+        diarize_fn=_fake_diarize,
+    )
+    return ergebnis, meldungen
+
+
+def test_fortsetzen_mit_anderer_sprache_transkribiert_neu(monkeypatch, tmp_path, source_file):
+    monkeypatch.setattr(utils_paths, "get_work_dir", lambda: tmp_path / "arbeitsdaten")
+    _patch_ffmpeg(monkeypatch, total_duration=300.0)
+    gerechnet: list[str] = []
+
+    _lauf_mit_sprache(source_file, tmp_path, "de", gerechnet)
+    # Unveraendert: Der fertige Abschnitt wird wiederverwendet.
+    _, meldungen = _lauf_mit_sprache(source_file, tmp_path, "de", gerechnet)
+    assert gerechnet == ["de"]
+    assert not any("geaendert" in m for m in meldungen)
+
+    # Andere Sprache: Frueher kam stillschweigend der deutsche Text zurueck ("Fortsetzen" ist vorausgewaehlt).
+    ergebnis, meldungen = _lauf_mit_sprache(source_file, tmp_path, "en", gerechnet)
+    assert gerechnet == ["de", "en"]
+    assert "Text in en" in ergebnis.export_paths.txt.read_text(encoding="utf-8")
+    assert any("Sprache" in m and "verworfen" in m for m in meldungen)
+
+
+def test_geaenderte_einstellungen_werden_nur_verglichen_wo_sie_zaehlen():
+    einstellungen = pipeline_service.PipelineSettings(source_path=None, output_dir=None)  # type: ignore[arg-type]
+    einstellungen.language, einstellungen.whisper_model, einstellungen.enable_diarization = "de", "large-v3", True
+    pruefen = pipeline_service._geaenderte_einstellungen
+    alt = {"sprache": "de", "modell": "large-v3", "sprechertrennung_aktiv": True, "transkription_modus": "lokal"}
+
+    assert pruefen({"einstellungen": alt}, einstellungen, "lokal") == []
+    assert pruefen({"einstellungen": {**alt, "modell": "turbo"}}, einstellungen, "lokal") == ["Modell"]
+    assert pruefen({"einstellungen": alt}, einstellungen, "api") == ["Transkriptionsweg (lokal/API)"]
+    # Lokal laeuft die Sprechertrennung ohnehin bei jedem Lauf neu -- kein Grund, die Abschnitte zu verwerfen.
+    assert pruefen({"einstellungen": {**alt, "sprechertrennung_aktiv": False}}, einstellungen, "lokal") == []
+    # Ueber eine API ist sie Teil der Anfrage; das Modell der lokalen Auswahl spielt dort keine Rolle.
+    api_alt = {**alt, "transkription_modus": "api", "sprechertrennung_aktiv": False, "modell": "turbo"}
+    assert pruefen({"einstellungen": api_alt}, einstellungen, "api") == ["Sprechertrennung"]
+    # Aeltere Zwischenstaende ohne diese Angaben werden nicht verworfen.
+    assert pruefen({}, einstellungen, "lokal") == []
+    assert pruefen({"einstellungen": {"sprache": "de"}}, einstellungen, "api") == []
+
+
+# --------------------------------------------------------------------------
+# Abbruch waehrend der Protokollauswertung
+# --------------------------------------------------------------------------
+def test_abbruch_waehrend_der_auswertung_wirkt_vor_der_naechsten_anfrage(monkeypatch, tmp_path, source_file):
+    transkript = _langes_transkript(monkeypatch, tmp_path, source_file).export_paths.json  # drei Abschnitte
+    anfragen: list[str] = []
+
+    def modell(prompt, system):
+        anfragen.append(prompt)
+        return "Teilergebnis"
+
+    with pytest.raises(pipeline_service.PipelineCancelled):
+        pipeline_service.run_protocol(
+            pipeline_service.ProtocolSettings(transcript_json_path=transkript, output_dir=tmp_path / "ausgabe"),
+            pipeline_service.PipelineCallbacks(should_cancel=lambda: len(anfragen) >= 1),
+            protocol_generate_fn=modell,
+        )
+    # Frueher liefen alle Anfragen durch, und am Ende stand "abgeschlossen".
+    assert len(anfragen) == 1
+    assert not list((tmp_path / "ausgabe").glob("*protokoll*"))
+
+    # Das schon Berechnete bleibt als Zwischenstand: Der naechste Lauf fragt dafuer nicht noch einmal.
+    ergebnis = pipeline_service.run_protocol(
+        pipeline_service.ProtocolSettings(transcript_json_path=transkript, output_dir=tmp_path / "ausgabe"),
+        protocol_generate_fn=modell,
+    )
+    assert ergebnis.protokoll_fehler is None
+    assert anfragen.count(anfragen[0]) == 1
+
+
+def test_letztes_segment_ohne_dauer_fehlt_nicht_im_protokoll():
+    plaene = chunking_service.plan_chunks(1200.0)
+    segmente = [
+        {"start": 10.0, "end": 20.0, "text": "Anfang", "sprecher_id": None},
+        {"start": 1200.0, "end": 1200.0, "text": "Schlusswort", "sprecher_id": None},
+    ]
+    fertig = pipeline_service._build_protocol_chunk_texts(plaene, segmente, {}, False, ende_offen=True)
+    assert "Schlusswort" in fertig[-1]["text"]
+    assert sum("Schlusswort" in abschnitt["text"] for abschnitt in fertig) == 1
+    # Waehrend der Aufnahme ist der letzte bekannte Abschnitt nicht das Ende: dort bleibt das Fenster geschlossen.
+    laufend = pipeline_service._build_protocol_chunk_texts(plaene[:1], segmente, {}, False)
+    assert "Schlusswort" not in laufend[0]["text"]
+
+
+def test_jeder_fehler_bei_der_word_datei_wird_nur_protokolliert(tmp_path, monkeypatch):
+    def kaputt(transkript_json, protokoll_json=None):
+        raise ValueError("All strings must be XML compatible")
+
+    monkeypatch.setattr(pipeline_service.dokument_export_service, "automatisches_word", kaputt)
+    meldungen: list[str] = []
+    pipeline_service._automatisches_word(pipeline_service.PipelineCallbacks(on_log=meldungen.append), tmp_path / "t.json")
+    assert meldungen and "nicht erstellt" in meldungen[0]

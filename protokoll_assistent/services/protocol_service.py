@@ -46,10 +46,12 @@ from __future__ import annotations
 
 import hashlib
 import re
+import tempfile
 from collections.abc import Callable
 from pathlib import Path
 
 from protokoll_assistent.services import ollama_service
+from protokoll_assistent.services.manifest_service import _ersetzen_mit_wiederholung
 
 # Stufe 2 laeuft immer mindestens einmal. Danach wird weiter verdichtet, solange
 # die Teilergebnisse zusammen laenger als dieser Wert sind (Zeichen; gemessen gut
@@ -152,9 +154,19 @@ def _load_or_compute(path: Path, compute: Callable[[], str]) -> str:
     if path.is_file():
         return path.read_text(encoding="utf-8")
     result = compute()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(result, encoding="utf-8")
+    _zwischenstand_schreiben(path, result)
     return result
+
+
+def _zwischenstand_schreiben(path: Path, text: str) -> None:
+    """Atomar (erst unter Arbeitsnamen, dann ersetzen): Ein Absturz oder Stromausfall mitten im Schreiben
+    hinterliesse sonst eine halbe Datei, die -- weil nur ihr Vorhandensein zaehlt -- fuer immer als fertiges
+    Teilergebnis wiederverwendet wuerde."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=path.parent, suffix=".tmp", delete=False) as handle:
+        handle.write(text)
+        temp = Path(handle.name)
+    _ersetzen_mit_wiederholung(temp, path)
 
 
 def generate_checked(prompt: str, system: str, generate_fn: GenerateFn, leer_erlaubt: bool = False) -> str:
@@ -314,7 +326,7 @@ def _verdichtungsrunde(
         pfad = zusammen_dir / name
         if len(gruppe) == 1:
             if not pfad.is_file():
-                pfad.write_text(gruppe[0], encoding="utf-8")
+                _zwischenstand_schreiben(pfad, gruppe[0])
             ergebnis.append(pfad.read_text(encoding="utf-8"))
         else:
             ergebnis.append(run_stage2_merge(gruppe, system_prompt, generate_fn, pfad))
@@ -372,7 +384,7 @@ def vorab_ergebnisse_ablegen(
             prompt = build_stage1_prompt(index, str(chunk["start_str"]), str(chunk["end_str"]), str(chunk["text"]))
             treffer = stufe1.get(eingabe_kennung(prompt, auftrag, modell))
             if treffer is not None:
-                pfad.write_text(treffer, encoding="utf-8")
+                _zwischenstand_schreiben(pfad, treffer)
                 neu1 += 1
         if not luecke and pfad.is_file():
             text = pfad.read_text(encoding="utf-8")
@@ -390,7 +402,7 @@ def vorab_ergebnisse_ablegen(
             continue
         treffer = stufe2.get(eingabe_kennung(build_stage2_prompt(gruppe), auftrag, modell))
         if treffer is not None:
-            pfad.write_text(treffer, encoding="utf-8")
+            _zwischenstand_schreiben(pfad, treffer)
             neu2 += 1
     return neu1, neu2
 

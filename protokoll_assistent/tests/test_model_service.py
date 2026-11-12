@@ -116,3 +116,27 @@ def test_beschreibung_ohne_karte(torch_ersatz):
     beschreibung = model_service.get_gpu_description()
     assert "NVIDIA" in beschreibung
     assert "CPU" in beschreibung
+
+
+def test_pyannote_ohne_zugang_meldet_den_grund_statt_nonetype(monkeypatch):
+    # pyannote liefert bei einem abgelehnten Abruf (Token fehlt/ungueltig, Bedingungen nicht akzeptiert,
+    # offline ohne Modell) 'None'. Die Meldung war dann "'NoneType' object has no attribute 'to'".
+    import types
+
+    torch = types.ModuleType("torch")
+    torch.device = lambda name: name
+    pyannote = types.ModuleType("pyannote")
+    audio = types.ModuleType("pyannote.audio")
+
+    class Pipeline:
+        @staticmethod
+        def from_pretrained(name, token=None):
+            return None
+
+    audio.Pipeline = Pipeline
+    monkeypatch.setitem(sys.modules, "torch", torch)
+    monkeypatch.setitem(sys.modules, "pyannote", pyannote)
+    monkeypatch.setitem(sys.modules, "pyannote.audio", audio)
+    monkeypatch.setattr(model_service, "get_hf_token_for_download", lambda: None)
+    with pytest.raises(RuntimeError, match="Hugging-Face-Token"):
+        model_service.load_pyannote_pipeline("cpu")
