@@ -62,6 +62,7 @@ if bootstrap.laufzeit_beim_start_einrichten(
 # Laufzeitumgebung, oder - im reinen API-Modus - direkt in der Umgebung, die
 # 'requirements-anwendung.txt' bereitstellt (PySide6, sounddevice, keyring).
 from protokoll_assistent.services import ffmpeg_service  # noqa: E402
+from protokoll_assistent.utils import netz  # noqa: E402
 from protokoll_assistent.utils.logging_setup import get_logger  # noqa: E402
 from protokoll_assistent.utils.paths import ensure_system_prompt_file_exists  # noqa: E402
 
@@ -69,6 +70,11 @@ from protokoll_assistent.utils.paths import ensure_system_prompt_file_exists  # 
 def main() -> int:
     logger = get_logger()
     logger.info("VERMERK Desktop wird gestartet.")
+
+    # Zertifikatspruefung ueber Windows (Firmennetze, fehlende Wurzelzertifikate): vor dem ersten Netzzugriff,
+    # fuer urllib, requests, httpx und Hugging Face zugleich. Siehe 'utils/netz.py'.
+    if not netz.systemzertifikate_nutzen():
+        logger.info("Windows-Zertifikatspruefung nicht aktiv (Paket 'truststore' fehlt) -- Rueckfall ueber curl/PowerShell.")
 
     # Legt 'einstellungen/systemprompt_protokoll.txt' aus der mitgelieferten
     # Vorlage an, falls sie fehlt. Ohne das startet der Systemprompt-Editor im
@@ -90,19 +96,50 @@ def main() -> int:
     app.setApplicationName("VERMERK Desktop")
     theme.apply_theme(app)
 
-    window = MainWindow()
-    window.show()
+    sperre = _instanz_sperren()
+    if sperre is None:
+        # Eine zweite Instanz koennte den Port fuer die Aufnahmegeraete nicht
+        # belegen und zeigte nur einen irrefuehrenden "Port nicht nutzbar"-Fehler.
+        logger.warning("VERMERK Desktop läuft bereits – zweite Instanz beendet sich.")
+        from PySide6.QtWidgets import QMessageBox
 
-    konfig = app_config.load_config()
-    if konfig["einrichtung_fortsetzen"] or not konfig["einrichtung_abgeschlossen"]:
-        # Verzoegert (statt direkt vor 'app.exec()'), damit das Hauptfenster
-        # tatsaechlich zuerst sichtbar gezeichnet wird, bevor der Dialog
-        # darueber erscheint.
-        QTimer.singleShot(0, lambda: _erstmalige_lokale_einrichtung_anbieten(window))
+        QMessageBox.information(
+            None,
+            "VERMERK Desktop",
+            "VERMERK Desktop läuft bereits. Bitte das vorhandene Fenster benutzen "
+            "(ggf. in der Taskleiste oder im Task-Manager suchen).",
+        )
+        return 0
 
-    exit_code = app.exec()
+    try:
+        window = MainWindow()
+        window.show()
+
+        konfig = app_config.load_config()
+        if konfig["einrichtung_fortsetzen"] or not konfig["einrichtung_abgeschlossen"]:
+            # Verzoegert (statt direkt vor 'app.exec()'), damit das Hauptfenster
+            # tatsaechlich zuerst sichtbar gezeichnet wird, bevor der Dialog
+            # darueber erscheint.
+            QTimer.singleShot(0, lambda: _erstmalige_lokale_einrichtung_anbieten(window))
+
+        exit_code = app.exec()
+    finally:
+        sperre.unlock()
     logger.info("VERMERK Desktop wurde beendet (Code %s).", exit_code)
     return exit_code
+
+
+def _instanz_sperren():
+    """Sperrdatei im Temp-Ordner des Benutzers; ``None``, wenn schon eine Instanz läuft.
+    ``QLockFile`` erkennt verwaiste Sperren (Absturz, Neustart) selbst und räumt sie weg."""
+    import tempfile
+    from pathlib import Path
+
+    from PySide6.QtCore import QLockFile
+
+    sperre = QLockFile(str(Path(tempfile.gettempdir()) / "vermerk-desktop.lock"))
+    sperre.setStaleLockTime(0)  # nur ein toter Prozess macht die Sperre verwaist, nie das Alter
+    return sperre if sperre.tryLock(0) else None
 
 
 def _erstmalige_lokale_einrichtung_anbieten(parent) -> None:

@@ -19,7 +19,7 @@ import getpass
 import sys
 
 from protokoll_assistent.services import model_download_service, model_service
-from protokoll_assistent.utils import setup_status
+from protokoll_assistent.utils import netz, setup_status
 from protokoll_assistent.utils.hf_env import disable_offline_mode
 
 
@@ -55,6 +55,7 @@ def main() -> int:
     if args.modell:
         print(f"Gewaehltes Whisper-Modell: {args.modell}")
     disable_offline_mode()  # fuer diesen einmaligen, bewussten Download
+    netz.systemzertifikate_nutzen()  # Firmennetze: Zertifikate ueber Windows pruefen (siehe 'utils/netz.py')
 
     results = model_download_service.download_all_models(
         print, get_token=_prompt_for_token, whisper_model=args.modell

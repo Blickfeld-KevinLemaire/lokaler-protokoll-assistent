@@ -26,3 +26,8 @@ keyring>=25.0
 # Token werden ueber die serielle Schnittstelle ins Geraet geschrieben (siehe
 # 'services/geraete_usb_service.py'). Reines Python, keine DLL.
 pyserial>=3.5
+
+# Zertifikatspruefung ueber Windows statt ueber Pythons eigenen Speicher: Downloads und API-Aufrufe
+# funktionieren auch hinter Firmenproxys mit eigener Zertifikatspruefung und auf Rechnern mit
+# fehlenden Wurzelzertifikaten (siehe 'utils/netz.py'). Reines Python.
+truststore>=0.10.0

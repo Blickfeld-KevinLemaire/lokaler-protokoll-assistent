@@ -8,6 +8,23 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Downloads scheiterten mit `CERTIFICATE_VERIFY_FAILED … unable to get local issuer certificate`** (Ersteinrichtung
+  auf einem Laptop: FFmpeg und Ollama nicht gelungen). Python prüft unter Windows nur mit dem Zertifikatsspeicher des
+  Rechners; fehlt dort die Wurzel oder prüft ein Firmennetz mit eigenem Zertifikat, scheitert der Download, obwohl der
+  Browser die Seite öffnet. Jetzt in drei Stufen, jede nur nach einem Zertifikatsfehler: (1) Beim Start prüft die
+  Anwendung über Windows' eigene Zertifikatsprüfung (neues Paket `truststore`) – für Downloads, API-Aufrufe und
+  Hugging Face; (2) fehlt das Paket (ältere Einrichtung), lädt `curl.exe` mit dem Windows-Proxy, bei einem Proxy, der die
+  Sperrliste blockiert, ein zweites Mal ohne diese eine Prüfung; (3) zuletzt Windows PowerShell mit der
+  Proxy-Anmeldung des Benutzers. Zertifikate werden nie ungeprüft akzeptiert, nur HTTPS, und Größe, Adresse und
+  Signatur des Ollama-Installers werden wie sonst geprüft. Bestehende Installationen ziehen `truststore` beim
+  nächsten Start nach. Scheitert alles, nennt die Meldung beide Fehler.
+- **Zweite Instanz zeigte „Port 8765 ist nicht nutzbar":** Wurde VERMERK Desktop zweimal gestartet (z. B. nach einem
+  Neustart), belegte die erste Instanz den Port für die Aufnahmegeräte, und das zweite Fenster meldete den Port als
+  belegt – das Gerät blieb dort scheinbar „nicht erkannt". Jetzt läuft die Anwendung nur einmal; ein zweiter Start
+  weist darauf hin und beendet sich.
+
 ## [0.5.0-beta] - 2026-11-09
 
 ### Added

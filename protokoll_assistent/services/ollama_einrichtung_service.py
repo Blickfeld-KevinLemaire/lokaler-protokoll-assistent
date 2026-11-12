@@ -37,6 +37,7 @@ from pathlib import Path
 from typing import Any
 
 from protokoll_assistent.services import ollama_service
+from protokoll_assistent.utils import netz
 
 OLLAMA_LIZENZ_URL = "https://github.com/ollama/ollama/blob/main/LICENSE"
 OLLAMA_BEDINGUNGEN_URL = "https://ollama.com/terms"
@@ -166,6 +167,38 @@ def _umbenennen_mit_wiederholung(quelle: Path, ziel: Path, versuche: int = 5, wa
             time.sleep(warten)
 
 
+def _lade_mit_windows(
+    url: str, teil: Path, urspruenglich: OSError, windows_fn: Callable[..., Any], pruefsumme: Any
+) -> int:
+    """Zweiter Versuch nach einem Zertifikatsfehler von Python: Windows' eigener TLS-Stack laedt die Datei, danach
+    dieselben Pruefungen wie beim ersten Weg. Liefert die Groesse; bei jedem Mangel ``OllamaEinrichtungFehler``."""
+    try:
+        try:
+            endgueltig = windows_fn(url, teil)
+            _pruefe_adresse(endgueltig)  # nach allen Weiterleitungen
+            groesse = teil.stat().st_size
+            if not MIN_GROESSE_BYTES <= groesse <= MAX_GROESSE_BYTES:
+                raise OllamaEinrichtungFehler(
+                    f"Der Ollama-Installer hat eine unerwartete Größe ({groesse / 1024**2:.0f} MB). "
+                    "Aus Sicherheitsgründen wurde er nicht verwendet."
+                )
+            with teil.open("rb") as datei:
+                if datei.read(2) != b"MZ":
+                    raise OllamaEinrichtungFehler("Die geladene Datei ist kein Windows-Programm.")
+                datei.seek(0)
+                while block := datei.read(BLOCK_BYTES):
+                    pruefsumme.update(block)
+            return groesse
+        except OSError as fehler:
+            raise OllamaEinrichtungFehler(
+                f"Der Ollama-Installer konnte nicht geladen werden ({urspruenglich}). Das Zertifikat des Servers "
+                f"wird auf diesem Rechner nicht anerkannt (Firmennetz oder fehlende Windows-Updates?). {fehler}"
+            ) from urspruenglich
+    except OllamaEinrichtungFehler:
+        teil.unlink(missing_ok=True)
+        raise
+
+
 def lade_installer(
     ziel_ordner: Path,
     fortschritt: FortschrittFn | None = None,
@@ -174,8 +207,10 @@ def lade_installer(
     oeffnen_fn: Callable[..., Any] = urllib.request.urlopen,
     abbrechen_fn: Callable[[], bool] = lambda: False,
     log: LogFn | None = None,
+    windows_fn: Callable[..., Any] = netz.herunterladen_mit_windows,
 ) -> Path:
-    """Laedt ``OllamaSetup.exe`` nach ``ziel_ordner`` und liefert den Pfad."""
+    """Laedt ``OllamaSetup.exe`` nach ``ziel_ordner`` und liefert den Pfad. Scheitert nur Pythons Zertifikatspruefung
+    (``utils/netz.py``), laedt Windows' eigene Pruefung die Datei; Groesse, Adresse und Signatur gelten dann genauso."""
     melde = fortschritt or (lambda geladen, gesamt: None)
     _pruefe_adresse(url)
     ziel_ordner.mkdir(parents=True, exist_ok=True)
@@ -215,9 +250,11 @@ def lade_installer(
         raise
     except OSError as fehler:  # URLError ist ein OSError
         teil.unlink(missing_ok=True)
-        raise OllamaEinrichtungFehler(
-            f"Der Ollama-Installer konnte nicht geladen werden ({fehler}). Bitte die Internetverbindung prüfen."
-        ) from fehler
+        if not netz.ist_zertifikatsfehler(fehler):
+            raise OllamaEinrichtungFehler(
+                f"Der Ollama-Installer konnte nicht geladen werden ({fehler}). Bitte die Internetverbindung prüfen."
+            ) from fehler
+        gesamt = _lade_mit_windows(url, teil, fehler, windows_fn, pruefsumme)
     _umbenennen_mit_wiederholung(teil, ziel)
     if log is not None:
         log(f"Ollama-Installer geladen ({gesamt / 1024**2:.0f} MB, SHA-256 {pruefsumme.hexdigest()}).")

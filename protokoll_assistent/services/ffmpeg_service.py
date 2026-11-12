@@ -18,11 +18,11 @@ import os
 import shutil
 import subprocess
 import tempfile
-import urllib.request
 import zipfile
 from collections.abc import Callable
 from pathlib import Path
 
+from protokoll_assistent.utils import netz
 from protokoll_assistent.utils.paths import get_tools_ffmpeg_dir
 from protokoll_assistent.utils.prozess import KEIN_FENSTER
 
@@ -104,8 +104,7 @@ def ensure_ffmpeg_on_path() -> Path | None:
 
 
 def _default_download(url: str, destination: Path) -> None:
-    with urllib.request.urlopen(url, timeout=300) as response, destination.open("wb") as out_file:
-        shutil.copyfileobj(response, out_file)
+    netz.lade_datei(url, destination)
 
 
 def extract_ffmpeg_zip(zip_path: Path, target_dir: Path) -> Path:

@@ -55,3 +55,7 @@ keyring>=25.0
 # Einrichtung der Aufnahmegeraete ueber USB ('services/geraete_usb_service.py'). Ohne das Paket
 # meldete die Anwendung "Das Paket 'pyserial' fehlt" und fand kein angeschlossenes Geraet.
 pyserial>=3.5
+
+# Zertifikatspruefung ueber Windows ('utils/netz.py'): Downloads, API-Aufrufe und Hugging Face
+# hinter Firmenproxys. Ohne das Paket faellt die Anwendung auf curl/PowerShell zurueck.
+truststore>=0.10.0

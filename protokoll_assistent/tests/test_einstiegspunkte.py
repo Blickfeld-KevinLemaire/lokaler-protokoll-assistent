@@ -16,6 +16,7 @@ from __future__ import annotations
 import importlib
 import importlib.util
 import sys
+import tempfile
 from pathlib import Path
 from unittest import mock
 
@@ -74,6 +75,13 @@ def app_modul(monkeypatch, tmp_path):
     # ohne diese Trennung veraendert ein Test die echte Datei im Arbeitsbaum
     # und bestimmt damit das Ergebnis des naechsten.
     monkeypatch.setattr(app_config, "get_config_file", lambda: tmp_path / "konfiguration.json")
+    # Die Sperrdatei gegen eine zweite Instanz liegt im Temp-Ordner: Eine auf diesem
+    # Rechner laufende echte Anwendung darf die Tests nicht blockieren.
+    monkeypatch.setattr(tempfile, "gettempdir", lambda: str(tmp_path))
+    # Nicht den ssl-Stand des ganzen Testprozesses veraendern ('truststore' tauscht ssl.SSLContext aus).
+    from protokoll_assistent.utils import netz
+
+    monkeypatch.setattr(netz, "systemzertifikate_nutzen", lambda: True)
     sys.modules.pop("protokoll_assistent.app", None)
     modul = importlib.import_module("protokoll_assistent.app")
     yield modul
@@ -82,6 +90,50 @@ def app_modul(monkeypatch, tmp_path):
 
 def test_app_import_startet_keinen_neustart(app_modul):
     assert callable(app_modul.main)
+
+
+def test_app_main_zweite_instanz_beendet_sich_mit_hinweis(app_modul, monkeypatch):
+    pytest.importorskip("PySide6", reason="PySide6 ist nicht installiert.")
+    from PySide6.QtWidgets import QMessageBox
+
+    from protokoll_assistent.gui import main_window as mw
+    from protokoll_assistent.gui import theme
+    from protokoll_assistent.services import ffmpeg_service
+
+    monkeypatch.setattr(app_modul, "ensure_system_prompt_file_exists", lambda: None)
+    monkeypatch.setattr(ffmpeg_service, "ensure_ffmpeg_on_path", lambda: None)
+    monkeypatch.setattr(theme, "apply_theme", lambda app: None)
+    hinweise: list[str] = []
+    monkeypatch.setattr(QMessageBox, "information", staticmethod(lambda *a: hinweise.append(a[2])))
+
+    class _HauptfensterAttrappe:
+        def __init__(self, *a, **k):
+            raise AssertionError("Die zweite Instanz darf kein Hauptfenster bauen.")
+
+    class _QAppAttrappe:
+        def __init__(self, argv):
+            pass
+
+        def setApplicationName(self, name):
+            pass
+
+    monkeypatch.setattr(mw, "MainWindow", _HauptfensterAttrappe)
+
+    erste = app_modul._instanz_sperren()  # die "laufende" Anwendung
+    assert erste is not None
+    try:
+        assert app_modul._instanz_sperren() is None
+        with mock.patch("PySide6.QtWidgets.QApplication", _QAppAttrappe):
+            assert app_modul.main() == 0
+    finally:
+        erste.unlock()
+
+    assert len(hinweise) == 1
+    assert "läuft bereits" in hinweise[0]
+    # Nach dem Ende der ersten Instanz ist die Sperre wieder frei.
+    spaeter = app_modul._instanz_sperren()
+    assert spaeter is not None
+    spaeter.unlock()
 
 
 def test_app_main_zeigt_direkt_das_hauptfenster(app_modul, monkeypatch, tmp_path):
