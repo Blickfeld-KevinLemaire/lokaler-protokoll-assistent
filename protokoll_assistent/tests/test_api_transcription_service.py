@@ -345,10 +345,8 @@ def test_call_endpoint_abgebrochene_verbindung_wird_ein_api_fehler(monkeypatch):
 
 
 def test_call_endpoint_fehlerseite_statt_json(monkeypatch):
-    class _Html(_FakeResponse):
-        def __init__(self):
-            self._body = b"<html>Anmeldung</html>"
-
-    monkeypatch.setattr(svc.urllib.request, "urlopen", lambda *a, **k: _Html())
+    seite = _FakeResponse({})
+    seite._body = b"<html>Anmeldung</html>"
+    monkeypatch.setattr(svc.urllib.request, "urlopen", lambda *a, **k: seite)
     with pytest.raises(svc.ApiTranscriptionError, match="kein JSON"):
         svc.call_endpoint({"model": "x"}, "https://example.test", "schluessel")

@@ -12,6 +12,7 @@ verschluesselt in der Windows-Anmeldeinformationsverwaltung ablegt)."""
 
 from __future__ import annotations
 
+import contextlib
 import json
 import tempfile
 import time
@@ -151,10 +152,10 @@ def _ersetzen_mit_wiederholung(temp: Path, ziel: Path, versuche: int = 6, warten
 def _defekte_datei_sichern(path: Path) -> None:
     """Eine unlesbare Einstellungsdatei wird beiseitegelegt statt beim naechsten Speichern stillschweigend
     mit den Standardwerten ueberschrieben -- so laesst sich von Hand retten, was darin stand."""
-    try:
+    # Gelingt das Beiseitelegen nicht (Datei gesperrt), bleibt sie liegen, wie sie ist -- gelesen wurden
+    # ohnehin schon die Standardwerte.
+    with contextlib.suppress(OSError):
         path.replace(path.with_name(path.stem + ".defekt.json"))
-    except OSError:
-        pass
 
 
 def update_config(**changes: Any) -> dict[str, Any]:

@@ -758,13 +758,8 @@ def test_abgebrochene_verbindung_wird_ein_ollama_fehler(monkeypatch, fehler):
 
 @pytest.mark.parametrize("roh", [b"<html>502 Bad Gateway</html>", b"[1, 2]"])
 def test_unlesbare_antwort_wird_ein_ollama_fehler(monkeypatch, roh):
-    class _Roh(_FakeResponse):
-        def __init__(self):
-            pass
-
-        def read(self):
-            return roh
-
-    monkeypatch.setattr(ollama_service.urllib.request, "urlopen", lambda request, timeout=None: _Roh())
+    antwort = _FakeResponse({})
+    antwort._payload = roh
+    monkeypatch.setattr(ollama_service.urllib.request, "urlopen", lambda request, timeout=None: antwort)
     with pytest.raises(ollama_service.OllamaError, match="nicht lesbar"):
         ollama_service.generate_text("prompt", "system")

@@ -33,6 +33,7 @@ CPU weiter (deutlich langsamer), aber lauffaehig.
 
 from __future__ import annotations
 
+import contextlib
 import ctypes
 import importlib.util
 import os
@@ -554,10 +555,9 @@ def _einrichtung_sperren(ordner: Path) -> Any:
 
 def _sperre_freigeben(sperre: Any) -> None:
     if sperre is not None and sperre is not _OHNE_SPERRE:
-        try:
+        # Laesst sich die Datei nicht schliessen, gibt Windows die Sperre spaetestens mit dem Prozessende frei.
+        with contextlib.suppress(OSError):
             sperre.close()
-        except OSError:
-            pass
 
 
 def _ohne_rechenumgebung_weiter() -> bool:
