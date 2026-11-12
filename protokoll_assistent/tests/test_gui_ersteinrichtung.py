@@ -639,8 +639,6 @@ def test_mitschriftworker_meldet_fehler_ohne_traceback(qt_app):
 def test_laufzeit_vorhanden(monkeypatch, tmp_path):
     import importlib.util
 
-    from protokoll_assistent.utils import paths
-
     monkeypatch.setattr(importlib.util, "find_spec", lambda name: None)
     # Nicht der Stand dieses Rechners: Hier zaehlt nur, was 'bootstrap' fuer vollstaendig eingerichtet haelt
     # (eine bloss angelegte Umgebung mit 'python.exe' genuegt nicht).

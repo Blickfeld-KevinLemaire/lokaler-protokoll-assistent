@@ -389,9 +389,7 @@ FRISCH = {"transkription_modus": "lokal", "einrichtung_abgeschlossen": False, "e
         (FRISCH, True, True, True),  # schon eingerichtet: wie immer hineinwechseln
         (FRISCH, False, False, True),  # ohne PySide6 kein Fenster: bisheriger Weg
         ({**FRISCH, "einrichtung_fortsetzen": "transkription"}, True, False, True),  # zugestimmt, Neustart
-        # Abgeschlossen (etwa mit "online") und spaeter auf "Lokal" gestellt: nicht ohne die Seite mit den
-        # Kosten -- frueher lud der naechste Start ungefragt gut 5 GB.
-        ({**FRISCH, "einrichtung_abgeschlossen": True}, True, False, False),
+        ({**FRISCH, "einrichtung_abgeschlossen": True}, True, False, True),  # in den Einstellungen auf "Lokal" gestellt
         ({**FRISCH, "einrichtung_abgeschlossen": True, "einrichtung_fortsetzen": "transkription"}, True, False, True),
         ({**FRISCH, "einrichtung_abgeschlossen": True, "lokale_einrichtung_zurueckgestellt": True}, True, False, False),
     ],

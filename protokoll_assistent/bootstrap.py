@@ -277,11 +277,12 @@ def laufzeit_beim_start_einrichten(konfig: dict[str, Any], fenster_moeglich: boo
         return False
     if laufzeit_vorhanden or not fenster_moeglich:
         return True
-    # Ohne vorhandene Umgebung nur nach der Zustimmung in der Ersteinrichtung: Sie setzt
-    # 'einrichtung_fortsetzen', bevor sie neu startet. Frueher genuegte, dass die Einrichtung irgendwann
-    # abgeschlossen war -- wer danach im Hauptfenster einmal "Lokal" anklickte, bekam beim naechsten Start
-    # ungefragt gut 5 GB geladen, ohne die Seite, die sagt, was das kostet.
-    return bool(konfig.get("einrichtung_fortsetzen"))
+    # Zustimmung heisst: in der Ersteinrichtung zugestimmt ('einrichtung_fortsetzen') oder in den
+    # Einstellungen ausdruecklich auf "Lokal" umgeschaltet. Ein Klick auf "Lokal" im Hauptfenster stellt die
+    # Einrichtung dagegen zurueck ('gui.main_window._transkription_modus_geaendert') -- sonst lud der
+    # naechste Start ungefragt gut 5 GB, ohne die Seite, die sagt, was das kostet.
+    erster_start = not konfig.get("einrichtung_abgeschlossen") and not konfig.get("einrichtung_fortsetzen")
+    return not (erster_start or konfig.get("lokale_einrichtung_zurueckgestellt"))
 
 
 def laufzeit_eingerichtet() -> bool:
@@ -298,6 +299,11 @@ def laufzeit_eingerichtet() -> bool:
     return venv_dir == get_legacy_venv_dir() or environment_service.kennungsdatei(venv_dir).is_file()
 
 
+# Gesetzt, wenn sich die Anwendung selbst neu gestartet hat: Die alte Instanz beendet sich dann gerade
+# erst und haelt die Sperre gegen eine zweite Instanz noch einen Augenblick.
+NEUSTART_VARIABLE = "VERMERK_NEUSTART"
+
+
 def neustart_kommando() -> tuple[list[str], Path, dict[str, str]]:
     """(Befehl, Arbeitsordner, Umgebung), um die Anwendung als NEUEN Prozess zu
     starten -- so, als haette der Anwender sie selbst geoeffnet. Die
@@ -307,6 +313,8 @@ def neustart_kommando() -> tuple[list[str], Path, dict[str, str]]:
     from protokoll_assistent.utils.paths import get_app_dir, get_paket_dir
 
     umgebung = {name: wert for name, wert in os.environ.items() if name != MARKER_ENV_VAR}
+    # Die neue Instanz wartet kurz auf das Ende dieser (siehe 'app._instanz_sperren').
+    umgebung[NEUSTART_VARIABLE] = "1"
     if getattr(sys, "frozen", False):
         return [sys.executable], get_app_dir(), umgebung
     return [sys.executable, "-m", ANWENDUNGSMODUL], get_paket_dir().parent, umgebung
@@ -563,7 +571,7 @@ def _ohne_rechenumgebung_weiter() -> bool:
     from protokoll_assistent.utils import app_config
 
     try:
-        app_config.update_config(einrichtung_fortsetzen="")
+        app_config.update_config(einrichtung_fortsetzen="", lokale_einrichtung_zurueckgestellt=True)
     except OSError:
         return False
     return True
