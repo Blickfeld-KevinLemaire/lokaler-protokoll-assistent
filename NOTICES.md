@@ -73,6 +73,13 @@ dieses Programm wird ausdruecklich die **LGPL-3.0** gewaehlt.
 * Wird benutzt, um die WLAN-Aufnahmegeraete ueber das USB-Kabel einzurichten
   (`services/geraete_usb_service.py`). Reines Python, ohne eigene DLL.
 
+### truststore (0.10.5)
+
+* Lizenz: MIT — Copyright (c) Seth Michael Larson und Quentin Pradet
+* Laesst Python Zertifikate ueber die Pruefung des Betriebssystems (unter Windows: CryptoAPI) statt ueber den
+  eigenen Speicher pruefen (`utils/netz.py`). Reines Python. Damit gelten auch Zertifikate von Firmennetzen,
+  denen Windows traut.
+
 ### lxml (6.1.3)
 
 * Lizenz: BSD-3-Clause — Copyright (c) Infrae und Mitwirkende

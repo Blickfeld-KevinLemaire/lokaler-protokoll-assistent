@@ -33,6 +33,9 @@ dev = [
     # Aufnahmegeraete ueber USB einrichten (serielle Schnittstelle, siehe
     # 'services/geraete_usb_service.py').
     "pyserial>=3.5",
+    # Zertifikatspruefung ueber Windows (Firmennetze, fehlende Wurzelzertifikate), siehe
+    # 'utils/netz.py'. Optional zur Laufzeit: Fehlt das Paket, laeuft alles wie bisher.
+    "truststore>=0.10.0",
     # Wird fuer den Windows-Build und dessen Probelauf in der CI gebraucht.
     "pyinstaller>=6.22.3",
 

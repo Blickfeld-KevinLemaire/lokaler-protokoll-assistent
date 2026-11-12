@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from protokoll_assistent.utils import netz
 from protokoll_assistent.utils.json_validation import extract_json_object
 from protokoll_assistent.utils.prozess import KEIN_FENSTER, LOSGELOEST, NEUE_PROZESSGRUPPE
 
@@ -722,10 +723,7 @@ def generate_json(
 
 
 def _default_download(url: str, destination: Path) -> None:
-    with urllib.request.urlopen(url, timeout=300) as response, destination.open("wb") as out_file:
-        import shutil as _shutil
-
-        _shutil.copyfileobj(response, out_file)
+    netz.lade_datei(url, destination)
 
 
 def download_ollama_installer(

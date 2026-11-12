@@ -185,6 +185,52 @@ def test_netzfehler_wird_verstaendlich_gemeldet(tmp_path):
         oes.lade_installer(tmp_path, oeffnen_fn=kein_netz)
 
 
+def _zertifikatsfehler(url, timeout):
+    import ssl
+    import urllib.error
+
+    raise urllib.error.URLError(ssl.SSLCertVerificationError("unable to get local issuer certificate"))
+
+
+def _windows_laedt(daten: bytes, ende: str = ENDE):
+    def laden(url, ziel):
+        ziel.write_bytes(daten)
+        return ende
+
+    return laden
+
+
+def test_zertifikatsfehler_faellt_auf_windows_zurueck(tmp_path):
+    log: list[str] = []
+    pfad = oes.lade_installer(tmp_path, oeffnen_fn=_zertifikatsfehler, windows_fn=_windows_laedt(_installer()), log=log.append)
+    assert pfad.stat().st_size == GROESSE
+    assert not (tmp_path / "OllamaSetup.exe.part").exists()
+    assert "SHA-256" in log[0]
+
+
+@pytest.mark.parametrize(
+    ("daten", "ende", "meldung"),
+    [
+        (_installer(MIN_GROESSE - 1), ENDE, "unerwartete Größe"),
+        (b"PK" + b"\0" * (GROESSE - 2), ENDE, "kein Windows-Programm"),
+        (_installer(), "https://boese.example/x.exe", "unerwarteten Adresse"),
+    ],
+)
+def test_windows_weg_prueft_wie_der_erste(tmp_path, daten, ende, meldung):
+    with pytest.raises(oes.OllamaEinrichtungFehler, match=meldung):
+        oes.lade_installer(tmp_path, oeffnen_fn=_zertifikatsfehler, windows_fn=_windows_laedt(daten, ende))
+    assert not any(tmp_path.iterdir())
+
+
+def test_windows_weg_scheitert_mit_verstaendlicher_meldung(tmp_path):
+    def kaputt(url, ziel):
+        raise OSError("curl fehlt")
+
+    with pytest.raises(oes.OllamaEinrichtungFehler, match=r"Zertifikat.*curl fehlt"):
+        oes.lade_installer(tmp_path, oeffnen_fn=_zertifikatsfehler, windows_fn=kaputt)
+    assert not any(tmp_path.iterdir())
+
+
 def test_umbenennen_wiederholt_bei_gesperrter_datei(tmp_path, monkeypatch):
     """Ein Virenscanner haelt eine frische .exe kurz offen (CLAUDE.md, Regel 1)."""
     quelle, ziel = tmp_path / "a.part", tmp_path / "a.exe"
