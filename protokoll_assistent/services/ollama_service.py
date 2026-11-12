@@ -7,6 +7,7 @@ damit keine zusaetzliche Abhaengigkeit noetig ist.
 
 from __future__ import annotations
 
+import http.client
 import json
 import os
 import shutil
@@ -21,7 +22,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from protokoll_assistent.utils import netz
 from protokoll_assistent.utils.json_validation import extract_json_object
 from protokoll_assistent.utils.prozess import KEIN_FENSTER, LOSGELOEST, NEUE_PROZESSGRUPPE
 
@@ -59,16 +59,12 @@ def kontext_fuer_protokoll(system: str, prompt: str) -> int:
     bedarf = (len(system) + len(prompt)) / ZEICHEN_JE_TOKEN + PROTOKOLL_ANTWORT_TOKENS
     return next((stufe for stufe in PROTOKOLL_KONTEXTSTUFEN if stufe >= bedarf), PROTOKOLL_NUM_CTX)
 
-# Offizieller Windows-Installer. Wird nur heruntergeladen/gestartet, wenn
-# 'ollama' auf dem Zielrechner nirgends gefunden wurde -- macht die
-# Anwendung auch auf einem PC ohne vorinstalliertes Ollama benutzbar. Die
-# Ersteinrichtung installiert ihn nach Zustimmung still und ohne
-# Administratorrechte (siehe 'ollama_einrichtung_service'); das Nachladen im
-# Systemtest ('ensure_ollama_or_offer_installer') startet ihn dagegen noch
-# sichtbar, und der Nutzer schliesst die Installation selbst ab.
+# Offizieller Windows-Installer. Wird nur geladen, wenn 'ollama' auf dem
+# Zielrechner nirgends gefunden wurde. Laden, Echtheit pruefen und installieren
+# geschieht AUSSCHLIESSLICH in 'ollama_einrichtung_service' (Adresse, Groesse,
+# Signatur) -- der fruehere zweite Weg hier lud die Datei ungeprueft und
+# startete sie.
 OLLAMA_INSTALLER_URL = "https://ollama.com/download/OllamaSetup.exe"
-
-DownloadFn = Callable[[str, Path], None]
 
 
 class OllamaError(RuntimeError):
@@ -305,10 +301,27 @@ def _verbindung_verweigert(fehler: urllib.error.URLError) -> bool:
     return isinstance(grund, ConnectionRefusedError) or getattr(grund, "winerror", None) == 10061
 
 
+# Der Dienst auf DIESEM Rechner wird nie ueber einen Proxy angesprochen. Mit einem fest eingetragenen
+# Proxy (Internetoptionen, 'HTTP_PROXY') schickt urllib sonst auch 'http://127.0.0.1:11434' dorthin: Windows'
+# Ausnahme "<local>" gilt nur fuer Namen ohne Punkt, nicht fuer 127.0.0.1. Dann landete das ganze Transkript
+# beim Firmenproxy, der mit 403/502 antwortete -- und Ollama galt als "nicht erreichbar", obwohl es lief.
+_OHNE_PROXY = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+_URLOPEN_DER_BIBLIOTHEK = urllib.request.urlopen
+
+
+def _urlopen(request: urllib.request.Request, timeout: float) -> Any:
+    """``urllib.request.urlopen`` -- fuer lokale Adressen ohne Proxy. Hat jemand ``urlopen`` ersetzt
+    (die Tests tun das, damit nichts ins Netz geht), gilt dessen Ersatz."""
+    oeffnen = urllib.request.urlopen
+    if oeffnen is _URLOPEN_DER_BIBLIOTHEK and ist_lokale_adresse(request.full_url):
+        return _OHNE_PROXY.open(request, timeout=timeout)
+    return oeffnen(request, timeout=timeout)
+
+
 def _oeffnen(request: urllib.request.Request, timeout: float, opener: OeffneFn | None = None) -> Any:
     """Wie ``urlopen``. Ist der lokale Dienst nicht erreichbar (Verbindung verweigert), wird er gestartet und die
     Anfrage einmal wiederholt. Mit ``opener`` (Tests) wird nichts gestartet."""
-    oeffnen = opener or urllib.request.urlopen
+    oeffnen = opener or _urlopen
     try:
         return oeffnen(request, timeout=timeout)
     except urllib.error.URLError as fehler:
@@ -322,7 +335,7 @@ def _oeffnen(request: urllib.request.Request, timeout: float, opener: OeffneFn |
 
 def _get_json(url: str, timeout: float) -> dict[str, Any]:
     request = urllib.request.Request(url, method="GET")
-    with urllib.request.urlopen(request, timeout=timeout) as response:
+    with _urlopen(request, timeout) as response:
         return json.loads(response.read().decode("utf-8"))
 
 
@@ -446,7 +459,7 @@ def pull_model(
         headers={"Content-Type": "application/json; charset=utf-8"},
         method="POST",
     )
-    oeffnen = opener or urllib.request.urlopen
+    oeffnen = opener or _urlopen
     try:
         with oeffnen(request, timeout=timeout) as response:
             for zeile in response:
@@ -571,16 +584,12 @@ def chat_stream(
     return "".join(teile)
 
 
-def _generate_request(body: dict[str, Any], base_url: str, timeout: float) -> str:
-    """Schickt die Anfrage an ``/api/generate`` und liefert das Feld
-    ``response`` der Ollama-Antwort."""
-    data = json.dumps(body, ensure_ascii=False).encode("utf-8")
-    request = urllib.request.Request(
-        f"{base_url}/api/generate",
-        data=data,
-        headers={"Content-Type": "application/json; charset=utf-8"},
-        method="POST",
-    )
+def _antwort_als_json(request: urllib.request.Request, timeout: float) -> dict[str, Any]:
+    """Schickt die Anfrage und liefert die Antwort als Objekt. JEDER Fehler unterwegs wird ein ``OllamaError``:
+    Die Aufrufer (``pipeline_service``) fangen genau den, um das fertige Transkript zu behalten. urllib packt
+    nur Fehler beim SENDEN in ``URLError`` -- stirbt Ollama waehrend der Antwort (beendet, Update, zu wenig
+    Speicher), kommen ``RemoteDisconnected``/``ConnectionResetError`` roh an, eine abgeschnittene Antwort als
+    ``IncompleteRead`` und eine Fehlerseite statt JSON als ``ValueError``."""
     try:
         with _oeffnen(request, timeout) as response:
             result = json.loads(response.read().decode("utf-8"))
@@ -591,6 +600,29 @@ def _generate_request(body: dict[str, Any], base_url: str, timeout: float) -> st
         raise OllamaError(f"Ollama ist nicht erreichbar: {error}") from error
     except TimeoutError as error:
         raise OllamaError("Die Anfrage an das lokale Modell hat das Zeitlimit ueberschritten.") from error
+    except (OSError, http.client.HTTPException) as error:
+        raise OllamaError(
+            f"Die Verbindung zu Ollama ist waehrend der Antwort abgebrochen ({str(error) or type(error).__name__}). "
+            "Wurde Ollama beendet oder neu gestartet? Bitte erneut versuchen."
+        ) from error
+    except ValueError as error:
+        raise OllamaError("Die Antwort von Ollama war nicht lesbar (kein JSON).") from error
+    if not isinstance(result, dict):
+        raise OllamaError("Die Antwort von Ollama war nicht lesbar (kein JSON-Objekt).")
+    return result
+
+
+def _generate_request(body: dict[str, Any], base_url: str, timeout: float) -> str:
+    """Schickt die Anfrage an ``/api/generate`` und liefert das Feld
+    ``response`` der Ollama-Antwort."""
+    data = json.dumps(body, ensure_ascii=False).encode("utf-8")
+    request = urllib.request.Request(
+        f"{base_url}/api/generate",
+        data=data,
+        headers={"Content-Type": "application/json; charset=utf-8"},
+        method="POST",
+    )
+    result = _antwort_als_json(request, timeout)
     # 'done_reason: length': Das Modell hat die Laengen- bzw. Kontextgrenze
     # erreicht und mitten im Text aufgehoert. So ein Ergebnis darf weder
     # weiterverarbeitet noch als Zwischenstand gespeichert werden -- der Fehler
@@ -635,23 +667,17 @@ def _chat_request(
         headers={"Content-Type": "application/json; charset=utf-8"},
         method="POST",
     )
-    try:
-        with _oeffnen(request, timeout) as response:
-            result = json.loads(response.read().decode("utf-8"))
-    except urllib.error.HTTPError as error:
-        details = error.read().decode("utf-8", errors="replace")[:1000]
-        raise OllamaError(f"Ollama-Fehler HTTP {error.code}: {details}") from error
-    except urllib.error.URLError as error:
-        raise OllamaError(f"Ollama ist nicht erreichbar: {error}") from error
-    except TimeoutError as error:
-        raise OllamaError("Die Anfrage an das lokale Modell hat das Zeitlimit ueberschritten.") from error
+    result = _antwort_als_json(request, timeout)
     if result.get("done_reason") == "length":
         raise OllamaError(
             "Die Antwort des lokalen Modells wurde abgeschnitten: Es hat die Laengen- bzw. "
             "Kontextgrenze erreicht. Das unvollstaendige Ergebnis wird nicht verwendet. Bitte den "
             "Auftrag (Systemprompt) knapper fassen oder ein Modell mit groesserem Kontext waehlen."
         )
-    return str((result.get("message") or {}).get("content", ""))
+    # Nie 'str(None)': Ein fehlender Inhalt ist eine leere Antwort (die der Aufrufer erneut anfordert),
+    # nicht der Text "None" im Protokoll.
+    inhalt = (result.get("message") or {}).get("content")
+    return inhalt if isinstance(inhalt, str) else ""
 
 
 def generate_text(
@@ -720,56 +746,3 @@ def generate_json(
             "Die Antwort des lokalen Modells konnte nicht als JSON gelesen werden."
         )
     return parsed
-
-
-def _default_download(url: str, destination: Path) -> None:
-    netz.lade_datei(url, destination)
-
-
-def download_ollama_installer(
-    destination_dir: Path, download_fn: DownloadFn | None = None, url: str = OLLAMA_INSTALLER_URL
-) -> Path:
-    """Laedt den offiziellen Ollama-Windows-Installer herunter."""
-    destination_dir.mkdir(parents=True, exist_ok=True)
-    destination = destination_dir / "OllamaSetup.exe"
-    (download_fn or _default_download)(url, destination)
-    return destination
-
-
-def launch_installer(installer_path: Path) -> subprocess.Popen:
-    """Startet den Installer nicht-blockierend (verlangt Nutzerinteraktion/
-    ggf. Rechteerhoehung -- kann daher nicht lautlos automatisiert werden)."""
-    return subprocess.Popen([str(installer_path)])
-
-
-def ensure_ollama_or_offer_installer(
-    destination_dir: Path,
-    download_fn: DownloadFn | None = None,
-    auto_launch: bool = True,
-    progress_cb: Callable[[str], None] | None = None,
-) -> bool:
-    """Prueft, ob Ollama vorhanden ist. Falls nicht, wird der offizielle
-    Installer heruntergeladen und (falls ``auto_launch``) gestartet.
-
-    Gibt ``True`` zurueck, wenn Ollama bereits vorhanden war (nichts zu tun),
-    sonst ``False`` -- der Nutzer muss die gestartete Installation manuell
-    abschliessen, danach kann diese Pruefung erneut ausgefuehrt werden.
-    """
-    log = progress_cb or (lambda message: None)
-
-    if find_ollama_executable() is not None:
-        log("Ollama ist bereits installiert.")
-        return True
-
-    log("Ollama wurde nicht gefunden -- lade offiziellen Installer herunter ...")
-    try:
-        installer_path = download_ollama_installer(destination_dir, download_fn=download_fn)
-    except OSError as error:
-        log(f"Ollama-Installer konnte nicht heruntergeladen werden: {error}")
-        return False
-
-    log(f"Installer heruntergeladen: {installer_path}")
-    if auto_launch:
-        log("Installer wird gestartet -- bitte die Installation im geoeffneten Fenster abschliessen.")
-        launch_installer(installer_path)
-    return False

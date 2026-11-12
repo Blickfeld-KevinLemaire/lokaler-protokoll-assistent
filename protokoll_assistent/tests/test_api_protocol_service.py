@@ -213,3 +213,50 @@ def test_generate_json_findet_json_in_umgebendem_text(monkeypatch):
     )
 
     assert ergebnis == protokoll
+
+
+# --------------------------------------------------------------------------
+# Antworten ohne Text und abgebrochene Verbindungen
+# --------------------------------------------------------------------------
+@pytest.mark.parametrize(
+    ("wahl", "grund"),
+    [
+        ({"message": {"content": None, "refusal": "Das kann ich nicht."}, "finish_reason": "stop"}, "Das kann ich nicht"),
+        ({"message": {"content": None}, "finish_reason": "content_filter"}, "content_filter"),
+        ({"message": {"content": "halber Text"}, "finish_reason": "content_filter"}, "content_filter"),
+        ({"message": {"content": None}}, "ohne Angabe"),
+    ],
+)
+def test_generate_text_ohne_inhalt_ist_ein_fehler_und_nie_der_text_none(monkeypatch, wahl, grund):
+    # 'str(None)' ergab "None": Das galt als Antwort, wurde als Zwischenstand gespeichert und stand im Protokoll.
+    monkeypatch.setattr(svc.urllib.request, "urlopen", lambda *a, **k: _FakeResponse({"choices": [wahl]}))
+    with pytest.raises(svc.ApiProtocolError, match=grund):
+        svc.generate_text("p", "s", "m", endpoint_url="https://example.test", api_key="k")
+
+
+@pytest.mark.parametrize("fehler", ["getrennt", "unvollstaendig", "zurueckgesetzt"])
+def test_generate_text_abgebrochene_verbindung_wird_ein_api_fehler(monkeypatch, fehler):
+    import http.client
+
+    ausnahmen = {
+        "getrennt": http.client.RemoteDisconnected("Remote end closed connection without response"),
+        "unvollstaendig": http.client.IncompleteRead(b"{"),
+        "zurueckgesetzt": ConnectionResetError(10054, "Verbindung zurueckgesetzt"),
+    }
+
+    def oeffnen(*a, **k):
+        raise ausnahmen[fehler]
+
+    monkeypatch.setattr(svc.urllib.request, "urlopen", oeffnen)
+    with pytest.raises(svc.ApiProtocolError, match="abgebrochen"):
+        svc.generate_text("p", "s", "m", endpoint_url="https://example.test", api_key="k")
+
+
+def test_generate_text_fehlerseite_statt_json(monkeypatch):
+    class _Html(_FakeResponse):
+        def __init__(self):
+            self._body = b"<html>Anmeldung</html>"
+
+    monkeypatch.setattr(svc.urllib.request, "urlopen", lambda *a, **k: _Html())
+    with pytest.raises(svc.ApiProtocolError, match="kein JSON"):
+        svc.generate_text("p", "s", "m", endpoint_url="https://example.test", api_key="k")

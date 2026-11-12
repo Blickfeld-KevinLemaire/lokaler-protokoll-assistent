@@ -81,7 +81,7 @@ def test_install_worker_token_abfrage(install_worker):
 
 
 def test_install_worker_laeuft_durch(install_worker, monkeypatch, tmp_path):
-    from protokoll_assistent.services import ffmpeg_service, model_download_service, ollama_service
+    from protokoll_assistent.services import ffmpeg_service, model_download_service, ollama_einrichtung_service
     from protokoll_assistent.utils import app_config
 
     # Die Konfiguration liegt im Temp-Ordner, nie in der echten Datei.
@@ -92,9 +92,7 @@ def test_install_worker_laeuft_durch(install_worker, monkeypatch, tmp_path):
     monkeypatch.setattr(ffmpeg_service, "ensure_ffmpeg_available", lambda progress_cb: None)
     monkeypatch.setattr(ffmpeg_service, "find_ffmpeg", lambda: Path("ffmpeg.exe"))
     monkeypatch.setattr(ffmpeg_service, "find_ffprobe", lambda: Path("ffprobe.exe"))
-    monkeypatch.setattr(
-        ollama_service, "ensure_ollama_or_offer_installer", lambda ordner, progress_cb: True
-    )
+    monkeypatch.setattr(ollama_einrichtung_service, "installiere_ollama", lambda ordner, log: True)
     monkeypatch.setattr(
         model_download_service, "download_pyannote", lambda log, get_token: True
     )
@@ -775,14 +773,12 @@ def test_analyse_seite_ohne_analyse_oder_ohne_empfehlung(analyse_seite):
 # Werkzeuge nachladen
 # --------------------------------------------------------------------------
 def _werkzeuge(monkeypatch, ffmpeg_da, ollama_da):
-    from protokoll_assistent.services import ffmpeg_service, ollama_service
+    from protokoll_assistent.services import ffmpeg_service, ollama_einrichtung_service
 
     monkeypatch.setattr(ffmpeg_service, "ensure_ffmpeg_available", lambda progress_cb: None)
     monkeypatch.setattr(ffmpeg_service, "find_ffmpeg", lambda: Path("ffmpeg.exe") if ffmpeg_da else None)
     monkeypatch.setattr(ffmpeg_service, "find_ffprobe", lambda: Path("ffprobe.exe") if ffmpeg_da else None)
-    monkeypatch.setattr(
-        ollama_service, "ensure_ollama_or_offer_installer", lambda ordner, progress_cb: ollama_da
-    )
+    monkeypatch.setattr(ollama_einrichtung_service, "installiere_ollama", lambda ordner, log: ollama_da)
 
 
 def test_werkzeuge_nachladen_meldet_gelungenes(monkeypatch):

@@ -188,68 +188,9 @@ def test_volle_anfrage_der_stufen_2_und_3_passt_in_den_kontext():
             assert bedarf + ollama_service.PROTOKOLL_ANTWORT_TOKENS <= ollama_service.PROTOKOLL_NUM_CTX
 
 
-def test_ensure_ollama_or_offer_installer_returns_true_when_already_installed(monkeypatch, tmp_path):
-    monkeypatch.setattr(ollama_service, "find_ollama_executable", object)
-    download_calls = []
-    monkeypatch.setattr(
-        ollama_service, "download_ollama_installer", lambda *a, **kw: download_calls.append((a, kw))
-    )
-    result = ollama_service.ensure_ollama_or_offer_installer(tmp_path)
-    assert result is True
-    assert download_calls == []
 
 
-def test_ensure_ollama_or_offer_installer_downloads_and_launches_when_missing(monkeypatch, tmp_path):
-    monkeypatch.setattr(ollama_service, "find_ollama_executable", lambda: None)
-    installer_path = tmp_path / "OllamaSetup.exe"
-    monkeypatch.setattr(
-        ollama_service, "download_ollama_installer", lambda destination_dir, download_fn=None: installer_path
-    )
-    launch_calls = []
-    monkeypatch.setattr(ollama_service, "launch_installer", lambda path: launch_calls.append(path))
 
-    result = ollama_service.ensure_ollama_or_offer_installer(tmp_path, auto_launch=True)
-
-    assert result is False
-    assert launch_calls == [installer_path]
-
-
-def test_ensure_ollama_or_offer_installer_skips_launch_when_disabled(monkeypatch, tmp_path):
-    monkeypatch.setattr(ollama_service, "find_ollama_executable", lambda: None)
-    monkeypatch.setattr(
-        ollama_service,
-        "download_ollama_installer",
-        lambda destination_dir, download_fn=None: tmp_path / "OllamaSetup.exe",
-    )
-    launch_calls = []
-    monkeypatch.setattr(ollama_service, "launch_installer", lambda path: launch_calls.append(path))
-
-    result = ollama_service.ensure_ollama_or_offer_installer(tmp_path, auto_launch=False)
-
-    assert result is False
-    assert launch_calls == []
-
-
-def test_ensure_ollama_or_offer_installer_handles_download_failure(monkeypatch, tmp_path):
-    monkeypatch.setattr(ollama_service, "find_ollama_executable", lambda: None)
-
-    def failing_download(destination_dir, download_fn=None):
-        raise OSError("Netzwerkfehler")
-
-    monkeypatch.setattr(ollama_service, "download_ollama_installer", failing_download)
-    messages = []
-    result = ollama_service.ensure_ollama_or_offer_installer(tmp_path, progress_cb=messages.append)
-    assert result is False
-    assert any("nicht heruntergeladen" in message for message in messages)
-
-
-def test_download_ollama_installer_uses_injected_download_fn(tmp_path):
-    def fake_download(url, destination):
-        destination.write_bytes(b"fake-installer-bytes")
-
-    result = ollama_service.download_ollama_installer(tmp_path, download_fn=fake_download)
-    assert result == tmp_path / "OllamaSetup.exe"
-    assert result.read_bytes() == b"fake-installer-bytes"
 
 
 def test_is_model_available_verlangt_die_angegebene_fassung(monkeypatch):
@@ -753,3 +694,77 @@ def test_nach_einem_erfolgreichen_start_gibt_es_keine_pause(start_erlaubt, tmp_p
     uhr.jetzt += 1.0  # weit unter START_PAUSE_SEKUNDEN
     assert ollama_service.dienst_starten(**argumente)
     assert len(gestartet) == 2
+
+
+# --------------------------------------------------------------------------
+# Der Dienst auf diesem Rechner: nie ueber einen Proxy
+# --------------------------------------------------------------------------
+class _Aufzeichner:
+    def __init__(self, antwort=None):
+        self.adressen: list[str] = []
+        self._antwort = antwort if antwort is not None else {"models": []}
+
+    def open(self, request, timeout=None):
+        self.adressen.append(request.full_url)
+        return _FakeResponse(self._antwort)
+
+    __call__ = open
+
+
+def test_lokale_adresse_geht_am_proxy_vorbei(monkeypatch):
+    # Mit einem fest eingetragenen Proxy schickte urllib auch 'http://127.0.0.1:11434' dorthin (Windows'
+    # Ausnahme "<local>" gilt nicht fuer 127.0.0.1): Das Transkript landete beim Firmenproxy, und Ollama
+    # galt als nicht erreichbar.
+    direkt, ueber_proxy = _Aufzeichner(), _Aufzeichner()
+    monkeypatch.setattr(ollama_service, "_OHNE_PROXY", direkt)
+    monkeypatch.setattr(ollama_service, "_URLOPEN_DER_BIBLIOTHEK", ueber_proxy)
+    monkeypatch.setattr(ollama_service.urllib.request, "urlopen", ueber_proxy)
+
+    assert ollama_service.is_service_running("http://127.0.0.1:11434") is True
+    assert ollama_service.is_service_running("http://localhost:11434") is True
+    assert direkt.adressen == ["http://127.0.0.1:11434/api/tags", "http://localhost:11434/api/tags"]
+    assert ueber_proxy.adressen == []
+
+    # Ein Ollama im Netz (Servermodus: 'OLLAMA_URL') geht den normalen Weg samt Proxy-Einstellungen.
+    assert ollama_service.is_service_running("http://ollama.firma.example:11434") is True
+    assert ueber_proxy.adressen == ["http://ollama.firma.example:11434/api/tags"]
+
+
+def test_der_opener_ohne_proxy_hat_wirklich_keinen():
+    handler = [h for h in ollama_service._OHNE_PROXY.handlers if isinstance(h, urllib.request.ProxyHandler)]
+    assert all(not h.proxies for h in handler)
+
+
+# --------------------------------------------------------------------------
+# Jeder Fehler unterwegs ist ein OllamaError (sonst geht das fertige Transkript verloren)
+# --------------------------------------------------------------------------
+@pytest.mark.parametrize("fehler", ["getrennt", "unvollstaendig", "zurueckgesetzt"])
+def test_abgebrochene_verbindung_wird_ein_ollama_fehler(monkeypatch, fehler):
+    import http.client
+
+    ausnahmen = {
+        "getrennt": http.client.RemoteDisconnected("Remote end closed connection without response"),
+        "unvollstaendig": http.client.IncompleteRead(b"{"),
+        "zurueckgesetzt": ConnectionResetError(10054, "Verbindung zurueckgesetzt"),
+    }
+
+    def oeffnen(request, timeout=None):
+        raise ausnahmen[fehler]
+
+    monkeypatch.setattr(ollama_service.urllib.request, "urlopen", oeffnen)
+    with pytest.raises(ollama_service.OllamaError, match="abgebrochen"):
+        ollama_service.generate_text("prompt", "system")
+
+
+@pytest.mark.parametrize("roh", [b"<html>502 Bad Gateway</html>", b"[1, 2]"])
+def test_unlesbare_antwort_wird_ein_ollama_fehler(monkeypatch, roh):
+    class _Roh(_FakeResponse):
+        def __init__(self):
+            pass
+
+        def read(self):
+            return roh
+
+    monkeypatch.setattr(ollama_service.urllib.request, "urlopen", lambda request, timeout=None: _Roh())
+    with pytest.raises(ollama_service.OllamaError, match="nicht lesbar"):
+        ollama_service.generate_text("prompt", "system")
