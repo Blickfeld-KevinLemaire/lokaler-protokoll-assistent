@@ -444,7 +444,12 @@ def test_systempruefung_main_offline_check(systempruefung, monkeypatch):
 # modelle_herunterladen.py
 # --------------------------------------------------------------------------
 @pytest.fixture
-def modelle_skript():
+def modelle_skript(monkeypatch):
+    # 'main()' haengt sonst das echte 'truststore' ein und tauscht 'ssl.SSLContext' fuer den ganzen
+    # Testprozess aus -- alle Tests danach liefen mit veraendertem ssl (wie in der Fixture 'app_modul').
+    from protokoll_assistent.utils import netz
+
+    monkeypatch.setattr(netz, "systemzertifikate_nutzen", lambda: True)
     return _lade_nach_pfad("modelle_herunterladen.py", "modelle_herunterladen_test_modul")
 
 
@@ -504,3 +509,96 @@ def test_modelle_main_teilweise_fehlgeschlagen(
     assert "Gewaehltes Whisper-Modell: large-v3" in ausgabe
     assert "Nicht alle Modelle" in ausgabe
     assert status_abgefangen[0][1] is False
+
+
+# --------------------------------------------------------------------------
+# Fehlerhaken, Sperre und Beenden
+# --------------------------------------------------------------------------
+def test_fehlerhaken_schreibt_ins_protokoll_und_meldet_hoechstens_dreimal(app_modul, qt_app, monkeypatch):
+    # Fehler in Schaltflaechen verschwanden spurlos: Die gebaute Anwendung hat keine Konsole.
+    from PySide6.QtWidgets import QMessageBox
+
+    protokolliert, gezeigt = [], []
+
+    class _Logger:
+        def error(self, meldung, exc_info=None):
+            protokolliert.append(exc_info[1])
+
+    monkeypatch.setattr(QMessageBox, "critical", staticmethod(lambda *a: gezeigt.append(a[2])))
+    haken = app_modul._fehlerhaken(_Logger())
+    for nummer in range(5):
+        fehler = ValueError(f"kaputt {nummer}")
+        haken(ValueError, fehler, None)
+    assert len(protokolliert) == 5
+    assert len(gezeigt) == app_modul._HOECHSTENS_MELDUNGEN and "kaputt 0" in gezeigt[0]
+
+
+def test_fehlerhaken_gilt_nur_waehrend_die_anwendung_laeuft(app_modul, monkeypatch):
+    # 'main' setzt den Haken und stellt den vorherigen wieder her (hier: der von pytest).
+    monkeypatch.setattr(app_modul, "ensure_system_prompt_file_exists", lambda: None)
+    from protokoll_assistent.services import ffmpeg_service
+
+    monkeypatch.setattr(ffmpeg_service, "ensure_ffmpeg_on_path", lambda: None)
+    gesehen = []
+    monkeypatch.setattr(app_modul, "_ausfuehren", lambda app, logger: gesehen.append(sys.excepthook) or 0)
+    vorher = sys.excepthook
+    from protokoll_assistent.gui import theme
+
+    monkeypatch.setattr(theme, "apply_theme", lambda app: None)
+
+    class _QAppAttrappe:
+        def __init__(self, argv):
+            pass
+
+        def setApplicationName(self, name):
+            pass
+
+    with mock.patch("PySide6.QtWidgets.QApplication", _QAppAttrappe):
+        assert app_modul.main() == 0
+    assert gesehen and gesehen[0] is not vorher
+    assert sys.excepthook is vorher
+
+
+def test_nicht_anlegbare_sperrdatei_verweigert_den_start_nicht(app_modul, monkeypatch, tmp_path):
+    # Nur "gehoert schon jemandem" ist eine zweite Instanz -- ein nicht beschreibbarer Temp-Ordner nicht.
+    pytest.importorskip("PySide6", reason="PySide6 ist nicht installiert.")
+    monkeypatch.setattr(tempfile, "gettempdir", lambda: str(tmp_path / "gibt" / "es" / "nicht"))
+    sperre = app_modul._instanz_sperren()
+    assert isinstance(sperre, app_modul._OhneSperre)
+    sperre.unlock()
+
+
+def test_neu_gestartete_instanz_wartet_auf_das_ende_der_alten(app_modul, monkeypatch):
+    pytest.importorskip("PySide6", reason="PySide6 ist nicht installiert.")
+    from PySide6.QtCore import QLockFile
+
+    from protokoll_assistent import bootstrap
+
+    wartezeiten = []
+    echt = QLockFile.tryLock
+
+    def versuch(self, millisekunden=0):
+        wartezeiten.append(millisekunden)
+        return echt(self, 0)
+
+    monkeypatch.setattr(QLockFile, "tryLock", versuch)
+    monkeypatch.delenv(bootstrap.NEUSTART_VARIABLE, raising=False)
+    app_modul._instanz_sperren().unlock()
+    monkeypatch.setenv(bootstrap.NEUSTART_VARIABLE, "1")
+    app_modul._instanz_sperren().unlock()
+    assert wartezeiten == [0, app_modul.WARTEN_NACH_NEUSTART_MS]
+    _befehl, _ordner, umgebung = bootstrap.neustart_kommando()
+    assert umgebung[bootstrap.NEUSTART_VARIABLE] == "1"
+
+
+def test_hintergrundarbeit_laeuft(app_modul):
+    class _Fenster:
+        def __init__(self, faeden):
+            self._faeden = faeden
+
+        def hintergrundarbeit(self):
+            return self._faeden
+
+    assert app_modul._hintergrundarbeit_laeuft(_Fenster([object()])) is True
+    assert app_modul._hintergrundarbeit_laeuft(_Fenster([])) is False
+    assert app_modul._hintergrundarbeit_laeuft(object()) is False  # Attrappe ohne die Methode

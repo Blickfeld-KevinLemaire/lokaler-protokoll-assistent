@@ -12,6 +12,7 @@ weist deshalb deutlich darauf hin.
 
 from __future__ import annotations
 
+import http.client
 import json
 import urllib.error
 import urllib.request
@@ -44,8 +45,9 @@ def _post(url: str, payload: dict[str, Any], api_key: str, timeout: float, opene
         raise ApiChatError(f"Der Endpunkt ist nicht erreichbar ({url}): {error.reason}") from error
     except TimeoutError as error:
         raise ApiChatError("Die Anfrage an die API hat das Zeitlimit ueberschritten.") from error
-    except (OSError, ValueError) as error:
-        raise ApiChatError(f"Unlesbare Antwort von {url}: {error}") from error
+    except (OSError, ValueError, http.client.HTTPException) as error:
+        # Auch 'RemoteDisconnected'/'IncompleteRead': Der Server hat die Verbindung waehrend der Antwort beendet.
+        raise ApiChatError(f"Unlesbare Antwort von {url}: {str(error) or type(error).__name__}") from error
     if not isinstance(ergebnis, dict):
         raise ApiChatError(f"{url} hat kein JSON-Objekt geliefert.")
     if ergebnis.get("error"):
@@ -71,9 +73,16 @@ def chat(
         opener,
     )
     try:
-        return str(ergebnis["choices"][0]["message"]["content"])
+        wahl = ergebnis["choices"][0]
+        inhalt = wahl["message"]["content"]
     except (KeyError, IndexError, TypeError) as error:
         raise ApiChatError(f"Unerwartete Antwort von {endpoint_url}: {str(ergebnis)[:300]}") from error
+    if not isinstance(inhalt, str):
+        # 'content: null' kommt bei einer Ablehnung oder einem Inhaltsfilter. 'str(None)' machte daraus
+        # die Antwort "None".
+        grund = wahl["message"].get("refusal") or wahl.get("finish_reason") or "ohne Angabe eines Grundes"
+        raise ApiChatError(f"Das Modell hat keinen Text geliefert ({grund}).")
+    return inhalt
 
 
 def embed(

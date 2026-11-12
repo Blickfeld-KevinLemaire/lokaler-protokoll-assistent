@@ -84,3 +84,23 @@ def test_embed_sortiert_nach_index_und_prueft_anzahl():
         api.embed(["a"], "m", opener=_opener(daten), **kwargs)
     with pytest.raises(api.ApiChatError, match="Unerwartete Antwort"):
         api.embed(["a"], "m", opener=_opener({"daten": 1}), **kwargs)
+
+
+def test_chat_ohne_inhalt_ist_ein_fehler_und_nie_die_antwort_none():
+    kwargs = {"endpoint_url": "https://e.example/v1/chat/completions", "api_key": "k"}
+    abgelehnt = {"choices": [{"message": {"content": None, "refusal": "Nein."}, "finish_reason": "stop"}]}
+    with pytest.raises(api.ApiChatError, match="Nein"):
+        api.chat([], "m", opener=_opener(abgelehnt), **kwargs)
+    gefiltert = {"choices": [{"message": {"content": None}, "finish_reason": "content_filter"}]}
+    with pytest.raises(api.ApiChatError, match="content_filter"):
+        api.chat([], "m", opener=_opener(gefiltert), **kwargs)
+
+
+def test_chat_abgebrochene_verbindung_wird_ein_api_fehler():
+    import http.client
+
+    def getrennt(request, timeout=None):
+        raise http.client.RemoteDisconnected("")
+
+    with pytest.raises(api.ApiChatError, match="RemoteDisconnected"):
+        api.chat([], "m", opener=getrennt, endpoint_url="https://e.example/v1/chat/completions", api_key="k")

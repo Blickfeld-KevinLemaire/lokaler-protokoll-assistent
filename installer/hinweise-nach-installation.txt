@@ -1,8 +1,9 @@
 VERMERK Desktop - Hinweise nach der Installation
 ====================================================
 
-Gestartet wird ueber das Auswahlfenster "VERMERK Desktop" (Startmenue
-bzw. Desktop). Dort waehlen Sie zwischen den beiden Arbeitsweisen:
+Gestartet wird ueber "VERMERK Desktop" (Startmenue bzw. Desktop). Beim
+ersten Start fuehrt eine Einrichtung durch die Wahl zwischen den beiden
+Arbeitsweisen; sie laesst sich spaeter in den Einstellungen aendern:
 
 Sie muessen nichts weiter installieren - auch kein Python. Alles Noetige
 liegt im Programmordner.
@@ -17,18 +18,19 @@ liegt im Programmordner.
    Transkription und Sprechertrennung laufen komplett auf diesem Computer,
    es werden keine Audio- oder Videodaten uebertragen.
 
-   Beim allerersten Start richtet sich die Anwendung selbst ein: sie legt
-   mit der mitgelieferten Python-Laufzeitumgebung eine eigene Umgebung an
-   und laedt PyTorch passend zu Ihrer Grafikkarte sowie die Sprachmodelle
-   herunter. Das dauert je nach Internetverbindung einige Minuten und
-   braucht mehrere Gigabyte Platz. Eine Internetverbindung ist dafuer
-   einmalig noetig.
+   Die Einrichtung zeigt vorher, was dafuer geladen wird, und beginnt
+   erst nach Ihrer Zustimmung: Sie legt mit der mitgelieferten
+   Python-Laufzeitumgebung eine eigene Umgebung an und laedt PyTorch
+   passend zu Ihrer Grafikkarte sowie die Sprachmodelle herunter. Das
+   dauert je nach Internetverbindung einige Minuten und braucht mehrere
+   Gigabyte Platz. Eine Internetverbindung ist dafuer einmalig noetig.
 
 Wo liegen meine Dateien?
 ------------------------
 Ergebnisse und Einstellungen werden im Programmordner abgelegt. Die
 Deinstallation entfernt sie NICHT - sie bleiben erhalten, bis Sie sie
-selbst loeschen.
+selbst loeschen. Entfernt werden die selbst eingerichtete Rechenumgebung
+(mehrere Gigabyte), das geladene FFmpeg und die Protokolldateien.
 
 Lizenzen
 --------

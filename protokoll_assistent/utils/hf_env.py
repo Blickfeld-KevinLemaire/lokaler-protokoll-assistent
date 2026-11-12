@@ -15,6 +15,7 @@ Regeln (verbindlich):
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 
 ENV_DATEI = ".env"
@@ -75,11 +76,23 @@ def get_hf_token_for_download() -> str | None:
 def enable_offline_mode() -> None:
     os.environ["HF_HUB_OFFLINE"] = "1"
     os.environ["TRANSFORMERS_OFFLINE"] = "1"
+    _offline_in_geladener_bibliothek(True)
 
 
 def disable_offline_mode() -> None:
     os.environ.pop("HF_HUB_OFFLINE", None)
     os.environ.pop("TRANSFORMERS_OFFLINE", None)
+    _offline_in_geladener_bibliothek(False)
+
+
+def _offline_in_geladener_bibliothek(offline: bool) -> None:
+    """``huggingface_hub`` liest ``HF_HUB_OFFLINE`` genau einmal, beim Import. Ist die Bibliothek schon
+    geladen, aendert die Umgebungsvariable in diesem Prozess nichts mehr: Der Haken "Offline-Modus" wirkte
+    dann erst nach einem Neustart -- und umgekehrt verhinderte er keinen Netzzugriff mehr, wenn die
+    Bibliothek zuvor online geladen worden war. Deshalb wird der Schalter dort direkt umgelegt."""
+    konstanten = sys.modules.get("huggingface_hub.constants")
+    if konstanten is not None and hasattr(konstanten, "HF_HUB_OFFLINE"):
+        setattr(konstanten, "HF_HUB_OFFLINE", offline)  # noqa: B010 -- das Modul ist nur zur Laufzeit bekannt
 
 
 def is_offline_mode() -> bool:

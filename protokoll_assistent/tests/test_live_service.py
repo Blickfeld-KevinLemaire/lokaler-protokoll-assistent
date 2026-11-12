@@ -750,3 +750,26 @@ def test_transkript_ist_ein_zustand_fuer_das_geraet():
     status = ls.StatusRegister()
     status.setze("S3", "H5.opus", ls.TRANSKRIPT, 1.0, "Transkription erfolgreich")
     assert status.hole("S3", "H5.opus")["zustand"] == "transkript"
+
+
+def test_seiten_ohne_granulposition_kosten_keinen_quadratischen_aufwand(monkeypatch):
+    # Lauter gueltige Seiten, auf denen kein Paket endet: Frueher begann die Suche bei JEDER Seite von vorn
+    # (rund 20 Sekunden fuer ein passend gebautes Stueck -- bei jedem neuen Stueck der Aufnahme).
+    seiten = b"".join(_seite(ogg_opus._UNBEKANNT, b"x", nummer=k) for k in range(400))
+    gelesen = []
+    echt = ogg_opus._seite_lesen
+
+    def zaehlen(daten, ab):
+        gelesen.append(ab)
+        return echt(daten, ab)
+
+    monkeypatch.setattr(ogg_opus, "_seite_lesen", zaehlen)
+    assert ogg_opus._letzte_granulposition(seiten) is None
+    assert len(gelesen) <= 401  # jede Seite einmal, nicht 400 * 400 / 2
+
+
+def test_nach_einer_bruchstelle_wird_dahinter_weitergesucht():
+    # Ein abgeschnittener Anfang (mitten in einer Seite) und danach eine saubere Kette.
+    kette = _seite(48000 * 5, b"abc", nummer=1) + _seite(48000 * 6, b"def", nummer=2)
+    daten = _seite(48000, b"zzzz", nummer=0)[:20] + b"OggS-kein-kopf" + kette
+    assert ogg_opus._letzte_granulposition(daten) == 48000 * 6

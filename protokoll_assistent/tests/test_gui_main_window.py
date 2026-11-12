@@ -59,6 +59,10 @@ class _WorkerAttrappe:
     def isFinished(self):
         return getattr(self, "beendet", False)
 
+    def isRunning(self):
+        # Die Attrappe rechnet nie wirklich; Tests, die eine laufende Verarbeitung brauchen, setzen 'laeuft'.
+        return getattr(self, "laeuft", False)
+
     def request_cancel(self):
         self.abbruch_angefordert = True
 
@@ -146,6 +150,9 @@ def fenster(qt_widgets, isolierte_konfiguration, schluessel_speicher, monkeypatc
     # 'test_start_lokal_ohne_laufzeitumgebung_meldet_fehler' fuer den
     # Gegenfall) - deshalb hier standardmaessig "vorhanden" simulieren.
     monkeypatch.setattr(mw.MainWindow, "_lokale_laufzeitumgebung_verfuegbar", staticmethod(lambda: True))
+    from protokoll_assistent import bootstrap
+
+    monkeypatch.setattr(bootstrap, "laufzeit_eingerichtet", lambda: False)
     fenster = qt_widgets(mw.MainWindow())
     yield fenster
     # 'qt_widgets' schliesst das Fenster beim Aufraeumen. Bliebe ein bearbeitetes
@@ -399,12 +406,29 @@ def test_start_lokal_ohne_laufzeitumgebung_meldet_fehler(fenster, gemeldete_fehl
     # in der Sitzung auf "Lokal" umgeschaltet), ohne dass 'bootstrap' die
     # schweren ML-Pakete eingerichtet hat, darf "Transkription starten" nicht
     # tief in der Pipeline mit einem kryptischen Fehler scheitern.
+    from protokoll_assistent import bootstrap
+    from protokoll_assistent.gui import ersteinrichtung
+
     monkeypatch.setattr(mw.MainWindow, "_lokale_laufzeitumgebung_verfuegbar", staticmethod(lambda: False))
     fenster._source_path = audio_datei
 
+    # Eingerichtet, aber dieses Programm laeuft nicht darin: Ein Neustart genuegt.
+    monkeypatch.setattr(bootstrap, "laufzeit_eingerichtet", lambda: True)
     fenster._start_transcription()
+    assert gemeldete_fehler == ["Neustart nötig"]
 
-    assert gemeldete_fehler == ["Lokale Laufzeitumgebung noch nicht eingerichtet"]
+    # Nicht eingerichtet: Die gefuehrte Einrichtung wird angeboten (sie nennt die Kosten und laedt erst nach
+    # Zustimmung). Frueher hiess es nur "beenden und neu starten" -- nach "Nicht mehr fragen" eine Sackgasse.
+    monkeypatch.setattr(bootstrap, "laufzeit_eingerichtet", lambda: False)
+    geoeffnet = []
+    monkeypatch.setattr(ersteinrichtung.ErsteinrichtungDialog, "exec", lambda self: geoeffnet.append(1) or 0)
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.StandardButton.No))
+    fenster._start_transcription()
+    assert geoeffnet == []
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes))
+    fenster._start_transcription()
+    assert geoeffnet == [1]
+    assert _WorkerAttrappe.instanzen == []  # gestartet wurde in keinem Fall
     assert _WorkerAttrappe.instanzen == []
 
 
@@ -2135,6 +2159,8 @@ def test_export_oeffnet_den_dialog_mit_transkript_und_protokoll(fenster, tmp_pat
     fenster._last_protocol_result = pipeline_service.ProtocolResult(
         work_dir=tmp_path, protocol_paths=(protokoll, tmp_path / "p.md"), report_paths=(tmp_path / "r.json", tmp_path / "r.md")
     )
+    # Das Protokoll des letzten Laufs gehoert zu einem Transkript -- nur zu diesem wird es angeboten.
+    fenster._nachbearbeitung_transkript = transkript
     fenster._export_oeffnen()
     assert _ExportDialogAttrappe.instanzen[-1].argumente[1] == protokoll
 
@@ -3064,3 +3090,206 @@ def test_modell_fehlt_wird_nach_einem_neustart_wieder_gemeldet(fenster, monkeypa
     monkeypatch.setattr(mw.ollama_service, "dienst_starten", lambda *a, **k: True)
     fenster._ollama_wache_arbeit("mein-modell")
     assert "fehlt bei Ollama" in fenster._empfang_zuletzt
+
+
+# --------------------------------------------------------------------------
+# Haertung vor der Beta (Fehlersuche November 2026)
+# --------------------------------------------------------------------------
+def test_export_bietet_nie_das_protokoll_einer_anderen_besprechung_an(fenster, tmp_path, monkeypatch):
+    # Besprechung A transkribiert und ausgewertet, dann Besprechung B gewaehlt und "Exportieren": Frueher
+    # enthielt 'B_gesamt.docx' das Protokoll von A.
+    monkeypatch.setattr(mw, "ExportDialog", _ExportDialogAttrappe)
+    _ExportDialogAttrappe.instanzen.clear()
+    a, b = tmp_path / "a.json", tmp_path / "b.json"
+    protokoll_a = tmp_path / "pa.json"
+    for datei in (a, b, protokoll_a):
+        datei.write_text("{}", encoding="utf-8")
+
+    fenster._nachbearbeitung_transkript = a
+    fenster._last_protocol_result = pipeline_service.ProtocolResult(
+        work_dir=tmp_path, protocol_paths=(protokoll_a, tmp_path / "pa.md"), report_paths=(tmp_path / "r.json", tmp_path / "r.md")
+    )
+    fenster._protocol_result_anzeigen("Ergebnis A", (protokoll_a, tmp_path / "pa.md"), a)
+
+    fenster._set_transcript_path(b)
+    fenster._export_oeffnen()
+    assert _ExportDialogAttrappe.instanzen[-1].argumente[:2] == (b, None)
+
+    fenster._set_transcript_path(a)
+    fenster._export_oeffnen()
+    assert _ExportDialogAttrappe.instanzen[-1].argumente[:2] == (a, protokoll_a)
+
+
+class _LaufenderWorker(_WorkerAttrappe):
+    laeuft = True
+
+
+def test_schliessen_waehrend_der_verarbeitung_fragt_nach_und_bricht_ab(fenster, monkeypatch):
+    from PySide6.QtGui import QCloseEvent
+
+    fenster._transcription_worker = _LaufenderWorker(None)
+    antworten = [QMessageBox.StandardButton.No, QMessageBox.StandardButton.Yes]
+    fragen = []
+
+    def frage(parent, titel, text, *rest):
+        fragen.append(titel)
+        return antworten.pop(0)
+
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(frage))
+
+    bleibt_offen = QCloseEvent()
+    fenster.closeEvent(bleibt_offen)
+    assert not bleibt_offen.isAccepted()
+    assert not getattr(fenster._transcription_worker, "abbruch_angefordert", False)
+
+    schliesst = QCloseEvent()
+    fenster.closeEvent(schliesst)
+    assert schliesst.isAccepted()
+    assert fenster._transcription_worker.abbruch_angefordert is True
+    assert fragen == ["Verarbeitung läuft noch", "Verarbeitung läuft noch"]
+    fenster._transcription_worker = None
+
+
+def test_schliessen_wartet_auf_laufende_arbeitsfaeden(fenster, monkeypatch):
+    from PySide6.QtCore import QThread
+
+    gewartet = []
+
+    class _Faden:
+        def isRunning(self):
+            return True
+
+        def wait(self, millisekunden):
+            gewartet.append(millisekunden)
+            return False
+
+    monkeypatch.setattr(fenster, "findChildren", lambda klasse: [_Faden()] if klasse is QThread else [])
+    assert len(fenster.hintergrundarbeit()) == 1
+    fenster.SCHLIESSEN_WARTEZEIT_MS = 50
+    fenster._auf_hintergrundarbeit_warten()
+    assert len(gewartet) == 1 and 0 <= gewartet[0] <= 50
+
+
+def test_link_aus_dem_browser_aendert_den_eingabeordner_nicht(fenster):
+    # 'Path("")' ist der Arbeitsordner: Ein fallengelassener Link machte ihn zum Eingabeordner (und speicherte das).
+    vorher = fenster._input_folder
+    daten = QMimeData()
+    daten.setUrls([QUrl("https://example.org/bild.png")])
+    event = mock.Mock()
+    event.mimeData.return_value = daten
+
+    fenster.dragEnterEvent(event)
+    fenster.dropEvent(event)
+
+    event.acceptProposedAction.assert_not_called()
+    assert fenster._input_folder == vorher
+    assert app_config.load_config()["eingabeordner"] != "."
+
+
+def test_als_ansi_gespeicherter_systemprompt_laesst_das_fenster_entstehen(qt_widgets, isolierte_konfiguration, schluessel_speicher, monkeypatch, tmp_path):
+    # Frueher: UnicodeDecodeError beim Aufbau des Hauptfensters -- das Programm startete nicht mehr.
+    prompt = tmp_path / "systemprompt_protokoll.txt"
+    prompt.write_bytes("Fasse die Beschlüsse zusammen – kurz.".encode("cp1252"))
+    monkeypatch.setattr(mw, "get_system_prompt_file", lambda: prompt)
+    fenster = qt_widgets(mw.MainWindow())
+    assert fenster.systemprompt_editor.toPlainText() == "Fasse die Beschlüsse zusammen – kurz."
+    fenster._protocol_result_unveraendert = fenster.protocol_result_edit.toPlainText()
+
+
+def test_unlesbarer_zwischenstand_bleibt_nicht_bei_datei_wird_geprueft_stehen(fenster, audio_datei, monkeypatch):
+    def kaputt(work_dir):
+        raise json.JSONDecodeError("kaputt", "", 0)
+
+    monkeypatch.setattr(manifest_service, "load_manifest", kaputt)
+    fenster._source_path = audio_datei
+    fenster.resume_combo.setCurrentIndex(0)
+    fenster._refresh_resume_status()
+    assert "nicht lesbar" in fenster.resume_status_label.text()
+    assert fenster.resume_combo.currentIndex() == 1  # neu beginnen
+
+
+def test_fortschritt_wird_vor_jedem_lauf_zurueckgesetzt(fenster):
+    fenster._on_chunk_progress(3, 3)
+    fenster._on_overall_progress(1.0)
+    fenster.remaining_label.setText("0 Sekunden")
+
+    fenster._fortschritt_zuruecksetzen()
+    assert fenster.overall_progress_bar.value() == 0 and fenster.chunk_progress_bar.value() == 0
+    assert fenster._chunk_progress == (0, 0) and fenster.remaining_label.text() == "--"
+
+    # Die Auswertung meldet erst am Ende: bis dahin ein laufender Balken statt "100 %".
+    fenster._fortschritt_zuruecksetzen(unbestimmt=True)
+    assert fenster.overall_progress_bar.maximum() == 0
+    fenster._on_overall_progress(1.0)
+    assert fenster.overall_progress_bar.maximum() == 100 and fenster.overall_progress_bar.value() == 100
+    fenster._fortschritt_zuruecksetzen(unbestimmt=True)
+    fenster._set_controls_running(False)
+    assert fenster.overall_progress_bar.maximum() == 100
+
+
+def test_klick_auf_lokal_ohne_rechenumgebung_ist_keine_zustimmung_zum_download(fenster, monkeypatch):
+    # Einrichtung mit "online" abgeschlossen, dann im Hauptfenster "Lokal" angeklickt: Frueher lud der naechste
+    # Start ungefragt gut 5 GB.
+    from protokoll_assistent import bootstrap
+
+    monkeypatch.setattr(mw.MainWindow, "_lokale_laufzeitumgebung_verfuegbar", staticmethod(lambda: False))
+    app_config.update_config(einrichtung_abgeschlossen=True, lokale_einrichtung_zurueckgestellt=False)
+    fenster.transkription_api_radio.setChecked(True)
+    assert app_config.load_config()["transkription_modus"] == "api"
+
+    fenster.transkription_lokal_radio.setChecked(True)
+    konfig = app_config.load_config()
+    assert konfig["transkription_modus"] == "lokal" and konfig["lokale_einrichtung_zurueckgestellt"] is True
+    assert bootstrap.laufzeit_beim_start_einrichten(konfig, True, False) is False
+
+    # Kommt "lokal" aus den Einstellungen (dort ausdruecklich umgeschaltet), bleibt die Zustimmung bestehen.
+    fenster.transkription_api_radio.setChecked(True)
+    app_config.update_config(transkription_modus="lokal", lokale_einrichtung_zurueckgestellt=False)
+    fenster._apply_modus_from_config()
+    konfig = app_config.load_config()
+    assert konfig["lokale_einrichtung_zurueckgestellt"] is False
+    assert bootstrap.laufzeit_beim_start_einrichten(konfig, True, False) is True
+
+
+def test_einstellungen_werden_auch_nach_abbrechen_angewendet(fenster, monkeypatch):
+    # Ein per USB eingerichtetes Aufnahmegeraet wird sofort gespeichert. Nach "Abbrechen" kannte der laufende
+    # Empfang es bis zum naechsten Programmstart nicht und wies es mit 401 ab.
+    class _Abgebrochen:
+        eingegebene_schluessel: ClassVar[dict] = {"x": "y"}
+
+        def __init__(self, parent):
+            pass
+
+        def exec(self):
+            return 0
+
+    monkeypatch.setattr(mw, "SettingsDialog", _Abgebrochen)
+    angewendet = []
+    monkeypatch.setattr(fenster, "_geraete_empfang_anwenden", lambda: angewendet.append(1))
+    fenster._open_settings()
+    assert angewendet == [1]
+    assert "x" not in fenster._session_api_keys  # eingegebene Schluessel gelten nur nach "Speichern"
+
+
+def test_gescheiterte_sprechererkennung_wird_gemeldet(fenster, tmp_path, monkeypatch):
+    ergebnis = _ergebnis_mit_sprecher(tmp_path)
+    ergebnis.diarisierung_fehler = "Der Hugging-Face-Token fehlt"
+    gezeigt = []
+    monkeypatch.setattr(fenster, "_sprecher_fehler_zeigen", gezeigt.append)
+    monkeypatch.setattr(mw.QTimer, "singleShot", staticmethod(lambda verzoegerung, funktion: funktion()))
+    monkeypatch.setattr(QMessageBox, "information", staticmethod(lambda *a, **k: None))
+    fenster._on_transcription_finished_ok(ergebnis)
+    assert gezeigt == ["Der Hugging-Face-Token fehlt"]
+    assert "ohne Sprechererkennung" in fenster.status_label.text()
+
+
+def test_scheitert_das_beenden_der_aufnahme_bleibt_die_oberflaeche_nicht_im_aufnahmemodus(fenster, gemeldete_fehler):
+    class _Kaputt:
+        def stop(self):
+            raise OSError("Datenträger voll")
+
+    fenster._recording = _Kaputt()
+    fenster._stop_recording()
+    assert fenster._recording is None
+    assert gemeldete_fehler == ["Aufnahme nicht sauber beendet"]
+    assert not fenster.recording_start_button.isHidden()

@@ -25,7 +25,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import shutil
+import re
 import subprocess
 import sys
 import time
@@ -168,13 +168,22 @@ def _umbenennen_mit_wiederholung(quelle: Path, ziel: Path, versuche: int = 5, wa
 
 
 def _lade_mit_windows(
-    url: str, teil: Path, urspruenglich: OSError, windows_fn: Callable[..., Any], pruefsumme: Any
+    url: str,
+    teil: Path,
+    urspruenglich: OSError,
+    windows_fn: Callable[..., Any],
+    pruefsumme: Any,
+    abbrechen_fn: Callable[[], bool],
+    melde: FortschrittFn,
 ) -> int:
     """Zweiter Versuch nach einem Zertifikatsfehler von Python: Windows' eigener TLS-Stack laedt die Datei, danach
-    dieselben Pruefungen wie beim ersten Weg. Liefert die Groesse; bei jedem Mangel ``OllamaEinrichtungFehler``."""
+    dieselben Pruefungen wie beim ersten Weg. Liefert die Groesse; bei jedem Mangel ``OllamaEinrichtungFehler``.
+    Abbruch und Fortschritt gelten auch hier -- die Gesamtgroesse ist auf diesem Weg vorab nicht bekannt (0)."""
     try:
         try:
-            endgueltig = windows_fn(url, teil)
+            endgueltig = windows_fn(
+                url, teil, abbrechen_fn=abbrechen_fn, fortschritt_fn=lambda geladen: melde(geladen, 0)
+            )
             _pruefe_adresse(endgueltig)  # nach allen Weiterleitungen
             groesse = teil.stat().st_size
             if not MIN_GROESSE_BYTES <= groesse <= MAX_GROESSE_BYTES:
@@ -189,6 +198,8 @@ def _lade_mit_windows(
                 while block := datei.read(BLOCK_BYTES):
                     pruefsumme.update(block)
             return groesse
+        except netz.Abgebrochen as fehler:
+            raise OllamaEinrichtungFehler("Der Download wurde abgebrochen.") from fehler
         except OSError as fehler:
             raise OllamaEinrichtungFehler(
                 f"Der Ollama-Installer konnte nicht geladen werden ({urspruenglich}). Das Zertifikat des Servers "
@@ -254,7 +265,7 @@ def lade_installer(
             raise OllamaEinrichtungFehler(
                 f"Der Ollama-Installer konnte nicht geladen werden ({fehler}). Bitte die Internetverbindung prüfen."
             ) from fehler
-        gesamt = _lade_mit_windows(url, teil, fehler, windows_fn, pruefsumme)
+        gesamt = _lade_mit_windows(url, teil, fehler, windows_fn, pruefsumme, abbrechen_fn, melde)
     _umbenennen_mit_wiederholung(teil, ziel)
     if log is not None:
         log(f"Ollama-Installer geladen ({gesamt / 1024**2:.0f} MB, SHA-256 {pruefsumme.hexdigest()}).")
@@ -286,6 +297,14 @@ def _signatur_umgebung(pfad: Path) -> dict[str, str]:
     return umgebung
 
 
+def _ist_von_ollama(unterzeichner: str) -> bool:
+    """Steht im Namen des Zertifikats genau die Organisation ``O=Ollama Inc.``? Ein blosser Textvergleich
+    liesse auch ``O=Ollama Inc.x`` oder ein ``CN="..., O=Ollama Inc."`` gelten. Angaben in Anfuehrungszeichen
+    (koennen Kommas enthalten) zaehlen deshalb nicht als eigenes Feld."""
+    ohne_zitate = re.sub(r'"[^"]*"', '""', unterzeichner)
+    return any(feld.strip() == SIGNIERER for feld in ohne_zitate.split(","))
+
+
 def pruefe_signatur(pfad: Path, *, ausfuehren_fn: Callable[..., Any] = subprocess.run) -> SignaturErgebnis:
     """Prueft die Authenticode-Signatur ueber PowerShell. Im Zweifel NICHT ok:
     Fehlt PowerShell, dauert es zu lange oder ist die Antwort unlesbar, wird der
@@ -295,7 +314,8 @@ def pruefe_signatur(pfad: Path, *, ausfuehren_fn: Callable[..., Any] = subproces
     jeder Ollama-Fassung. Die Signatur bindet die Datei ueber eine
     Zertifizierungsstelle an den Hersteller -- das ist die aussagekraeftige Pruefung."""
     selbst = "Bitte Ollama selbst von ollama.com installieren."
-    powershell = shutil.which("powershell") or "powershell"
+    # Aus dem Systemordner, nicht ueber die Suche im PATH (die bis Python 3.11 auch den Arbeitsordner absucht).
+    powershell = netz.windows_powershell() or "powershell"
     try:
         ergebnis = ausfuehren_fn(
             [powershell, "-NoProfile", "-NonInteractive", "-Command", _SIGNATUR_SKRIPT],
@@ -317,7 +337,7 @@ def pruefe_signatur(pfad: Path, *, ausfuehren_fn: Callable[..., Any] = subproces
         return SignaturErgebnis(
             False, unterzeichner, f"Der Ollama-Installer ist nicht gültig signiert (Status: {status or 'unbekannt'}). {selbst}"
         )
-    if SIGNIERER not in unterzeichner:
+    if not _ist_von_ollama(unterzeichner):
         return SignaturErgebnis(
             False, unterzeichner, f"Der Ollama-Installer ist von jemand anderem signiert ({unterzeichner}). {selbst}"
         )

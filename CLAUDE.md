@@ -402,6 +402,24 @@ Die Verarbeitungskette in `services/` kennt kein Qt. Das soll so bleiben:
 Oberfläche und Logik sind getrennt, deshalb sind die Dienste ohne Fenster
 testbar.
 
+**Installierte Fassung: zwei Prozesse, ein Ordner.** Im lokalen Modus startet die
+gebaute EXE die Anwendung als `python -m protokoll_assistent.app` aus dem
+mitgelieferten Quelltext neu (`bootstrap._relaunch`). Dieser zweite Prozess ist
+nicht „gebaut" – ohne Vorgabe hielte `paths.get_app_dir()` dort den Paketordner
+`{app}\protokoll_assistent` für den Anwendungsordner und führte eine zweite
+`konfiguration.json` samt eigenen Datenordnern (so war es bis 0.5.0-beta). Die EXE
+gibt ihren Ordner deshalb über `VERMERK_ANWENDUNGSORDNER` mit. Wer den **Paketordner**
+meint (mitgelieferte `requirements-*.txt`, Arbeitsordner für `python -m …`), nimmt
+`paths.get_paket_dir()`, nicht `get_app_dir()`. Installationen, die schon getrennt
+arbeiten (`{app}\protokoll_assistent\konfiguration.json` vorhanden), bleiben so.
+
+**Ausgabe fremder Programme lesen:** `subprocess.run(..., text=True)` ohne
+`encoding` liest unter Windows cp1252 und bricht an Bytes, die es dort nicht gibt
+(0x81, 0x8D, 0x8F, 0x90, 0x9D) – die Ausgabe ist dann `None` bzw. leer. ffmpeg und
+ffprobe schreiben UTF-8, Windows PowerShell 5.1 die OEM-Codepage (850; im Skript
+auf UTF-8 stellen), curl die ANSI-Codepage. Immer `encoding=` passend setzen und
+`errors="replace"`.
+
 Die **Ersteinrichtung** (`gui/ersteinrichtung.py`, nur Windows-Anwendung,
 nicht der Servermodus) stuetzt sich auf `services/einrichtungsplan_service.py`
 (was geht auf diesem Rechner, was kostet es) und

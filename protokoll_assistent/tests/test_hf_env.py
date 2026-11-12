@@ -80,3 +80,31 @@ def test_ohne_anmeldeinformationsspeicher_kein_token(monkeypatch):
 
     monkeypatch.setattr(secret_store, "load_api_key", nicht_verfuegbar)
     assert _ECHT_AUS_ANMELDEINFOS() == ""
+
+
+def test_offline_schalter_wirkt_auch_wenn_die_bibliothek_schon_geladen_ist(monkeypatch):
+    # huggingface_hub liest HF_HUB_OFFLINE nur einmal, beim Import. Der Haken "Offline-Modus" wirkte deshalb
+    # erst nach einem Neustart -- und verhinderte umgekehrt keinen Netzzugriff mehr.
+    import sys
+    import types
+
+    konstanten = types.ModuleType("huggingface_hub.constants")
+    konstanten.HF_HUB_OFFLINE = True
+    monkeypatch.setitem(sys.modules, "huggingface_hub.constants", konstanten)
+    monkeypatch.setenv("HF_HUB_OFFLINE", "1")
+
+    hf_env.disable_offline_mode()
+    assert konstanten.HF_HUB_OFFLINE is False and not hf_env.is_offline_mode()
+    hf_env.enable_offline_mode()
+    assert konstanten.HF_HUB_OFFLINE is True and hf_env.is_offline_mode()
+
+
+def test_offline_schalter_ohne_geladene_bibliothek(monkeypatch):
+    import sys
+
+    monkeypatch.delitem(sys.modules, "huggingface_hub.constants", raising=False)
+    monkeypatch.delenv("HF_HUB_OFFLINE", raising=False)
+    hf_env.enable_offline_mode()
+    assert hf_env.is_offline_mode()
+    hf_env.disable_offline_mode()
+    assert not hf_env.is_offline_mode()

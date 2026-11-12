@@ -298,3 +298,19 @@ def test_chat_systemcheck_dialog_fasst_zusammen(qt_app):
 
     schlecht = dialogs.ChatSystemcheckDialog([DiagnosticCheck("a", "Modell", False, "fehlt", True)])
     assert "noch nicht einsatzbereit" in schlecht.zusammenfassung.text()
+
+
+def test_endverarbeitung_ohne_vorlage_laesst_den_eigenen_auftrag_stehen(qt_app):
+    # Ohne gewaehlte Vorlage gilt der Text im Auftragsfeld. Frueher blieb dann still die erste Vorlage
+    # ausgewaehlt und ueberschrieb den selbst geschriebenen Auftrag im Hauptfenster.
+    dialog = dialogs.EndverarbeitungDialog(True, None, ["Zusammenfassung", "Protokoll"], None)
+    dialog.protokoll_checkbox.setChecked(True)
+    assert dialog.vorlage_combo.itemText(0) == dialogs.EndverarbeitungDialog.EIGENER_AUFTRAG
+    assert dialog.vorlage is None
+    dialog.vorlage_combo.setCurrentIndex(2)
+    assert dialog.vorlage == "Protokoll"
+
+    # Mit gewaehlter Vorlage gibt es den Zusatzeintrag nicht.
+    mit = dialogs.EndverarbeitungDialog(True, None, ["Zusammenfassung", "Protokoll"], "Protokoll")
+    mit.protokoll_checkbox.setChecked(True)
+    assert mit.vorlage_combo.count() == 2 and mit.vorlage == "Protokoll"

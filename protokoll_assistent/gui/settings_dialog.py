@@ -19,6 +19,7 @@ aktiviert hat. Der eigentliche Schluessel geht ausschliesslich ueber
 
 from __future__ import annotations
 
+import importlib.util
 from pathlib import Path
 from typing import Any
 
@@ -142,8 +143,12 @@ class SettingsDialog(QDialog):
             self.whisper_modell_combo.addItem(option.label, option.id)
         gespeichertes_modell = self._config.get("whisper_modell") or model_service.WHISPER_MODEL_NAME
         index = self.whisper_modell_combo.findData(gespeichertes_modell)
-        if index >= 0:
-            self.whisper_modell_combo.setCurrentIndex(index)
+        if index < 0:
+            # Eine eigene Modell-ID (aus der Einrichtung) steht nicht in der Liste. Ohne eigenen Eintrag blieb
+            # der erste ausgewaehlt, und jedes "Speichern" ersetzte sie still durch 'large-v3'.
+            self.whisper_modell_combo.addItem(f"{gespeichertes_modell} (eigene Auswahl)", gespeichertes_modell)
+            index = self.whisper_modell_combo.count() - 1
+        self.whisper_modell_combo.setCurrentIndex(index)
         layout.addRow("Whisper-Modell:", self.whisper_modell_combo)
 
         hinweis = QLabel(
@@ -176,9 +181,48 @@ class SettingsDialog(QDialog):
                 anwendung = QApplication.instance()
                 if anwendung is not None:
                     anwendung.quit()
+            # Die Einrichtung hat ihre Wahl schon gespeichert. Dieser Dialog zeigt noch den Stand von vorher --
+            # sein "Speichern" schriebe ihn zurueck (Mitschrift wieder "lokal", altes Sprachmodell) und machte
+            # die Einrichtung rueckgaengig. Deshalb schliesst er, ohne zu speichern.
+            self.reject()
+            return
+        if importlib.util.find_spec("faster_whisper") is None:
+            # Die Rechenumgebung ist eingerichtet, aber dieses Programm laeuft gerade nicht darin (es wurde im
+            # API-Modus gestartet). Die Einrichtung hier pruefte dann im falschen Prozess, meldete PyTorch und
+            # Whisper als fehlend und kam nicht weiter. Noetig ist nur ein Neustart mit "Lokal".
+            self._neustart_mit_lokal_anbieten()
             return
         dialog = LokalEinrichtungDialog(self)
         dialog.exec()
+
+    def _neustart_mit_lokal_anbieten(self) -> None:
+        from protokoll_assistent import bootstrap
+        from protokoll_assistent.gui import ersteinrichtung
+
+        antwort = QMessageBox.question(
+            self,
+            "Neustart nötig",
+            "Die Rechenumgebung für die Mitschrift auf diesem Computer ist schon eingerichtet. Damit sie "
+            "benutzt wird, muss das Programm mit der Einstellung „Lokal“ neu starten.\n\nJetzt neu starten?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        if antwort != QMessageBox.StandardButton.Yes:
+            return
+        app_config.update_config(transkription_modus="lokal")
+        try:
+            ersteinrichtung._starte_prozess(*bootstrap.neustart_kommando())
+        except OSError as fehler:
+            QMessageBox.warning(
+                self,
+                "Neustart nicht möglich",
+                f"Das Programm konnte sich nicht neu starten ({fehler}). Bitte schließen und von Hand neu öffnen.",
+            )
+            return
+        self.reject()
+        anwendung = QApplication.instance()
+        if anwendung is not None:
+            anwendung.quit()
 
     def _build_transkription_api_seite(self) -> QWidget:
         seite = QWidget(self)

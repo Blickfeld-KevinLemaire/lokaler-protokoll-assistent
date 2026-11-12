@@ -15,6 +15,7 @@ API-Modell antwortet.
 
 from __future__ import annotations
 
+import http.client
 import json
 import urllib.error
 import urllib.request
@@ -70,6 +71,16 @@ def _chat_completion(
         raise ApiProtocolError(f"Der Endpunkt ist nicht erreichbar ({endpoint_url}): {error}") from error
     except TimeoutError as error:
         raise ApiProtocolError("Die Anfrage an das API-Modell hat das Zeitlimit ueberschritten.") from error
+    except (OSError, http.client.HTTPException) as error:
+        # urllib packt nur Fehler beim Senden in 'URLError'. Bricht die Verbindung waehrend der Antwort ab,
+        # kaeme der Fehler sonst roh beim Aufrufer an -- und der behielte das fertige Transkript nicht.
+        raise ApiProtocolError(
+            f"Die Verbindung zu {endpoint_url} ist waehrend der Antwort abgebrochen ({str(error) or type(error).__name__})."
+        ) from error
+    except ValueError as error:
+        raise ApiProtocolError(
+            f"{endpoint_url} hat kein JSON geliefert (Anmelde- oder Fehlerseite?). Bitte die Adresse pruefen."
+        ) from error
 
     if not isinstance(result, dict):
         raise ApiProtocolError(f"{endpoint_url} hat kein JSON-Objekt geliefert.")
@@ -77,9 +88,15 @@ def _chat_completion(
         raise ApiProtocolError(f"Der Endpunkt meldet einen Fehler: {result['error']}")
     try:
         wahl = result["choices"][0]
-        inhalt = str(wahl["message"]["content"])
+        inhalt = wahl["message"]["content"]
     except (KeyError, IndexError, TypeError) as error:
         raise ApiProtocolError(f"Unerwartete Antwort von {endpoint_url}: {result}") from error
+    abschluss = wahl.get("finish_reason") if isinstance(wahl, dict) else None
+    if not isinstance(inhalt, str) or abschluss == "content_filter":
+        # 'content: null' kommt bei einer Ablehnung oder einem Inhaltsfilter. 'str(None)' machte daraus den
+        # Text "None" -- der galt als Antwort, wurde als Zwischenstand gespeichert und stand im Protokoll.
+        grund = wahl["message"].get("refusal") or abschluss or "ohne Angabe eines Grundes"
+        raise ApiProtocolError(f"Das API-Modell hat keinen Text geliefert ({grund}).")
     # 'finish_reason: length': Das Modell hat die Laengengrenze erreicht und
     # mitten im Text aufgehoert. Ein solches Ergebnis darf nicht als fertig
     # durchgehen (und nicht als Zwischenstand gespeichert werden).

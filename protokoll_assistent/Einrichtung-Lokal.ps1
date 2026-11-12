@@ -40,9 +40,9 @@ $VenvPython = Get-ActiveVenvPython -ScriptDir $ScriptDir
 function Test-PhaseDone {
     param([string]$Phase)
     if (-not (Test-Path $VenvPython)) { return $false }
-    Push-Location $ScriptDir
+    Push-Location (Split-Path -Parent $ScriptDir)
     try {
-        $result = & $VenvPython -c "from utils.setup_status import load_status, missing_phases; print('0' if '$Phase' in missing_phases(load_status()) else '1')" 2>$null
+        $result = & $VenvPython -c "from protokoll_assistent.utils.setup_status import load_status, missing_phases; print('0' if '$Phase' in missing_phases(load_status()) else '1')" 2>$null
     } catch {
         $result = "0"
     } finally {
@@ -53,9 +53,9 @@ function Test-PhaseDone {
 
 function Set-PhaseDone {
     param([string]$Phase)
-    Push-Location $ScriptDir
+    Push-Location (Split-Path -Parent $ScriptDir)
     try {
-        & $VenvPython -c "from utils.setup_status import load_status, save_status, mark_phase; s=load_status(); mark_phase(s,'$Phase', True); save_status(s)"
+        & $VenvPython -c "from protokoll_assistent.utils.setup_status import load_status, save_status, mark_phase; s=load_status(); mark_phase(s,'$Phase', True); save_status(s)"
     } finally {
         Pop-Location
     }
@@ -74,7 +74,7 @@ if (-not $Force -and (Test-PhaseDone "systempruefung")) {
     Write-Host "Bereits erfolgreich abgeschlossen -- wird uebersprungen."
 } else {
     $bootstrapPython = if (Test-Path $VenvPython) { $VenvPython } else { "python" }
-    Push-Location $ScriptDir
+    Push-Location (Split-Path -Parent $ScriptDir)
     try {
         & $bootstrapPython -m protokoll_assistent.systempruefung
         $phase1ExitCode = $LASTEXITCODE
@@ -110,7 +110,7 @@ Write-Host "`n--- PHASE 3: LOKALE MODELLE HERUNTERLADEN ---" -ForegroundColor Ye
 if (-not $Force -and (Test-PhaseDone "modelle")) {
     Write-Host "Bereits erfolgreich abgeschlossen -- wird uebersprungen (kein erneuter Download)."
 } else {
-    Push-Location $ScriptDir
+    Push-Location (Split-Path -Parent $ScriptDir)
     try {
         & $VenvPython -m protokoll_assistent.modelle_herunterladen
         $phase3ExitCode = $LASTEXITCODE
@@ -127,7 +127,7 @@ if (-not $Force -and (Test-PhaseDone "modelle")) {
 
 # --- Phase 4: Offline-Pruefung --------------------------------------------
 Write-Host "`n--- PHASE 4: OFFLINE-FUNKTIONSPRUEFUNG ---" -ForegroundColor Yellow
-Push-Location $ScriptDir
+Push-Location (Split-Path -Parent $ScriptDir)
 try {
     & $VenvPython -m protokoll_assistent.systempruefung --offline-check
     $phase4ExitCode = $LASTEXITCODE

@@ -15,6 +15,7 @@ angeschlossen ist.
 from __future__ import annotations
 
 import array
+import contextlib
 import queue
 import threading
 import wave
@@ -144,6 +145,14 @@ class MikrofonAufnahme:
         self._stream: Any = None
         self._schreiber: threading.Thread | None = None
         self._wav: wave.Wave_write | None = None
+        self._fehler: str | None = None
+
+    @property
+    def fehler(self) -> str | None:
+        """Gesetzt, sobald das Schreiben gescheitert ist (Datentraeger voll, Datei ueber 4 GB). Die Oberflaeche
+        fragt das im Takt ihrer Anzeige ab und beendet die Aufnahme dann."""
+        with self._lock:
+            return self._fehler
 
     def start(self) -> None:
         self._wav = wave.open(str(self.zielpfad), "wb")
@@ -154,20 +163,33 @@ class MikrofonAufnahme:
         self._schreiber = threading.Thread(target=self._schreiben, daemon=True)
         self._schreiber.start()
 
-        self._stream = self._stream_klasse(
-            device=self.geraet.index,
-            channels=KANAELE,
-            samplerate=self._samplerate,
-            dtype=SAMPLE_DTYPE,
-            blocksize=BLOCKGROESSE,
-            callback=self._callback,
-        )
-        self._stream.start()
+        try:
+            self._stream = self._stream_klasse(
+                device=self.geraet.index,
+                channels=KANAELE,
+                samplerate=self._samplerate,
+                dtype=SAMPLE_DTYPE,
+                blocksize=BLOCKGROESSE,
+                callback=self._callback,
+            )
+            self._stream.start()
+        except Exception:
+            # Das Geraet liess sich nicht oeffnen (belegt, andere Kanalzahl). Ohne dieses Aufraeumen blieb eine
+            # leere, gesperrte 'Aufnahme_*.wav' zurueck, und der Schreibfaden wartete fuer immer.
+            self._stream = None
+            self._queue.put(None)
+            self._schreiber.join(timeout=5)
+            with contextlib.suppress(Exception):
+                self._wav.close()
+            with contextlib.suppress(OSError):
+                self.zielpfad.unlink()
+            raise
 
     def _callback(self, indata: Any, frames: int, zeit: Any, status: Any) -> None:
         rohdaten = bytes(indata)
         self._aktualisiere_pegel(rohdaten)
-        if not self._pausiert.is_set():
+        # Nach einem Schreibfehler nichts mehr einreihen: Sonst wuechse der Arbeitsspeicher, bis jemand stoppt.
+        if not self._pausiert.is_set() and self._fehler is None:
             self._queue.put(rohdaten)
 
     def _aktualisiere_pegel(self, rohdaten: bytes) -> None:
@@ -187,7 +209,16 @@ class MikrofonAufnahme:
             rohdaten = self._queue.get()
             if rohdaten is None:
                 break
-            wav.writeframes(rohdaten)
+            if self._fehler is not None:
+                continue  # nur noch abholen, bis gestoppt wird
+            try:
+                wav.writeframes(rohdaten)
+            except Exception as fehler:
+                # Frueher endete dieser Faden hier lautlos: Die Anzeige blieb stehen, die Aufnahme "lief" weiter
+                # und fuellte nur noch den Arbeitsspeicher.
+                with self._lock:
+                    self._fehler = str(fehler) or type(fehler).__name__
+                continue
             with self._lock:
                 self._geschrieben_frames += len(rohdaten) // SAMPLE_BREITE_BYTES
 
@@ -218,6 +249,13 @@ class MikrofonAufnahme:
         self._queue.put(None)
         if self._schreiber is not None:
             self._schreiber.join(timeout=5)
+        schliessfehler: Exception | None = None
         if self._wav is not None:
-            self._wav.close()
+            try:
+                self._wav.close()
+            except Exception as fehler:
+                schliessfehler = fehler
+        grund = self.fehler or (str(schliessfehler) if schliessfehler is not None else None)
+        if grund is not None:
+            raise OSError(f"Die Aufnahme wurde nicht vollständig geschrieben ({grund}).")
         return self.zielpfad

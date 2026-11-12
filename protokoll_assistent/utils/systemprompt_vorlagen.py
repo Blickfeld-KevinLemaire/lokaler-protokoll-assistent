@@ -10,6 +10,8 @@ Einstellungen benutzt."""
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from protokoll_assistent.utils.paths import get_systemprompt_vorlagen_dir
 
 STANDARD_SYSTEMPROMPT = (
@@ -137,10 +139,26 @@ EINGEBAUTE_VORLAGEN: dict[str, str] = {
 }
 
 
+def text_lesen(pfad: Path) -> str:
+    """Liest eine vom Anwender bearbeitbare Textdatei. UTF-8 (auch mit BOM); ist sie das nicht, wurde sie
+    unter Windows als "ANSI" gespeichert -- dann mit dieser Kodierung, im Zweifel mit Ersatzzeichen. Ein
+    ``OSError`` (gesperrt, kein Zugriff) geht an den Aufrufer."""
+    roh = pfad.read_bytes()
+    try:
+        return roh.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        return roh.decode("cp1252", errors="replace")
+
+
 def eigene_vorlagen() -> dict[str, str]:
     vorlagen: dict[str, str] = {}
     for pfad in sorted(get_systemprompt_vorlagen_dir().glob("*.txt")):
-        vorlagen[pfad.stem] = pfad.read_text(encoding="utf-8")
+        # Eine einzelne unlesbare Datei darf nicht alle Vorlagen kosten: Die Liste wird beim Aufbau des
+        # Hauptfensters gelesen -- mit einer falsch kodierten oder gesperrten Datei startete das Programm nicht.
+        try:
+            vorlagen[pfad.stem] = text_lesen(pfad)
+        except OSError:
+            continue
     return vorlagen
 
 

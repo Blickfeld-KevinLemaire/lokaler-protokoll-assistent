@@ -113,3 +113,26 @@ def test_eingebaute_vorlagen_lassen_sich_nicht_ueberschreiben(tmp_path, monkeypa
     monkeypatch.setattr(sv, "get_systemprompt_vorlagen_dir", lambda: tmp_path)
     with pytest.raises(ValueError):
         sv.vorlage_speichern("Stand-up", "x")
+
+
+def test_falsch_kodierte_oder_gesperrte_vorlage_kostet_nicht_alle(tmp_path, monkeypatch):
+    # Die Liste wird beim Aufbau des Hauptfensters gelesen: Eine einzige als "ANSI" gespeicherte Datei mit
+    # Umlauten (UnicodeDecodeError) oder eine gesperrte Datei liess das Programm nicht mehr starten.
+    from pathlib import Path as _Path
+
+    monkeypatch.setattr(sv, "get_systemprompt_vorlagen_dir", lambda: tmp_path)
+    (tmp_path / "Gut.txt").write_text("Fasse zusammen.", encoding="utf-8")
+    (tmp_path / "Ansi.txt").write_bytes("Beschlüsse und Maßnahmen".encode("cp1252"))
+    (tmp_path / "MitBom.txt").write_bytes("Aufgaben".encode("utf-8-sig"))
+    (tmp_path / "Gesperrt.txt").write_text("x", encoding="utf-8")
+    echt = _Path.read_bytes
+
+    def lesen(self):
+        if self.name == "Gesperrt.txt":
+            raise PermissionError(13, "Zugriff verweigert")
+        return echt(self)
+
+    monkeypatch.setattr(_Path, "read_bytes", lesen)
+    eigene = sv.eigene_vorlagen()
+    assert eigene == {"Ansi": "Beschlüsse und Maßnahmen", "Gut": "Fasse zusammen.", "MitBom": "Aufgaben"}
+    assert "Gut" in sv.alle_vorlagen()

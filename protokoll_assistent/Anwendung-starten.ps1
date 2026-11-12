@@ -31,9 +31,9 @@ if (-not (Test-Path $StatusFile)) {
     exit 1
 }
 
-Push-Location $ScriptDir
+Push-Location (Split-Path -Parent $ScriptDir)
 try {
-    $missingRaw = & $VenvPython -c "from utils.setup_status import load_status, missing_phases; print(','.join(missing_phases(load_status())))"
+    $missingRaw = & $VenvPython -c "from protokoll_assistent.utils.setup_status import load_status, missing_phases; print(','.join(missing_phases(load_status())))"
 } finally {
     Pop-Location
 }
@@ -57,9 +57,9 @@ Write-Host "Einrichtung vollstaendig -- Anwendung wird gestartet." -ForegroundCo
 $env:HF_HUB_OFFLINE = "1"
 $env:TRANSFORMERS_OFFLINE = "1"
 
-Push-Location $ScriptDir
+Push-Location (Split-Path -Parent $ScriptDir)
 try {
-    $ollamaOk = & $VenvPython -c "from services import ollama_service as o; print('1' if o.is_service_running() else '0')"
+    $ollamaOk = & $VenvPython -c "from protokoll_assistent.services import ollama_service as o; print('1' if o.is_service_running() else '0')"
 } finally {
     Pop-Location
 }

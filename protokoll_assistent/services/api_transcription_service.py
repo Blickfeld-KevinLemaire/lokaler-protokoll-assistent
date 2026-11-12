@@ -33,7 +33,9 @@ wird, die Datei aber trotzdem vorliegt.
 from __future__ import annotations
 
 import base64
+import http.client
 import json
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -85,11 +87,30 @@ def build_request(
     return request_data
 
 
+# Voruebergehende Fehler des Anbieters: Ein einzelnes 429/503 bei Abschnitt 7 von 12 brach sonst die ganze
+# Aufnahme ab. Nach diesen Wartezeiten (Sekunden) wird der Abschnitt noch einmal geschickt.
+VORUEBERGEHENDE_HTTP_FEHLER = frozenset({429, 502, 503, 504})
+WARTEZEITEN_SEKUNDEN = (3.0, 10.0)
+HOECHSTE_WARTEZEIT_SEKUNDEN = 60.0
+
+
+def _wartezeit(error: urllib.error.HTTPError, vorgabe: float) -> float:
+    """Die vom Anbieter genannte Wartezeit ('Retry-After' in Sekunden), sonst die Vorgabe."""
+    kopf = getattr(error, "headers", None)
+    try:
+        genannt = float(kopf.get("Retry-After", "")) if kopf is not None else vorgabe
+    except (TypeError, ValueError, AttributeError):
+        return vorgabe
+    return min(max(genannt, 0.0), HOECHSTE_WARTEZEIT_SEKUNDEN)
+
+
 def call_endpoint(
     request_data: dict[str, Any],
     endpoint_url: str,
     api_key: str,
     timeout: float = DEFAULT_TIMEOUT_SECONDS,
+    *,
+    schlafen_fn: Any = time.sleep,
 ) -> dict[str, Any]:
     body = json.dumps(request_data, ensure_ascii=False).encode("utf-8")
     request = urllib.request.Request(
@@ -101,18 +122,39 @@ def call_endpoint(
         },
         method="POST",
     )
-    try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            result = json.loads(response.read().decode("utf-8"))
-    except urllib.error.HTTPError as error:
-        details = error.read().decode("utf-8", errors="replace")[:1500]
-        raise ApiTranscriptionError(f"Transkriptions-Endpunkt-Fehler HTTP {error.code}: {details}") from error
-    except urllib.error.URLError as error:
-        raise ApiTranscriptionError(
-            f"Transkriptions-Endpunkt ist nicht erreichbar ({endpoint_url}): {error}"
-        ) from error
-    except TimeoutError as error:
-        raise ApiTranscriptionError("Die Transkription hat das Zeitlimit ueberschritten.") from error
+    wartezeiten = list(WARTEZEITEN_SEKUNDEN)
+    while True:
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                result = json.loads(response.read().decode("utf-8"))
+            break
+        except urllib.error.HTTPError as error:
+            if error.code in VORUEBERGEHENDE_HTTP_FEHLER and wartezeiten:
+                schlafen_fn(_wartezeit(error, wartezeiten.pop(0)))
+                continue
+            details = error.read().decode("utf-8", errors="replace")[:1500]
+            raise ApiTranscriptionError(f"Transkriptions-Endpunkt-Fehler HTTP {error.code}: {details}") from error
+        except urllib.error.URLError as error:
+            raise ApiTranscriptionError(
+                f"Transkriptions-Endpunkt ist nicht erreichbar ({endpoint_url}): {error}"
+            ) from error
+        except TimeoutError as error:
+            raise ApiTranscriptionError("Die Transkription hat das Zeitlimit ueberschritten.") from error
+        except (ConnectionError, http.client.HTTPException) as error:
+            # Verbindung waehrend der Antwort beendet ('RemoteDisconnected', 'IncompleteRead'): urllib packt das
+            # nicht in 'URLError'.
+            if wartezeiten:
+                schlafen_fn(wartezeiten.pop(0))
+                continue
+            raise ApiTranscriptionError(
+                f"Die Verbindung zum Transkriptions-Endpunkt ist abgebrochen ({str(error) or type(error).__name__})."
+            ) from error
+        except OSError as error:
+            raise ApiTranscriptionError(f"Transkriptions-Endpunkt ist nicht erreichbar ({endpoint_url}): {error}") from error
+        except ValueError as error:
+            raise ApiTranscriptionError(
+                f"{endpoint_url} hat kein JSON geliefert (Anmelde- oder Fehlerseite?). Bitte die Adresse pruefen."
+            ) from error
 
     if not isinstance(result, dict):
         raise ApiTranscriptionError(f"{endpoint_url} hat kein JSON-Objekt geliefert.")

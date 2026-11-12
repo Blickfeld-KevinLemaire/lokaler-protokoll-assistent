@@ -411,5 +411,13 @@ def load_pyannote_pipeline(device: str = "cuda"):
     # "Pipeline.from_pretrained() got an unexpected keyword argument
     # 'use_auth_token'". Am 19.09.2026 auf echter Hardware aufgefallen.
     pipeline = Pipeline.from_pretrained(PYANNOTE_MODEL_NAME, token=token)
+    if pipeline is None:
+        # pyannote liefert bei einem abgelehnten Abruf 'None' statt eines Fehlers; die Meldung war dann
+        # "'NoneType' object has no attribute 'to'".
+        raise RuntimeError(
+            "Das Modell für die Sprechererkennung ließ sich nicht laden. Mögliche Gründe: Der "
+            "Hugging-Face-Token fehlt oder ist ungültig, die Nutzungsbedingungen von pyannote wurden noch "
+            "nicht akzeptiert, oder das Modell ist noch nicht auf diesem Computer und der Offline-Modus ist an."
+        )
     pipeline.to(torch.device(device))
     return pipeline

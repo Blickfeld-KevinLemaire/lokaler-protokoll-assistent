@@ -12,23 +12,43 @@ import os
 import sys
 from pathlib import Path
 
+# Die installierte EXE startet sich fuer den lokalen Modus als 'python -m protokoll_assistent.app' aus
+# dem mitgelieferten Quelltext neu ('bootstrap._relaunch'). Dieser zweite Prozess ist keine gebaute EXE
+# mehr -- ohne diese Vorgabe hielte er den Paketordner '{app}\protokoll_assistent' fuer den
+# Anwendungsordner und fuehrte dort eine ZWEITE 'konfiguration.json' samt eigenen Ordnern fuer Ausgabe,
+# Aufnahmen, Vorlagen, Sprecherprofile und Protokolle. Die EXE gibt ihren Ordner deshalb mit.
+ANWENDUNGSORDNER_VARIABLE = "VERMERK_ANWENDUNGSORDNER"
 
-def get_app_dir() -> Path:
-    """Wurzelverzeichnis der Anwendung.
 
-    Bei einer mit PyInstaller gebauten EXE ist dies der Ordner der EXE-Datei
-    (One-Directory-Build). Im Quellcode-Betrieb ist es der Ordner, der
-    ``app.py`` enthaelt (Elternordner von ``utils``).
-    """
-    if getattr(sys, "frozen", False):
-        return Path(sys.executable).resolve().parent
+def get_paket_dir() -> Path:
+    """Der Paketordner ``protokoll_assistent`` selbst (dort liegen ``app.py`` und die mitgelieferten
+    ``requirements-*.txt``). Im Quellcode-Betrieb ist er zugleich der Anwendungsordner."""
     return Path(__file__).resolve().parent.parent
 
 
+def get_app_dir() -> Path:
+    """Wurzelverzeichnis der Anwendung: Hier liegen Einstellungen und Daten.
+
+    Bei einer mit PyInstaller gebauten EXE ist dies der Ordner der EXE-Datei
+    (One-Directory-Build) -- auch fuer den Prozess, den die EXE fuer den lokalen
+    Modus aus dem Quelltext startet (``ANWENDUNGSORDNER_VARIABLE``). Im
+    Quellcode-Betrieb ist es der Ordner, der ``app.py`` enthaelt.
+    """
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    vorgabe = os.environ.get(ANWENDUNGSORDNER_VARIABLE, "").strip()
+    if vorgabe:
+        return Path(vorgabe)
+    return get_paket_dir()
+
+
 def get_project_root() -> Path:
-    """Elternverzeichnis der Anwendung (kann, muss aber nicht ``.venv-whisperx``
-    enthalten -- siehe ``get_legacy_venv_dir``)."""
-    return get_app_dir().parent
+    """Der Ordner, aus dem das Paket importierbar ist (Arbeitsordner fuer ``python -m ...``); kann, muss
+    aber nicht ``.venv-whisperx`` enthalten -- siehe ``get_legacy_venv_dir``. Bei der gebauten EXE wie
+    bisher der Ordner ueber dem Programmordner."""
+    if getattr(sys, "frozen", False):
+        return get_app_dir().parent
+    return get_paket_dir().parent
 
 
 def venv_python_path(venv_dir: Path) -> Path:

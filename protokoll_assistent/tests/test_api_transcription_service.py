@@ -274,3 +274,79 @@ def test_diarize_via_api_speakers_ueberspringt_segmente_ohne_sprecher(tmp_path):
 
     normalized_path = work_dir / "audio_normalisiert.wav"
     assert svc.diarize_via_api_speakers(normalized_path, None, None) == []
+
+
+# --------------------------------------------------------------------------
+# Voruebergehende Fehler: noch einmal schicken statt die ganze Aufnahme abzubrechen
+# --------------------------------------------------------------------------
+def _http_fehler(code: int, kopf: dict | None = None):
+    import email.message
+
+    nachricht = email.message.Message()
+    for name, wert in (kopf or {}).items():
+        nachricht[name] = wert
+    return urllib.error.HTTPError("url", code, "Fehler", nachricht, None)
+
+
+@pytest.mark.parametrize("code", [429, 502, 503, 504])
+def test_call_endpoint_wiederholt_voruebergehende_fehler(monkeypatch, code):
+    antworten = [_http_fehler(code), _http_fehler(code, {"Retry-After": "7"}), _FakeResponse({"segments": []})]
+    pausen: list[float] = []
+
+    def oeffnen(*a, **k):
+        antwort = antworten.pop(0)
+        if isinstance(antwort, Exception):
+            raise antwort
+        return antwort
+
+    monkeypatch.setattr(svc.urllib.request, "urlopen", oeffnen)
+    ergebnis = svc.call_endpoint({"model": "x"}, "https://example.test", "schluessel", schlafen_fn=pausen.append)
+    assert ergebnis == {"segments": []}
+    assert pausen == [svc.WARTEZEITEN_SEKUNDEN[0], 7.0]  # der Anbieter nennt die Wartezeit selbst
+
+
+def test_call_endpoint_gibt_nach_den_wiederholungen_auf(monkeypatch):
+    aufrufe = []
+
+    def oeffnen(*a, **k):
+        aufrufe.append(1)
+        raise _http_fehler(503)
+
+    monkeypatch.setattr(svc.urllib.request, "urlopen", oeffnen)
+    monkeypatch.setattr(urllib.error.HTTPError, "read", lambda self: b"ueberlastet", raising=False)
+    with pytest.raises(svc.ApiTranscriptionError, match="HTTP 503"):
+        svc.call_endpoint({"model": "x"}, "https://example.test", "schluessel", schlafen_fn=lambda sekunden: None)
+    assert len(aufrufe) == 1 + len(svc.WARTEZEITEN_SEKUNDEN)
+
+
+def test_call_endpoint_wiederholt_nichts_bei_falschem_schluessel(monkeypatch):
+    aufrufe = []
+
+    def oeffnen(*a, **k):
+        aufrufe.append(1)
+        raise _http_fehler(401)
+
+    monkeypatch.setattr(svc.urllib.request, "urlopen", oeffnen)
+    monkeypatch.setattr(urllib.error.HTTPError, "read", lambda self: b"nein", raising=False)
+    with pytest.raises(svc.ApiTranscriptionError, match="HTTP 401"):
+        svc.call_endpoint({"model": "x"}, "https://example.test", "falsch", schlafen_fn=lambda sekunden: None)
+    assert aufrufe == [1]
+
+
+def test_call_endpoint_abgebrochene_verbindung_wird_ein_api_fehler(monkeypatch):
+    import http.client
+
+    def oeffnen(*a, **k):
+        raise http.client.RemoteDisconnected("Remote end closed connection without response")
+
+    monkeypatch.setattr(svc.urllib.request, "urlopen", oeffnen)
+    with pytest.raises(svc.ApiTranscriptionError, match="abgebrochen"):
+        svc.call_endpoint({"model": "x"}, "https://example.test", "schluessel", schlafen_fn=lambda sekunden: None)
+
+
+def test_call_endpoint_fehlerseite_statt_json(monkeypatch):
+    seite = _FakeResponse({})
+    seite._body = b"<html>Anmeldung</html>"
+    monkeypatch.setattr(svc.urllib.request, "urlopen", lambda *a, **k: seite)
+    with pytest.raises(svc.ApiTranscriptionError, match="kein JSON"):
+        svc.call_endpoint({"model": "x"}, "https://example.test", "schluessel")

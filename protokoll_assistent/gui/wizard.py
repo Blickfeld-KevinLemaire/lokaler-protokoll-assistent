@@ -245,7 +245,7 @@ def werkzeuge_nachladen(log) -> dict[str, bool]:
     Das Ergebnis sagt je Werkzeug, ob es danach wirklich da ist -- frueher
     stand bei einem fehlgeschlagenen Download nur eine Zeile im Protokoll,
     und die Einrichtung meldete trotzdem "abgeschlossen"."""
-    from protokoll_assistent.services import ffmpeg_service, ollama_service
+    from protokoll_assistent.services import ffmpeg_service, ollama_einrichtung_service
     from protokoll_assistent.utils.paths import get_app_dir
 
     log("Prüfe FFmpeg ...")
@@ -256,11 +256,17 @@ def werkzeuge_nachladen(log) -> dict[str, bool]:
 
     log("\nPrüfe Ollama ...")
     installer_dir = get_app_dir() / "runtime" / "installer"
-    ollama_da = bool(ollama_service.ensure_ollama_or_offer_installer(installer_dir, progress_cb=log))
+    # Derselbe gepruefte Weg wie in der Ersteinrichtung: Adresse, Groesse und Signatur des Installers
+    # werden geprueft, bevor er laeuft. Frueher lud diese Stelle die Datei ungeprueft und startete sie.
+    try:
+        ollama_da = bool(ollama_einrichtung_service.installiere_ollama(installer_dir, log))
+    except ollama_einrichtung_service.OllamaEinrichtungFehler as fehler:
+        log(str(fehler))
+        ollama_da = False
     if not ollama_da:
         log(
-            "Ollama ist noch nicht einsatzbereit. Wurde der Installer gestartet, bitte die "
-            "Installation abschließen und danach im Systemtest „Erneut prüfen“ wählen."
+            "Ollama ist noch nicht einsatzbereit. Bitte den Grund oben beheben und im Systemtest "
+            "„Erneut prüfen“ wählen – oder Ollama selbst von ollama.com installieren."
         )
     return {"ffmpeg": ffmpeg_da, "ollama": ollama_da}
 

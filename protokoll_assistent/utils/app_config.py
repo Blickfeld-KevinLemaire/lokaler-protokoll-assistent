@@ -12,7 +12,11 @@ verschluesselt in der Windows-Anmeldeinformationsverwaltung ablegt)."""
 
 from __future__ import annotations
 
+import contextlib
 import json
+import tempfile
+import time
+from pathlib import Path
 from typing import Any
 
 from protokoll_assistent.utils.paths import get_config_file
@@ -97,14 +101,19 @@ def load_config() -> dict[str, Any]:
     if not path.is_file():
         return dict(DEFAULTS)
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return dict(DEFAULTS)
+        # 'utf-8-sig': Der Windows-Editor speichert von Hand bearbeitete Dateien gern mit BOM.
+        text = path.read_text(encoding="utf-8-sig")
+    except OSError:
+        return dict(DEFAULTS)  # gerade gesperrt: nichts anfassen
+    try:
+        data = json.loads(text)
+    except ValueError:
+        data = None
     if not isinstance(data, dict):
-        # Gueltiges JSON, aber kein Objekt (z. B. eine Liste nach einem
-        # misslungenen Eingriff von Hand). Ohne diese Pruefung scheitert
-        # '.items()' unten mit einem 'AttributeError' -- und zwar in 'app.py'
-        # noch VOR dem ersten Fenster, also ohne jede sichtbare Meldung.
+        # Kein JSON (halb geschrieben, von Hand beschaedigt) oder gueltiges JSON, aber kein Objekt (z. B.
+        # eine Liste). Ohne diese Pruefung scheitert '.items()' unten -- in 'app.py' noch VOR dem ersten
+        # Fenster, also ohne jede sichtbare Meldung.
+        _defekte_datei_sichern(path)
         return dict(DEFAULTS)
     merged = dict(DEFAULTS)
     merged.update({key: value for key, value in data.items() if key in DEFAULTS})
@@ -114,7 +123,39 @@ def load_config() -> dict[str, Any]:
 def save_config(config: dict[str, Any]) -> None:
     path = get_config_file()
     to_save = {key: config.get(key, DEFAULTS[key]) for key in DEFAULTS}
-    path.write_text(json.dumps(to_save, ensure_ascii=False, indent=2), encoding="utf-8")
+    # Atomar: erst unter Arbeitsnamen, dann ersetzen. Ein Absturz oder Stromausfall mitten im Schreiben
+    # hinterliesse sonst eine halbe Datei -- und mit ihr waeren die Einrichtung, die angemeldeten
+    # Aufnahmegeraete und alle API-Einstellungen weg.
+    with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=path.parent, suffix=".tmp", delete=False) as handle:
+        json.dump(to_save, handle, ensure_ascii=False, indent=2)
+        temp = Path(handle.name)
+    _ersetzen_mit_wiederholung(temp, path)
+
+
+def _ersetzen_mit_wiederholung(temp: Path, ziel: Path, versuche: int = 6, warten: float = 0.1) -> None:
+    """``os.replace`` mit Wiederholung: Unter Windows haelt ein Virenscanner oder der Suchindex die eben
+    geschriebene Datei manchmal noch kurz offen ("Zugriff verweigert", siehe CLAUDE.md, Regel 1)."""
+    for versuch in range(versuche):
+        try:
+            temp.replace(ziel)
+            return
+        except PermissionError:
+            if versuch == versuche - 1:
+                temp.unlink(missing_ok=True)
+                raise
+            time.sleep(warten)
+        except OSError:
+            temp.unlink(missing_ok=True)
+            raise
+
+
+def _defekte_datei_sichern(path: Path) -> None:
+    """Eine unlesbare Einstellungsdatei wird beiseitegelegt statt beim naechsten Speichern stillschweigend
+    mit den Standardwerten ueberschrieben -- so laesst sich von Hand retten, was darin stand."""
+    # Gelingt das Beiseitelegen nicht (Datei gesperrt), bleibt sie liegen, wie sie ist -- gelesen wurden
+    # ohnehin schon die Standardwerte.
+    with contextlib.suppress(OSError):
+        path.replace(path.with_name(path.stem + ".defekt.json"))
 
 
 def update_config(**changes: Any) -> dict[str, Any]:

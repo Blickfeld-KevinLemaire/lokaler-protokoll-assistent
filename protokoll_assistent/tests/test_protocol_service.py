@@ -576,3 +576,24 @@ def test_ergebnisse_ohne_sprecher_haben_eine_eigene_kennung():
     ohne = protocol_service.prompt_kennung("Auftrag", "m", ohne_sprecher=True)
     assert mit != ohne
     assert protocol_service.prompt_kennung("Auftrag", "m", None, False) == mit  # unveraendert fuer alte Staende
+
+
+def test_zwischenstaende_werden_atomar_geschrieben(tmp_path, monkeypatch):
+    # Erst unter Arbeitsnamen, dann ersetzen: Eine halbe Datei nach einem Absturz gaelte sonst fuer immer als
+    # fertiges Teilergebnis (es zaehlt nur, ob die Datei da ist).
+    ersetzt: list[tuple[str, str]] = []
+    echt = protocol_service._ersetzen_mit_wiederholung
+
+    def ersetzen(temp, ziel):
+        assert temp.read_text(encoding="utf-8") == "Ergebnis"
+        assert not ziel.exists()
+        ersetzt.append((temp.suffix, ziel.name))
+        echt(temp, ziel)
+
+    monkeypatch.setattr(protocol_service, "_ersetzen_mit_wiederholung", ersetzen)
+    ziel = tmp_path / "stufe1" / "teil_0001.txt"
+    assert protocol_service._load_or_compute(ziel, lambda: "Ergebnis") == "Ergebnis"
+    assert ersetzt == [(".tmp", "teil_0001.txt")]
+    assert [p.name for p in ziel.parent.iterdir()] == ["teil_0001.txt"]
+    # Vorhanden: wird gelesen, nicht neu berechnet.
+    assert protocol_service._load_or_compute(ziel, lambda: pytest.fail("nicht neu berechnen")) == "Ergebnis"

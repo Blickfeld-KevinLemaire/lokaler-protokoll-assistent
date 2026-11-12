@@ -97,7 +97,15 @@ Source: "..\dist\VERMERK-Desktop\*"; DestDir: "{app}"; \
 ; (tests, __pycache__, ...) wenigstens leer mitinstalliert.
 Source: "..\protokoll_assistent\*"; DestDir: "{app}\protokoll_assistent"; \
     Flags: ignoreversion recursesubdirs; \
-    Excludes: "tests\*,__pycache__\*,*.pyc,runtime\*,logs\*,build\*,dist\*,dist-probe\*,.venv*\*,ausgabe\*,sprecherprofile\*,chatverlaeufe\*"
+    Excludes: "tests\*,__pycache__\*,*.pyc,runtime\*,logs\*,build\*,dist\*,dist-probe\*,.venv*\*,ausgabe\*,sprecherprofile\*,chatverlaeufe\*,aufnahmen\*,arbeitsdaten\*,konfiguration.json,konfiguration.defekt.json,Einrichtungsstatus.json,.pytest_cache\*,tools\ffmpeg\*,einstellungen\systemprompt_protokoll.txt,einstellungen\systemprompt_vorlagen\*,einstellungen\fachbegriffe.txt"
+; Zu den Ausschluessen oben:
+; * 'einstellungen\systemprompt_protokoll.txt' ist der Auftrag des ANWENDERS. Im Repository liegt die
+;   Datei leer; mit installiert, ueberschrieb jedes Update den selbst geschriebenen Auftrag einer
+;   Installation, die ihre Daten noch im Unterordner fuehrt (bis 0.5.0-beta der Normalfall im lokalen
+;   Modus). Fehlt sie, legt die Anwendung sie beim Start aus der '.default.txt' an.
+; * 'aufnahmen', 'arbeitsdaten', 'konfiguration.json', 'tools\ffmpeg' entstehen erst beim Benutzen. Bei
+;   einem Build aus einem benutzten Arbeitsordner kaemen sonst eigene Aufnahmen, Einstellungen und ein
+;   heruntergeladenes FFmpeg (GPL) in den Installer.
 
 ; 3) Mitgelieferte Python-Laufzeitumgebung. Damit muss der Anwender kein
 ;    Python selbst installieren. Es ist ein eigenstaendiger Build von
@@ -139,6 +147,13 @@ Type: files; Name: "{autodesktop}\Protokoll-Assistent.lnk"
 ; 'einstellungen', 'zwischenstaende') werden ABSICHTLICH nicht geloescht.
 Type: filesandordirs; Name: "{app}\protokoll_assistent\runtime"
 Type: filesandordirs; Name: "{app}\protokoll_assistent\logs"
+; Die gebaute EXE legt beides DIREKT im Programmordner an ('runtime\venv' mit gut 5 GB, dazu der geladene
+; Ollama-Installer und FFmpeg). Bis 0.5.0-beta stand hier nur der Unterordner oben -- die eigentliche
+; Rechenumgebung blieb nach dem Deinstallieren zurueck.
+Type: filesandordirs; Name: "{app}\runtime"
+Type: filesandordirs; Name: "{app}\logs"
+Type: filesandordirs; Name: "{app}\tools\ffmpeg"
+Type: filesandordirs; Name: "{app}\protokoll_assistent\tools\ffmpeg"
 ; Python legt beim Ausfuehren in JEDEM Paketordner ein '__pycache__' an.
 ; Inno kennt diese Dateien nicht (es hat sie nicht installiert) und wuerde
 ; sie stehen lassen - dann bliebe der Programmordner nach dem
@@ -149,5 +164,6 @@ Type: filesandordirs; Name: "{app}\protokoll_assistent\gui\__pycache__"
 Type: filesandordirs; Name: "{app}\protokoll_assistent\services\__pycache__"
 Type: filesandordirs; Name: "{app}\protokoll_assistent\tools\__pycache__"
 Type: filesandordirs; Name: "{app}\protokoll_assistent\utils\__pycache__"
+Type: filesandordirs; Name: "{app}\protokoll_assistent\server\__pycache__"
 ; Dasselbe fuer die mitgelieferte Python-Laufzeitumgebung.
 Type: filesandordirs; Name: "{app}\python"

@@ -204,11 +204,12 @@ jobs:
             * Es gibt **eine** Anwendung fuer beide Wege. Ob Transkription und
               Nachbearbeitung lokal oder ueber eine API laufen, ist eine
               Einstellung im Programm - kein eigenes Programm mehr.
-            * Enthaelt **keine** KI-Modelle und kein PyTorch/WhisperX. Wer den
-              lokalen Modus waehlt, laesst sich diese Umgebung beim ersten
-              Start selbst einrichten und braucht dafuer ein installiertes
-              **Python 3.10 oder 3.11**. Im reinen API-Modus wird davon nichts
-              gebraucht.
+            * Enthaelt **keine** KI-Modelle und kein PyTorch. Wer den lokalen
+              Modus waehlt, laesst sich diese Umgebung nach Zustimmung von der
+              Anwendung einrichten (rund 5 GB Download); der Installer bringt
+              das dafuer noetige Python mit. Nur die ZIP-Datei hat es nicht
+              dabei - sie taugt deshalb allein fuer den API-Modus. Im reinen
+              API-Modus wird davon nichts gebraucht.
             * Der Installer ist **nicht signiert**. Windows SmartScreen meldet
               sich deshalb beim Start - ueber "Weitere Informationen" -
               "Trotzdem ausfuehren" laesst er sich starten.

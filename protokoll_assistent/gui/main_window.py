@@ -32,7 +32,7 @@ from pathlib import Path
 from types import ModuleType
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from PySide6.QtCore import Qt, QTimer, QUrl, Signal
+from PySide6.QtCore import Qt, QThread, QTimer, QUrl, Signal
 from PySide6.QtGui import QCloseEvent, QDesktopServices, QDragEnterEvent, QDropEvent
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -114,7 +114,7 @@ from protokoll_assistent.utils.paths import (
     get_system_prompt_file,
     get_work_dir,
 )
-from protokoll_assistent.utils.systemprompt_vorlagen import alle_vorlagen, vorlage_speichern
+from protokoll_assistent.utils.systemprompt_vorlagen import alle_vorlagen, text_lesen, vorlage_speichern
 from protokoll_assistent.utils.timeformat import format_duration_human
 
 if TYPE_CHECKING:  # pragma: no cover - nur fuer die Typpruefung
@@ -541,9 +541,13 @@ class MainWindow(QMainWindow):
         dialog = SettingsDialog(self)
         if dialog.exec():
             self._session_api_keys.update(dialog.eingegebene_schluessel)
-            self._apply_modus_from_config()
-            self.chat_page.einstellungen_aktualisiert()
-            self._geraete_empfang_anwenden()
+        # Auch nach "Abbrechen": Die Einrichtung eines Aufnahmegeraets ueber USB und die gefuehrte Einrichtung
+        # speichern sofort (das Geraet hat sein Zugangswort dann schon). Ohne das kannte der laufende Empfang
+        # das neue Geraet bis zum naechsten Programmstart nicht und wies es mit 401 ab. 'anwenden' startet den
+        # Empfang nur neu, wenn sich wirklich etwas geaendert hat.
+        self._apply_modus_from_config()
+        self.chat_page.einstellungen_aktualisiert()
+        self._geraete_empfang_anwenden()
 
     def _apply_modus_from_config(self) -> None:
         config = app_config.load_config()
@@ -741,6 +745,10 @@ class MainWindow(QMainWindow):
         if self._recording is None:
             self._recording_timer.stop()
             return
+        if getattr(self._recording, "fehler", None):
+            # Das Schreiben ist gescheitert (Datentraeger voll): Die Aufnahme endet, statt scheinbar weiterzulaufen.
+            self._stop_recording()
+            return
         duration = int(self._recording.dauer_sekunden)
         self.recording_duration_label.setText(f"{duration // 60:02d}:{duration % 60:02d}")
         self.recording_level_bar.setValue(int(self._recording.pegel * 100))
@@ -748,7 +756,14 @@ class MainWindow(QMainWindow):
     def _stop_recording(self) -> None:
         if self._recording is None:
             return
-        path = self._recording.stop()
+        # Auch wenn das Beenden scheitert (Mikrofon abgezogen, Datentraeger voll), muss die Oberflaeche aus dem
+        # Aufnahmemodus heraus -- sonst blieb sie darin stecken und liess nichts anderes mehr zu.
+        fehler: Exception | None = None
+        path: Path | None = None
+        try:
+            path = self._recording.stop()
+        except Exception as error:
+            fehler = error
         self._recording = None
         self._recording_timer.stop()
 
@@ -760,6 +775,14 @@ class MainWindow(QMainWindow):
         self.recording_duration_label.setText("")
         self.recording_level_bar.setValue(0)
 
+        if fehler is not None or path is None:
+            show_error(
+                self,
+                "Aufnahme nicht sauber beendet",
+                f"Die Aufnahme konnte nicht ordentlich abgeschlossen werden:\n{fehler}\n\n"
+                "Was bis dahin geschrieben wurde, liegt im Aufnahmeordner.",
+            )
+            return
         self._set_source_file(path)
 
     # ------------------------------------------------------------------
@@ -1010,6 +1033,15 @@ class MainWindow(QMainWindow):
         )
         if not dialog.exec():
             return
+        if self._arbeit_laeuft() or self._automatik is not None:
+            # Waehrend der Dialog offen war, hat die Verarbeitung einer Geraeteaufnahme begonnen. Ohne diese
+            # Pruefung liefen danach zwei Transkriptionen gleichzeitig (zwei Modelle auf der Grafikkarte).
+            show_error(
+                self,
+                "Gerade läuft eine Verarbeitung",
+                "Inzwischen wird die Aufnahme eines Aufnahmegeräts verarbeitet. Bitte danach erneut starten.",
+            )
+            return
         self.diarization_checkbox.setChecked(dialog.sprecher_erkennen)
         if dialog.sprecherzahl is not None:
             self.limit_speakers_checkbox.setChecked(True)
@@ -1029,7 +1061,21 @@ class MainWindow(QMainWindow):
 
     def _transkription_modus_geaendert(self) -> None:
         modus = "api" if self.transkription_api_radio.isChecked() else "lokal"
-        app_config.update_config(transkription_modus=modus)
+        aenderungen: dict[str, Any] = {"transkription_modus": modus}
+        if (
+            modus == "lokal"
+            and app_config.load_config()["transkription_modus"] != "lokal"
+            and not self._lokale_laufzeitumgebung_verfuegbar()
+        ):
+            from protokoll_assistent import bootstrap
+
+            if not bootstrap.laufzeit_eingerichtet():
+                # Ein Klick auf "Lokal" hier ist keine Zustimmung zum Download der Rechenumgebung (gut 5 GB):
+                # Der naechste Start richtet sie nicht ungefragt ein. Wer sie will, bekommt beim Start der
+                # Transkription die Einrichtung angeboten ('_lokale_einrichtung_anbieten') oder schaltet in
+                # den Einstellungen um. (Kommt der Wechsel aus den Einstellungen, steht dort schon "lokal".)
+                aenderungen["lokale_einrichtung_zurueckgestellt"] = True
+        app_config.update_config(**aenderungen)
         self._transkription_datenschutz_hinweis_aktualisieren()
 
     def _transkription_datenschutz_hinweis_aktualisieren(self) -> None:
@@ -1176,12 +1222,15 @@ class MainWindow(QMainWindow):
         self._refresh_resume_status()
 
     def dragEnterEvent(self, event: QDragEnterEvent) -> None:
-        if event.mimeData().hasUrls():
+        urls = event.mimeData().urls() if event.mimeData().hasUrls() else []
+        if urls and urls[0].isLocalFile():
             event.acceptProposedAction()
 
     def dropEvent(self, event: QDropEvent) -> None:
         urls = event.mimeData().urls()
-        if not urls:
+        # Nur Dateien und Ordner dieses Rechners. Ein Link aus dem Browser hat keinen lokalen Pfad:
+        # 'Path("")' ist der Arbeitsordner -- der wurde dann als Eingabeordner uebernommen und gespeichert.
+        if not urls or not urls[0].isLocalFile() or not urls[0].toLocalFile():
             return
         path = Path(urls[0].toLocalFile())
         if path.is_dir():
@@ -1200,13 +1249,47 @@ class MainWindow(QMainWindow):
         if not self._ungespeicherte_aenderungen_geklaert("das Fenster geschlossen wird"):
             event.ignore()
             return
+        if self._arbeit_laeuft():
+            antwort = QMessageBox.question(
+                self,
+                "Verarbeitung läuft noch",
+                "Es läuft noch eine Verarbeitung. Wirklich beenden?\n\n"
+                "Der bisherige Stand bleibt erhalten: Beim nächsten Mal lässt sich die Verarbeitung "
+                "derselben Datei fortsetzen.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if antwort != QMessageBox.StandardButton.Yes:
+                event.ignore()
+                return
+            for worker in (self._transcription_worker, self._protocol_worker):
+                if worker is not None and worker.isRunning():
+                    worker.request_cancel()
         if self._recording is not None:
             with contextlib.suppress(Exception):
                 self._recording.stop()
         self._geraete_empfang.stoppen()
         self._fragen.stoppen()
         self._live.stoppen()
+        self._auf_hintergrundarbeit_warten()
         super().closeEvent(event)
+
+    # So lange bekommen laufende Hintergrundarbeiten beim Schliessen Zeit, von selbst zu enden.
+    SCHLIESSEN_WARTEZEIT_MS = 3000
+
+    def hintergrundarbeit(self) -> list[QThread]:
+        """Alle noch laufenden Arbeitsfaeden dieses Fensters und seiner Dialoge (Transkription, Auswertung,
+        Chat, Modell-Downloads, Pruefsummen, Einrichtung)."""
+        return [faden for faden in self.findChildren(QThread) if faden.isRunning()]
+
+    def _auf_hintergrundarbeit_warten(self) -> None:
+        """Wird ein Fenster zerstoert, waehrend einer seiner Faeden noch laeuft, bricht Qt den ganzen Prozess
+        ab ("QThread: Destroyed while thread is still running"). Die meisten Faeden enden nach dem Abbruch
+        schnell von selbst; was dann noch laeuft (eine Anfrage an das Sprachmodell laesst sich nicht
+        unterbrechen), beendet 'app.main' mit dem Prozess."""
+        ende = time.monotonic() + self.SCHLIESSEN_WARTEZEIT_MS / 1000
+        for faden in self.hintergrundarbeit():
+            faden.wait(max(0, int((ende - time.monotonic()) * 1000)))
 
     # ------------------------------------------------------------------
     # Aufnahmegeraete im WLAN
@@ -1656,16 +1739,24 @@ class MainWindow(QMainWindow):
         try:
             work_dir = manifest_service.get_work_dir_for_file(get_work_dir(), file_hash)
             manifest = manifest_service.load_manifest(work_dir)
+            state = manifest_service.find_resumable_state(manifest) if manifest is not None else None
         except OSError as error:
             self.resume_status_label.setText(f"Datei konnte nicht gelesen werden: {error}")
             return
+        except (ValueError, KeyError, TypeError):
+            # Beschaedigter oder sehr alter Zwischenstand: nicht fortsetzbar. Ohne das blieb hier fuer immer
+            # "Datei wird geprüft …" stehen, mit der Auswahl der vorigen Datei.
+            self.resume_status_label.setText(
+                "Der vorhandene Zwischenstand ist nicht lesbar. Die Datei wird vollständig neu verarbeitet."
+            )
+            self.resume_combo.setCurrentIndex(1)
+            return
 
-        if manifest is None:
+        if manifest is None or state is None:
             self.resume_status_label.setText("Keine vorherige Verarbeitung für diese Datei gefunden.")
             self.resume_combo.setCurrentIndex(1)
             return
 
-        state = manifest_service.find_resumable_state(manifest)
         if state["vollstaendig"]:
             self.resume_status_label.setText(
                 "Diese Datei wurde bereits vollständig verarbeitet. Ein Neustart berechnet alles erneut."
@@ -1682,9 +1773,13 @@ class MainWindow(QMainWindow):
         if self._source_path is None or not self._source_path.is_file():
             show_error(self, "Keine Datei ausgewählt", "Bitte zuerst eine Datei auswählen.")
             return
-        file_hash = self._dateihash(self._source_path) or manifest_service.compute_file_hash(
-            self._source_path
-        )
+        try:
+            file_hash = self._dateihash(self._source_path) or manifest_service.compute_file_hash(
+                self._source_path
+            )
+        except OSError as error:
+            show_error(self, "Datei nicht lesbar", f"Die Datei konnte nicht gelesen werden:\n{error}")
+            return
         self._dateihash_merken(self._source_path, file_hash)
         work_dir = manifest_service.get_work_dir_for_file(get_work_dir(), file_hash)
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(work_dir)))
@@ -1770,7 +1865,9 @@ class MainWindow(QMainWindow):
         )
         prompt_datei = get_system_prompt_file()
         if prompt_datei.is_file():
-            self.systemprompt_editor.setPlainText(prompt_datei.read_text(encoding="utf-8"))
+            # Mit Rueckfall auf die Windows-Kodierung: Eine im Editor als "ANSI" gespeicherte Datei mit
+            # Umlauten liess das Hauptfenster sonst gar nicht erst entstehen -- das Programm startete nicht.
+            self.systemprompt_editor.setPlainText(text_lesen(prompt_datei))
         layout.addWidget(self.systemprompt_editor)
 
         button_row = QHBoxLayout()
@@ -1981,17 +2078,7 @@ class MainWindow(QMainWindow):
             return
 
         if self.transkription_lokal_radio.isChecked() and not self._lokale_laufzeitumgebung_verfuegbar():
-            show_error(
-                self,
-                "Lokale Laufzeitumgebung noch nicht eingerichtet",
-                "Für die lokale Transkription richtet diese Anwendung sich beim Start "
-                "automatisch eine eigene Laufzeitumgebung ein (Whisper-Modell u. a.) -- "
-                "das geschieht aber nur, wenn 'Lokal' schon beim Programmstart als "
-                "Transkriptionsmodus aktiv war.\n\n"
-                "Bitte die Anwendung einmal vollständig beenden und neu starten, während "
-                "'Lokal' ausgewählt ist: Die Einrichtung läuft dann automatisch (kann "
-                "beim ersten Mal, je nach Internetverbindung, einige Minuten dauern).",
-            )
+            self._lokale_einrichtung_anbieten()
             return
 
         config = app_config.load_config()
@@ -2050,6 +2137,7 @@ class MainWindow(QMainWindow):
         )
 
         self._set_controls_running(True)
+        self._fortschritt_zuruecksetzen()
         self.cancel_button.setEnabled(True)
         self.preview_edit.clear()
         self.speaker_table.setRowCount(0)
@@ -2075,7 +2163,7 @@ class MainWindow(QMainWindow):
         self._transcription_worker.start()
 
     @staticmethod
-    def _lokale_laufzeitumgebung_verfuegbar() -> bool:
+    def _lokale_laufzeitumgebung_verfuegbar() -> bool:  # siehe auch '_lokale_einrichtung_anbieten'
         """Ist bereits eine Laufzeitumgebung mit den schweren ML-Paketen
         vorhanden? Weder in der gebauten EXE noch im Quellcode-Betrieb sind
         Torch/faster-whisper/pyannote von vornherein dabei -- 'bootstrap.py'
@@ -2153,7 +2241,17 @@ class MainWindow(QMainWindow):
 
         # Die automatische Verarbeitung einer Geraeteaufnahme fragt nicht: Niemand sitzt davor, und ihr Ergebnis
         # ersetzt die Anzeige nicht (siehe '_on_protocol_finished_ok') -- die Bearbeitung bleibt erhalten.
-        if self._automatik is None and not self._ungespeicherte_aenderungen_geklaert("ein neues Ergebnis erzeugt wird"):
+        von_hand = self._automatik is None
+        if von_hand and not self._ungespeicherte_aenderungen_geklaert("ein neues Ergebnis erzeugt wird"):
+            return
+        if von_hand and (self._automatik is not None or self._arbeit_laeuft()):
+            # Waehrend der Rueckfrage hat die Verarbeitung einer Geraeteaufnahme begonnen: Dieser Lauf bekaeme
+            # sonst deren Auftrag, und sein Ergebnis wuerde als ihres behandelt.
+            show_error(
+                self,
+                "Gerade läuft eine Verarbeitung",
+                "Inzwischen wird die Aufnahme eines Aufnahmegeräts verarbeitet. Bitte danach erneut starten.",
+            )
             return
 
         # Ein leerer Systemprompt ist erlaubt: Dann fasst das Modell so
@@ -2238,6 +2336,9 @@ class MainWindow(QMainWindow):
         self._nachbearbeitung_transkript = self._selected_transcript_path
         self._nachbearbeitung_laeuft = True
         self._set_controls_running(True)
+        # Die Auswertung meldet ihren Fortschritt erst ganz am Ende: solange ein laufender Balken statt der
+        # "100 %" und "0 Sekunden Rest" der Transkription davor (das sah nach "fertig" oder "haengt" aus).
+        self._fortschritt_zuruecksetzen(unbestimmt=True)
         self.protocol_cancel_button.setEnabled(True)
         self.status_label.setText("Nachbearbeitung wird gestartet …")
         self.protocol_status_label.setText("läuft")
@@ -2268,6 +2369,7 @@ class MainWindow(QMainWindow):
         self.start_button.setEnabled(not running)
         self.protocol_start_button.setEnabled(not running)
         if not running:
+            self.overall_progress_bar.setRange(0, 100)  # falls noch "unbestimmt" (siehe '_fortschritt_zuruecksetzen')
             self.cancel_button.setEnabled(False)
             self.protocol_cancel_button.setEnabled(False)
             self._elapsed_timer.stop()
@@ -2312,7 +2414,18 @@ class MainWindow(QMainWindow):
         self.chunk_progress_bar.setValue(current)
         self.chunk_progress_bar.setFormat(f"Chunk {current} von {total}")
 
+    def _fortschritt_zuruecksetzen(self, unbestimmt: bool = False) -> None:
+        """Vor jedem Lauf: Die Anzeigen des vorigen Laufs (100 %, letzter Chunk, Restdauer 0) verschwinden."""
+        self._chunk_progress = (0, 0)
+        self.chunk_progress_bar.setMaximum(1)
+        self.chunk_progress_bar.setValue(0)
+        self.chunk_progress_bar.setFormat("")
+        self.overall_progress_bar.setRange(0, 0 if unbestimmt else 100)
+        self.overall_progress_bar.setValue(0)
+        self.remaining_label.setText("--")
+
     def _on_overall_progress(self, fraction: float) -> None:
+        self.overall_progress_bar.setRange(0, 100)
         self.overall_progress_bar.setValue(round(fraction * 100))
         # Das Geraet sieht einen Balken fuer beide Schritte: erst die Transkription, dann die Auswertung.
         if self._automatik_phase == live_service.AUSWERTUNG:
@@ -2323,11 +2436,71 @@ class MainWindow(QMainWindow):
     def _on_log_message(self, message: str) -> None:
         self.status_label.setToolTip(message)
 
+    def _sprecher_fehler_zeigen(self, grund: str) -> None:
+        QMessageBox.warning(
+            self,
+            "Ohne Sprechererkennung",
+            "Die Mitschrift ist fertig, aber die Sprechererkennung ist gescheitert. Das Transkript wurde "
+            f"deshalb ohne Sprecherzuordnung erstellt.\n\nGrund: {grund}",
+        )
+
+    def _lokale_einrichtung_anbieten(self) -> None:
+        """"Lokal" ist gewaehlt, aber die Rechenumgebung laeuft in diesem Prozess nicht. Frueher hiess es
+        hier nur "beenden und neu starten" -- das richtet seit der Zustimmungsregel nichts mehr ein
+        (ein Klick auf "Lokal" stellt die Einrichtung zurueck) und war nach "Nicht mehr fragen" schon vorher
+        eine Sackgasse."""
+        from protokoll_assistent import bootstrap
+        from protokoll_assistent.gui import ersteinrichtung
+
+        if bootstrap.laufzeit_eingerichtet():
+            show_error(
+                self,
+                "Neustart nötig",
+                "Die Rechenumgebung für die Mitschrift auf diesem Computer ist eingerichtet, wird aber erst "
+                "beim Programmstart geladen.\n\nBitte das Programm einmal beenden und neu starten, während "
+                "„Lokal“ ausgewählt ist.",
+            )
+            return
+        if self._automatik is not None:
+            # Niemand sitzt davor: keine Rueckfrage, nur die Meldung.
+            show_error(
+                self,
+                "Mitschrift auf diesem Computer noch nicht eingerichtet",
+                "Für die Mitschrift auf diesem Computer fehlt noch die Rechenumgebung. Bitte unter "
+                "Einstellungen → Transkription → „Einrichtung starten“ einrichten oder auf „API“ umstellen.",
+            )
+            return
+        antwort = QMessageBox.question(
+            self,
+            "Mitschrift auf diesem Computer noch nicht eingerichtet",
+            "Für die Mitschrift auf diesem Computer fehlt noch die Rechenumgebung (rund 5 GB Download).\n\n"
+            "Die Einrichtung zeigt, was dafür nötig ist, und lädt erst nach Ihrer Zustimmung. "
+            "Jetzt einrichten?\n\n(Alternativ lässt sich oben auf „API“ umstellen.)",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        if antwort != QMessageBox.StandardButton.Yes:
+            return
+        dialog = ersteinrichtung.ErsteinrichtungDialog(self, mit_raum=False)
+        if dialog.exec() == ersteinrichtung.ErsteinrichtungDialog.NEUSTART:
+            anwendung = QApplication.instance()
+            if anwendung is not None:
+                anwendung.quit()
+        else:
+            self._apply_modus_from_config()
+
     def _on_transcription_finished_ok(self, result: pipeline_service.TranscriptionResult) -> None:
         self._last_transcription_result = result
         self._populate_speaker_table(result)
         self._set_transcript_path(result.export_paths.json)
         self.status_label.setText("Transkription abgeschlossen.")
+        sprecher_fehler = getattr(result, "diarisierung_fehler", None)
+        if sprecher_fehler:
+            self.status_label.setText("Transkription abgeschlossen – ohne Sprechererkennung.")
+            self._on_log_message(f"Die Sprechererkennung ist gescheitert: {sprecher_fehler}")
+            if self._automatik is None:
+                # Nach diesem Slot: Hier laeuft noch die Uebergabe an die Nachbearbeitung.
+                QTimer.singleShot(0, functools.partial(self._sprecher_fehler_zeigen, str(sprecher_fehler)))
         if self._automatik is None:  # eine Geraeteaufnahme im Hintergrund holt niemanden von seiner Seite weg
             self._show_page(self.SEITE_ERGEBNIS)
         elif self._automatik_rueckfrage:
@@ -2387,14 +2560,20 @@ class MainWindow(QMainWindow):
             return
         if not self._ungespeicherte_aenderungen_geklaert("exportiert wird"):
             return
-        protokoll = None
-        kandidat = None
-        if self._protocol_result_paths is not None:
-            kandidat = self._protocol_result_paths[0]
-        elif self._last_protocol_result is not None and self._last_protocol_result.protocol_paths is not None:
+        # Nur ein Protokoll, das aus GENAU diesem Transkript entstanden ist. Frueher wurde das gerade
+        # angezeigte (oder das des letzten Laufs) angeboten, gleich zu welcher Besprechung es gehoerte --
+        # "Beides in einem Dokument" ergab dann 'B_gesamt.docx' mit dem Protokoll von Besprechung A.
+        protokoll = self._protokoll_zum_transkript(transkript)
+        if (
+            protokoll is None
+            and self._protocol_result_paths is None
+            and self._last_protocol_result is not None
+            and self._last_protocol_result.protocol_paths is not None
+            and self._nachbearbeitung_transkript is not None
+            and self._nachbearbeitung_transkript.resolve() == transkript.resolve()
+        ):
             kandidat = self._last_protocol_result.protocol_paths[0]
-        if kandidat is not None and kandidat.is_file():
-            protokoll = kandidat
+            protokoll = kandidat if kandidat.is_file() else None
         ExportDialog(transkript, protokoll, self._output_dir, QT_SCHREIBER, self).exec()
 
     def _start_protocol_after_transcription(self) -> None:

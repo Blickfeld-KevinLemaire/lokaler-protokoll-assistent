@@ -237,6 +237,12 @@ class EndverarbeitungDialog(QDialog):
         vorlage_zeile = QHBoxLayout()
         vorlage_zeile.addWidget(QLabel("Vorlage:", self))
         self.vorlage_combo = QComboBox(self)
+        # Ohne gewaehlte Vorlage gilt der Text im Auftragsfeld. Er bekommt einen eigenen ersten Eintrag:
+        # Frueher blieb dann stillschweigend die erste Vorlage ("Zusammenfassung") ausgewaehlt und
+        # UEBERSCHRIEB den selbst geschriebenen Auftrag im Hauptfenster.
+        self._eigener_auftrag = aktuelle_vorlage not in vorlagen
+        if self._eigener_auftrag:
+            self.vorlage_combo.addItem(self.EIGENER_AUFTRAG)
         self.vorlage_combo.addItems(vorlagen)
         if aktuelle_vorlage in vorlagen:
             self.vorlage_combo.setCurrentIndex(vorlagen.index(aktuelle_vorlage))
@@ -278,9 +284,17 @@ class EndverarbeitungDialog(QDialog):
     def protokoll_erstellen(self) -> bool:
         return self.protokoll_checkbox.isChecked()
 
+    EIGENER_AUFTRAG = "(aktueller Auftrag aus dem Textfeld)"
+
     @property
     def vorlage(self) -> str | None:
-        return self.vorlage_combo.currentText() if self.protokoll_erstellen else None
+        """Die gewaehlte Vorlage -- ``None``, wenn kein Protokoll entstehen soll oder der Auftrag im
+        Hauptfenster so bleiben soll, wie er ist."""
+        if not self.protokoll_erstellen:
+            return None
+        if self._eigener_auftrag and self.vorlage_combo.currentIndex() == 0:
+            return None
+        return self.vorlage_combo.currentText()
 
 
 class ChatSystemcheckDialog(QDialog):

@@ -63,6 +63,10 @@ STANDARD_MAX_DATEI_BYTES = 2 * 1024**3
 PLATZ_RESERVE_BYTES = 200 * 1024**2
 MAX_VERBINDUNGEN = 8
 ZEITLIMIT_SEKUNDEN = 30.0
+# So lange hat eine Verbindung fuer Anfragezeile und Kopfzeilen (und zwischen zwei Anfragen). Das
+# Zeitlimit oben gilt je Lesevorgang: Wer alle paar Sekunden ein einzelnes Byte schickte, hielt eine
+# Verbindung ohne Anmeldung beliebig lange offen.
+KOPF_FRIST_SEKUNDEN = 10.0
 TEILSTAND_MAX_ALTER_SEKUNDEN = 7 * 24 * 3600
 # Hoechstens so viele abgeschlossene Aufnahmen merkt sich der Dienst, um
 # Wiederholungen zu erkennen. Ein Geraet wiederholt nur kurz nach dem Abschluss.
@@ -405,6 +409,14 @@ class Ablage:
             # zeigt danach wieder auf den Anfang des Stuecks.
             with contextlib.suppress(OSError), teil.open("r+b") as handle:
                 handle.truncate(offset)
+            if geschrieben < 0:
+                # Die Datei liess sich gerade nicht schreiben (unter Windows haelt ein Virenscanner oder der
+                # Suchindex sie manchmal kurz offen). Das ist voruebergehend: 503 heisst fuer das Geraet "gleich
+                # noch einmal". Mit 400 wartete es fuenf Minuten und stellte das Mitsenden waehrend der
+                # Aufnahme fuer diese Aufnahme ganz ein.
+                return _fehler(
+                    503, "Die Aufnahme kann gerade nicht geschrieben werden.", naechstes_byte=offset, fertig=False
+                )
             return _fehler(400, "Das Stueck kam nicht vollstaendig an.", naechstes_byte=offset, fertig=False)
         return None
 
@@ -417,7 +429,15 @@ class Ablage:
             return _fehler(
                 422, f"Groesse stimmt nicht ({groesse} statt {gesamt} Bytes).", naechstes_byte=0, fertig=False
             )
-        if _datei_sha256(teil) != sha256:
+        try:
+            pruefsumme = _datei_sha256(teil)
+        except FileNotFoundError:
+            # Abschluss ohne ein einziges Stueck (leere Aufnahme): Es gibt nichts abzulegen.
+            return _fehler(422, "Es ist nichts angekommen.", naechstes_byte=0, fertig=False)
+        except OSError as fehler:
+            logger.warning("Aufnahme konnte zum Pruefen nicht gelesen werden: %s", fehler)
+            return _fehler(503, "Die Aufnahme kann gerade nicht gelesen werden.", naechstes_byte=gesamt, fertig=False)
+        if pruefsumme != sha256:
             self._verwerfen(teil)
             self._verworfen_melden(geraet, datei)
             return _fehler(422, "Pruefsumme stimmt nicht.", naechstes_byte=0, fertig=False)
@@ -434,10 +454,25 @@ class Ablage:
             ziel = self._freier_zielname(f"{geraet}_{datei}")
             # Erst ablegen, dann merken: Faellt dazwischen der Strom aus, entsteht
             # schlimmstenfalls eine doppelte Datei -- umgekehrt ginge sie verloren.
-            _ersetzen_mit_wiederholung(teil, ziel)
-            _ordner_sichern(self.ziel)
-            fertig[kennung] = {"datei": ziel.name, "zeit": time.strftime("%Y-%m-%dT%H:%M:%S")}
-            self._fertig_speichern(fertig)
+            try:
+                _ersetzen_mit_wiederholung(teil, ziel)
+            except OSError as fehler:
+                # Die Datei ist gerade noch geoeffnet (die Live-Transkription liest sie, ein Virenscanner prueft
+                # sie). Sie bleibt vollstaendig liegen; das Geraet schickt den Abschluss gleich noch einmal.
+                # Frueher ging die Ausnahme durch: Das Geraet bekam gar keine Antwort.
+                logger.warning("Aufnahme konnte noch nicht abgelegt werden: %s", fehler)
+                return _fehler(
+                    503, "Die Aufnahme wird gerade noch benutzt.", naechstes_byte=gesamt, fertig=False
+                )
+            # Ab hier liegt die Aufnahme im Zielordner. Scheitert die Buchfuehrung (Platte voll, Datei
+            # gesperrt), muss sie trotzdem verarbeitet und dem Geraet bestaetigt werden -- sonst bliebe sie
+            # unbearbeitet liegen, und das Geraet schickte die ganze Datei noch einmal.
+            try:
+                _ordner_sichern(self.ziel)
+                fertig[kennung] = {"datei": ziel.name, "zeit": time.strftime("%Y-%m-%dT%H:%M:%S")}
+                self._fertig_speichern(fertig)
+            except OSError as fehler:
+                logger.warning("Abschluss von %s konnte nicht vermerkt werden: %s", ziel.name, fehler)
 
         logger.info("Aufnahme von %s angekommen: %s (%d Bytes)", geraet, ziel.name, gesamt)
         if self._bei_abschluss is not None:
@@ -590,16 +625,35 @@ class _Anfrage(BaseHTTPRequestHandler):
     sys_version = ""
     timeout = ZEITLIMIT_SEKUNDEN
 
-    _ueberlastet = False
+    _platz_belegt = False
+    _kopf_frist: threading.Timer | None = None
 
-    def handle(self) -> None:
-        belegt = self.server.plaetze.acquire(blocking=False)
-        self._ueberlastet = not belegt
+    def handle_one_request(self) -> None:
+        """Eine Anfrage. Einen der ``MAX_VERBINDUNGEN`` Plaetze belegt sie erst NACH der Anmeldung
+        (``_vorpruefung``) und nur fuer ihre Dauer. Frueher nahm jede Verbindung ihren Platz sofort und fuer
+        die ganze Verbindung: Acht offene Verbindungen ohne Token, die alle paar Sekunden ein Byte
+        schickten, sperrten jedes Aufnahmegeraet mit 503 aus -- von jedem Rechner im Netz aus.
+
+        Fuer Anfragezeile und Kopfzeilen gilt ausserdem eine Frist: Danach wird die Verbindung gekappt."""
+        frist = threading.Timer(KOPF_FRIST_SEKUNDEN, self._verbindung_kappen)
+        frist.daemon = True
+        self._kopf_frist = frist
+        frist.start()
         try:
-            super().handle()
+            super().handle_one_request()
+        except Exception:
+            # Ohne Konsole verschwaende die Meldung; das Geraet bekaeme kommentarlos keine Antwort.
+            logger.exception("Unerwarteter Fehler beim Bearbeiten einer Anfrage")
+            self.close_connection = True
         finally:
-            if belegt:
+            frist.cancel()
+            if self._platz_belegt:
+                self._platz_belegt = False
                 self.server.plaetze.release()
+
+    def _verbindung_kappen(self) -> None:
+        with contextlib.suppress(OSError):
+            self.connection.shutdown(socket.SHUT_RDWR)
 
     def finish(self) -> None:
         try:
@@ -629,10 +683,9 @@ class _Anfrage(BaseHTTPRequestHandler):
             self.close_connection = True
 
     def _vorpruefung(self) -> Geraet | None:
-        """Ueberlast und Anmeldung. Liefert das Geraet oder hat schon geantwortet."""
-        if self._ueberlastet:
-            self._senden(_fehler(503, "Zu viele gleichzeitige Verbindungen."), schliessen=True)
-            return None
+        """Anmeldung, dann Ueberlast. Liefert das Geraet oder hat schon geantwortet."""
+        if self._kopf_frist is not None:
+            self._kopf_frist.cancel()  # Anfragezeile und Kopfzeilen sind da
         kopf = self.headers.get("Authorization", "")
         art, _, token = kopf.partition(" ")
         geraet = geraet_zum_token(token.strip(), self.server.empfang.geraete) if art.lower() == "bearer" else None
@@ -640,6 +693,10 @@ class _Anfrage(BaseHTTPRequestHandler):
             # Ungelesener Inhalt bleibt im Strom -- die Verbindung muss zu.
             self._senden(_fehler(401, "Token fehlt oder ist unbekannt."), schliessen=True)
             return None
+        if not self.server.plaetze.acquire(blocking=False):
+            self._senden(_fehler(503, "Zu viele gleichzeitige Verbindungen."), schliessen=True)
+            return None
+        self._platz_belegt = True
         self.server.empfang.kontakt_merken(
             geraet.name,
             geraete_id_lesen(self.headers.get("X-Geraete-Id")),

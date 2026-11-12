@@ -40,12 +40,22 @@ def qt_widgets(qt_app):
 
     yield merken
 
-    for widget in reversed(erzeugte):
-        try:
-            widget.close()
-            widget.deleteLater()
-        except Exception:  # noqa: S110 - beim Aufraeumen ist ein Fehler egal
-            pass
+    from unittest import mock
+
+    from PySide6.QtWidgets import QMessageBox
+
+    # Das Hauptfenster fragt beim Schliessen nach, wenn noch eine Verarbeitung laeuft, und wartet kurz auf
+    # ihre Arbeitsfaeden. Beim Aufraeumen sitzt niemand davor: Die Rueckfrage wird mit "Ja" beantwortet (ein
+    # offenes Meldungsfenster hielte den Test bis zur Zeitgrenze an), gewartet wird nicht.
+    with mock.patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Yes):
+        for widget in reversed(erzeugte):
+            try:
+                if hasattr(widget, "SCHLIESSEN_WARTEZEIT_MS"):
+                    widget.SCHLIESSEN_WARTEZEIT_MS = 0
+                widget.close()
+                widget.deleteLater()
+            except Exception:  # noqa: S110 - beim Aufraeumen ist ein Fehler egal
+                pass
     qt_app.processEvents()
 
 

@@ -211,10 +211,12 @@ def test_systemdiagnose_oeffnet_dialog(dialog, monkeypatch):
 def test_lokal_einrichten_oeffnet_dialog(dialog, monkeypatch, laufzeit_da):
     # Mit Rechenumgebung: Downloads, Systemtest, Modellwahl. Ohne: die gefuehrte
     # Ersteinrichtung, die erst sagt, was es kostet.
-    from protokoll_assistent.gui import ersteinrichtung, wizard
+    from protokoll_assistent.gui import ersteinrichtung, settings_dialog, wizard
 
     geoeffnet = []
     monkeypatch.setattr(ersteinrichtung, "laufzeit_vorhanden", lambda: laufzeit_da)
+    # Das Programm laeuft in der Rechenumgebung (faster-whisper ist importierbar).
+    monkeypatch.setattr(settings_dialog.importlib.util, "find_spec", lambda name: object())
     monkeypatch.setattr(wizard.LokalEinrichtungDialog, "exec", lambda self: geoeffnet.append("lokal"))
     monkeypatch.setattr(wizard.RechnerAnalysePage, "start", lambda self: None)
     monkeypatch.setattr(wizard.InstallPage, "start", lambda self: None)
@@ -223,6 +225,69 @@ def test_lokal_einrichten_oeffnet_dialog(dialog, monkeypatch, laufzeit_da):
     dialog._open_lokal_einrichtung()
 
     assert geoeffnet == (["lokal"] if laufzeit_da else ["gefuehrt"])
+
+
+def test_gefuehrte_einrichtung_schliesst_die_einstellungen_ohne_zu_speichern(dialog, monkeypatch):
+    # Die Einrichtung speichert ihre Wahl selbst. Der Einstellungsdialog zeigte danach noch den alten Stand --
+    # sein "Speichern" schrieb ihn zurueck und machte die Einrichtung rueckgaengig.
+    from protokoll_assistent.gui import ersteinrichtung
+
+    app_config.update_config(transkription_modus="lokal", ollama_modell="qwen-alt")
+    dialog._config = app_config.load_config()
+
+    def einrichtung(self):
+        app_config.update_config(transkription_modus="api", ollama_modell="lfm-neu")
+        return 0
+
+    monkeypatch.setattr(ersteinrichtung, "laufzeit_vorhanden", lambda: False)
+    monkeypatch.setattr(ersteinrichtung.ErsteinrichtungDialog, "exec", einrichtung)
+    abgelehnt = []
+    monkeypatch.setattr(dialog, "reject", lambda: abgelehnt.append(1))
+
+    dialog._open_lokal_einrichtung()
+
+    assert abgelehnt == [1]
+    konfig = app_config.load_config()
+    assert konfig["transkription_modus"] == "api" and konfig["ollama_modell"] == "lfm-neu"
+
+
+@pytest.mark.parametrize("antwort_ja", [True, False])
+def test_eingerichtet_aber_nicht_aktiv_bietet_den_neustart_an(dialog, monkeypatch, antwort_ja):
+    # Die Rechenumgebung gibt es, aber das Programm wurde im API-Modus gestartet. Die Einrichtung pruefte dann
+    # im falschen Prozess, meldete PyTorch und Whisper als fehlend und kam nicht weiter.
+    from pathlib import Path
+    from unittest import mock
+
+    from PySide6.QtWidgets import QMessageBox
+
+    from protokoll_assistent import bootstrap
+    from protokoll_assistent.gui import ersteinrichtung, settings_dialog, wizard
+
+    app_config.update_config(transkription_modus="api")
+    monkeypatch.setattr(ersteinrichtung, "laufzeit_vorhanden", lambda: True)
+    monkeypatch.setattr(settings_dialog.importlib.util, "find_spec", lambda name: None)
+    monkeypatch.setattr(wizard.LokalEinrichtungDialog, "exec", lambda self: pytest.fail("nicht in diesem Prozess"))
+    monkeypatch.setattr(
+        QMessageBox,
+        "question",
+        staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes if antwort_ja else QMessageBox.StandardButton.No),
+    )
+    monkeypatch.setattr(bootstrap, "neustart_kommando", lambda: (["programm"], Path("ordner"), {"A": "1"}))
+    gestartet = []
+    monkeypatch.setattr(ersteinrichtung, "_starte_prozess", lambda *a: gestartet.append(a))
+    monkeypatch.setattr(dialog, "reject", lambda: None)
+
+    with mock.patch("protokoll_assistent.gui.settings_dialog.QApplication") as anwendung:
+        dialog._open_lokal_einrichtung()
+
+    if antwort_ja:
+        assert gestartet == [(["programm"], Path("ordner"), {"A": "1"})]
+        assert app_config.load_config()["transkription_modus"] == "lokal"
+        anwendung.instance.return_value.quit.assert_called_once()
+    else:
+        assert gestartet == []
+        assert app_config.load_config()["transkription_modus"] == "api"
+        anwendung.instance.return_value.quit.assert_not_called()
 
 
 def test_lokal_einrichten_mit_neustart_beendet_die_anwendung(dialog, monkeypatch):

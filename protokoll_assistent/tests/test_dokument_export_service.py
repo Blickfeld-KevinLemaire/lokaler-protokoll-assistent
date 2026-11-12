@@ -354,3 +354,24 @@ def test_freitext_word_datei_folgt_dem_ergebnistext(tmp_path):
     absaetze = [p.text for p in docx.Document(str(ziel)).paragraphs]
     assert "ToDos" in absaetze and "Plan versenden" in absaetze
     assert "Themen" not in absaetze and "Entscheidungen" not in absaetze
+
+
+def test_word_vertraegt_steuerzeichen_und_ueberlange_titel(tmp_path):
+    # python-docx lehnt beides mit ValueError ab. Die Word-Datei entsteht nach JEDER Verarbeitung -- ein
+    # Steuerzeichen in der Modellantwort machte aus einem fertigen Lauf einen "unerwarteten Fehler".
+    docx = pytest.importorskip("docx")
+    dokument = de.Dokument(
+        "Ergebnis: " + "sehr langer Dateiname " * 20,
+        kopfzeilen=["Kopf\x00zeile"],
+        abschnitte=[
+            de.Abschnitt(de.UEBERSCHRIFT, text="Beschl\x1büsse", stufe=2),
+            de.Abschnitt(de.ABSATZ, text="Text mit\x0b Steuerzeichen\tund Tabulator", betont="Anna:\x08 "),
+            de.Abschnitt(de.LISTE, punkte=["Punkt\x0c eins"]),
+        ],
+    )
+    ziel = tmp_path / "x.docx"
+    de.schreibe_docx(dokument, ziel)
+    gelesen = docx.Document(str(ziel))
+    text = "\n".join(absatz.text for absatz in gelesen.paragraphs)
+    assert "Beschlüsse" in text and "Text mit Steuerzeichen\tund Tabulator" in text and "Punkt eins" in text
+    assert len(gelesen.core_properties.title) == 255
