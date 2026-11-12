@@ -193,8 +193,9 @@ def _zertifikatsfehler(url, timeout):
 
 
 def _windows_laedt(daten: bytes, ende: str = ENDE):
-    def laden(url, ziel):
+    def laden(url, ziel, **kwargs):
         ziel.write_bytes(daten)
+        kwargs["fortschritt_fn"](len(daten))
         return ende
 
     return laden
@@ -223,12 +224,52 @@ def test_windows_weg_prueft_wie_der_erste(tmp_path, daten, ende, meldung):
 
 
 def test_windows_weg_scheitert_mit_verstaendlicher_meldung(tmp_path):
-    def kaputt(url, ziel):
+    def kaputt(url, ziel, **kwargs):
         raise OSError("curl fehlt")
 
     with pytest.raises(oes.OllamaEinrichtungFehler, match=r"Zertifikat.*curl fehlt"):
         oes.lade_installer(tmp_path, oeffnen_fn=_zertifikatsfehler, windows_fn=kaputt)
     assert not any(tmp_path.iterdir())
+
+
+def test_windows_weg_meldet_fortschritt_und_laesst_sich_abbrechen(tmp_path):
+    gemeldet: list[tuple[int, int]] = []
+    oes.lade_installer(
+        tmp_path,
+        lambda geladen, gesamt: gemeldet.append((geladen, gesamt)),
+        oeffnen_fn=_zertifikatsfehler,
+        windows_fn=_windows_laedt(_installer()),
+    )
+    assert gemeldet == [(GROESSE, 0)]  # die Gesamtgroesse kennt dieser Weg vorab nicht
+
+    def abgebrochen(url, ziel, **kwargs):
+        assert kwargs["abbrechen_fn"]() is True
+        ziel.write_bytes(b"MZ")
+        raise oes.netz.Abgebrochen("Der Download wurde abgebrochen.")
+
+    with pytest.raises(oes.OllamaEinrichtungFehler, match="abgebrochen"):
+        oes.lade_installer(
+            tmp_path / "zwei", oeffnen_fn=_zertifikatsfehler, windows_fn=abgebrochen, abbrechen_fn=lambda: True
+        )
+    assert not any((tmp_path / "zwei").iterdir())
+
+
+@pytest.mark.parametrize(
+    ("unterzeichner", "erwartet"),
+    [
+        ("CN=Ollama Inc., O=Ollama Inc., L=Toronto, S=Ontario, C=CA", True),
+        ("O=Ollama Inc.", True),
+        ("CN=Ollama Inc., O=Ollama Inc.x, C=CA", False),
+        ('CN="Boese, O=Ollama Inc.", O=Boese GmbH, C=DE', False),
+        ("CN=O=Ollama Inc. Nachbau, O=Andere", False),
+        ("", False),
+    ],
+)
+def test_unterzeichner_muss_genau_die_organisation_sein(tmp_path, unterzeichner, erwartet):
+    pfad = tmp_path / "OllamaSetup.exe"
+    pfad.write_bytes(b"MZ")
+    ergebnis = oes.pruefe_signatur(pfad, ausfuehren_fn=_powershell(_signatur("Valid", unterzeichner), []))
+    assert ergebnis.ok is erwartet
 
 
 def test_umbenennen_wiederholt_bei_gesperrter_datei(tmp_path, monkeypatch):

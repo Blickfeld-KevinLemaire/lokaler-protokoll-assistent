@@ -444,7 +444,12 @@ def test_systempruefung_main_offline_check(systempruefung, monkeypatch):
 # modelle_herunterladen.py
 # --------------------------------------------------------------------------
 @pytest.fixture
-def modelle_skript():
+def modelle_skript(monkeypatch):
+    # 'main()' haengt sonst das echte 'truststore' ein und tauscht 'ssl.SSLContext' fuer den ganzen
+    # Testprozess aus -- alle Tests danach liefen mit veraendertem ssl (wie in der Fixture 'app_modul').
+    from protokoll_assistent.utils import netz
+
+    monkeypatch.setattr(netz, "systemzertifikate_nutzen", lambda: True)
     return _lade_nach_pfad("modelle_herunterladen.py", "modelle_herunterladen_test_modul")
 
 
