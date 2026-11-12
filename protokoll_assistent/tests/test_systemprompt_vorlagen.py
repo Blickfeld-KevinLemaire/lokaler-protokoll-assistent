@@ -136,4 +136,3 @@ def test_falsch_kodierte_oder_gesperrte_vorlage_kostet_nicht_alle(tmp_path, monk
     eigene = sv.eigene_vorlagen()
     assert eigene == {"Ansi": "Beschlüsse und Maßnahmen", "Gut": "Fasse zusammen.", "MitBom": "Aufgaben"}
     assert "Gut" in sv.alle_vorlagen()
-
