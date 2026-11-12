@@ -745,6 +745,10 @@ class MainWindow(QMainWindow):
         if self._recording is None:
             self._recording_timer.stop()
             return
+        if getattr(self._recording, "fehler", None):
+            # Das Schreiben ist gescheitert (Datentraeger voll): Die Aufnahme endet, statt scheinbar weiterzulaufen.
+            self._stop_recording()
+            return
         duration = int(self._recording.dauer_sekunden)
         self.recording_duration_label.setText(f"{duration // 60:02d}:{duration % 60:02d}")
         self.recording_level_bar.setValue(int(self._recording.pegel * 100))

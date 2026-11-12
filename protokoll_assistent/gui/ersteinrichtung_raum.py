@@ -21,6 +21,7 @@ Geraets) und laeuft deshalb in einem eigenen Faden; Tests ersetzen
 from __future__ import annotations
 
 import datetime as dt
+import html
 from collections.abc import Callable
 from typing import Any
 
@@ -354,7 +355,10 @@ class VermerkRaumSeite(QWidget):
         self._info = info
         erkannt = f"✅ Erkannt: {info.board}, Id {info.geraete_id}, Firmware {info.firmware}"
         if info.eingerichtet:
-            self.geraet_label.setText(f"{erkannt} (bereits für WLAN „{info.wlan}“ eingerichtet).")
+            # Name des WLANs und Angaben des Geraets kommen von aussen: als Text zeigen, nicht als HTML deuten.
+            self.geraet_label.setText(
+                f"{html.escape(erkannt)} (bereits für WLAN „{html.escape(str(info.wlan))}“ eingerichtet)."
+            )
         else:
             # Frisch oder zurückgesetzt: Im Gerät steht noch kein WLAN. Das ist der Normalfall, kein Fehler.
             self.geraet_label.setText(f"{erkannt}. Das Gerät ist noch nicht mit einem WLAN verbunden – das richten wir gleich ein.")
@@ -466,8 +470,8 @@ class VermerkRaumSeite(QWidget):
         app_config.update_config(geraete_empfang_geraete=geraete, geraete_empfang_aktiv=True)
         self.ergebnis = eintrag
         self.fertig_label.setText(
-            f"<p>✅ <b>„{name}“ ist eingerichtet.</b></p>"
-            f"<p>Das Gerät hat sich mit dem WLAN „{info.wlan}“ verbunden und meldet sich bei diesem Computer, "
+            f"<p>✅ <b>„{html.escape(str(name))}“ ist eingerichtet.</b></p>"
+            f"<p>Das Gerät hat sich mit dem WLAN „{html.escape(str(info.wlan))}“ verbunden und meldet sich bei diesem Computer, "
             "sobald es Aufnahmen hat. Der Empfang ist eingeschaltet.</p>"
             "<p>Sie können das USB-Kabel abziehen und das Gerät im Raum aufstellen.</p>"
             "<p>Beim ersten Start fragt die Windows-Firewall, ob die Anwendung Verbindungen annehmen darf – "

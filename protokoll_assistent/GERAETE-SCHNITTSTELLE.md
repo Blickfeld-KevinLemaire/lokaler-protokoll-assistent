@@ -109,7 +109,7 @@ Antworten:
 | `400` | Kopfzeilen fehlen oder sind ungültig, Stück unvollständig angekommen | `{"fehler":"…"}` |
 | `411` | keine `Content-Length` | `{"fehler":"…"}` |
 | `413` | Stück größer als `teil_max_bytes` oder Datei größer als erlaubt | `{"fehler":"…"}` |
-| `503` | zu viele gleichzeitige Verbindungen | `{"fehler":"…"}` – später erneut |
+| `503` | zu viele gleichzeitige Verbindungen, oder die Aufnahme lässt sich auf dem Computer gerade nicht schreiben bzw. ablegen (Datei kurz gesperrt) | `{"fehler":"…"}`, beim Schreiben und beim Abschluss zusätzlich `"naechstes_byte":N` – später erneut, der Teilstand bleibt erhalten |
 | `507` | zu wenig Platz auf der Platte | `{"fehler":"…"}` – später erneut |
 
 Lehnt die Software ein Stück eines angemeldeten Geräts ab (`409`, `413`,

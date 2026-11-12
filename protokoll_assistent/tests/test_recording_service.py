@@ -151,3 +151,43 @@ def test_aufnahme_stop_schliesst_stream(geraet, tmp_path):
     stream = _FakeStream.instanzen[0]
     assert stream.gestoppt
     assert stream.geschlossen
+
+
+# --------------------------------------------------------------------------
+# Fehler beim Schreiben und beim Oeffnen des Geraets
+# --------------------------------------------------------------------------
+def test_schreibfehler_wird_gemerkt_und_beim_stoppen_gemeldet(geraet, tmp_path, monkeypatch):
+    # Frueher endete der Schreibfaden lautlos: Die Aufnahme "lief" weiter und fuellte nur noch den Arbeitsspeicher.
+    aufnahme = rs.MikrofonAufnahme(geraet, tmp_path / "voll.wav", stream_klasse=_FakeStream)
+
+    def voll(self, daten):
+        raise OSError(28, "Kein Speicherplatz mehr")
+
+    monkeypatch.setattr(wave.Wave_write, "writeframes", voll)
+    aufnahme.start()
+    ende = time.monotonic() + 5
+    while aufnahme.fehler is None and time.monotonic() < ende:
+        time.sleep(0.01)
+    assert "Speicherplatz" in (aufnahme.fehler or "")
+
+    # Nach dem Fehler wird nichts mehr eingereiht.
+    stream = _FakeStream.instanzen[-1]
+    stream.callback(array.array("h", [1, 2, 3, 4]).tobytes(), 4, None, None)
+    assert aufnahme._queue.qsize() == 0
+
+    with pytest.raises(OSError, match="nicht vollständig geschrieben"):
+        aufnahme.stop()
+    assert stream.gestoppt and stream.geschlossen
+
+
+def test_nicht_oeffenbares_geraet_hinterlaesst_keine_leere_gesperrte_datei(geraet, tmp_path):
+    class _Belegt:
+        def __init__(self, **kwargs):
+            raise RuntimeError("Geraet belegt")
+
+    zielpfad = tmp_path / "leer.wav"
+    aufnahme = rs.MikrofonAufnahme(geraet, zielpfad, stream_klasse=_Belegt)
+    with pytest.raises(RuntimeError, match="belegt"):
+        aufnahme.start()
+    assert not zielpfad.exists()
+    assert aufnahme._schreiber is not None and not aufnahme._schreiber.is_alive()

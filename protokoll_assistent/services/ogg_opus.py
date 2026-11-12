@@ -64,7 +64,10 @@ def _letzte_granulposition(daten: bytes) -> int | None:
                 letzte = granul
         if gueltig and letzte is not None:
             return letzte
-        ab = daten.find(_MUSTER, ab + 1)
+        # Weitersuchen -- aber HINTER dem, was von hier aus schon gelesen wurde: Jede Seite dazwischen fuehrte
+        # nur wieder zur selben Stelle. Frueher begann die Suche bei jeder Seite von vorn (quadratisch: rund
+        # 20 Sekunden fuer ein passend gebautes Stueck ohne Granulposition, bei jedem neuen Stueck).
+        ab = daten.find(_MUSTER, stelle + 1 if stelle > ab else ab + 1)
     return None
 
 

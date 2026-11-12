@@ -188,11 +188,20 @@ def test_unvollstaendiges_stueck_wird_zurueckgenommen(ablage):
     assert ablage.anhaengen("S3", "H5_001.opus", 4, 3, leser(b"efg")).daten["naechstes_byte"] == 7
 
 
-def test_schreibfehler_wird_als_unvollstaendig_gemeldet(ablage):
+def test_schreibfehler_ist_voruebergehend_und_wird_mit_503_gemeldet(ablage):
+    # Unter Windows haelt ein Virenscanner die Datei manchmal kurz offen. 400 hiess fuer das Geraet "fuenf
+    # Minuten warten" und beendete das Mitsenden waehrend der Aufnahme -- 503 heisst "gleich noch einmal".
     def kaputt(_anzahl):
-        raise OSError("Platte voll")
+        raise OSError("Datei gesperrt")
 
     antwort = ablage.anhaengen("S3", "H5_001.opus", 0, 4, kaputt)
+    assert antwort.status == 503
+    assert antwort.daten["naechstes_byte"] == 0
+    assert ablage.stand("S3", "H5_001.opus").daten["naechstes_byte"] == 0
+
+
+def test_unvollstaendig_angekommenes_stueck_bleibt_400(ablage):
+    antwort = ablage.anhaengen("S3", "H5_001.opus", 0, 8, leser(b"halb"))
     assert antwort.status == 400
     assert ablage.stand("S3", "H5_001.opus").daten["naechstes_byte"] == 0
 
@@ -501,7 +510,12 @@ def test_zu_viele_verbindungen_503(tmp_path, monkeypatch):
     laufend.starten()
     try:
         with socket.create_connection(("127.0.0.1", laufend.port), timeout=10) as belegt:
-            belegt.sendall(b"GET /api/v1/hallo HTTP/1.1\r\n")  # unvollstaendig: haelt den Platz
+            # Ein ANGEMELDETES Geraet, dessen Stueck noch unterwegs ist, haelt den Platz.
+            belegt.sendall(
+                b"PUT /api/v1/aufnahmen/H5_001.opus HTTP/1.1\r\nHost: x\r\n"
+                + f"Authorization: Bearer {TOKEN}\r\n".encode()
+                + b"Content-Length: 10\r\nX-Offset: 0\r\n\r\n"
+            )
             # Warten, bis der Faden den Platz wirklich belegt hat -- eine feste
             # Wartezeit reicht unter Last nicht.
             server = laufend._server
@@ -1091,3 +1105,118 @@ def test_ton_gibt_es_erst_wenn_die_frage_fertig_ist(tmp_path):
 def test_ohne_fragendienst_gibt_es_keine_fragen(dienst):
     assert anfrage(dienst, "POST", "/api/v1/aufnahmen/H5_007.opus/frage", b"x", Content_Type="audio/wav")[0] == 404
     assert anfrage(dienst, "GET", "/api/v1/fragen/0123456789abcdef")[0] == 404
+
+
+# --------------------------------------------------------------------------
+# Fremde im Netz koennen die Geraete nicht aussperren
+# --------------------------------------------------------------------------
+def test_verbindungen_ohne_anmeldung_belegen_keinen_platz(tmp_path, monkeypatch):
+    # Frueher nahm JEDE Verbindung sofort einen der Plaetze: Acht offene Verbindungen ohne Token, die nur ab
+    # und zu ein Byte schickten, sperrten jedes Aufnahmegeraet mit 503 aus.
+    monkeypatch.setattr(empfang, "MAX_VERBINDUNGEN", 1)
+    laufend = GeraeteEmpfang(tmp_path, [Geraet("S3", empfang.token_hash(TOKEN))], port=0, adresse="127.0.0.1")
+    laufend.starten()
+    fremde = []
+    try:
+        for _ in range(4):
+            fremd = socket.create_connection(("127.0.0.1", laufend.port), timeout=10)
+            fremd.sendall(b"G")  # haelt die Verbindung offen, ohne je eine Anfrage zu beenden
+            fremde.append(fremd)
+        status, daten, _ = anfrage(laufend, "GET", "/api/v1/hallo")
+        assert status == 200 and daten["geraet"] == "S3"
+        # Auch eine vollstaendige Anfrage ohne gueltiges Token belegt nichts.
+        status, _, _ = anfrage(laufend, "GET", "/api/v1/hallo", token="falsch")
+        assert status == 401
+        server = laufend._server
+        assert server is not None and server.plaetze._value == 1  # type: ignore[attr-defined]
+    finally:
+        for fremd in fremde:
+            fremd.close()
+        laufend.stoppen()
+
+
+def test_verbindung_ohne_vollstaendige_anfrage_wird_nach_der_frist_gekappt(tmp_path, monkeypatch):
+    # Das Zeitlimit gilt je Lesevorgang: Wer alle paar Sekunden ein Byte schickte, blieb beliebig lange verbunden.
+    monkeypatch.setattr(empfang, "KOPF_FRIST_SEKUNDEN", 0.3)
+    laufend = GeraeteEmpfang(tmp_path, [Geraet("S3", empfang.token_hash(TOKEN))], port=0, adresse="127.0.0.1")
+    laufend.starten()
+    try:
+        with socket.create_connection(("127.0.0.1", laufend.port), timeout=10) as fremd:
+            fremd.sendall(b"GET /api/v1/hallo HTTP/1.1\r\nX-Lang")
+            beginn = time.monotonic()
+            assert fremd.recv(1024) == b""  # der Dienst hat geschlossen
+            assert time.monotonic() - beginn < 5
+        # Ein ehrliches Geraet wird danach normal bedient -- die Frist betrifft nur die Kopfzeilen.
+        status, _, _ = anfrage(laufend, "GET", "/api/v1/hallo")
+        assert status == 200
+    finally:
+        laufend.stoppen()
+
+
+def test_platz_wird_nach_jeder_anfrage_wieder_frei(dienst):
+    for _ in range(empfang.MAX_VERBINDUNGEN + 3):
+        assert anfrage(dienst, "GET", "/api/v1/hallo")[0] == 200
+        assert anfrage(dienst, "GET", "/api/v1/unbekannt")[0] == 404
+    server = dienst._server
+    assert server is not None and server.plaetze._value == empfang.MAX_VERBINDUNGEN  # type: ignore[attr-defined]
+
+
+def test_unerwarteter_fehler_wird_protokolliert_und_gibt_den_platz_frei(dienst, monkeypatch, caplog):
+    def kaputt(*a, **k):
+        raise RuntimeError("unerwartet")
+
+    monkeypatch.setattr(dienst.ablage, "stand", kaputt)
+    with caplog.at_level("ERROR"), pytest.raises((http.client.HTTPException, OSError)):
+        anfrage(dienst, "GET", "/api/v1/aufnahmen/H5_001.opus")
+    assert any("Unerwarteter Fehler" in eintrag.message for eintrag in caplog.records)
+    monkeypatch.undo()
+    assert anfrage(dienst, "GET", "/api/v1/hallo")[0] == 200
+    server = dienst._server
+    assert server is not None and server.plaetze._value == empfang.MAX_VERBINDUNGEN  # type: ignore[attr-defined]
+
+
+# --------------------------------------------------------------------------
+# Abschluss: Fehler kosten weder die Antwort noch die Aufnahme
+# --------------------------------------------------------------------------
+def test_abschluss_ohne_ein_einziges_stueck_ist_422(ablage):
+    antwort = ablage.anhaengen("S3", "H5_009.opus", 0, 0, leser(b""), 0, sha(b""))
+    assert antwort.status == 422 and antwort.daten["fertig"] is False
+
+
+def test_noch_geoeffnete_aufnahme_wird_spaeter_abgelegt(ablage, monkeypatch):
+    # Die Live-Transkription liest die Datei gerade (oder ein Virenscanner prueft sie): Frueher ging die
+    # Ausnahme durch, und das Geraet bekam gar keine Antwort.
+    daten = b"OggS" + b"x" * 60
+    versuche = []
+    echt = empfang._ersetzen_mit_wiederholung
+
+    def gesperrt(quelle, ziel):
+        versuche.append(1)
+        if len(versuche) == 1:
+            raise PermissionError(32, "Datei wird von einem anderen Prozess verwendet")
+        echt(quelle, ziel)
+
+    monkeypatch.setattr(empfang, "_ersetzen_mit_wiederholung", gesperrt)
+    antwort = hochladen(ablage, "S3", "H5_010.opus", daten)
+    assert antwort.status == 503 and antwort.daten["naechstes_byte"] == len(daten)
+    # Nichts verloren: Der Teilstand ist vollstaendig, der naechste Abschluss gelingt.
+    assert ablage.stand("S3", "H5_010.opus").daten["naechstes_byte"] == len(daten)
+    antwort = ablage.anhaengen("S3", "H5_010.opus", len(daten), 0, leser(b""), len(daten), sha(daten))
+    assert antwort.status == 200 and antwort.daten["fertig"] is True
+    assert (ablage.ziel / antwort.daten["datei"]).read_bytes() == daten
+
+
+def test_gescheiterte_buchfuehrung_laesst_die_aufnahme_nicht_unbearbeitet(tmp_path, monkeypatch):
+    # Nach dem Ablegen liegt die Aufnahme im Eingabeordner. Scheiterte danach das Vermerken (Platte voll),
+    # wurde sie nie verarbeitet, und das Geraet schickte die ganze Datei noch einmal.
+    gemeldet = []
+    ablage = Ablage(
+        tmp_path / "eingang",
+        freier_platz=lambda _pfad: 10**12,
+        bei_neuer_aufnahme=lambda ziel, geraet: gemeldet.append(ziel.name),
+    )
+    monkeypatch.setattr(ablage, "_fertig_speichern", lambda fertig: (_ for _ in ()).throw(OSError("Platte voll")))
+    daten = b"OggS" + b"y" * 40
+    antwort = hochladen(ablage, "S3", "H5_011.opus", daten)
+    assert antwort.status == 200 and antwort.daten["fertig"] is True
+    assert gemeldet == [antwort.daten["datei"]]
