@@ -15,7 +15,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from protokoll_assistent.utils.paths import get_app_dir
+from protokoll_assistent.utils.paths import get_app_dir, get_paket_dir
 from protokoll_assistent.utils.prozess import KEIN_FENSTER
 
 SUPPORTED_PYTHON_VERSIONS = ((3, 10), (3, 11))
@@ -70,7 +70,7 @@ BLACKWELL_COMPUTE_CAPABILITY = (12, 0)
 # 'bootstrap._ensure_runtime_and_relaunch_frozen') -- dort werden sie also
 # gelesen. Im Quellcode-Betrieb bedeutet 'get_app_dir()' bereits den
 # Paketordner selbst, in dem diese Datei liegt.
-REQUIREMENTS_DIR = get_app_dir() / "protokoll_assistent" if getattr(sys, "frozen", False) else get_app_dir()
+REQUIREMENTS_DIR = get_app_dir() / "protokoll_assistent" if getattr(sys, "frozen", False) else get_paket_dir()
 TORCH_REQUIREMENTS_FILE = REQUIREMENTS_DIR / "requirements-torch.txt"
 RUNTIME_REQUIREMENTS_FILE = REQUIREMENTS_DIR / "requirements-laufzeit.txt"
 
@@ -82,8 +82,16 @@ def read_requirements(path: Path) -> list[str]:
     vollstaendiger Parser -- diese Dateien werden von Hand oder von
     Dependabot gepflegt und enthalten nur einfache Anforderungen.
     """
-    requirements = []
-    for line in path.read_text(encoding="utf-8-sig").splitlines():
+    requirements: list[str] = []
+    try:
+        zeilen = path.read_text(encoding="utf-8-sig").splitlines()
+    except OSError:
+        # Die reine EXE aus dem ZIP hat den Quelltextordner nicht dabei. Dieses Modul wird beim Start
+        # importiert (Systemdiagnose) -- ohne diesen Fall endete der Start mit einem Traceback, bevor ein
+        # Fenster erschien. Ohne die Listen laesst sich der lokale Modus dort nicht einrichten
+        # ('bootstrap' meldet das), der API-Modus braucht sie nicht.
+        return requirements
+    for line in zeilen:
         entry = line.split("#", 1)[0].strip()
         if entry:
             requirements.append(entry)

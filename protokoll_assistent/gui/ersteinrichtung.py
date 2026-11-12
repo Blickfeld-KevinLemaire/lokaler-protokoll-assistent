@@ -102,9 +102,8 @@ def laufzeit_vorhanden() -> bool:
     """Ist die Rechenumgebung fuer die lokale Mitschrift schon da?"""
     if importlib.util.find_spec("faster_whisper") is not None:
         return True
-    from protokoll_assistent.utils.paths import get_active_venv_python
-
-    return get_active_venv_python().is_file()
+    # Vollstaendig eingerichtet, nicht nur angelegt: 'python.exe' entsteht ganz am Anfang der Einrichtung.
+    return bootstrap.laufzeit_eingerichtet()
 
 
 def _ollama_modelle() -> set[str]:

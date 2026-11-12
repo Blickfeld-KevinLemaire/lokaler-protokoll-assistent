@@ -106,6 +106,7 @@ def _relaunch_cwd_testen(monkeypatch, tmp_path, *, app_dir: Path, hat_konsole: b
     from protokoll_assistent.utils import paths
 
     monkeypatch.setattr(paths, "get_app_dir", lambda: app_dir)
+    monkeypatch.setattr(paths, "get_paket_dir", lambda: app_dir)
     monkeypatch.setattr(bootstrap, "_hat_konsole", lambda: hat_konsole)
 
     calls = []
@@ -318,6 +319,8 @@ def test_installation_failure_exits_nonzero_and_does_not_relaunch(monkeypatch, t
 
     relaunch_calls = []
     monkeypatch.setattr(bootstrap, "_relaunch", lambda python_exe: relaunch_calls.append(python_exe))
+    # Ohne Fenster (Quelltext-Start mit einem Python ohne PySide6) bleibt es beim Abbruch.
+    monkeypatch.setattr(bootstrap, "_ohne_rechenumgebung_weiter", lambda: False)
 
     with pytest.raises(SystemExit) as exc_info:
         bootstrap.ensure_runtime_and_relaunch()
@@ -386,7 +389,10 @@ FRISCH = {"transkription_modus": "lokal", "einrichtung_abgeschlossen": False, "e
         (FRISCH, True, True, True),  # schon eingerichtet: wie immer hineinwechseln
         (FRISCH, False, False, True),  # ohne PySide6 kein Fenster: bisheriger Weg
         ({**FRISCH, "einrichtung_fortsetzen": "transkription"}, True, False, True),  # zugestimmt, Neustart
-        ({**FRISCH, "einrichtung_abgeschlossen": True}, True, False, True),  # aeltere Installation
+        # Abgeschlossen (etwa mit "online") und spaeter auf "Lokal" gestellt: nicht ohne die Seite mit den
+        # Kosten -- frueher lud der naechste Start ungefragt gut 5 GB.
+        ({**FRISCH, "einrichtung_abgeschlossen": True}, True, False, False),
+        ({**FRISCH, "einrichtung_abgeschlossen": True, "einrichtung_fortsetzen": "transkription"}, True, False, True),
         ({**FRISCH, "einrichtung_abgeschlossen": True, "lokale_einrichtung_zurueckgestellt": True}, True, False, False),
     ],
 )
@@ -398,6 +404,7 @@ def test_neustart_aus_dem_quelltext_als_modul_ohne_markierung(monkeypatch, tmp_p
     from protokoll_assistent.utils import paths
 
     monkeypatch.setattr(paths, "get_app_dir", lambda: tmp_path / "protokoll_assistent")
+    monkeypatch.setattr(paths, "get_paket_dir", lambda: tmp_path / "protokoll_assistent")
     monkeypatch.setenv(bootstrap.MARKER_ENV_VAR, "1")
     monkeypatch.delattr(bootstrap.sys, "frozen", raising=False)
     befehl, ordner, umgebung = bootstrap.neustart_kommando()
@@ -435,3 +442,241 @@ def test_pip_aufrufe_der_einrichtung_oeffnen_kein_konsolenfenster(monkeypatch):
     monkeypatch.setattr(bootstrap.subprocess, "Popen", fake_popen)
     bootstrap._run_logged(["python.exe", "-m", "pip", "list"], _Splash())
     assert gesehen["creationflags"] == KEIN_FENSTER
+
+
+# --------------------------------------------------------------------------
+# Die EXE und der Prozess des lokalen Modus teilen sich EINEN Ordner
+# --------------------------------------------------------------------------
+def _relaunch_umgebung(monkeypatch, app_dir: Path) -> dict[str, str]:
+    from protokoll_assistent.utils import paths
+
+    monkeypatch.setattr(paths, "get_app_dir", lambda: app_dir)
+    monkeypatch.setattr(bootstrap, "_hat_konsole", lambda: False)
+    monkeypatch.setattr(bootstrap.sys, "frozen", True, raising=False)
+    umgebungen: list[dict[str, str]] = []
+
+    class _Fertig:
+        returncode = 0
+
+    def _lauf(befehl, env, cwd, creationflags):
+        umgebungen.append(env)
+        return _Fertig()
+
+    monkeypatch.setattr(bootstrap.subprocess, "run", _lauf)
+    with pytest.raises(SystemExit):
+        bootstrap._relaunch(Path("/irgendwo/python.exe"))
+    return umgebungen[0]
+
+
+def test_gebaute_exe_gibt_ihren_ordner_an_den_lokalen_prozess_weiter(monkeypatch, tmp_path):
+    # Der neu gestartete Prozess laeuft aus dem Quelltext und hielt '{app}/protokoll_assistent' fuer den
+    # Anwendungsordner: zweite konfiguration.json, die Ersteinrichtung begann nach dem Neustart von vorn,
+    # Geraete und API-Einstellungen "weg", zweiter Ausgabeordner.
+    from protokoll_assistent.utils import paths
+
+    umgebung = _relaunch_umgebung(monkeypatch, tmp_path)
+    assert umgebung[paths.ANWENDUNGSORDNER_VARIABLE] == str(tmp_path)
+    assert umgebung[bootstrap.MARKER_ENV_VAR] == "1"
+
+
+def test_bestehende_getrennte_ablage_bleibt_wo_sie_ist(monkeypatch, tmp_path):
+    # Wer schon so arbeitet, hat seine benutzten Einstellungen und Daten im Unterordner.
+    from protokoll_assistent.utils import paths
+
+    (tmp_path / "protokoll_assistent").mkdir()
+    (tmp_path / "protokoll_assistent" / "konfiguration.json").write_text("{}", encoding="utf-8")
+    monkeypatch.delenv(paths.ANWENDUNGSORDNER_VARIABLE, raising=False)
+    assert paths.ANWENDUNGSORDNER_VARIABLE not in _relaunch_umgebung(monkeypatch, tmp_path)
+
+
+def test_anwendungsordner_aus_der_umgebung(monkeypatch, tmp_path):
+    from protokoll_assistent.utils import paths
+
+    monkeypatch.delattr(paths.sys, "frozen", raising=False)
+    monkeypatch.delenv(paths.ANWENDUNGSORDNER_VARIABLE, raising=False)
+    paket = paths.get_paket_dir()
+    assert paths.get_app_dir() == paket and (paket / "app.py").is_file()
+
+    monkeypatch.setenv(paths.ANWENDUNGSORDNER_VARIABLE, str(tmp_path))
+    assert paths.get_app_dir() == tmp_path
+    assert paths.get_config_file() == tmp_path / "konfiguration.json"
+    assert paths.get_runtime_venv_dir() == tmp_path / "runtime" / "venv"
+    # Importierbar bleibt das Paket aus dem Ordner ueber dem Quelltext -- nicht ueber dem Datenordner.
+    assert paths.get_project_root() == paket.parent
+    assert environment_service.REQUIREMENTS_DIR == paket
+
+    # Die gebaute EXE richtet sich immer nach ihrem eigenen Ordner.
+    monkeypatch.setattr(paths.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(paths.sys, "executable", str(tmp_path / "exe" / "VERMERK-Desktop.exe"))
+    assert paths.get_app_dir() == (tmp_path / "exe").resolve()
+
+
+# --------------------------------------------------------------------------
+# Vollstaendig eingerichtet? Halb angelegte Umgebung, gescheiterte Einrichtung
+# --------------------------------------------------------------------------
+def _umgebung(monkeypatch, tmp_path, *, python: bool, kennung: bool, pip: bool = False) -> Path:
+    from protokoll_assistent.utils import paths
+
+    venv_dir = tmp_path / "runtime" / "venv"
+    monkeypatch.setattr(paths, "get_legacy_venv_dir", lambda: tmp_path / "nicht_vorhanden" / ".venv-whisperx")
+    monkeypatch.setattr(paths, "get_active_venv_dir", lambda: venv_dir)
+    monkeypatch.setattr(environment_service, "is_supported_python_version", lambda: True)
+    monkeypatch.setattr(environment_service, "detect_nvidia_gpu", lambda: False)
+    monkeypatch.setattr(bootstrap, "AKTUALISIERUNG_HINWEIS_SEKUNDEN", 0.0)
+    if python:
+        python_exe = paths.venv_python_path(venv_dir)
+        python_exe.parent.mkdir(parents=True)
+        python_exe.write_text("dummy", encoding="utf-8")
+    if pip:
+        (venv_dir / "Lib" / "site-packages" / "pip").mkdir(parents=True)
+    if kennung:
+        environment_service.kennungsdatei(venv_dir).write_text("alte-kennung", encoding="utf-8")
+    return venv_dir
+
+
+def test_laufzeit_eingerichtet_verlangt_einen_vollstaendigen_lauf(monkeypatch, tmp_path):
+    venv_dir = _umgebung(monkeypatch, tmp_path, python=False, kennung=False)
+    assert bootstrap.laufzeit_eingerichtet() is False
+    from protokoll_assistent.utils import paths
+
+    python_exe = paths.venv_python_path(venv_dir)
+    python_exe.parent.mkdir(parents=True)
+    python_exe.write_text("dummy", encoding="utf-8")
+    assert bootstrap.laufzeit_eingerichtet() is False  # nur angelegt, pip nie fertig geworden
+    environment_service.kennungsdatei(venv_dir).write_text("x", encoding="utf-8")
+    assert bootstrap.laufzeit_eingerichtet() is True
+    # Die von Hand eingerichtete '.venv-whisperx' hat keine Kennung und gilt trotzdem.
+    monkeypatch.setattr(paths, "get_legacy_venv_dir", lambda: venv_dir)
+    environment_service.kennungsdatei(venv_dir).unlink()
+    assert bootstrap.laufzeit_eingerichtet() is True
+
+
+def test_gescheiterte_aktualisierung_startet_mit_der_vorhandenen_umgebung(monkeypatch, tmp_path):
+    # Nach einem Update mit geaenderter Paketliste lief beim Start pip; ohne Netz endete JEDER Start mit
+    # einem Fehler, obwohl die vorhandene Umgebung funktionierte.
+    from protokoll_assistent.utils import paths
+
+    venv_dir = _umgebung(monkeypatch, tmp_path, python=True, kennung=True, pip=True)
+
+    def kein_netz(cmd, splash):
+        raise RuntimeError("Simulierter Netzwerkfehler")
+
+    monkeypatch.setattr(bootstrap, "_run_logged", kein_netz)
+    neustarts = []
+    monkeypatch.setattr(bootstrap, "_relaunch", lambda python_exe: neustarts.append(python_exe))
+
+    bootstrap.ensure_runtime_and_relaunch()
+
+    assert neustarts == [paths.venv_python_path(venv_dir)]
+    # Die Kennung bleibt die alte: Beim naechsten Start (mit Netz) wird die Aktualisierung nachgeholt.
+    assert environment_service.kennungsdatei(venv_dir).read_text(encoding="utf-8") == "alte-kennung"
+
+
+def test_gescheiterte_ersteinrichtung_fuehrt_zurueck_ins_programm(monkeypatch, tmp_path):
+    # Frueher: 'sys.exit(1)' bei jedem Start, ohne Weg zurueck (ausser die Einstellungsdatei von Hand zu aendern).
+    from protokoll_assistent.utils import app_config
+
+    monkeypatch.setattr(app_config, "get_config_file", lambda: tmp_path / "konfiguration.json")
+    app_config.update_config(transkription_modus="lokal", einrichtung_fortsetzen="transkription")
+    _umgebung(monkeypatch, tmp_path, python=False, kennung=False)
+    monkeypatch.setattr(bootstrap.importlib.util, "find_spec", lambda name: object())  # PySide6 ist da
+    monkeypatch.setattr(
+        bootstrap, "_create_venv", lambda venv_dir, base_python=None: (_ for _ in ()).throw(RuntimeError("Platte voll"))
+    )
+    neustarts = []
+    monkeypatch.setattr(bootstrap, "_relaunch", lambda python_exe: neustarts.append(python_exe))
+
+    bootstrap.ensure_runtime_and_relaunch()  # kehrt zurueck: 'app.py' zeigt danach das Hauptfenster
+
+    assert neustarts == []
+    assert app_config.load_config()["einrichtung_fortsetzen"] == ""
+    assert bootstrap.laufzeit_beim_start_einrichten(app_config.load_config(), True, False) is False
+
+
+def test_halb_angelegte_umgebung_wird_neu_angelegt(monkeypatch, tmp_path):
+    # 'python.exe' entsteht vor pip. Nach einem Abbruch dazwischen scheiterte jeder Start an "No module named pip".
+    from protokoll_assistent.utils import paths
+
+    venv_dir = _umgebung(monkeypatch, tmp_path, python=True, kennung=False, pip=False)
+    (venv_dir / "rest_vom_abbruch.txt").write_text("x", encoding="utf-8")
+    angelegt = []
+
+    def anlegen(ordner, base_python=None):
+        assert not (ordner / "rest_vom_abbruch.txt").exists()
+        angelegt.append(ordner)
+        python_exe = paths.venv_python_path(ordner)
+        python_exe.parent.mkdir(parents=True, exist_ok=True)
+        python_exe.write_text("dummy", encoding="utf-8")
+
+    monkeypatch.setattr(bootstrap, "_create_venv", anlegen)
+    monkeypatch.setattr(bootstrap, "_run_logged", lambda cmd, splash: None)
+    monkeypatch.setattr(bootstrap, "_relaunch", lambda python_exe: None)
+
+    bootstrap.ensure_runtime_and_relaunch()
+
+    assert angelegt == [venv_dir]
+    assert environment_service.kennungsdatei(venv_dir).is_file()
+
+
+def test_unterbrochene_pip_installation_wird_fortgesetzt_nicht_neu_angelegt(monkeypatch, tmp_path):
+    _umgebung(monkeypatch, tmp_path, python=True, kennung=False, pip=True)
+    monkeypatch.setattr(bootstrap, "_create_venv", lambda *a, **k: pytest.fail("nicht neu anlegen"))
+    befehle = []
+    monkeypatch.setattr(bootstrap, "_run_logged", lambda cmd, splash: befehle.append(cmd))
+    monkeypatch.setattr(bootstrap, "_relaunch", lambda python_exe: None)
+    bootstrap.ensure_runtime_and_relaunch()
+    assert len(befehle) == 3
+
+
+def test_gescheitertes_anlegen_hinterlaesst_keine_halbe_umgebung(monkeypatch, tmp_path):
+    from protokoll_assistent.utils import paths
+
+    venv_dir = _umgebung(monkeypatch, tmp_path, python=False, kennung=False)
+    monkeypatch.setattr(bootstrap, "_ohne_rechenumgebung_weiter", lambda: False)
+
+    def halb(ordner, base_python=None):
+        python_exe = paths.venv_python_path(ordner)
+        python_exe.parent.mkdir(parents=True)
+        python_exe.write_text("dummy", encoding="utf-8")
+        raise RuntimeError("ensurepip gescheitert")
+
+    monkeypatch.setattr(bootstrap, "_create_venv", halb)
+    with pytest.raises(SystemExit):
+        bootstrap.ensure_runtime_and_relaunch()
+    assert not venv_dir.exists()
+
+
+def test_zweiter_start_waehrend_der_einrichtung_installiert_nicht_mit(monkeypatch, tmp_path):
+    # Zwei pip-Laeufe in derselben Umgebung zerstoeren sie.
+    venv_dir = _umgebung(monkeypatch, tmp_path, python=False, kennung=False)
+    erste = bootstrap._einrichtung_sperren(venv_dir.parent)
+    assert erste is not None
+    try:
+        assert bootstrap._einrichtung_sperren(venv_dir.parent) is None
+        monkeypatch.setattr(bootstrap, "_create_venv", lambda *a, **k: pytest.fail("darf nichts anlegen"))
+        monkeypatch.setattr(bootstrap, "_run_logged", lambda *a, **k: pytest.fail("darf nichts installieren"))
+        with pytest.raises(SystemExit) as ende:
+            bootstrap.ensure_runtime_and_relaunch()
+        assert ende.value.code == 0
+    finally:
+        bootstrap._sperre_freigeben(erste)
+    zweite = bootstrap._einrichtung_sperren(venv_dir.parent)
+    assert zweite is not None
+    bootstrap._sperre_freigeben(zweite)
+
+
+def test_fehlende_paketlisten_werden_gemeldet(monkeypatch, tmp_path):
+    _umgebung(monkeypatch, tmp_path, python=False, kennung=False)
+    monkeypatch.setattr(environment_service, "RUNTIME_PACKAGES", [])
+    monkeypatch.setattr(bootstrap, "_ohne_rechenumgebung_weiter", lambda: False)
+    monkeypatch.setattr(bootstrap, "_create_venv", lambda *a, **k: pytest.fail("ohne Listen nichts anlegen"))
+    meldungen: list[str] = []
+
+    class _Splash(_FakeSplash):
+        def log(self, message):
+            meldungen.append(message)
+
+    monkeypatch.setattr(bootstrap, "_try_create_splash", _Splash)
+    with pytest.raises(SystemExit):
+        bootstrap.ensure_runtime_and_relaunch()
+    assert any("Paketlisten" in m for m in meldungen)

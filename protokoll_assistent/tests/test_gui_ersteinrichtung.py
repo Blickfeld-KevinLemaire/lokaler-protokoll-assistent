@@ -642,9 +642,15 @@ def test_laufzeit_vorhanden(monkeypatch, tmp_path):
     from protokoll_assistent.utils import paths
 
     monkeypatch.setattr(importlib.util, "find_spec", lambda name: None)
-    monkeypatch.setattr(paths, "get_active_venv_python", lambda: tmp_path / "python.exe")
+    # Nicht der Stand dieses Rechners: Hier zaehlt nur, was 'bootstrap' fuer vollstaendig eingerichtet haelt
+    # (eine bloss angelegte Umgebung mit 'python.exe' genuegt nicht).
+    monkeypatch.setattr(ee.bootstrap, "laufzeit_eingerichtet", lambda: False)
     assert ee.laufzeit_vorhanden() is False
-    (tmp_path / "python.exe").write_bytes(b"")
+    monkeypatch.setattr(ee.bootstrap, "laufzeit_eingerichtet", lambda: True)
+    assert ee.laufzeit_vorhanden() is True
+    # In der Rechenumgebung selbst ist faster-whisper importierbar.
+    monkeypatch.setattr(ee.bootstrap, "laufzeit_eingerichtet", lambda: False)
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name: object())
     assert ee.laufzeit_vorhanden() is True
 
 

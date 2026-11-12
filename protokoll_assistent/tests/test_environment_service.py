@@ -345,3 +345,14 @@ def test_laufzeitumgebung_enthaelt_alle_pakete_der_anwendung():
 
     anwendung = namen(env.read_requirements(env.REQUIREMENTS_DIR / "requirements-anwendung.txt"))
     assert anwendung - nur_zum_bauen - namen(env.RUNTIME_PACKAGES) == set()
+
+
+def test_fehlende_paketliste_ist_kein_absturz(tmp_path):
+    # Die reine EXE aus dem ZIP hat den Quelltextordner nicht dabei; dieses Modul wird beim Start importiert.
+    # Frueher endete der Start dort mit FileNotFoundError, bevor ein Fenster erschien.
+    assert env.read_requirements(tmp_path / "gibt-es-nicht" / "requirements-laufzeit.txt") == []
+
+
+def test_mitgelieferte_paketlisten_werden_gelesen():
+    assert any(eintrag.startswith("torch") for eintrag in env.TORCH_PACKAGES)
+    assert any(eintrag.startswith("faster-whisper") for eintrag in env.RUNTIME_PACKAGES)

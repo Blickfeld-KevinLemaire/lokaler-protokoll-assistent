@@ -48,13 +48,13 @@ import importlib.util
 import sys
 
 from protokoll_assistent import bootstrap
-from protokoll_assistent.utils import app_config, paths
+from protokoll_assistent.utils import app_config
 
 _config = app_config.load_config()
 _fenster_moeglich = getattr(sys, "frozen", False) or importlib.util.find_spec("PySide6") is not None
 
 if bootstrap.laufzeit_beim_start_einrichten(
-    _config, _fenster_moeglich, laufzeit_vorhanden=paths.get_active_venv_python().is_file()
+    _config, _fenster_moeglich, laufzeit_vorhanden=bootstrap.laufzeit_eingerichtet()
 ):
     bootstrap.ensure_runtime_and_relaunch()
 

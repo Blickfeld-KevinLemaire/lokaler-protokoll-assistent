@@ -34,9 +34,12 @@ CPU weiter (deutlich langsamer), aber lauffaehig.
 from __future__ import annotations
 
 import ctypes
+import importlib.util
 import os
+import shutil
 import subprocess
 import sys
+import time
 import venv
 from pathlib import Path
 from typing import Any
@@ -212,8 +215,15 @@ def _hat_konsole() -> bool:
     return bool(windll.kernel32.GetConsoleWindow())
 
 
+ALTE_GETRENNTE_ABLAGE_HINWEIS = (
+    "Hinweis: Diese Installation fuehrt die Einstellungen des lokalen Modus noch getrennt im Unterordner "
+    "'protokoll_assistent' (Stand vor 0.5.0-rc1). Sie laeuft so weiter. Neue Installationen benutzen einen "
+    "gemeinsamen Ordner."
+)
+
+
 def _relaunch(python_exe: Path) -> None:
-    from protokoll_assistent.utils.paths import get_app_dir
+    from protokoll_assistent.utils.paths import ANWENDUNGSORDNER_VARIABLE, get_app_dir, get_paket_dir
 
     child_env = dict(os.environ)
     child_env[MARKER_ENV_VAR] = "1"
@@ -225,7 +235,18 @@ def _relaunch(python_exe: Path) -> None:
     # (siehe '_ensure_runtime_and_relaunch_frozen') -- dort muss 'cwd' also
     # bleiben, nicht eine Ebene hoeher gehen.
     app_dir = get_app_dir()
-    cwd = app_dir if getattr(sys, "frozen", False) else app_dir.parent
+    if getattr(sys, "frozen", False):
+        cwd = app_dir
+        # Der neue Prozess laeuft aus dem Quelltext und hielte dessen Ordner fuer den Anwendungsordner: Er
+        # fuehrte dort eine zweite 'konfiguration.json' -- die Ersteinrichtung begann nach dem Neustart
+        # von vorn, angemeldete Aufnahmegeraete und API-Einstellungen waren "weg", Ergebnisse lagen in
+        # einem zweiten Ausgabeordner. Er bekommt deshalb den Ordner der EXE mit ('paths.get_app_dir').
+        # Ausnahme: Installationen, die schon so getrennt arbeiten -- dort liegen die benutzten
+        # Einstellungen und Daten im Unterordner; sie bleiben, wo sie sind.
+        if not (app_dir / "protokoll_assistent" / "konfiguration.json").is_file():
+            child_env[ANWENDUNGSORDNER_VARIABLE] = str(app_dir)
+    else:
+        cwd = get_paket_dir().parent
     # Ohne Konsolenfenster: Dieses 'python.exe' ist die Oberflaeche. Ein
     # sichtbares Konsolenfenster bliebe so lange offen, wie das Programm
     # laeuft, und schloesse der Anwender es, endete auch das Programm.
@@ -256,8 +277,25 @@ def laufzeit_beim_start_einrichten(konfig: dict[str, Any], fenster_moeglich: boo
         return False
     if laufzeit_vorhanden or not fenster_moeglich:
         return True
-    erster_start = not konfig.get("einrichtung_abgeschlossen") and not konfig.get("einrichtung_fortsetzen")
-    return not (erster_start or konfig.get("lokale_einrichtung_zurueckgestellt"))
+    # Ohne vorhandene Umgebung nur nach der Zustimmung in der Ersteinrichtung: Sie setzt
+    # 'einrichtung_fortsetzen', bevor sie neu startet. Frueher genuegte, dass die Einrichtung irgendwann
+    # abgeschlossen war -- wer danach im Hauptfenster einmal "Lokal" anklickte, bekam beim naechsten Start
+    # ungefragt gut 5 GB geladen, ohne die Seite, die sagt, was das kostet.
+    return bool(konfig.get("einrichtung_fortsetzen"))
+
+
+def laufzeit_eingerichtet() -> bool:
+    """Ist die Rechenumgebung fuer den lokalen Modus VOLLSTAENDIG eingerichtet? Dass ``python.exe`` schon
+    da ist, genuegt nicht: Die Datei entsteht ganz am Anfang -- bricht die Einrichtung danach ab (kein Netz,
+    Platte voll), ist die Umgebung unbrauchbar. Vollstaendig ist sie, wenn die Kennung des letzten
+    erfolgreichen Laufs darin liegt (oder es die von Hand eingerichtete ``.venv-whisperx`` ist)."""
+    from protokoll_assistent.services import environment_service
+    from protokoll_assistent.utils.paths import get_active_venv_dir, get_legacy_venv_dir, venv_python_path
+
+    venv_dir = get_active_venv_dir()
+    if not venv_python_path(venv_dir).is_file():
+        return False
+    return venv_dir == get_legacy_venv_dir() or environment_service.kennungsdatei(venv_dir).is_file()
 
 
 def neustart_kommando() -> tuple[list[str], Path, dict[str, str]]:
@@ -266,18 +304,20 @@ def neustart_kommando() -> tuple[list[str], Path, dict[str, str]]:
     Ersteinrichtung braucht das, damit nach ihrer Zustimmung dieses Modul die
     Rechenumgebung einrichtet. Die Markierung der verwalteten Umgebung wird
     deshalb bewusst NICHT weitergegeben."""
-    from protokoll_assistent.utils.paths import get_app_dir
+    from protokoll_assistent.utils.paths import get_app_dir, get_paket_dir
 
     umgebung = {name: wert for name, wert in os.environ.items() if name != MARKER_ENV_VAR}
     if getattr(sys, "frozen", False):
         return [sys.executable], get_app_dir(), umgebung
-    return [sys.executable, "-m", ANWENDUNGSMODUL], get_app_dir().parent, umgebung
+    return [sys.executable, "-m", ANWENDUNGSMODUL], get_paket_dir().parent, umgebung
 
 
 def ensure_runtime_and_relaunch() -> None:
     """Sorgt fuer eine lauffaehige Umgebung und startet die Anwendung darin
-    neu. Kehrt NUR zurueck, wenn bereits in der verwalteten Umgebung
-    ausgefuehrt wird (dann ist nichts weiter zu tun)."""
+    neu. Kehrt zurueck, wenn bereits in der verwalteten Umgebung ausgefuehrt
+    wird (dann ist nichts weiter zu tun) -- oder wenn die Einrichtung
+    gescheitert ist und die Anwendung ohne Rechenumgebung starten kann
+    (siehe ``_ohne_rechenumgebung_weiter``)."""
     if is_running_in_managed_venv():
         return
 
@@ -385,13 +425,43 @@ def _richte_ml_umgebung_ein_und_starte_neu(
         _relaunch(python_exe)
         return
 
+    # Gab es schon einen vollstaendigen Lauf? Dann ist das hier eine AKTUALISIERUNG (geaenderte Paketliste
+    # nach einem Update, andere Grafikkarte) -- scheitert sie, laeuft die vorhandene Umgebung weiter.
+    schon_eingerichtet = python_exe.is_file() and environment_service.kennungsdatei(venv_dir).is_file()
+
+    sperre = _einrichtung_sperren(venv_dir.parent)
+    if sperre is None:
+        # Ein zweiter Start waehrend der Einrichtung: Zwei pip-Laeufe in derselben Umgebung zerstoeren sie.
+        splash = _try_create_splash()
+        splash.log(
+            "Die Einrichtung laeuft bereits in einem anderen Fenster (ggf. in der Taskleiste).\n"
+            "Bitte dort abwarten -- die Anwendung startet danach von selbst."
+        )
+        _wait_for_acknowledgement(splash)
+        splash.close()
+        sys.exit(0)
+
     splash = _try_create_splash()
     if hinweis_basis_python is not None:
         splash.log(hinweis_basis_python)
     try:
+        if not environment_service.TORCH_PACKAGES or not environment_service.RUNTIME_PACKAGES:
+            raise RuntimeError(
+                "Die Paketlisten (requirements-*.txt) fehlen im Programmordner. Bitte die Anwendung "
+                "mit dem Installer neu installieren."
+            )
+        if python_exe.is_file() and not schon_eingerichtet and not _pip_vorhanden(venv_dir):
+            # 'python.exe' entsteht vor pip. Wurde das Anlegen unterbrochen (Absturz, Virenscanner, Platte
+            # voll), scheiterte danach jeder Start an "No module named pip" -- fuer immer.
+            splash.log("Eine unvollstaendig angelegte Umgebung wird entfernt und neu angelegt.")
+            shutil.rmtree(venv_dir, ignore_errors=True)
         if not python_exe.is_file():
             splash.log(f"Lege private Python-Umgebung an unter:\n  {venv_dir}\n")
-            _create_venv(venv_dir, base_python=base_python)
+            try:
+                _create_venv(venv_dir, base_python=base_python)
+            except Exception:
+                shutil.rmtree(venv_dir, ignore_errors=True)
+                raise
             splash.log("Umgebung angelegt.\n")
 
         splash.log(environment_service.describe_plan(gpu_available) + "\n")
@@ -406,15 +476,97 @@ def _richte_ml_umgebung_ein_und_starte_neu(
         environment_service.kennung_festhalten(venv_dir, index_url)
         splash.log("\nEinrichtung der Python-Pakete abgeschlossen.")
     except Exception as error:
+        _sperre_freigeben(sperre)
+        if schon_eingerichtet:
+            # Die bisherige Umgebung funktioniert. Frueher endete hier JEDER Start mit einem Fehler, sobald
+            # ein Update die Paketliste geaendert hatte und der Rechner gerade kein Netz hatte -- eine
+            # Anwendung, die ausdruecklich offline arbeiten soll, liess sich dann nicht mehr oeffnen.
+            splash.log(f"\nDie Aktualisierung der Rechenumgebung ist fehlgeschlagen: {error}")
+            splash.log(
+                "Die Anwendung startet mit der vorhandenen Umgebung. Beim naechsten Start mit "
+                "Internetverbindung wird die Aktualisierung nachgeholt."
+            )
+            time.sleep(AKTUALISIERUNG_HINWEIS_SEKUNDEN)
+            splash.close()
+            _relaunch(python_exe)
+            return
         splash.log(f"\nFEHLER waehrend der Einrichtung: {error}")
-        splash.log("Bitte Internetverbindung pruefen und die Anwendung erneut starten.")
+        weiter = _ohne_rechenumgebung_weiter()
+        if weiter:
+            splash.log(
+                "Bitte die Internetverbindung pruefen. Das Programm startet jetzt ohne die Rechenumgebung: "
+                "Die Einrichtung laesst sich dort erneut starten, oder Sie arbeiten online."
+            )
+        else:
+            splash.log("Bitte Internetverbindung pruefen und die Anwendung erneut starten.")
         _wait_for_acknowledgement(splash)
         splash.close()
+        if weiter:
+            return
         sys.exit(1)
 
+    _sperre_freigeben(sperre)
     splash.log("\nStarte Anwendung in der vorbereiteten Umgebung ...")
     splash.close()
     _relaunch(python_exe)
+
+
+# So lange bleibt der Hinweis auf eine gescheiterte Aktualisierung stehen, bevor die Anwendung startet.
+AKTUALISIERUNG_HINWEIS_SEKUNDEN = 4.0
+_OHNE_SPERRE = object()
+
+
+def _pip_vorhanden(venv_dir: Path) -> bool:
+    return (venv_dir / "Lib" / "site-packages" / "pip").is_dir() or any(venv_dir.glob("lib/python*/site-packages/pip"))
+
+
+def _einrichtung_sperren(ordner: Path) -> Any:
+    """Sperrt die Einrichtung fuer andere Prozesse. ``None``: Ein anderer Prozess richtet gerade ein. Die
+    Sperre haengt an der offenen Datei und verschwindet mit dem Prozess -- auch nach einem Absturz."""
+    try:
+        ordner.mkdir(parents=True, exist_ok=True)
+        datei = (ordner / "einrichtung.sperre").open("a+b")  # noqa: SIM115 -- bleibt bis zur Freigabe offen
+    except OSError:
+        return _OHNE_SPERRE  # Ordner nicht beschreibbar: Dann scheitert die Einrichtung selbst und meldet es.
+    try:
+        if sys.platform == "win32":
+            import msvcrt
+
+            datei.seek(0)
+            msvcrt.locking(datei.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(datei.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        datei.close()
+        return None
+    return datei
+
+
+def _sperre_freigeben(sperre: Any) -> None:
+    if sperre is not None and sperre is not _OHNE_SPERRE:
+        try:
+            sperre.close()
+        except OSError:
+            pass
+
+
+def _ohne_rechenumgebung_weiter() -> bool:
+    """Nach einer gescheiterten ERSTEN Einrichtung: Kann die Anwendung ohne Rechenumgebung starten? Dann
+    wird die Fortsetzung zurueckgenommen, damit nicht jeder weitere Start wieder hier landet -- frueher gab
+    es von dort keinen Weg zurueck ins Programm, ausser die Einstellungsdatei von Hand zu aendern. Die
+    Ersteinrichtung erscheint beim naechsten Start erneut und bietet beides an: noch einmal versuchen oder
+    online arbeiten."""
+    if not (getattr(sys, "frozen", False) or importlib.util.find_spec("PySide6") is not None):
+        return False
+    from protokoll_assistent.utils import app_config
+
+    try:
+        app_config.update_config(einrichtung_fortsetzen="")
+    except OSError:
+        return False
+    return True
 
 
 def _wait_for_acknowledgement(splash) -> None:
