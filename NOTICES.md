@@ -80,6 +80,18 @@ dieses Programm wird ausdruecklich die **LGPL-3.0** gewaehlt.
   eigenen Speicher pruefen (`utils/netz.py`). Reines Python. Damit gelten auch Zertifikate von Firmennetzen,
   denen Windows traut.
 
+### Hilfspakete von keyring und sounddevice
+
+Sie kommen als Abhaengigkeiten mit und liegen als reines Python (cffi: mit einer kleinen Erweiterung) im Build:
+
+* pywin32-ctypes (0.2.3) — BSD-3-Clause — Copyright (c) Enthought, Inc.
+* jaraco.classes (3.4.0), jaraco.functools (4.6.0), jaraco.context (6.1.2), zipp (4.1.0),
+  backports.tarfile (1.2.0) — MIT — Copyright (c) Jason R. Coombs
+* more-itertools (11.1.0) — MIT — Copyright (c) Erik Rose
+* importlib-metadata (9.0.1) — Apache-2.0 — Copyright (c) Jason R. Coombs
+* cffi (2.1.1) — MIT-0 — Copyright (c) Armin Rigo, Maciej Fijalkowski
+* pycparser (3.0) — BSD-3-Clause — Copyright (c) Eli Bendersky und Mitwirkende
+
 ### lxml (6.1.3)
 
 * Lizenz: BSD-3-Clause — Copyright (c) Infrae und Mitwirkende

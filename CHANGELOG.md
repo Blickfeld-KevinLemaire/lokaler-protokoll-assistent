@@ -8,7 +8,76 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.5.0-rc1] - 2026-11-12
+
+Kandidat für die Beta. Enthält die beiden Korrekturen aus dem Feld (Downloads hinter Firmenproxys, zweite Instanz)
+und das Ergebnis einer vollständigen Fehlersuche vor der Veröffentlichung.
+
+### Changed
+
+- **Ein Ordner für Einstellungen und Daten (installierte Fassung).** Bisher führte die installierte Anwendung im
+  lokalen Modus eine zweite `konfiguration.json` samt eigenen Ordnern für Ausgabe, Aufnahmen, Vorlagen,
+  Sprecherprofile und Protokolle im Unterordner `protokoll_assistent`. Folge: Nach dem Neustart für die
+  Rechenumgebung begann die Ersteinrichtung von vorn, angemeldete Aufnahmegeräte und API-Einstellungen waren
+  „weg", Ergebnisse lagen in einem zweiten Ausgabeordner. Neue Installationen benutzen jetzt in beiden Fällen den
+  Programmordner. **Bestehende Installationen, die schon getrennt arbeiten, bleiben unverändert** (ihre benutzten
+  Daten liegen im Unterordner und werden dort weiter gelesen).
+- **„Lokal" im Hauptfenster lädt nichts mehr ungefragt.** Ein Klick auf „Lokal" ohne vorhandene Rechenumgebung
+  führte beim nächsten Start zu einem Download von gut 5 GB, ohne die Seite mit den Kosten. Jetzt wird beim Start
+  der Transkription die geführte Einrichtung angeboten; das ausdrückliche Umschalten in den Einstellungen gilt
+  weiterhin als Zustimmung.
+- **Ollama im Systemtest** wird über denselben geprüften Weg installiert wie in der Ersteinrichtung (Adresse,
+  Größe, Signatur, ohne Administratorrechte). Der frühere zweite Weg lud den Installer ungeprüft und startete ihn.
+- **Schließen während einer Verarbeitung** fragt nach und bricht die Verarbeitung ab; der Stand bleibt zum
+  Fortsetzen erhalten.
+
 ### Fixed
+
+- **Aufnahmen mit Sonderzeichen ließen sich nicht verarbeiten:** Enthielt der Pfad oder ein Metadatum der Aufnahme
+  bestimmte Zeichen (z. B. „Tomáš", kyrillische Schrift, Emojis), scheiterte die Verarbeitung bei „Audio wird
+  vorbereitet" – bei jedem Versuch.
+- **Gescheiterte Sprechererkennung kostete das ganze Transkript:** Fehlte der Hugging-Face-Token, war er ungültig
+  oder fehlte das Modell im Offline-Modus, ging nach der kompletten Transkription alles verloren, und
+  „Fortsetzen" scheiterte an derselben Stelle. Jetzt entsteht das Transkript ohne Sprecher, und der Grund wird
+  genannt.
+- **„Abbrechen" während der Nachbearbeitung wirkte nicht** – Minuten später erschien trotzdem das Ergebnis.
+- **„Fortsetzen" lieferte nach geänderten Einstellungen das alte Transkript** (andere Sprache, anderes Modell,
+  Wechsel zwischen lokal und API).
+- **An der Grenze zweier Abschnitte** (alle zehn Minuten) fehlten Wörter oder ein Satz stand doppelt im
+  Transkript.
+- **Export enthielt das Protokoll einer anderen Besprechung,** wenn nach einer Auswertung ein anderes Transkript
+  gewählt und exportiert wurde.
+- **Ollama galt hinter einem Firmenproxy als „nicht erreichbar":** Mit einem fest eingetragenen Proxy gingen auch
+  die Anfragen an das Ollama auf dem eigenen Rechner dorthin – samt Transkript. Der lokale Dienst wird jetzt nie
+  über einen Proxy angesprochen.
+- **Abgebrochene Verbindungen zu Ollama oder einer API** (Ollama beendet oder aktualisiert, Antwort
+  abgeschnitten, Anmeldeseite statt JSON) endeten als „unerwarteter Fehler"; das fertige Transkript wurde dabei
+  nicht als solches gemeldet. Eine leere Antwort einer API (Ablehnung, Inhaltsfilter) stand als Text „None" im
+  Protokoll.
+- **Transkription über eine API:** Ein einzelnes „zu viele Anfragen" oder „Dienst nicht verfügbar" brach die
+  ganze Aufnahme ab; solche Fehler werden jetzt wiederholt.
+- **Nach einer gescheiterten Einrichtung der Rechenumgebung ließ sich das Programm nicht mehr öffnen** (jeder
+  Start endete im Fehlerfenster). Auch eine halb angelegte Umgebung blockierte jeden weiteren Start. Nach einem
+  Update ohne Internetverbindung startet die Anwendung jetzt mit der vorhandenen Umgebung.
+- **Systemprompt oder eigene Vorlage in „ANSI"-Kodierung:** Das Programm startete nicht mehr.
+- **„Verarbeitung wählen" überschrieb den selbst geschriebenen Auftrag** mit der Vorlage „Zusammenfassung".
+- **Einstellungen:** Nach der geführten Einrichtung schrieb „Speichern" den alten Stand zurück; eine eigene
+  Whisper-Modell-ID wurde durch `large-v3` ersetzt; ein per USB eingerichtetes Aufnahmegerät wurde nach
+  „Abbrechen" bis zum Neustart abgewiesen.
+- **Aufnahmegeräte:** Jeder Rechner im Netz konnte den Empfang ohne Zugangswort blockieren (acht offene
+  Verbindungen genügten). Eine kurz gesperrte Datei beendete das Mitsenden während der Aufnahme oder ließ den
+  Abschluss ohne Antwort; eine Aufnahme konnte unbearbeitet liegen bleiben.
+- **Mikrofonaufnahme:** Bei vollem Datenträger lief die Aufnahme scheinbar weiter; ein nicht öffenbares Gerät
+  hinterließ eine leere, gesperrte Datei.
+- **Rückfall-Download** (siehe unten): brach nach fünf Minuten Gesamtdauer ab – für den Ollama-Installer
+  (knapp 2 GB) zu wenig; er lässt sich jetzt abbrechen und zeigt den Fortschritt. Fehlermeldungen von Windows
+  kamen auf deutschen Systemen nicht an.
+- **Deinstallation** ließ die Rechenumgebung (mehrere Gigabyte) und die Protokolldateien zurück. **Ein Update**
+  leerte den selbst geschriebenen Auftrag einer Installation mit getrennter Ablage.
+- **Die ZIP-Datei** (reine EXE) startete nicht. **`Einrichtung-Lokal.ps1`** scheiterte in Phase 1.
+- Die Einstellungsdatei wird atomar geschrieben; eine beschädigte Datei wird als `konfiguration.defekt.json`
+  beiseitegelegt statt überschrieben. Fehler, die bisher spurlos verschwanden, stehen im Protokoll und werden
+  angezeigt.
 
 - **Downloads scheiterten mit `CERTIFICATE_VERIFY_FAILED … unable to get local issuer certificate`** (Ersteinrichtung
   auf einem Laptop: FFmpeg und Ollama nicht gelungen). Python prüft unter Windows nur mit dem Zertifikatsspeicher des
@@ -16,10 +85,10 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
   Browser die Seite öffnet. Jetzt in drei Stufen, jede nur nach einem Zertifikatsfehler: (1) Beim Start prüft die
   Anwendung über Windows' eigene Zertifikatsprüfung (neues Paket `truststore`) – für Downloads, API-Aufrufe und
   Hugging Face; (2) fehlt das Paket (ältere Einrichtung), lädt `curl.exe` mit dem Windows-Proxy, bei einem Proxy, der die
-  Sperrliste blockiert, ein zweites Mal ohne diese eine Prüfung; (3) zuletzt Windows PowerShell mit der
+  Sperrliste blockiert, ein zweites Mal, das genau das hinnimmt (ein gesperrtes Zertifikat bleibt ein Fehler); (3) zuletzt Windows PowerShell mit der
   Proxy-Anmeldung des Benutzers. Zertifikate werden nie ungeprüft akzeptiert, nur HTTPS, und Größe, Adresse und
-  Signatur des Ollama-Installers werden wie sonst geprüft. Bestehende Installationen ziehen `truststore` beim
-  nächsten Start nach. Scheitert alles, nennt die Meldung beide Fehler.
+  Signatur des Ollama-Installers werden wie sonst geprüft. Installationen im lokalen Modus ziehen `truststore`
+  beim nächsten Start mit Internetverbindung nach. Scheitert alles, nennt die Meldung beide Fehler.
 - **Zweite Instanz zeigte „Port 8765 ist nicht nutzbar":** Wurde VERMERK Desktop zweimal gestartet (z. B. nach einem
   Neustart), belegte die erste Instanz den Port für die Aufnahmegeräte, und das zweite Fenster meldete den Port als
   belegt – das Gerät blieb dort scheinbar „nicht erkannt". Jetzt läuft die Anwendung nur einmal; ein zweiter Start
@@ -666,7 +735,8 @@ Installation.
 - Installer für Windows (ohne Administratorrechte, mit mitgelieferter
   Python-Laufzeitumgebung)
 
-[Unreleased]: https://github.com/Blickfeld-KevinLemaire/lokaler-protokoll-assistent/compare/v0.5.0-beta...HEAD
+[Unreleased]: https://github.com/Blickfeld-KevinLemaire/lokaler-protokoll-assistent/compare/v0.5.0-rc1...HEAD
+[0.5.0-rc1]: https://github.com/Blickfeld-KevinLemaire/lokaler-protokoll-assistent/compare/v0.5.0-beta...v0.5.0-rc1
 [0.5.0-beta]: https://github.com/Blickfeld-KevinLemaire/lokaler-protokoll-assistent/compare/v0.3.1...v0.5.0-beta
 [0.3.1]: https://github.com/Blickfeld-KevinLemaire/lokaler-protokoll-assistent/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/Blickfeld-KevinLemaire/lokaler-protokoll-assistent/compare/v0.2.0...v0.3.0

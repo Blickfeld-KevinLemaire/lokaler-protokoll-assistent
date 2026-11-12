@@ -477,7 +477,7 @@ wheels = [
 
 [[package]]
 name = "lokaler-protokoll-assistent"
-version = "0.5.0b0"
+version = "0.5.0rc1"
 source = { virtual = "." }
 
 [package.dev-dependencies]

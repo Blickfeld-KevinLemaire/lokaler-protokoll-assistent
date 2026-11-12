@@ -81,7 +81,8 @@ C:\Temp\PA-Test\unins000.exe /VERYSILENT   # wieder entfernen
 * **Die `AppId` darf sich nie aendern.** An ihr erkennt ein neuer Installer
   eine vorhandene Installation. Mit einer neuen GUID entstuenden zwei
   Eintraege in "Apps & Features".
-* **Beim Deinstallieren** werden `runtime` und `logs` mit entfernt (sonst
+* **Beim Deinstallieren** werden `runtime`, `logs` und das geladene FFmpeg (`tools\ffmpeg`) mit entfernt –
+  im Programmordner selbst und im Unterordner `protokoll_assistent` (sonst
   bleiben mehrere Gigabyte liegen), die Ergebnisordner des Anwenders
   dagegen absichtlich nicht.
 

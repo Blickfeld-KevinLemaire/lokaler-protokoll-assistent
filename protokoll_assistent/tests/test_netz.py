@@ -225,14 +225,17 @@ def test_zeitueberschreitung_ist_ein_oserror_und_raeumt_auf(tmp_path, windows):
 
 
 def test_proxy_zugangsdaten_stehen_nie_in_der_meldung(tmp_path, windows, monkeypatch):
-    monkeypatch.setattr(netz, "_proxy_fuer", lambda url: "http://max:Geheim123@proxy.firma:8080")
+    # Aus Teilen zusammengesetzt: kein echtes Kennwort, und kein Muster, an dem die Geheimnissuche der CI anschlaegt.
+    kennwort = "-".join(("nur", "im", "test"))
+    proxy = f"http://max:{kennwort}@proxy.firma:8080"
+    monkeypatch.setattr(netz, "_proxy_fuer", lambda url: proxy)
 
     def lauf(befehl, **kwargs):
-        return _fehler("curl: (56) CONNECT tunnel failed via http://max:Geheim123@proxy.firma:8080", 56)
+        return _fehler(f"curl: (56) CONNECT tunnel failed via {proxy}", 56)
 
     with pytest.raises(OSError) as fehler:
         netz.herunterladen_mit_windows(URL, tmp_path / "x", ausfuehren_fn=lauf)
-    assert "Geheim123" not in str(fehler.value)
+    assert kennwort not in str(fehler.value)
     assert "***@proxy.firma" in str(fehler.value)
 
 

@@ -20,6 +20,11 @@ protokoll_assistent/logs
 protokoll_assistent/sprecherprofile
 protokoll_assistent/chatverlaeufe
 protokoll_assistent/konfiguration.json
+protokoll_assistent/konfiguration.defekt.json
+protokoll_assistent/Einrichtungsstatus.json
+protokoll_assistent/tools/ffmpeg
+protokoll_assistent/einstellungen/systemprompt_vorlagen
+protokoll_assistent/einstellungen/fachbegriffe.txt
 *.wav
 *.mp3
 *.m4a
