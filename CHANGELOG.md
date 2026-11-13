@@ -8,6 +8,16 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Ersteinrichtung: Ollama-Installer wird nicht mehr nach 60 Sekunden verworfen.** Die Prüfung der Signatur
+  muss den ganzen, rund 1,6 GB großen Installer lesen (zugleich prüft der Virenscanner die frisch geladene
+  Datei) und brach auf langsameren Rechnern mit „timed out after 60 seconds“ ab. Danach sollte der Anwender
+  Ollama von Hand installieren. Jetzt gilt ein Zeitlimit von 10 Minuten, bei Zeitüberschreitung folgt ein
+  zweiter Versuch automatisch; eine ungültige oder fremde Signatur wird weiterhin sofort abgelehnt. Scheitert
+  die Prüfung dennoch, nennt die Meldung keine PowerShell-Kommandozeile mehr und verlangt keine
+  Handinstallation, sondern rät, die Einrichtung erneut zu starten.
+
 ## [0.5.0-rc1] - 2026-11-12
 
 Kandidat für die Beta. Enthält die beiden Korrekturen aus dem Feld (Downloads hinter Firmenproxys, zweite Instanz)

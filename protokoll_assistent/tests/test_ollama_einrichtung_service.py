@@ -352,6 +352,49 @@ def test_ohne_powershell_wird_nicht_ausgefuehrt(tmp_path, fehler):
     assert not oes.pruefe_signatur(tmp_path / "x.exe", ausfuehren_fn=ausfuehren).ok
 
 
+def test_signaturpruefung_hat_grosszuegiges_zeitlimit(tmp_path):
+    """Der Installer ist ~1,6 GB gross; 60 s reichten auf einem Laptop nicht (Einrichtung brach ab)."""
+    aufrufe: list = []
+    ausgabe = _signatur("Valid", "CN=Ollama Inc., O=Ollama Inc.")
+    assert oes.pruefe_signatur(tmp_path / "x.exe", ausfuehren_fn=_powershell(ausgabe, aufrufe)).ok
+    assert aufrufe[0][1]["timeout"] >= 5 * 60
+
+
+def test_zeitueberschreitung_wird_einmal_wiederholt(tmp_path):
+    aufrufe: list = []
+
+    def ausfuehren(befehl, **kwargs):
+        aufrufe.append(1)
+        if len(aufrufe) == 1:
+            raise subprocess.TimeoutExpired(befehl, kwargs["timeout"])
+        return SimpleNamespace(stdout=_signatur("Valid", "CN=Ollama Inc., O=Ollama Inc."), returncode=0)
+
+    assert oes.pruefe_signatur(tmp_path / "x.exe", ausfuehren_fn=ausfuehren).ok
+    assert len(aufrufe) == 2
+
+
+def test_dauerhafte_zeitueberschreitung_fordert_keine_handinstallation(tmp_path):
+    aufrufe: list = []
+
+    def ausfuehren(befehl, **kwargs):
+        aufrufe.append(1)
+        raise subprocess.TimeoutExpired(befehl, kwargs["timeout"])
+
+    ergebnis = oes.pruefe_signatur(tmp_path / "x.exe", ausfuehren_fn=ausfuehren, zeitlimit=120)
+    assert not ergebnis.ok
+    assert len(aufrufe) == oes.SIGNATUR_VERSUCHE
+    assert "ließ sich nicht prüfen" in ergebnis.meldung
+    assert "ollama.com" not in ergebnis.meldung
+    assert "PowerShell" not in ergebnis.meldung  # keine Kommandozeile in der Anwendermeldung
+
+
+@pytest.mark.parametrize("ausgabe", [_signatur("NotSigned", ""), _signatur("Valid", "CN=Jemand, O=Jemand anderes")])
+def test_eindeutiges_ergebnis_wird_nicht_wiederholt(tmp_path, ausgabe):
+    aufrufe: list = []
+    assert not oes.pruefe_signatur(tmp_path / "x.exe", ausfuehren_fn=_powershell(ausgabe, aufrufe)).ok
+    assert len(aufrufe) == 1
+
+
 @pytest.mark.skipif(os.name != "nt", reason="Authenticode gibt es nur unter Windows")
 def test_unsignierte_datei_wird_mit_echter_pruefung_abgelehnt(tmp_path):
     """Die einzige echte PowerShell-Pruefung: eine selbst geschriebene Datei ist

@@ -62,6 +62,9 @@ _LOSGELOEST = getattr(subprocess, "DETACHED_PROCESS", 0)
 _NEUE_GRUPPE = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
 
 INSTALLATION_ZEITLIMIT_SEKUNDEN = 15 * 60
+# Signaturpruefung eines ~1,6 GB grossen Installers (siehe 'pruefe_signatur').
+SIGNATUR_ZEITLIMIT_SEKUNDEN = 10 * 60
+SIGNATUR_VERSUCHE = 2
 DIENST_ZEITLIMIT_SEKUNDEN = 120
 
 # Rueckgabewerte von Inno Setup (https://jrsoftware.org/ishelp/topic_setupexitcodes.htm).
@@ -305,10 +308,41 @@ def _ist_von_ollama(unterzeichner: str) -> bool:
     return any(feld.strip() == SIGNIERER for feld in ohne_zitate.split(","))
 
 
-def pruefe_signatur(pfad: Path, *, ausfuehren_fn: Callable[..., Any] = subprocess.run) -> SignaturErgebnis:
+def _lies_signatur(pfad: Path, powershell: str, ausfuehren_fn: Callable[..., Any], zeitlimit: float) -> tuple[str, str]:
+    """Ein PowerShell-Aufruf: (Status, Unterzeichner). Wirft bei Zeitueberschreitung, fehlender PowerShell
+    oder unlesbarer Antwort."""
+    ergebnis = ausfuehren_fn(
+        [powershell, "-NoProfile", "-NonInteractive", "-Command", _SIGNATUR_SKRIPT],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=zeitlimit,
+        check=False,
+        creationflags=_KEIN_FENSTER,
+        env=_signatur_umgebung(pfad),
+        stdin=subprocess.DEVNULL,
+    )
+    daten = json.loads(ergebnis.stdout)
+    return str(daten.get("s", "")), str(daten.get("u", ""))
+
+
+def pruefe_signatur(
+    pfad: Path,
+    *,
+    ausfuehren_fn: Callable[..., Any] = subprocess.run,
+    zeitlimit: float = SIGNATUR_ZEITLIMIT_SEKUNDEN,
+    versuche: int = SIGNATUR_VERSUCHE,
+) -> SignaturErgebnis:
     """Prueft die Authenticode-Signatur ueber PowerShell. Im Zweifel NICHT ok:
     Fehlt PowerShell, dauert es zu lange oder ist die Antwort unlesbar, wird der
     Installer nicht ausgefuehrt ("fail closed").
+
+    Die Pruefung liest den ganzen, rund 1,6 GB grossen Installer (Hash ueber die Datei), waehrend der Virenscanner
+    die frisch geladene Datei zugleich selbst durchsieht. Das dauerte auf einem Laptop laenger als die frueheren
+    60 Sekunden -- die Einrichtung brach ab und verlangte vom Anwender, Ollama von Hand zu installieren. Deshalb ein
+    grosszuegiges Zeitlimit und ein zweiter Versuch (die Datei liegt dann im Cache). Ein eindeutiges Ergebnis --
+    ungueltige oder fremde Signatur -- wird nie wiederholt.
 
     Warum die Signatur und keine feste Pruefsumme: Der Installer aendert sich mit
     jeder Ollama-Fassung. Die Signatur bindet die Datei ueber eine
@@ -316,23 +350,25 @@ def pruefe_signatur(pfad: Path, *, ausfuehren_fn: Callable[..., Any] = subproces
     selbst = "Bitte Ollama selbst von ollama.com installieren."
     # Aus dem Systemordner, nicht ueber die Suche im PATH (die bis Python 3.11 auch den Arbeitsordner absucht).
     powershell = netz.windows_powershell() or "powershell"
-    try:
-        ergebnis = ausfuehren_fn(
-            [powershell, "-NoProfile", "-NonInteractive", "-Command", _SIGNATUR_SKRIPT],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=60,
-            check=False,
-            creationflags=_KEIN_FENSTER,
-            env=_signatur_umgebung(pfad),
-            stdin=subprocess.DEVNULL,
+    status = unterzeichner = ""
+    grund = ""
+    for _versuch in range(max(1, versuche)):
+        try:
+            status, unterzeichner = _lies_signatur(pfad, powershell, ausfuehren_fn, zeitlimit)
+            break
+        except subprocess.TimeoutExpired:
+            grund = f"Die Prüfung brauchte länger als {zeitlimit / 60:.0f} Minuten"
+        except (OSError, subprocess.SubprocessError, ValueError, AttributeError) as fehler:
+            grund = f"Die Prüfung lieferte kein lesbares Ergebnis ({fehler})"
+    else:
+        # Bewusst ohne "selbst installieren": Die Ursache liegt meist an einem langsamen Rechner oder
+        # Virenscanner, nicht am Installer -- ein erneuter Lauf der Einrichtung hilft, ein Handgriff nicht.
+        return SignaturErgebnis(
+            False,
+            "",
+            f"Die Echtheit des Ollama-Installers ließ sich nicht prüfen. {grund}. Der Rechner ist gerade vermutlich "
+            "stark ausgelastet (Virenscanner?). Bitte die Einrichtung in einigen Minuten erneut starten.",
         )
-        daten = json.loads(ergebnis.stdout)
-        status, unterzeichner = str(daten.get("s", "")), str(daten.get("u", ""))
-    except (OSError, subprocess.SubprocessError, ValueError, AttributeError) as fehler:
-        return SignaturErgebnis(False, "", f"Die Echtheit des Ollama-Installers ließ sich nicht prüfen ({fehler}). {selbst}")
     if status != "Valid":
         return SignaturErgebnis(
             False, unterzeichner, f"Der Ollama-Installer ist nicht gültig signiert (Status: {status or 'unbekannt'}). {selbst}"
@@ -448,7 +484,7 @@ def installiere_ollama(
     log("Ollama wird vom Hersteller geladen ...")
     installer = lade_fn(ziel_ordner, fortschritt, abbrechen_fn=abbrechen_fn, log=log)
     try:
-        log("Echtheit wird geprüft ...")
+        log("Echtheit wird geprüft (bei dieser großen Datei können das einige Minuten dauern) ...")
         signatur = pruef_fn(installer)
         if not signatur.ok:
             raise OllamaEinrichtungFehler(signatur.meldung)
