@@ -16,7 +16,10 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
   Ollama von Hand installieren. Jetzt gilt ein Zeitlimit von 10 Minuten, bei Zeitüberschreitung folgt ein
   zweiter Versuch automatisch; eine ungültige oder fremde Signatur wird weiterhin sofort abgelehnt. Scheitert
   die Prüfung dennoch, nennt die Meldung keine PowerShell-Kommandozeile mehr und verlangt keine
-  Handinstallation, sondern rät, die Einrichtung erneut zu starten.
+  Handinstallation, sondern rät, die Einrichtung erneut zu starten. Ein vollständig geladener, aber nicht zu
+  Ende geprüfter Installer wird dabei nicht gelöscht, sondern beim nächsten Lauf (bis 24 Stunden) wieder
+  verwendet – nach erneuter Signaturprüfung –, statt 1,6 GB noch einmal zu laden. Auch der Systemtest
+  verweist nicht mehr auf eine Handinstallation.
 
 ## [0.5.0-rc1] - 2026-11-12
 

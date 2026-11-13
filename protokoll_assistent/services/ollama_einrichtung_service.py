@@ -95,6 +95,9 @@ class SignaturErgebnis:
     ok: bool
     unterzeichner: str
     meldung: str
+    # False: Die Pruefung selbst kam zu keinem Ergebnis (Zeitlimit, kein lesbares Ergebnis). Der geladene Installer
+    # ist dann nicht als schlecht erkannt und bleibt fuer den naechsten Lauf liegen, statt 1,6 GB neu zu laden.
+    endgueltig: bool = True
 
 
 # --------------------------------------------------------------------------
@@ -367,7 +370,9 @@ def pruefe_signatur(
             False,
             "",
             f"Die Echtheit des Ollama-Installers ließ sich nicht prüfen. {grund}. Der Rechner ist gerade vermutlich "
-            "stark ausgelastet (Virenscanner?). Bitte die Einrichtung in einigen Minuten erneut starten.",
+            "stark ausgelastet (Virenscanner?). Bitte die Einrichtung in einigen Minuten erneut starten; der "
+            "bereits geladene Installer wird dabei weiterverwendet.",
+            endgueltig=False,
         )
     if status != "Valid":
         return SignaturErgebnis(
@@ -458,6 +463,21 @@ def warte_auf_dienst(
         schlafen_fn(1.0)
 
 
+def _wiederverwendbarer_installer(ziel_ordner: Path) -> Path | None:
+    """Ein beim letzten Mal vollstaendig geladener, aber nicht zu Ende gepruefter Installer. ``lade_installer``
+    benennt die Datei erst nach dem vollstaendigen Download um -- ``OllamaSetup.exe`` ist also nie ein Bruchstueck.
+    Verwendet wird sie nur, wenn sie von heute ist und eine plausible Groesse hat; die Signatur wird trotzdem
+    wieder geprueft, bevor irgendetwas laeuft."""
+    pfad = ziel_ordner / "OllamaSetup.exe"
+    try:
+        info = pfad.stat()
+    except OSError:
+        return None
+    if not MIN_GROESSE_BYTES <= info.st_size <= MAX_GROESSE_BYTES or time.time() - info.st_mtime > 24 * 3600:
+        return None
+    return pfad
+
+
 def installiere_ollama(
     ziel_ordner: Path,
     log: LogFn,
@@ -481,17 +501,25 @@ def installiere_ollama(
         log("Ollama wird gestartet ...")
         return warte_fn()
 
-    log("Ollama wird vom Hersteller geladen ...")
-    installer = lade_fn(ziel_ordner, fortschritt, abbrechen_fn=abbrechen_fn, log=log)
+    vorhanden = _wiederverwendbarer_installer(ziel_ordner)
+    if vorhanden is not None:
+        log("Der Ollama-Installer ist schon geladen und wird weiterverwendet.")
+        installer = vorhanden
+    else:
+        log("Ollama wird vom Hersteller geladen ...")
+        installer = lade_fn(ziel_ordner, fortschritt, abbrechen_fn=abbrechen_fn, log=log)
+    behalten = False
     try:
         log("Echtheit wird geprüft (bei dieser großen Datei können das einige Minuten dauern) ...")
         signatur = pruef_fn(installer)
         if not signatur.ok:
+            behalten = not signatur.endgueltig
             raise OllamaEinrichtungFehler(signatur.meldung)
         log(signatur.meldung)
         log("Ollama wird installiert (ohne Administratorrechte, nur für Ihr Benutzerkonto) ...")
         install_fn(installer)
     finally:
-        installer.unlink(missing_ok=True)
+        if not behalten:
+            installer.unlink(missing_ok=True)
     log("Ollama wird gestartet ...")
     return warte_fn()

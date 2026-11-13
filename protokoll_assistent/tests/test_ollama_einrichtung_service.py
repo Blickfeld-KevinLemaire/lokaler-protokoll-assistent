@@ -386,6 +386,7 @@ def test_dauerhafte_zeitueberschreitung_fordert_keine_handinstallation(tmp_path)
     assert "ließ sich nicht prüfen" in ergebnis.meldung
     assert "ollama.com" not in ergebnis.meldung
     assert "PowerShell" not in ergebnis.meldung  # keine Kommandozeile in der Anwendermeldung
+    assert not ergebnis.endgueltig
 
 
 @pytest.mark.parametrize("ausgabe", [_signatur("NotSigned", ""), _signatur("Valid", "CN=Jemand, O=Jemand anderes")])
@@ -557,6 +558,51 @@ def test_falsche_signatur_verhindert_die_installation(tmp_path):
             install_fn=pytest.fail,
         )
     assert not installer.exists()
+
+
+def _grosser_installer(ordner: Path, alter_sekunden: float = 0) -> Path:
+    installer = ordner / "OllamaSetup.exe"
+    with installer.open("wb") as datei:
+        datei.truncate(oes.MIN_GROESSE_BYTES + 1)  # sparse: belegt kaum Platz
+    if alter_sekunden:
+        zeit = installer.stat().st_mtime - alter_sekunden
+        os.utime(installer, (zeit, zeit))
+    return installer
+
+
+def test_nicht_zu_ende_gepruefter_installer_bleibt_liegen_und_wird_wiederverwendet(tmp_path):
+    installer = _grosser_installer(tmp_path)
+    geladen: list[int] = []
+
+    def laden(*args, **kwargs):
+        geladen.append(1)
+        return installer
+
+    zeitueberschreitung = oes.SignaturErgebnis(False, "", "nicht geprüft", endgueltig=False)
+    with pytest.raises(oes.OllamaEinrichtungFehler, match="nicht geprüft"):
+        oes.installiere_ollama(
+            tmp_path, lambda m: None, status_fn=_nicht_installiert, lade_fn=laden,
+            pruef_fn=lambda p: zeitueberschreitung, install_fn=pytest.fail,
+        )
+    assert installer.exists() and not geladen  # vorhanden und frisch: nichts neu geladen, nichts geloescht
+
+    log: list[str] = []
+    ok = oes.installiere_ollama(
+        tmp_path, log.append, status_fn=_nicht_installiert, lade_fn=pytest.fail,
+        pruef_fn=lambda p: oes.SignaturErgebnis(True, "O=Ollama Inc.", "Signatur gültig"),
+        install_fn=lambda p: None, warte_fn=lambda: True,
+    )
+    assert ok and any("weiterverwendet" in zeile for zeile in log)
+    assert not installer.exists()  # nach der Installation wie sonst geloescht
+
+
+def test_alter_oder_zu_kleiner_installer_wird_nicht_wiederverwendet(tmp_path):
+    _grosser_installer(tmp_path, alter_sekunden=25 * 3600)
+    assert oes._wiederverwendbarer_installer(tmp_path) is None
+    (tmp_path / "OllamaSetup.exe").write_bytes(b"MZ")
+    assert oes._wiederverwendbarer_installer(tmp_path) is None
+    (tmp_path / "OllamaSetup.exe").unlink()
+    assert oes._wiederverwendbarer_installer(tmp_path) is None
 
 
 def test_app_starten_startet_den_dienst_und_nicht_die_oberflaeche(tmp_path, monkeypatch):

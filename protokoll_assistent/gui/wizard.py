@@ -266,7 +266,7 @@ def werkzeuge_nachladen(log) -> dict[str, bool]:
     if not ollama_da:
         log(
             "Ollama ist noch nicht einsatzbereit. Bitte den Grund oben beheben und im Systemtest "
-            "„Erneut prüfen“ wählen – oder Ollama selbst von ollama.com installieren."
+            "„Erneut prüfen“ wählen; die Einrichtung setzt dann dort fort."
         )
     return {"ffmpeg": ffmpeg_da, "ollama": ollama_da}
 
