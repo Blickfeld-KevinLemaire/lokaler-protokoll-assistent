@@ -283,6 +283,24 @@ def test_ollama_pull_arbeiter_meldet_fortschritt_und_ende(qt_app):
     assert fertig == ["qwen3:4b"]
 
 
+def test_ollama_pull_arbeiter_fortschritt_ueber_2_gib(qt_app):
+    """Qt-int ist 32 Bit: Eine 5-GB-Modellschicht kam als 672 MB an, Zwischenstaende negativ, und jeder Aufruf
+    warf OverflowError. Die Zahlen muessen unveraendert durchkommen."""
+
+    def pull(modell, progress_cb):
+        progress_cb("pulling", 2_500_000_000, 5_000_000_000)
+
+    arbeiter = worker_modul.OllamaPullWorker("qwen3:8b", pull_fn=pull)
+    fortschritt, fehler = [], []
+    arbeiter.fortschritt.connect(lambda *a: fortschritt.append(a))
+    arbeiter.fehlgeschlagen.connect(lambda *a: fehler.append(a))
+
+    arbeiter.run()
+
+    assert fortschritt == [("pulling", 2_500_000_000, 5_000_000_000)]
+    assert fehler == []
+
+
 def test_ollama_pull_arbeiter_meldet_ollama_fehler_lesbar(qt_app):
     from protokoll_assistent.services import ollama_service
 

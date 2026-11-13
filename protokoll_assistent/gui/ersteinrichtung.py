@@ -174,7 +174,9 @@ class EinrichtungsWorker(QThread):
     """Laedt FFmpeg, installiert Ollama und holt die Sprachmodelle -- der Reihe nach."""
 
     schritt = Signal(str, str)  # Kennung, "laeuft" | "ok" | "fehler"
-    fortschritt = Signal(int, int)  # fertig, gesamt (Bytes; 0, 0 = unbestimmt)
+    # fertig, gesamt (Bytes; 0, 0 = unbestimmt). "object" statt "int": Qt-int ist 32 Bit, ab 2 GiB (jedes Modell ab 4B)
+    # liefen die Zahlen ueber -- negativ oder viel zu klein, und jeder Aufruf warf OverflowError.
+    fortschritt = Signal(object, object)
     log_line = Signal(str)
     fertig = Signal(dict)  # Kennung -> gelungen
 

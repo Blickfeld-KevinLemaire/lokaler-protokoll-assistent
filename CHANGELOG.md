@@ -10,16 +10,18 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 ### Fixed
 
-- **Ersteinrichtung: Ollama-Installer wird nicht mehr nach 60 Sekunden verworfen.** Die Prüfung der Signatur
-  muss den ganzen, rund 1,6 GB großen Installer lesen (zugleich prüft der Virenscanner die frisch geladene
-  Datei) und brach auf langsameren Rechnern mit „timed out after 60 seconds“ ab. Danach sollte der Anwender
-  Ollama von Hand installieren. Jetzt gilt ein Zeitlimit von 10 Minuten, bei Zeitüberschreitung folgt ein
-  zweiter Versuch automatisch; eine ungültige oder fremde Signatur wird weiterhin sofort abgelehnt. Scheitert
-  die Prüfung dennoch, nennt die Meldung keine PowerShell-Kommandozeile mehr und verlangt keine
-  Handinstallation, sondern rät, die Einrichtung erneut zu starten. Ein vollständig geladener, aber nicht zu
-  Ende geprüfter Installer wird dabei nicht gelöscht, sondern beim nächsten Lauf (bis 24 Stunden) wieder
-  verwendet – nach erneuter Signaturprüfung –, statt 1,6 GB noch einmal zu laden. Auch der Systemtest
-  verweist nicht mehr auf eine Handinstallation.
+- **Ersteinrichtung: Ollama wird wieder automatisch installiert.** Die Echtheitsprüfung des Ollama-Installers lief
+  über Windows PowerShell mit 60 Sekunden Zeitlimit. Der Installer ist rund 1,7 GB groß; auf langsameren Rechnern
+  reichte die Zeit nicht, die Einrichtung brach mit „timed out after 60 seconds“ ab und Ollama blieb
+  uninstalliert. Wo eine Firmenrichtlinie PowerShell sperrt, war die Prüfung gar nicht möglich. Jetzt prüft die
+  Anwendung die Signatur selbst über Windows (`wintrust.dll`) – ohne PowerShell, ohne Zeitlimit und rund sechsmal
+  so schnell (1,3 statt 7,7 Sekunden auf einem aktuellen Laptop). Die Prüfung ist unverändert streng: Ausgeführt
+  wird der Installer nur mit gültiger Signatur von „Ollama Inc.“.
+- **Fortschrittsanzeige beim Laden großer Modelle.** Ab 2 GB (jedes Modell ab 4B) zeigte der Balken in der
+  Ersteinrichtung und beim Modell-Download („Jetzt herunterladen“) Unsinn – eine 5-GB-Datei als 672 MB, Zwischenstände
+  negativ –, und jeder Schritt erzeugte intern einen Fehler. Die Zahlen kommen jetzt unverändert an.
+- **Systemtest: Fortschritt beim Laden von Ollama.** Der rund 1,7 GB große Installer wurde dort ohne jede Anzeige
+  geladen; jetzt steht alle 10 % eine Zeile im Protokoll.
 
 ## [0.5.0-rc1] - 2026-11-12
 

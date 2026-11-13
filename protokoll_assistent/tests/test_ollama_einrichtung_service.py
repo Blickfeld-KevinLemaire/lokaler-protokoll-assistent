@@ -1,12 +1,11 @@
 """Tests fuer 'services/ollama_einrichtung_service.py'.
 
 Kein Test laedt etwas herunter, startet ein Programm oder liest die echte
-Registry: Netz, PowerShell und Installer sind durch Attrappen ersetzt."""
+Registry: Netz, Signaturpruefung und Installer sind durch Attrappen ersetzt."""
 
 from __future__ import annotations
 
 import io
-import json
 import os
 import subprocess
 from pathlib import Path
@@ -268,7 +267,7 @@ def test_windows_weg_meldet_fortschritt_und_laesst_sich_abbrechen(tmp_path):
 def test_unterzeichner_muss_genau_die_organisation_sein(tmp_path, unterzeichner, erwartet):
     pfad = tmp_path / "OllamaSetup.exe"
     pfad.write_bytes(b"MZ")
-    ergebnis = oes.pruefe_signatur(pfad, ausfuehren_fn=_powershell(_signatur("Valid", unterzeichner), []))
+    ergebnis = oes.pruefe_signatur(pfad, lies_fn=_signatur("Valid", unterzeichner))
     assert ergebnis.ok is erwartet
 
 
@@ -302,120 +301,92 @@ def test_umbenennen_gibt_irgendwann_auf(tmp_path, monkeypatch):
 # --------------------------------------------------------------------------
 # pruefe_signatur
 # --------------------------------------------------------------------------
-def _powershell(ausgabe: str, aufrufe: list | None = None):
-    def ausfuehren(befehl, **kwargs):
-        if aufrufe is not None:
-            aufrufe.append((befehl, kwargs))
-        return SimpleNamespace(stdout=ausgabe, returncode=0)
-
-    return ausfuehren
-
-
-def _signatur(status: str, unterzeichner: str) -> str:
-    return json.dumps({"s": status, "u": unterzeichner})
+def _signatur(status: str, unterzeichner: str):
+    """Attrappe fuer '_lies_signatur': liefert das Ergebnis, ohne Windows zu fragen."""
+    return lambda pfad: (status, unterzeichner)
 
 
 def test_gueltige_signatur_von_ollama(tmp_path):
-    aufrufe: list = []
-    pfad = tmp_path / "Max Mustermann" / "Setup; & boese.exe"
     ergebnis = oes.pruefe_signatur(
-        pfad, ausfuehren_fn=_powershell(_signatur("Valid", "CN=Ollama Inc., O=Ollama Inc., L=Toronto"), aufrufe)
+        tmp_path / "x.exe", lies_fn=_signatur("Valid", "CN=Ollama Inc., O=Ollama Inc., L=Toronto")
     )
     assert ergebnis.ok
-    befehl, kwargs = aufrufe[0]
-    # Der Pfad steht weder im Befehlstext noch als weiteres Argument, sondern in der Umgebung.
-    assert not any(str(pfad) in teil for teil in befehl)
-    assert kwargs["env"][oes._PFAD_VARIABLE] == str(pfad)
+    assert ergebnis.meldung == "Signatur gültig: Ollama Inc."
 
 
 @pytest.mark.parametrize(
-    ("ausgabe", "meldung"),
+    ("status", "unterzeichner", "meldung"),
     [
-        (_signatur("NotSigned", ""), "nicht gültig signiert"),
-        (_signatur("HashMismatch", "CN=Ollama Inc., O=Ollama Inc."), "nicht gültig signiert"),
-        (_signatur("Valid", "CN=Jemand, O=Jemand anderes"), "von jemand anderem"),
-        ("Get-AuthenticodeSignature : nicht erlaubt", "ließ sich nicht prüfen"),  # kein JSON
-        ("", "ließ sich nicht prüfen"),
+        ("NotSigned", "", "nicht gültig signiert"),
+        ("HashMismatch", "CN=Ollama Inc., O=Ollama Inc.", "nicht gültig signiert"),
+        ("Fehler 0x800B0003", "", "nicht gültig signiert"),
+        ("", "", "Status: unbekannt"),
+        ("Valid", "CN=Jemand, O=Jemand anderes", "von jemand anderem"),
     ],
 )
-def test_im_zweifel_wird_nicht_ausgefuehrt(tmp_path, ausgabe, meldung):
-    ergebnis = oes.pruefe_signatur(tmp_path / "x.exe", ausfuehren_fn=_powershell(ausgabe))
+def test_im_zweifel_wird_nicht_ausgefuehrt(tmp_path, status, unterzeichner, meldung):
+    ergebnis = oes.pruefe_signatur(tmp_path / "x.exe", lies_fn=_signatur(status, unterzeichner))
     assert not ergebnis.ok
     assert meldung in ergebnis.meldung
 
 
-@pytest.mark.parametrize("fehler", [FileNotFoundError("powershell"), subprocess.TimeoutExpired("powershell", 60)])
-def test_ohne_powershell_wird_nicht_ausgefuehrt(tmp_path, fehler):
-    def ausfuehren(befehl, **kwargs):
+@pytest.mark.parametrize("fehler", [OSError("wintrust.dll fehlt"), AttributeError("WinVerifyTrust"), ValueError("x")])
+def test_nicht_pruefbar_wird_nicht_ausgefuehrt(tmp_path, fehler):
+    def lies(pfad):
         raise fehler
 
-    assert not oes.pruefe_signatur(tmp_path / "x.exe", ausfuehren_fn=ausfuehren).ok
-
-
-def test_signaturpruefung_hat_grosszuegiges_zeitlimit(tmp_path):
-    """Der Installer ist ~1,6 GB gross; 60 s reichten auf einem Laptop nicht (Einrichtung brach ab)."""
-    aufrufe: list = []
-    ausgabe = _signatur("Valid", "CN=Ollama Inc., O=Ollama Inc.")
-    assert oes.pruefe_signatur(tmp_path / "x.exe", ausfuehren_fn=_powershell(ausgabe, aufrufe)).ok
-    assert aufrufe[0][1]["timeout"] >= 5 * 60
-
-
-def test_zeitueberschreitung_wird_einmal_wiederholt(tmp_path):
-    aufrufe: list = []
-
-    def ausfuehren(befehl, **kwargs):
-        aufrufe.append(1)
-        if len(aufrufe) == 1:
-            raise subprocess.TimeoutExpired(befehl, kwargs["timeout"])
-        return SimpleNamespace(stdout=_signatur("Valid", "CN=Ollama Inc., O=Ollama Inc."), returncode=0)
-
-    assert oes.pruefe_signatur(tmp_path / "x.exe", ausfuehren_fn=ausfuehren).ok
-    assert len(aufrufe) == 2
-
-
-def test_dauerhafte_zeitueberschreitung_fordert_keine_handinstallation(tmp_path):
-    aufrufe: list = []
-
-    def ausfuehren(befehl, **kwargs):
-        aufrufe.append(1)
-        raise subprocess.TimeoutExpired(befehl, kwargs["timeout"])
-
-    ergebnis = oes.pruefe_signatur(tmp_path / "x.exe", ausfuehren_fn=ausfuehren, zeitlimit=120)
+    ergebnis = oes.pruefe_signatur(tmp_path / "x.exe", lies_fn=lies)
     assert not ergebnis.ok
-    assert len(aufrufe) == oes.SIGNATUR_VERSUCHE
     assert "ließ sich nicht prüfen" in ergebnis.meldung
-    assert "ollama.com" not in ergebnis.meldung
-    assert "PowerShell" not in ergebnis.meldung  # keine Kommandozeile in der Anwendermeldung
-    assert not ergebnis.endgueltig
 
 
-@pytest.mark.parametrize("ausgabe", [_signatur("NotSigned", ""), _signatur("Valid", "CN=Jemand, O=Jemand anderes")])
-def test_eindeutiges_ergebnis_wird_nicht_wiederholt(tmp_path, ausgabe):
-    aufrufe: list = []
-    assert not oes.pruefe_signatur(tmp_path / "x.exe", ausfuehren_fn=_powershell(ausgabe, aufrufe)).ok
-    assert len(aufrufe) == 1
+def test_ausserhalb_von_windows_nie_gueltig(tmp_path, monkeypatch):
+    """Ohne Windows gibt es kein Authenticode -- die echte Pruefung meldet das, statt etwas durchzulassen."""
+    monkeypatch.setattr(oes.sys, "platform", "linux")
+    ergebnis = oes.pruefe_signatur(tmp_path / "x.exe")
+    assert not ergebnis.ok
+    assert "nur unter Windows" in ergebnis.meldung
 
 
-@pytest.mark.skipif(os.name != "nt", reason="Authenticode gibt es nur unter Windows")
+# Die echten Pruefungen ueber wintrust.dll -- ohne PowerShell, ohne Netz. 'ntdll.dll' traegt auf jedem Windows eine
+# eingebettete Signatur von Microsoft (die meisten anderen Systemdateien sind nur ueber Kataloge signiert).
+_NTDLL = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "ntdll.dll"
+nur_windows = pytest.mark.skipif(os.name != "nt", reason="Authenticode gibt es nur unter Windows")
+
+
+@nur_windows
 def test_unsignierte_datei_wird_mit_echter_pruefung_abgelehnt(tmp_path):
-    """Die einzige echte PowerShell-Pruefung: eine selbst geschriebene Datei ist
-    nie gueltig signiert -- auch nicht in einem Ordner mit Leerzeichen."""
-    pfad = tmp_path / "Max Mustermann" / "x.exe"
+    """Eine selbst geschriebene Datei ist nie gueltig signiert -- auch nicht in einem Ordner mit Leerzeichen
+    und Sonderzeichen im Namen."""
+    pfad = tmp_path / "Max Mustermann" / "Setup; & boese.exe"
     pfad.parent.mkdir()
     pfad.write_bytes(b"MZ" + b"\0" * 100)
     ergebnis = oes.pruefe_signatur(pfad)
     assert not ergebnis.ok
-    # PowerShell hat die Datei wirklich geprueft (und nicht etwa das Modul nicht laden
-    # koennen -- dann bliebe der Status leer): NotSigned bzw. UnknownError fuer diese Attrappe.
     assert "Status: unbekannt" not in ergebnis.meldung, ergebnis.meldung
     assert "nicht gültig signiert" in ergebnis.meldung
 
 
-def test_powershell_bekommt_keinen_fremden_modulpfad(tmp_path, monkeypatch):
-    monkeypatch.setenv("PSModulePath", r"C:\Program Files\PowerShell\7\Modules")
-    umgebung = oes._signatur_umgebung(tmp_path / "x.exe")
-    assert not any(name.upper() == "PSMODULEPATH" for name in umgebung)
-    assert umgebung[oes._PFAD_VARIABLE] == str(tmp_path / "x.exe")
+@nur_windows
+def test_echte_pruefung_erkennt_gueltige_signatur_und_unterzeichner():
+    """Gueltig signiert, aber von Microsoft -- also nicht von Ollama. Zeigt zugleich, dass Status UND
+    Unterzeichner aus wintrust.dll wirklich gelesen werden (im Format von PowerShell)."""
+    status, unterzeichner = oes._lies_signatur(_NTDLL)
+    assert status == "Valid"
+    assert "O=Microsoft Corporation" in unterzeichner
+    ergebnis = oes.pruefe_signatur(_NTDLL)
+    assert not ergebnis.ok
+    assert "von jemand anderem" in ergebnis.meldung
+
+
+@nur_windows
+def test_echte_pruefung_erkennt_veraenderte_datei(tmp_path):
+    inhalt = bytearray(_NTDLL.read_bytes())
+    inhalt[len(inhalt) // 2] ^= 0xFF
+    pfad = tmp_path / "veraendert.dll"
+    pfad.write_bytes(bytes(inhalt))
+    assert oes._lies_signatur(pfad)[0] == "HashMismatch"
+    assert not oes.pruefe_signatur(pfad).ok
 
 
 # --------------------------------------------------------------------------
@@ -558,51 +529,6 @@ def test_falsche_signatur_verhindert_die_installation(tmp_path):
             install_fn=pytest.fail,
         )
     assert not installer.exists()
-
-
-def _grosser_installer(ordner: Path, alter_sekunden: float = 0) -> Path:
-    installer = ordner / "OllamaSetup.exe"
-    with installer.open("wb") as datei:
-        datei.truncate(oes.MIN_GROESSE_BYTES + 1)  # sparse: belegt kaum Platz
-    if alter_sekunden:
-        zeit = installer.stat().st_mtime - alter_sekunden
-        os.utime(installer, (zeit, zeit))
-    return installer
-
-
-def test_nicht_zu_ende_gepruefter_installer_bleibt_liegen_und_wird_wiederverwendet(tmp_path):
-    installer = _grosser_installer(tmp_path)
-    geladen: list[int] = []
-
-    def laden(*args, **kwargs):
-        geladen.append(1)
-        return installer
-
-    zeitueberschreitung = oes.SignaturErgebnis(False, "", "nicht geprüft", endgueltig=False)
-    with pytest.raises(oes.OllamaEinrichtungFehler, match="nicht geprüft"):
-        oes.installiere_ollama(
-            tmp_path, lambda m: None, status_fn=_nicht_installiert, lade_fn=laden,
-            pruef_fn=lambda p: zeitueberschreitung, install_fn=pytest.fail,
-        )
-    assert installer.exists() and not geladen  # vorhanden und frisch: nichts neu geladen, nichts geloescht
-
-    log: list[str] = []
-    ok = oes.installiere_ollama(
-        tmp_path, log.append, status_fn=_nicht_installiert, lade_fn=pytest.fail,
-        pruef_fn=lambda p: oes.SignaturErgebnis(True, "O=Ollama Inc.", "Signatur gültig"),
-        install_fn=lambda p: None, warte_fn=lambda: True,
-    )
-    assert ok and any("weiterverwendet" in zeile for zeile in log)
-    assert not installer.exists()  # nach der Installation wie sonst geloescht
-
-
-def test_alter_oder_zu_kleiner_installer_wird_nicht_wiederverwendet(tmp_path):
-    _grosser_installer(tmp_path, alter_sekunden=25 * 3600)
-    assert oes._wiederverwendbarer_installer(tmp_path) is None
-    (tmp_path / "OllamaSetup.exe").write_bytes(b"MZ")
-    assert oes._wiederverwendbarer_installer(tmp_path) is None
-    (tmp_path / "OllamaSetup.exe").unlink()
-    assert oes._wiederverwendbarer_installer(tmp_path) is None
 
 
 def test_app_starten_startet_den_dienst_und_nicht_die_oberflaeche(tmp_path, monkeypatch):
