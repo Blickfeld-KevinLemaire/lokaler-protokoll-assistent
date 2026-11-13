@@ -8,6 +8,11 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.5.0-rc2] - 2026-11-13
+
+Zweiter Kandidat für die Beta: Ollama wird in der Ersteinrichtung wieder zuverlässig installiert, und die
+Fortschrittsanzeige stimmt auch bei großen Modellen.
+
 ### Fixed
 
 - **Ersteinrichtung: Ollama wird wieder automatisch installiert.** Die Echtheitsprüfung des Ollama-Installers lief
@@ -750,7 +755,8 @@ Installation.
 - Installer für Windows (ohne Administratorrechte, mit mitgelieferter
   Python-Laufzeitumgebung)
 
-[Unreleased]: https://github.com/Blickfeld-KevinLemaire/lokaler-protokoll-assistent/compare/v0.5.0-rc1...HEAD
+[Unreleased]: https://github.com/Blickfeld-KevinLemaire/lokaler-protokoll-assistent/compare/v0.5.0-rc2...HEAD
+[0.5.0-rc2]: https://github.com/Blickfeld-KevinLemaire/lokaler-protokoll-assistent/compare/v0.5.0-rc1...v0.5.0-rc2
 [0.5.0-rc1]: https://github.com/Blickfeld-KevinLemaire/lokaler-protokoll-assistent/compare/v0.5.0-beta...v0.5.0-rc1
 [0.5.0-beta]: https://github.com/Blickfeld-KevinLemaire/lokaler-protokoll-assistent/compare/v0.3.1...v0.5.0-beta
 [0.3.1]: https://github.com/Blickfeld-KevinLemaire/lokaler-protokoll-assistent/compare/v0.3.0...v0.3.1
