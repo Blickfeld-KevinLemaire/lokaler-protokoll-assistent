@@ -92,7 +92,7 @@ def test_install_worker_laeuft_durch(install_worker, monkeypatch, tmp_path):
     monkeypatch.setattr(ffmpeg_service, "ensure_ffmpeg_available", lambda progress_cb: None)
     monkeypatch.setattr(ffmpeg_service, "find_ffmpeg", lambda: Path("ffmpeg.exe"))
     monkeypatch.setattr(ffmpeg_service, "find_ffprobe", lambda: Path("ffprobe.exe"))
-    monkeypatch.setattr(ollama_einrichtung_service, "installiere_ollama", lambda ordner, log: True)
+    monkeypatch.setattr(ollama_einrichtung_service, "installiere_ollama", lambda ordner, log, fortschritt=None: True)
     monkeypatch.setattr(
         model_download_service, "download_pyannote", lambda log, get_token: True
     )
@@ -778,7 +778,7 @@ def _werkzeuge(monkeypatch, ffmpeg_da, ollama_da):
     monkeypatch.setattr(ffmpeg_service, "ensure_ffmpeg_available", lambda progress_cb: None)
     monkeypatch.setattr(ffmpeg_service, "find_ffmpeg", lambda: Path("ffmpeg.exe") if ffmpeg_da else None)
     monkeypatch.setattr(ffmpeg_service, "find_ffprobe", lambda: Path("ffprobe.exe") if ffmpeg_da else None)
-    monkeypatch.setattr(ollama_einrichtung_service, "installiere_ollama", lambda ordner, log: ollama_da)
+    monkeypatch.setattr(ollama_einrichtung_service, "installiere_ollama", lambda ordner, log, fortschritt=None: ollama_da)
 
 
 def test_werkzeuge_nachladen_meldet_gelungenes(monkeypatch):
@@ -794,6 +794,26 @@ def test_werkzeuge_nachladen_meldet_fehlschlaege(monkeypatch):
     assert wizard.werkzeuge_nachladen(meldungen.append) == {"ffmpeg": False, "ollama": False}
     text = "\n".join(meldungen)
     assert "FFmpeg fehlt weiterhin" in text and "Ollama ist noch nicht einsatzbereit" in text
+
+
+def test_installer_download_meldet_fortschritt_in_zehnerschritten():
+    """Der Systemtest hat keinen Balken; der 1,7-GB-Download soll trotzdem nicht nach Stillstand aussehen."""
+    zeilen: list[str] = []
+    melden = wizard._fortschritt_als_zeilen(zeilen.append)
+    gesamt = 1_800_000_000
+    for fertig in range(0, gesamt + 1, 1024**2):  # wie lade_installer: je Block von 1 MB
+        melden(fertig, gesamt)
+    melden(gesamt, gesamt)
+    assert len(zeilen) == 11  # 0 %, 10 %, ..., 100 % -- je einmal
+    assert zeilen[1].strip().startswith("10 %") and zeilen[-1].strip().startswith("100 % (1717 von 1717 MB)")
+
+
+def test_installer_download_ohne_gesamtgroesse_meldet_megabytes():
+    zeilen: list[str] = []
+    melden = wizard._fortschritt_als_zeilen(zeilen.append, schritt_mb=100)
+    for mb in range(0, 301):
+        melden(mb * 1024**2, 0)
+    assert [z.strip() for z in zeilen] == ["100 MB geladen", "200 MB geladen", "300 MB geladen"]
 
 
 def test_nachlade_worker_laedt_auch_das_modell(qt_app, monkeypatch, isolierte_konfiguration):

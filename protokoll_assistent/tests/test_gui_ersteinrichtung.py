@@ -556,6 +556,21 @@ def test_einrichtungsworker_kompletter_ablauf(qt_app):
     assert zustaende[:2] == [("ffmpeg", "laeuft"), ("ffmpeg", "ok")]
 
 
+def test_einrichtungsfortschritt_ueber_2_gib(qt_app):
+    """Qt-int ist 32 Bit: Modelle ab 4B sind groesser als 2 GiB, die Anzeige lief ueber (negativ, viel zu klein)."""
+    worker = ee.EinrichtungsWorker(
+        [], ["qwen3:8b"],
+        pull_fn=lambda modell, progress_cb: progress_cb("pulling", 2_500_000_000, 5_000_000_000),
+        verifiziere_fn=lambda modell: True,
+    )
+    fortschritt, ergebnis = [], []
+    worker.fortschritt.connect(lambda *a: fortschritt.append(a))
+    worker.fertig.connect(ergebnis.append)
+    worker.run()
+    assert (2_500_000_000, 5_000_000_000) in fortschritt
+    assert ergebnis == [{"modell:qwen3:8b": True}]
+
+
 def test_einrichtungsworker_ohne_ollama_keine_modelle(qt_app):
     from protokoll_assistent.services import ollama_einrichtung_service
 

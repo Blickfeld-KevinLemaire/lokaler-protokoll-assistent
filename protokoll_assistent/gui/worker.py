@@ -174,7 +174,8 @@ class OllamaPullWorker(QThread):
     Schaltflaeche "Jetzt herunterladen"). ``pull_fn`` ist austauschbar, damit
     Tests kein Netz brauchen."""
 
-    fortschritt = Signal(str, int, int)
+    # Status, fertig, gesamt (Bytes). "object" statt "int": Qt-int ist 32 Bit, Modellschichten sind oft groesser als 2 GiB.
+    fortschritt = Signal(str, object, object)
     fertig = Signal(str)
     fehlgeschlagen = Signal(str, str)
 

@@ -97,11 +97,6 @@ def _powershell() -> str | None:
     return str(pfad) if pfad else shutil.which("powershell.exe")
 
 
-def windows_powershell() -> str | None:
-    """Windows PowerShell 5.1 aus dem Systemordner (auch fuer die Signaturpruefung des Ollama-Installers)."""
-    return _powershell()
-
-
 def _proxy_fuer(url: str) -> str | None:
     """Der in Windows (Internetoptionen) oder per Umgebungsvariable eingestellte Proxy fuer ``url`` --
     ``curl.exe`` liest die Windows-Einstellung selbst nicht."""

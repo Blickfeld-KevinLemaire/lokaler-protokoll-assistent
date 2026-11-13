@@ -8,6 +8,21 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Ersteinrichtung: Ollama wird wieder automatisch installiert.** Die Echtheitsprüfung des Ollama-Installers lief
+  über Windows PowerShell mit 60 Sekunden Zeitlimit. Der Installer ist rund 1,7 GB groß; auf langsameren Rechnern
+  reichte die Zeit nicht, die Einrichtung brach mit „timed out after 60 seconds“ ab und Ollama blieb
+  uninstalliert. Wo eine Firmenrichtlinie PowerShell sperrt, war die Prüfung gar nicht möglich. Jetzt prüft die
+  Anwendung die Signatur selbst über Windows (`wintrust.dll`) – ohne PowerShell, ohne Zeitlimit und rund sechsmal
+  so schnell (1,3 statt 7,7 Sekunden auf einem aktuellen Laptop). Die Prüfung ist unverändert streng: Ausgeführt
+  wird der Installer nur mit gültiger Signatur von „Ollama Inc.“.
+- **Fortschrittsanzeige beim Laden großer Modelle.** Ab 2 GB (jedes Modell ab 4B) zeigte der Balken in der
+  Ersteinrichtung und beim Modell-Download („Jetzt herunterladen“) Unsinn – eine 5-GB-Datei als 672 MB, Zwischenstände
+  negativ –, und jeder Schritt erzeugte intern einen Fehler. Die Zahlen kommen jetzt unverändert an.
+- **Systemtest: Fortschritt beim Laden von Ollama.** Der rund 1,7 GB große Installer wurde dort ohne jede Anzeige
+  geladen; jetzt steht alle 10 % eine Zeile im Protokoll.
+
 ## [0.5.0-rc1] - 2026-11-12
 
 Kandidat für die Beta. Enthält die beiden Korrekturen aus dem Feld (Downloads hinter Firmenproxys, zweite Instanz)

@@ -55,7 +55,9 @@ zugestimmt haben. Entsprechend gelten hier ein paar Punkte besonders:
   `github.com` und dessen Speicher fuer Release-Dateien erlaubt. Groesse und
   Dateiformat werden geprueft, und ausgefuehrt wird die Datei nur, wenn ihre
   Authenticode-Signatur gueltig ist und von „Ollama Inc.“ stammt — sonst nicht
-  (auch dann nicht, wenn sich die Signatur nicht pruefen laesst). Installiert
+  (auch dann nicht, wenn sich die Signatur nicht pruefen laesst). Geprueft wird
+  mit `WinVerifyTrust` aus `wintrust.dll` im eigenen Prozess, ohne PowerShell
+  und ohne Sperrlistenabfrage im Netz. Installiert
   wird still, nur fuer das eigene Benutzerkonto und ohne Administratorrechte;
   der Installer wird danach geloescht. Ollama startet anschliessend mit Windows
   und ist nur auf diesem Rechner erreichbar (127.0.0.1:11434). Uebertragen wird

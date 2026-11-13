@@ -238,6 +238,25 @@ class RechnerAnalysePage(QWidget):
             update_config(**aenderungen)
 
 
+def _fortschritt_als_zeilen(log, schritt_mb: int = 250):
+    """Download-Fortschritt als Protokollzeilen -- der Systemtest hat keinen Fortschrittsbalken, und der
+    Ollama-Installer ist rund 1,7 GB gross: Ohne Zeilen sah es minutenlang nach Stillstand aus. Je 10 %,
+    oder je ``schritt_mb`` MB, wenn die Gesamtgroesse unbekannt ist (Rueckfallweg ueber Windows)."""
+    zuletzt = [-1]
+
+    def melden(fertig: int, gesamt: int) -> None:
+        stufe = fertig * 10 // gesamt if gesamt > 0 else fertig // (schritt_mb * 1024**2)
+        if stufe <= zuletzt[0]:
+            return
+        zuletzt[0] = stufe
+        if gesamt > 0:
+            log(f"  {stufe * 10} % ({fertig / 1024**2:.0f} von {gesamt / 1024**2:.0f} MB)")
+        elif stufe > 0:
+            log(f"  {fertig / 1024**2:.0f} MB geladen")
+
+    return melden
+
+
 def werkzeuge_nachladen(log) -> dict[str, bool]:
     """Stellt FFmpeg und Ollama bereit (Download, falls sie fehlen).
 
@@ -259,7 +278,7 @@ def werkzeuge_nachladen(log) -> dict[str, bool]:
     # Derselbe gepruefte Weg wie in der Ersteinrichtung: Adresse, Groesse und Signatur des Installers
     # werden geprueft, bevor er laeuft. Frueher lud diese Stelle die Datei ungeprueft und startete sie.
     try:
-        ollama_da = bool(ollama_einrichtung_service.installiere_ollama(installer_dir, log))
+        ollama_da = bool(ollama_einrichtung_service.installiere_ollama(installer_dir, log, _fortschritt_als_zeilen(log)))
     except ollama_einrichtung_service.OllamaEinrichtungFehler as fehler:
         log(str(fehler))
         ollama_da = False

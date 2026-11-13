@@ -23,8 +23,6 @@ austauschbar: Die Tests brauchen weder Netz noch Ollama (CLAUDE.md, Regel 4).
 from __future__ import annotations
 
 import hashlib
-import json
-import os
 import re
 import subprocess
 import sys
@@ -275,26 +273,118 @@ def lade_installer(
 # --------------------------------------------------------------------------
 # Echtheit pruefen
 # --------------------------------------------------------------------------
-# Der Pfad kommt ueber eine Umgebungsvariable, nie in den Befehlstext: Mit
-# '-Command' fuegt PowerShell alle weiteren Argumente zu EINEM Befehl zusammen --
-# ein Benutzerordner mit Leerzeichen ("C:\Users\Max Mustermann") wuerde den
-# Aufruf zerreissen, ein Name mit ';' sogar etwas ausfuehren.
-_PFAD_VARIABLE = "PROTOKOLL_PRUEFDATEI"
-_SIGNATUR_SKRIPT = (
-    "[Console]::OutputEncoding = [Text.Encoding]::UTF8; "
-    f"$s = Get-AuthenticodeSignature -LiteralPath $env:{_PFAD_VARIABLE}; "
-    "@{s = [string]$s.Status; u = [string]$s.SignerCertificate.Subject} | ConvertTo-Json -Compress"
-)
+# Rueckgabewerte von WinVerifyTrust, benannt wie 'Get-AuthenticodeSignature' sie meldet. Alles andere erscheint
+# als Fehlercode -- und gilt genauso als ungueltig.
+_WINTRUST_STATUS = {
+    0x00000000: "Valid",
+    0x800B0100: "NotSigned",  # TRUST_E_NOSIGNATURE
+    0x80096010: "HashMismatch",  # TRUST_E_BAD_DIGEST: Datei nach dem Signieren veraendert
+    0x800B0109: "NotTrusted",  # CERT_E_UNTRUSTEDROOT
+    0x800B0111: "NotTrusted",  # TRUST_E_EXPLICIT_DISTRUST
+}
 
 
-def _signatur_umgebung(pfad: Path) -> dict[str, str]:
-    """Die Umgebung fuer Windows PowerShell 5.1 -- OHNE 'PSModulePath': Wurde die
-    Anwendung aus PowerShell 7 gestartet, zeigt die Variable auf deren Module, und
-    5.1 kann 'Get-AuthenticodeSignature' dann nicht laden (am 04.10.2026 so
-    aufgefallen). Ohne die Variable nimmt 5.1 seine eigenen."""
-    umgebung = {name: wert for name, wert in os.environ.items() if name.upper() != "PSMODULEPATH"}
-    umgebung[_PFAD_VARIABLE] = str(pfad)
-    return umgebung
+def _lies_signatur(pfad: Path) -> tuple[str, str]:
+    """(Status, Unterzeichner) der eingebetteten Authenticode-Signatur -- direkt ueber ``WinVerifyTrust`` aus
+    ``wintrust.dll``, also dieselbe Pruefung, die ``Get-AuthenticodeSignature`` intern aufruft.
+
+    Frueher lief das ueber Windows PowerShell 5.1 in einem eigenen Prozess mit 60 s Zeitlimit. Auf langsameren
+    Laptops lief es in dieses Limit (die Pruefung liest den ganzen, ~1,7 GB grossen Installer), und wo eine
+    Firmenrichtlinie PowerShell sperrt (AppLocker, WDAC), war sie gar nicht moeglich -- beides Mal wurde Ollama
+    nicht installiert. ``wintrust.dll`` gehoert zu jedem Windows und laeuft hier im eigenen Prozess; gemessen
+    1,3 s statt 7,7 s fuer den Installer von Ollama 0.40 (13.11.2026). Ein Zeitlimit braucht es damit nicht.
+
+    Keine Sperrlistenabfrage (``WTD_REVOKE_NONE``, wie ``Get-AuthenticodeSignature``): Sie kann hinter einem
+    Firmenproxy haengen. Wirft ``OSError``, wenn die Pruefung selbst nicht moeglich ist."""
+    if sys.platform != "win32":
+        raise OSError("Die Signaturprüfung gibt es nur unter Windows.")
+    import ctypes
+    import uuid
+    from ctypes import wintypes
+
+    class _Guid(ctypes.Structure):
+        _fields_ = [
+            ("Data1", wintypes.DWORD),
+            ("Data2", wintypes.WORD),
+            ("Data3", wintypes.WORD),
+            ("Data4", ctypes.c_ubyte * 8),
+        ]
+
+    class _DateiInfo(ctypes.Structure):  # WINTRUST_FILE_INFO
+        _fields_ = [
+            ("cbStruct", wintypes.DWORD),
+            ("pcwszFilePath", wintypes.LPCWSTR),
+            ("hFile", wintypes.HANDLE),
+            ("pgKnownSubject", ctypes.c_void_p),
+        ]
+
+    class _Daten(ctypes.Structure):  # WINTRUST_DATA
+        _fields_ = [
+            ("cbStruct", wintypes.DWORD),
+            ("pPolicyCallbackData", ctypes.c_void_p),
+            ("pSIPClientData", ctypes.c_void_p),
+            ("dwUIChoice", wintypes.DWORD),
+            ("fdwRevocationChecks", wintypes.DWORD),
+            ("dwUnionChoice", wintypes.DWORD),
+            ("pFile", ctypes.POINTER(_DateiInfo)),
+            ("dwStateAction", wintypes.DWORD),
+            ("hWVTStateData", wintypes.HANDLE),
+            ("pwszURLReference", wintypes.LPWSTR),
+            ("dwProvFlags", wintypes.DWORD),
+            ("dwUIContext", wintypes.DWORD),
+            ("pSignatureSettings", ctypes.c_void_p),
+        ]
+
+    class _AnbieterZertifikat(ctypes.Structure):  # Anfang von CRYPT_PROVIDER_CERT
+        _fields_ = [("cbStruct", wintypes.DWORD), ("pCert", ctypes.c_void_p)]
+
+    wintrust = ctypes.WinDLL("wintrust")
+    crypt32 = ctypes.WinDLL("crypt32")
+    pruefen = wintrust.WinVerifyTrust
+    pruefen.argtypes = [wintypes.HWND, ctypes.POINTER(_Guid), ctypes.POINTER(_Daten)]
+    pruefen.restype = wintypes.LONG
+    anbieter = wintrust.WTHelperProvDataFromStateData
+    anbieter.argtypes = [wintypes.HANDLE]
+    anbieter.restype = ctypes.c_void_p
+    unterzeichner_fn = wintrust.WTHelperGetProvSignerFromChain
+    unterzeichner_fn.argtypes = [ctypes.c_void_p, wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    unterzeichner_fn.restype = ctypes.c_void_p
+    zertifikat_fn = wintrust.WTHelperGetProvCertFromChain
+    zertifikat_fn.argtypes = [ctypes.c_void_p, wintypes.DWORD]
+    zertifikat_fn.restype = ctypes.c_void_p
+    name_fn = crypt32.CertGetNameStringW
+    name_fn.argtypes = [ctypes.c_void_p, wintypes.DWORD, wintypes.DWORD, ctypes.c_void_p, wintypes.LPWSTR, wintypes.DWORD]
+    name_fn.restype = wintypes.DWORD
+
+    # WINTRUST_ACTION_GENERIC_VERIFY_V2: die Authenticode-Pruefung
+    kennung = uuid.UUID("00AAC56B-CD44-11d0-8CC2-00C04FC295EE")
+    aktion = _Guid(kennung.fields[0], kennung.fields[1], kennung.fields[2])
+    aktion.Data4[:] = list(kennung.bytes[8:])
+    datei = _DateiInfo(ctypes.sizeof(_DateiInfo), str(pfad), None, None)
+    daten = _Daten()
+    daten.cbStruct = ctypes.sizeof(_Daten)
+    daten.dwUIChoice = 2  # WTD_UI_NONE
+    daten.fdwRevocationChecks = 0  # WTD_REVOKE_NONE
+    daten.dwUnionChoice = 1  # WTD_CHOICE_FILE
+    daten.pFile = ctypes.pointer(datei)
+    daten.dwStateAction = 1  # WTD_STATEACTION_VERIFY
+    code = pruefen(None, ctypes.byref(aktion), ctypes.byref(daten)) & 0xFFFFFFFF
+    unterzeichner = ""
+    try:
+        zeiger = anbieter(daten.hWVTStateData)
+        zeiger = unterzeichner_fn(zeiger, 0, False, 0) if zeiger else None
+        zeiger = zertifikat_fn(zeiger, 0) if zeiger else None
+        if zeiger:
+            zertifikat = _AnbieterZertifikat.from_address(zeiger).pCert
+            # CERT_X500_NAME_STR | CERT_NAME_STR_REVERSE_FLAG: "CN=..., O=..., C=..." wie bei PowerShell
+            art = wintypes.DWORD(3 | 0x02000000)
+            puffer = ctypes.create_unicode_buffer(2048)
+            name_fn(zertifikat, 2, 0, ctypes.byref(art), puffer, len(puffer))  # CERT_NAME_RDN_TYPE
+            unterzeichner = puffer.value
+    finally:
+        daten.dwStateAction = 2  # WTD_STATEACTION_CLOSE
+        pruefen(None, ctypes.byref(aktion), ctypes.byref(daten))
+    return _WINTRUST_STATUS.get(code, f"Fehler 0x{code:08X}"), unterzeichner
 
 
 def _ist_von_ollama(unterzeichner: str) -> bool:
@@ -305,33 +395,20 @@ def _ist_von_ollama(unterzeichner: str) -> bool:
     return any(feld.strip() == SIGNIERER for feld in ohne_zitate.split(","))
 
 
-def pruefe_signatur(pfad: Path, *, ausfuehren_fn: Callable[..., Any] = subprocess.run) -> SignaturErgebnis:
-    """Prueft die Authenticode-Signatur ueber PowerShell. Im Zweifel NICHT ok:
-    Fehlt PowerShell, dauert es zu lange oder ist die Antwort unlesbar, wird der
-    Installer nicht ausgefuehrt ("fail closed").
+def pruefe_signatur(
+    pfad: Path, *, lies_fn: Callable[[Path], tuple[str, str]] = _lies_signatur
+) -> SignaturErgebnis:
+    """Prueft die Authenticode-Signatur (``_lies_signatur``). Im Zweifel NICHT ok:
+    Laesst sich die Signatur nicht lesen, wird der Installer nicht ausgefuehrt
+    ("fail closed").
 
     Warum die Signatur und keine feste Pruefsumme: Der Installer aendert sich mit
     jeder Ollama-Fassung. Die Signatur bindet die Datei ueber eine
     Zertifizierungsstelle an den Hersteller -- das ist die aussagekraeftige Pruefung."""
     selbst = "Bitte Ollama selbst von ollama.com installieren."
-    # Aus dem Systemordner, nicht ueber die Suche im PATH (die bis Python 3.11 auch den Arbeitsordner absucht).
-    powershell = netz.windows_powershell() or "powershell"
     try:
-        ergebnis = ausfuehren_fn(
-            [powershell, "-NoProfile", "-NonInteractive", "-Command", _SIGNATUR_SKRIPT],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=60,
-            check=False,
-            creationflags=_KEIN_FENSTER,
-            env=_signatur_umgebung(pfad),
-            stdin=subprocess.DEVNULL,
-        )
-        daten = json.loads(ergebnis.stdout)
-        status, unterzeichner = str(daten.get("s", "")), str(daten.get("u", ""))
-    except (OSError, subprocess.SubprocessError, ValueError, AttributeError) as fehler:
+        status, unterzeichner = lies_fn(pfad)
+    except (OSError, AttributeError, ValueError) as fehler:  # AttributeError: Funktion fehlt in wintrust.dll
         return SignaturErgebnis(False, "", f"Die Echtheit des Ollama-Installers ließ sich nicht prüfen ({fehler}). {selbst}")
     if status != "Valid":
         return SignaturErgebnis(
