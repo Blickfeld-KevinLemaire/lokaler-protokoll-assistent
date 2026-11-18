@@ -1,5 +1,2 @@
-# Aus den Vorlagen erzeugbar (node quelle/bilder.js) – zu groß fürs Repository
-bilder/**/*.png
-praesentation/*.png
 # Die Werbevideos sind künstlich erzeugt (keine Aufnahmen) – Ausnahme von *.mp4 im Hauptverzeichnis
 !videos/*.mp4

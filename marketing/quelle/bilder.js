@@ -14,7 +14,7 @@ FOLIEN.forEach((m, i) => auftraege.push([m, "wide", `praesentation/folie_${i + 1
   const browser = await chromium.launch();
   for (const [m, f, ziel, extra] of auftraege) {
     const [w, h] = G[f];
-    const page = await browser.newPage({ viewport: { width: w, height: h }, deviceScaleFactor: 2 });
+    const page = await browser.newPage({ viewport: { width: w, height: h }, deviceScaleFactor: 1 });
     await page.goto("file://" + path.join(__dirname, `bilder.html?motiv=${m}&fmt=${f}${extra}`));
     await page.evaluate(() => document.fonts.ready);
     await page.waitForTimeout(150);

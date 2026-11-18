@@ -35,8 +35,8 @@ node rendern.js probe protokoll story 2,5,9 /tmp/probe          # Einzelbilder z
 
 Braucht Node mit Playwright (Chromium) und ffmpeg.
 
-Die PNG-Dateien (Posts, Karussell- und Folienbilder) sind **nicht versioniert** – sie sind groß und
-lassen sich mit `node bilder.js` jederzeit neu erzeugen. Videos und PDFs liegen im Repository.
+Die Bilder werden in der Originalgröße der Plattformen gerendert (z. B. 1080×1350 für 4:5),
+nicht größer – Instagram und LinkedIn rechnen ohnehin darauf herunter.
 
 ## Beitragstexte (Vorschläge)
 
@@ -66,6 +66,39 @@ lassen sich mit `node bilder.js` jederzeit neu erzeugen. Videos und PDFs liegen 
 > Gerät auf den Tisch. Protokoll auf den PC. 🎙️➡️📝
 > VERMERK Raum nimmt im Besprechungsraum auf und überträgt per WLAN – transkribiert wird schon während der Besprechung.
 > #meetingroom #ki #protokoll #hardware #büroalltag
+
+## Veröffentlichen mit Postiz
+
+**Holen:** auf dem VPS (z. B. in VS Code über *Remote-SSH*) oder am eigenen PC:
+
+```bash
+git clone --depth 1 -b ccr-5db78fb3-f6fna4 https://github.com/Blickfeld-KevinLemaire/lokaler-protokoll-assistent.git vermerk-marketing
+```
+
+Ohne Git: auf GitHub den Branch `ccr-5db78fb3-f6fna4` öffnen → *Code* → *Download ZIP*.
+
+Die Dateien werden in Postiz über den Browser hochgeladen (*Create Post* → Medien hinzufügen),
+also von dem Rechner aus, auf dem der Browser läuft. Am besten erst als **Entwurf** anlegen und
+in der Vorschau prüfen.
+
+**Vorschlag für die ersten zwei Wochen** (Texte siehe oben):
+
+| # | Kanal | Datei | Text |
+|---|---|---|---|
+| 1 | LinkedIn | `videos/vermerk_protokoll_reel_9x16.mp4` | LinkedIn – Reel „Protokoll“ |
+| 1 | Instagram + Facebook (Reel) | `videos/vermerk_protokoll_reel_9x16.mp4` | wie LinkedIn, Hashtags kleingeschrieben |
+| 2 | LinkedIn (Dokument) | `bilder/karussell/vermerk_linkedin_karussell.pdf` | LinkedIn – Karussell |
+| 2 | Instagram + Facebook (Karussell) | `bilder/karussell/karussell_1_hook.png` … `karussell_8_cta.png` | LinkedIn – Karussell |
+| 3 | Instagram + Facebook (Reel) | `videos/vermerk_datenschutz_reel_9x16.mp4` | Reel „Datenschutz“ |
+| 3 | LinkedIn | `bilder/posts/vermerk_datenschutz_linkedin.png` | Reel „Datenschutz“ |
+| 4 | Instagram + Facebook (Reel) | `videos/vermerk_raum_reel_9x16.mp4` | Reel „VERMERK Raum“ |
+| 4 | LinkedIn | `videos/vermerk_raum_feed_1x1.mp4` | Reel „VERMERK Raum“ |
+| 5 | alle (Feed) | `bilder/posts/vermerk_frag_portrait.png` | eigener Text zu „Frag mein Meeting“ |
+
+Stories: `bilder/posts/vermerk_hero_story.png` oder die Reels (9:16) direkt.
+
+Ob LinkedIn PDF-Dokumentbeiträge über Postiz annimmt, hängt von der Postiz-Version ab – sonst
+das PDF direkt in LinkedIn hochladen.
 
 ## Bitte vor dem Veröffentlichen prüfen
 
