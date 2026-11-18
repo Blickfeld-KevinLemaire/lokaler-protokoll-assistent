@@ -124,9 +124,12 @@ def transcribe_audio_array(
         kwargs["batch_size"] = batch_size
 
     segments, info = model.transcribe(audio_array, **kwargs)
-    dauer = 0.0
-    if fortschritt_fn is not None:
-        dauer = float(getattr(info, "duration", 0) or 0) or len(audio_array) / SAMPLE_RATE
+    # Nur mit Rueckmeldung ausrechnen: Manche Aufrufer reichen kein Array mit Laenge durch.
+    dauer = (
+        (float(getattr(info, "duration", 0) or 0) or len(audio_array) / SAMPLE_RATE)
+        if fortschritt_fn is not None
+        else 0.0
+    )
 
     gesammelt: list[dict[str, Any]] = []
     for segment in segments:

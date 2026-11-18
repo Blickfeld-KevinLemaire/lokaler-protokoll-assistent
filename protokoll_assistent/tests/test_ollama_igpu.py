@@ -73,7 +73,10 @@ def test_dauerhaft_freischalten(monkeypatch):
     # Die Funktion setzt die Variable auch im eigenen Prozess; so raeumt monkeypatch sie hinterher wieder weg.
     monkeypatch.setenv("OLLAMA_IGPU_ENABLE", "")
     gesetzt, meldungen = [], []
-    assert oes.igpu_freischalten(meldungen.append, braucht_fn=lambda: True, setze_fn=lambda n, w: gesetzt.append((n, w)))
+    freigeschaltet = oes.igpu_freischalten(
+        meldungen.append, braucht_fn=lambda: True, setze_fn=lambda n, w: gesetzt.append((n, w))
+    )
+    assert freigeschaltet
     assert gesetzt == [("OLLAMA_IGPU_ENABLE", "1")]
     assert any("Prozessorgrafik" in m for m in meldungen)
     # Schon gesetzt: nichts mehr zu tun.

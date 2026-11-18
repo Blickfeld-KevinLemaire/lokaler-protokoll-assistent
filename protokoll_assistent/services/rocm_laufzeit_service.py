@@ -63,7 +63,9 @@ class RocmEinrichtungsFehler(RuntimeError):
     pass
 
 
-def amd_karte_erkannt(karten_fn: Callable[[], list[Grafikkarte]] = rechner_analyse_service.grafikkarten_aus_registry) -> bool:
+def amd_karte_erkannt(
+    karten_fn: Callable[[], list[Grafikkarte]] = rechner_analyse_service.grafikkarten_aus_registry,
+) -> bool:
     """Steckt eine AMD-Karte im Rechner, auf der die Transkription ueber ROCm rechnen kann (Liste in
     ``amd_grafikkarten``, genug eigener Grafikspeicher)? Schnell genug fuer jeden Programmstart."""
     for name, vram in karten_fn():
@@ -116,8 +118,7 @@ def raeder_bereitstellen(
         if _sha256(teil) != CTRANSLATE2_ARCHIV_SHA256:
             teil.unlink(missing_ok=True)
             raise RocmEinrichtungsFehler(
-                "Das Archiv mit CTranslate2 für AMD-Grafikkarten hat nicht die erwartete Prüfsumme und wurde "
-                "verworfen."
+                "Das Archiv mit CTranslate2 für AMD-Grafikkarten hat nicht die erwartete Prüfsumme und wurde verworfen."
             )
         teil.replace(archiv)
 
@@ -140,8 +141,16 @@ def pip_befehle(python_exe: Path, raeder_ordner: Path) -> list[list[str]]:
     return [
         [python_str, "-m", "pip", "install", *ROCM_PAKETE],
         [
-            python_str, "-m", "pip", "install", "--no-index", "--find-links", str(raeder_ordner),
-            "--force-reinstall", "--no-deps", f"ctranslate2=={CTRANSLATE2_VERSION}",
+            python_str,
+            "-m",
+            "pip",
+            "install",
+            "--no-index",
+            "--find-links",
+            str(raeder_ordner),
+            "--force-reinstall",
+            "--no-deps",
+            f"ctranslate2=={CTRANSLATE2_VERSION}",
         ],
     ]
 

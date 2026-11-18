@@ -40,9 +40,7 @@ import re
 
 STAND = "18.11.2026"
 
-OLLAMA_ROCM_ZIELE = frozenset(
-    {"gfx1030", "gfx1100", "gfx1101", "gfx1102", "gfx1150", "gfx1151", "gfx1200", "gfx1201"}
-)
+OLLAMA_ROCM_ZIELE = frozenset({"gfx1030", "gfx1100", "gfx1101", "gfx1102", "gfx1150", "gfx1151", "gfx1200", "gfx1201"})
 WHISPER_ROCM_ZIELE = frozenset({"gfx1100", "gfx1101", "gfx1102", "gfx1150", "gfx1151", "gfx1200", "gfx1201"})
 
 # Kartenname (so, wie Windows ihn meldet) -> LLVM-Ziel. Die Muster sind auf
@@ -61,7 +59,10 @@ _AMD_ROCM: tuple[tuple[re.Pattern[str], str], ...] = tuple(
         (rf"rx 7800( xt)?{_ENDE}|rx 7800m{_ENDE}|rx 7700( xt)?{_ENDE}|pro w7700", "gfx1101"),
         (rf"rx 76[05]0( xt| gre)?{_ENDE}|rx 7600[sm]{_ENDE}|rx 7700s{_ENDE}|pro w7600|pro w7500", "gfx1102"),
         # RDNA 2 (nur Ollama)
-        (rf"rx 6800( xt)?{_ENDE}|rx 6900( xt| xtx)?{_ENDE}|rx 6950( xt)?{_ENDE}|pro w6800|pro w6900x|pro v620", "gfx1030"),
+        (
+            rf"rx 6800( xt)?{_ENDE}|rx 6900( xt| xtx)?{_ENDE}|rx 6950( xt)?{_ENDE}|pro w6800|pro w6900x|pro v620",
+            "gfx1030",
+        ),
         # Ryzen AI (Prozessorgrafik)
         (rf"\b8[89]0m{_ENDE}", "gfx1150"),
         (rf"\b80[4-6]0s{_ENDE}", "gfx1151"),

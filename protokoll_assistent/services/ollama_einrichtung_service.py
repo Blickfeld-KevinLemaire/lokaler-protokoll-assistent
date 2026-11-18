@@ -504,6 +504,9 @@ def warte_auf_dienst(
 def _setze_benutzervariable(name: str, wert: str) -> None:  # pragma: no cover - schreibt in die echte Registry
     """Dauerhafte Umgebungsvariable fuer das eigene Benutzerkonto (wie 'setx'), und laufenden Programmen Bescheid
     geben -- so liest auch die Ollama-Anwendung, die mit Windows startet, sie beim naechsten Start."""
+    # Wie in '_registry_eintrag': So sieht mypy auf Linux den Rest als unerreichbar.
+    if sys.platform != "win32":
+        return
     import ctypes
     import winreg
 
