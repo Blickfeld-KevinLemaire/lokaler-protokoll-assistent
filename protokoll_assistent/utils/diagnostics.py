@@ -86,11 +86,20 @@ def check_cuda() -> DiagnosticCheck:
         import torch  # type: ignore
 
         if not torch.cuda.is_available():
+            if model_service.amd_whisper_kann_rechnen():
+                return DiagnosticCheck(
+                    "cuda",
+                    "GPU-Beschleunigung",
+                    True,
+                    "AMD-Grafikkarte (ROCm): Die Transkription rechnet auf der Grafikkarte, "
+                    "die Sprechererkennung auf der CPU.",
+                    critical=False,
+                )
             return DiagnosticCheck(
                 "cuda",
                 "GPU-Beschleunigung (CUDA)",
                 False,
-                "Keine CUDA-GPU erkannt -- die Verarbeitung laeuft auf der CPU "
+                "Keine nutzbare Grafikkarte erkannt -- die Verarbeitung laeuft auf der CPU "
                 "(funktioniert, ist aber deutlich langsamer).",
                 critical=False,
             )
@@ -122,9 +131,16 @@ def check_gpu_vram() -> DiagnosticCheck:
     try:
         import torch  # type: ignore
 
-        if not torch.cuda.is_available():
-            return DiagnosticCheck("vram", "GPU-Speicher", False, "Keine CUDA-GPU verfuegbar.")
-        total_bytes = torch.cuda.get_device_properties(0).total_memory
+        if torch.cuda.is_available():
+            total_bytes = torch.cuda.get_device_properties(0).total_memory
+        else:
+            from protokoll_assistent.services import model_service
+
+            # AMD-Karte (ROCm): PyTorch ist dort der CPU-Build, der Speicher kommt ueber den AMD-Treiber.
+            amd_bytes = model_service.gesamter_grafikspeicher()
+            if amd_bytes is None:
+                return DiagnosticCheck("vram", "GPU-Speicher", False, "Keine nutzbare Grafikkarte verfuegbar.")
+            total_bytes = amd_bytes
         total_gb = total_bytes / (1024**3)
         ok = total_gb >= 4.0
         return DiagnosticCheck(

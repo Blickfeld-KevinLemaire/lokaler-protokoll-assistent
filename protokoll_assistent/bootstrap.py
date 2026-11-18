@@ -419,10 +419,12 @@ def _richte_ml_umgebung_ein_und_starte_neu(
     installierte Version; gebaute EXE: immer die mitgelieferte
     Python-Laufzeitumgebung, da die EXE selbst keine ist) -- ``None``
     bedeutet: das aufgerufene Python selbst passt bereits."""
-    from protokoll_assistent.services import environment_service
+    from protokoll_assistent.services import environment_service, rocm_laufzeit_service
 
     gpu_available = environment_service.detect_nvidia_gpu()
     index_url = environment_service.select_torch_index_url(gpu_available)
+    # AMD-Karte aus der Liste: Die Transkription bekommt CTranslate2 mit ROCm (siehe rocm_laufzeit_service).
+    amd_rocm = not gpu_available and rocm_laufzeit_service.amd_karte_erkannt()
 
     # Nur die Umgebung ANZULEGEN wurde bisher uebersprungen, die
     # pip-Aufrufe liefen bei JEDEM Start erneut. Weil die Anforderungen
@@ -430,7 +432,7 @@ def _richte_ml_umgebung_ein_und_starte_neu(
     # jedes Mal den Index befragen: Eine Anwendung, die ausdruecklich
     # offline arbeiten soll, brauchte also bei jedem Start Internet -- und
     # konnte sich nebenbei ungefragt neue Paketfassungen einziehen.
-    if python_exe.is_file() and environment_service.einrichtung_ist_aktuell(venv_dir, index_url):
+    if python_exe.is_file() and environment_service.einrichtung_ist_aktuell(venv_dir, index_url, amd_rocm):
         _relaunch(python_exe)
         return
 
@@ -473,16 +475,22 @@ def _richte_ml_umgebung_ein_und_starte_neu(
                 raise
             splash.log("Umgebung angelegt.\n")
 
-        splash.log(environment_service.describe_plan(gpu_available) + "\n")
+        splash.log(environment_service.describe_plan(gpu_available, amd_rocm) + "\n")
+        rocm_raeder = None
+        if amd_rocm:
+            splash.log("Lade CTranslate2 fuer AMD-Grafikkarten (ca. 190 MB) ...")
+            rocm_raeder = rocm_laufzeit_service.raeder_bereitstellen(
+                venv_dir.parent / "rocm-raeder", environment_service.SUPPORTED_PYTHON_VERSIONS
+            )
         for command in environment_service.build_pip_install_commands(
-            python_exe, gpu_available, index_url
+            python_exe, gpu_available, index_url, rocm_raeder
         ):
             _run_logged(command, splash)
 
         # Erst NACH dem letzten erfolgreichen pip-Aufruf festhalten: Ein
         # abgebrochener Lauf soll beim naechsten Start wieder aufgenommen
         # werden.
-        environment_service.kennung_festhalten(venv_dir, index_url)
+        environment_service.kennung_festhalten(venv_dir, index_url, amd_rocm)
         splash.log("\nEinrichtung der Python-Pakete abgeschlossen.")
     except Exception as error:
         _sperre_freigeben(sperre)

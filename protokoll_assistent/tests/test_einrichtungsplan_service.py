@@ -63,6 +63,60 @@ def test_wenig_ram_ohne_grafik_empfiehlt_gemischt():
     assert "Arbeitsspeicher" in m.begruendung
 
 
+RX_9070_XT = {"ram_gb": 32, "cpu_kerne": 16, "gpu_name": "AMD Radeon RX 9070 XT", "vram_gb": 15.9, "freier_platz_gb": 500}
+RX_6800 = {"ram_gb": 32, "cpu_kerne": 16, "gpu_name": "AMD Radeon RX 6800 XT", "vram_gb": 16.0, "freier_platz_gb": 500}
+
+
+def test_rx_9070_xt_schafft_alles_selbst_und_sagt_wo_was_laeuft():
+    m = eps.schaetze(_analyse(**RX_9070_XT))
+    assert m.empfehlung == eps.EMPFEHLUNG_LOKAL
+    stufen = _stufen(m)
+    for schritt in (eps.SCHRITT_MITSCHRIFT, eps.SCHRITT_PROTOKOLL, eps.SCHRITT_CHAT):
+        assert stufen[schritt] == GUT
+    texte = {s.schritt: s.text for s in m.schritte}
+    assert texte[eps.SCHRITT_MITSCHRIFT].endswith("(Grafikkarte)")
+    assert "(Prozessor)" in texte[eps.SCHRITT_SPRECHER]  # pyannote: PyTorch fuer AMD gibt es unter Windows nicht
+    assert texte[eps.SCHRITT_PROTOKOLL].endswith("(Grafikkarte)")
+    assert texte[eps.SCHRITT_CHAT].endswith("(Grafikkarte)")
+    # Gemessen: 79 min Aufnahme in 3 min mit Qwen 9B -- nicht die 20-30 min des 6-GB-Laptops.
+    assert texte[eps.SCHRITT_PROTOKOLL].startswith("etwa 2–5 Minuten")
+
+
+@pytest.mark.parametrize(
+    ("profil", "minuten"),
+    [
+        (RechnerProfil(gpu_name="NVIDIA RTX PRO 500 Blackwell", vram_gb=6.0), (20, 30)),  # gemessen
+        (RechnerProfil(gpu_name="NVIDIA GeForce RTX 3060", vram_gb=8.0), (20, 30)),
+        (RechnerProfil(gpu_name="AMD Radeon RX 6700 XT", vram_gb=10.0), (5, 15)),  # nicht gemessen
+        (RechnerProfil(gpu_name="NVIDIA GeForce RTX 4070", vram_gb=12.0), (2, 5)),
+        (RechnerProfil(gpu_name="AMD Radeon RX 9070 XT", vram_gb=15.9), (2, 5)),  # gemessen
+        # Prozessorgrafik rechnet im Arbeitsspeicher: wie eine kleine Karte, auch mit 64 GB Zuteilung.
+        (RechnerProfil(ram_gb=128, gpu_name="AMD Radeon(TM) 8060S Graphics", vram_gb=64.0), (20, 30)),
+        (RechnerProfil(ram_gb=32, gpu_name="Intel(R) Arc(TM) 140V GPU (16GB)", vram_gb=0.1), (20, 30)),
+    ],
+)
+def test_protokolldauer_nach_groesse_der_karte(profil, minuten):
+    assert eps.protokoll_minuten_auf_der_grafikkarte(profil) == minuten
+
+
+def test_rx_6800_protokoll_auf_der_karte_mitschrift_auf_dem_prozessor():
+    m = eps.schaetze(_analyse(**RX_6800))
+    texte = {s.schritt: s.text for s in m.schritte}
+    assert texte[eps.SCHRITT_MITSCHRIFT].endswith("(Prozessor)")
+    assert _stufen(m)[eps.SCHRITT_PROTOKOLL] == GUT and texte[eps.SCHRITT_PROTOKOLL].endswith("(Grafikkarte)")
+
+
+def test_amd_rechenumgebung_als_baustein():
+    teile = eps.bausteine_fuer(
+        transkription_lokal=True, nachbearbeitung_lokal=False, chat_lokal=False, cuda_gpu=False, amd_rocm=True,
+        whisper_modell=model_service.WHISPER_MODEL_NAME, sprachmodell=ollama_service.DEFAULT_MODEL,
+        einbettungsmodell="bge-m3",
+    )
+    laufzeit = next(t for t in teile if t.kennung == "laufzeit")
+    assert "ROCm" in laufzeit.name and laufzeit.download_gb == eps.LAUFZEIT_AMD_DOWNLOAD_GB
+    assert "Sprechererkennung auf dem Prozessor" in laufzeit.hinweis
+
+
 def test_16gb_ohne_grafik_bleibt_neutral():
     # 16 GB (nicht knapp): lokal geht, online waere schneller -- keine Vorauswahl.
     assert eps.schaetze(_analyse(**OHNE_GRAFIK)).empfehlung is None

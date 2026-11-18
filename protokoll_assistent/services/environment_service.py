@@ -232,15 +232,20 @@ def select_torch_index_url(
 EINRICHTUNGS_KENNUNG_DATEI = "einrichtung.kennung"
 
 
-def einrichtungs_kennung(index_url: str) -> str:
+def einrichtungs_kennung(index_url: str, amd_rocm: bool = False) -> str:
     """Kennzeichnet, WAS zuletzt erfolgreich installiert wurde.
 
     Geht in die Kennung ein: der gewaehlte Paket-Index (also GPU/CPU und
-    Kartengeneration) sowie beide Anforderungslisten. Aendert sich eine
-    davon -- neue Grafikkarte, aktualisierte requirements-Datei --, passt
-    die Kennung nicht mehr und die Einrichtung laeuft erneut.
+    Kartengeneration) sowie beide Anforderungslisten, bei AMD-Karten
+    zusaetzlich die ROCm-Pakete. Aendert sich eine davon -- neue
+    Grafikkarte, aktualisierte requirements-Datei --, passt die Kennung
+    nicht mehr und die Einrichtung laeuft erneut.
     """
     bestandteile = [index_url, *TORCH_PACKAGES, *RUNTIME_PACKAGES]
+    if amd_rocm:
+        from protokoll_assistent.services import rocm_laufzeit_service
+
+        bestandteile += rocm_laufzeit_service.kennungsbestandteile()
     return hashlib.sha256("\n".join(bestandteile).encode("utf-8")).hexdigest()
 
 
@@ -249,27 +254,29 @@ def kennungsdatei(venv_dir: Path) -> Path:
     return venv_dir / EINRICHTUNGS_KENNUNG_DATEI
 
 
-def einrichtung_ist_aktuell(venv_dir: Path, index_url: str) -> bool:
+def einrichtung_ist_aktuell(venv_dir: Path, index_url: str, amd_rocm: bool = False) -> bool:
     datei = kennungsdatei(venv_dir)
     try:
-        return datei.read_text(encoding="utf-8").strip() == einrichtungs_kennung(index_url)
+        return datei.read_text(encoding="utf-8").strip() == einrichtungs_kennung(index_url, amd_rocm)
     except OSError:
         return False
 
 
-def kennung_festhalten(venv_dir: Path, index_url: str) -> None:
-    kennungsdatei(venv_dir).write_text(einrichtungs_kennung(index_url), encoding="utf-8")
+def kennung_festhalten(venv_dir: Path, index_url: str, amd_rocm: bool = False) -> None:
+    kennungsdatei(venv_dir).write_text(einrichtungs_kennung(index_url, amd_rocm), encoding="utf-8")
 
 
 def build_pip_install_commands(
-    python_exe: Path, gpu_available: bool, index_url: str | None = None
+    python_exe: Path, gpu_available: bool, index_url: str | None = None, rocm_raeder: Path | None = None
 ) -> list[list[str]]:
     """Baut die auszufuehrenden pip-Befehle als Liste von Argumentlisten
     (keine Shell-Interpolation, keine ungeprueften Benutzereingaben).
 
     ``index_url`` kann uebergeben werden, damit der Aufrufer die Auswahl
     nicht zweimal treffen muss (sie fragt ueber ``nvidia-smi`` die
-    Kartengeneration ab).
+    Kartengeneration ab). ``rocm_raeder`` (AMD-Karte): Ordner mit
+    CTranslate2 fuer ROCm (``rocm_laufzeit_service.raeder_bereitstellen``) --
+    dann folgen die ROCm-Pakete als letzte Schritte.
     """
     python_str = str(python_exe)
     index_url = index_url or select_torch_index_url(gpu_available)
@@ -287,13 +294,30 @@ def build_pip_install_commands(
         ],
         [python_str, "-m", "pip", "install", *RUNTIME_PACKAGES],
     ]
+    if rocm_raeder is not None:
+        from protokoll_assistent.services import rocm_laufzeit_service
+
+        commands += rocm_laufzeit_service.pip_befehle(python_exe, rocm_raeder)
     return commands
 
 
-def describe_plan(gpu_available: bool) -> str:
-    geraet = "GPU (CUDA)" if gpu_available else "CPU (keine NVIDIA-GPU erkannt -- deutlich langsamer)"
-    return (
+def describe_plan(gpu_available: bool, amd_rocm: bool = False) -> str:
+    if gpu_available:
+        geraet = "GPU (CUDA)"
+    elif amd_rocm:
+        geraet = "AMD-Grafikkarte (ROCm) fuer die Transkription, CPU fuer die Sprechererkennung"
+    else:
+        geraet = "CPU (keine passende Grafikkarte erkannt -- deutlich langsamer)"
+    plan = (
         f"Geplante Installation fuer: {geraet}\n"
         f"  - PyTorch/torchaudio von: {select_torch_index_url(gpu_available)}\n"
         f"  - Weitere Pakete: {', '.join(RUNTIME_PACKAGES)}"
     )
+    if amd_rocm:
+        from protokoll_assistent.services import rocm_laufzeit_service
+
+        plan += (
+            f"\n  - AMD ROCm {rocm_laufzeit_service.ROCM_VERSION} und CTranslate2 "
+            f"{rocm_laufzeit_service.CTRANSLATE2_VERSION} fuer AMD (etwa 1,3 GB)"
+        )
+    return plan

@@ -237,6 +237,48 @@ _start_sperre = threading.Lock()
 _start = _StartZustand()
 
 
+IGPU_VARIABLE = "OLLAMA_IGPU_ENABLE"
+VULKAN_VARIABLE = "OLLAMA_VULKAN"
+
+
+def _grafik_profil(karten_fn: Callable[[], list[Any]] | None, ram_fn: Callable[[], float | None] | None):
+    from protokoll_assistent.services import rechner_analyse_service as ra
+
+    beste = ra.waehle_grafikkarte((karten_fn or ra.grafikkarten_aus_registry)())
+    if beste is None:
+        return None
+    # Der Arbeitsspeicher zaehlt mit: Intel-Arc-Prozessorgrafik rechnet im geteilten Speicher.
+    return ra.RechnerProfil(ram_gb=(ram_fn or ra._ram_gb)(), gpu_name=beste[0], vram_gb=beste[1])
+
+
+def braucht_igpu_freigabe(
+    karten_fn: Callable[[], list[Any]] | None = None, ram_fn: Callable[[], float | None] | None = None
+) -> bool:
+    """Soll Ollama hier auf Prozessorgrafik rechnen (Radeon 680M-890M, 8040S-8060S, Intel Arc)? Ollama verwirft
+    integrierte Grafik, solange ``OLLAMA_IGPU_ENABLE`` nicht gesetzt ist ("dropping integrated GPU") -- auch
+    die, fuer die es eigene ROCm-Kernel mitbringt. Nur wenn sie die beste Karte ist und genug Speicher hat."""
+    profil = _grafik_profil(karten_fn, ram_fn)
+    return profil is not None and profil.braucht_igpu_freigabe
+
+
+def umgebung_fuer_dienst(
+    umgebung: Mapping[str, str] | None = None,
+    karten_fn: Callable[[], list[Any]] | None = None,
+    ram_fn: Callable[[], float | None] | None = None,
+) -> dict[str, str]:
+    """Umgebung fuer ``ollama serve``: wie unsere, bei Prozessorgrafik zusaetzlich mit ``OLLAMA_IGPU_ENABLE=1``,
+    bei Karten, die nur ueber Vulkan rechnen, mit ``OLLAMA_VULKAN=1`` (in neueren Fassungen ohnehin Standard).
+    Eigene Vorgaben des Anwenders bleiben."""
+    ergebnis = dict(os.environ if umgebung is None else umgebung)
+    if IGPU_VARIABLE not in ergebnis and braucht_igpu_freigabe(karten_fn, ram_fn):
+        ergebnis[IGPU_VARIABLE] = "1"
+    if VULKAN_VARIABLE not in ergebnis:
+        profil = _grafik_profil(karten_fn, ram_fn)
+        if profil is not None and profil.ollama_ueber_vulkan:
+            ergebnis[VULKAN_VARIABLE] = "1"
+    return ergebnis
+
+
 def ist_lokale_adresse(base_url: str) -> bool:
     """Nur der Dienst auf diesem Rechner wird von uns gestartet (nicht ein Ollama im Container oder im Netz)."""
     host = (urllib.parse.urlparse(base_url).hostname or "").lower()
@@ -282,6 +324,7 @@ def dienst_starten(
                 stderr=subprocess.DEVNULL,
                 close_fds=True,
                 creationflags=LOSGELOEST | NEUE_PROZESSGRUPPE | KEIN_FENSTER,
+                env=umgebung_fuer_dienst(),
             )
         except OSError:
             return False

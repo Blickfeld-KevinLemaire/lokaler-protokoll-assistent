@@ -110,11 +110,17 @@ die Anwendung auf der CPU weiter (deutlich langsamer, aber funktionsfähig).
 
 ### Welche Grafikkarten beschleunigen?
 
-| Karte | Beschleunigung | Woher PyTorch kommt |
-|---|---|---|
-| NVIDIA bis Ada/Hopper (Rechenfähigkeit < 12.0) | ja | Index `cu126` |
-| NVIDIA Blackwell (RTX 50xx, RTX PRO, Rechenfähigkeit ≥ 12.0) | ja | Index `cu128` |
-| AMD, Intel, keine Grafikkarte | nein — CPU | Index `cpu` |
+| Karte | Transkription | Sprechererkennung | Protokoll, „Frag mein Meeting“ (Ollama) | Woher PyTorch kommt |
+|---|---|---|---|---|
+| NVIDIA bis Ada/Hopper (Rechenfähigkeit < 12.0) | Grafikkarte | Grafikkarte | Grafikkarte | Index `cu126` |
+| NVIDIA Blackwell (RTX 50xx, RTX PRO, Rechenfähigkeit ≥ 12.0) | Grafikkarte | Grafikkarte | Grafikkarte | Index `cu128` |
+| AMD RX 7000/9000, PRO W7000, Radeon 880M/890M, 8040S–8060S | Grafikkarte (ROCm) | CPU | Grafikkarte (ROCm) | Index `cpu` |
+| AMD RX 6800–6950 | CPU | CPU | Grafikkarte (ROCm) | Index `cpu` |
+| andere AMD-Karten, Intel Arc, Radeon 680M/780M, Intel-Arc-Prozessorgrafik | CPU | CPU | Grafikkarte (Vulkan) | Index `cpu` |
+| Intel UHD/Iris Xe, keine Grafikkarte | CPU | CPU | CPU | Index `cpu` |
+
+Mindestens 3 GB Grafikspeicher; bei AMD-Prozessorgrafik zählt der im BIOS fest
+zugewiesene. Die Liste und woher sie stammt: `services/grafikkarten_liste.py`.
 
 Die Anwendung fragt die Rechenfähigkeit beim Treiber ab (`nvidia-smi`) und
 wählt den passenden Index selbst. Das ist nötig, weil **kein einziger
@@ -127,18 +133,18 @@ Mit einem CUDA-13-Build läuft die Installation sauber durch, und erst die
 erste Transkription bricht ab mit „Library cublas64_12.dll is not found or
 cannot be loaded".
 
-**AMD-Grafikkarten können hier nicht beschleunigen**, und das lässt sich
-auch nicht nachrüsten:
-
-1. PyTorch bietet ROCm (den AMD-Weg) **ausschließlich für Linux** an — für
-   Windows gibt es keine einzige ROCm-Paketdatei.
-2. Selbst mit PyTorch wäre nichts gewonnen: Die eigentliche Transkription
-   läuft über faster-whisper und damit über CTranslate2, und das
-   unterstützt nur CPU und CUDA.
-
-Auf AMD-Rechnern läuft die Anwendung deshalb vollständig, aber auf der CPU.
-Die Anwendung sagt das auch so: „keine nutzbare NVIDIA-GPU erkannt
-(CPU-Verarbeitung; GPU-Beschleunigung ist nur mit NVIDIA/CUDA möglich)".
+**AMD-Grafikkarten beschleunigen die Transkription seit 0.5.0-rc3.**
+CTranslate2 (der Kern von faster-whisper) gibt es seit 4.7 auch für ROCm
+unter Windows – allerdings nicht auf PyPI, sondern als Archiv auf seiner
+Release-Seite. Auf einer passenden Karte holt die Einrichtung dieses Archiv
+und AMDs ROCm-Bibliotheken (`repo.radeon.com`), beide mit fester Prüfsumme
+(`services/rocm_laufzeit_service.py`). PyTorch bleibt der CPU-Build: PyTorch
+mit ROCm gibt es für Windows nur als Vorschau für Python 3.12, deshalb
+rechnet die Sprechererkennung auf AMD-Rechnern auf der CPU. Gemessen auf
+einer RX 9070 XT: large-v3-turbo in 17- bis 27-facher Echtzeit, 79 Minuten
+Aufnahme in 4 Minuten. Mit einem zu alten Grafiktreiber (ROCm 7.2.1 verlangt
+26.2.2 oder neuer) findet CTranslate2 keine Karte, und die Transkription
+läuft wie bisher auf der CPU.
 
 Ob die GPU wirklich rechnen kann, wird **nicht** allein an
 `torch.cuda.is_available()` festgemacht: Passt der CUDA-Build nicht zur

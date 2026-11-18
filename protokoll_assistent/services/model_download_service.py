@@ -43,6 +43,23 @@ def download_whisper_and_alignment(log: LogFn, model_name: str | None = None) ->
         return False
 
 
+def whisper_schon_geladen(model_name: str) -> bool:
+    """Liegt das Whisper-Modell schon im Zwischenspeicher? Fragt nur die Platte (``local_files_only``), nie das Netz.
+    Ohne faster-whisper (Rechenumgebung fehlt) oder bei jedem anderen Fehler: nein."""
+    try:
+        from faster_whisper.utils import download_model  # type: ignore
+
+        download_model(model_name, local_files_only=True)
+        return True
+    except Exception:
+        return False
+
+
+def pyannote_schon_geladen() -> bool:
+    """Liegt das pyannote-Modell schon im Zwischenspeicher von Hugging Face?"""
+    return model_service.check_model_cache().pyannote_ok
+
+
 def download_pyannote(log: LogFn, get_token: TokenProviderFn | None = None) -> bool:
     import os
 

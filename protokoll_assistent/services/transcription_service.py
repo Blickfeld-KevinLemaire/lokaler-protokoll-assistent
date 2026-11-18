@@ -23,8 +23,12 @@ werden kann.
 from __future__ import annotations
 
 import inspect
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
+
+# faster-whisper dekodiert mit 16 kHz (siehe load_audio_array).
+SAMPLE_RATE = 16000
 
 
 def load_audio_array(path: Path):
@@ -38,7 +42,7 @@ def load_audio_array(path: Path):
     """
     from faster_whisper.audio import decode_audio  # type: ignore
 
-    return decode_audio(str(path), sampling_rate=16000)
+    return decode_audio(str(path), sampling_rate=SAMPLE_RATE)
 
 
 def load_whisper_model(
@@ -90,9 +94,14 @@ def transcribe_audio_array(
     audio_array,
     batch_size: int = 4,
     language: str | None = None,
+    fortschritt_fn: Callable[[float], None] | None = None,
 ) -> dict[str, Any]:
     """Transkribiert ein Audio-Array und liefert die frueher von WhisperX
     bekannte Ergebnisform ``{"segments": [...], "language": "de"}``.
+
+    ``fortschritt_fn`` bekommt nach jedem Segment den erledigten Anteil
+    (0..1, nach dem Ende des Segments). Ohne das blieb die Anzeige bei einer
+    kurzen Aufnahme (ein einziger Abschnitt) minutenlang auf 0 %.
 
     faster-whisper gibt die Segmente als Generator zurueck; er wird hier
     vollstaendig ausgewertet, damit die Aufrufer wie bisher eine Liste
@@ -115,9 +124,14 @@ def transcribe_audio_array(
         kwargs["batch_size"] = batch_size
 
     segments, info = model.transcribe(audio_array, **kwargs)
+    dauer = 0.0
+    if fortschritt_fn is not None:
+        dauer = float(getattr(info, "duration", 0) or 0) or len(audio_array) / SAMPLE_RATE
 
     gesammelt: list[dict[str, Any]] = []
     for segment in segments:
+        if fortschritt_fn is not None and dauer > 0:
+            fortschritt_fn(min(1.0, float(segment.end) / dauer))
         gesammelt.append(
             {
                 "start": float(segment.start),

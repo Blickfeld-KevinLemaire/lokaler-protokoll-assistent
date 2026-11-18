@@ -568,16 +568,24 @@ def _run_transcription_stage(
     ]
 
     whisper_model = None
+    # Welcher Chunk gerade laeuft -- fuer den Fortschritt INNERHALB eines Chunks (siehe 'teilfortschritt').
+    laufender_chunk = {"index": 0}
     if transcribe_chunk_fn is None and chunks_offen:
         _grafikspeicher_fuer_whisper_freimachen(device, callbacks)
         whisper_model = transcription_service.load_whisper_model(
             settings.whisper_model, device, compute_type, settings.language
         )
 
+        def teilfortschritt(anteil: float) -> None:
+            # Nach jedem Segment: Eine kurze Aufnahme ist ein einziger Chunk, und die Anzeige stand sonst bis
+            # zum Ende auf 0 % (ohne Restdauer). Nebenbei laesst sich so auch mitten im Chunk abbrechen.
+            _check_cancel(callbacks)
+            callbacks.on_overall_progress((laufender_chunk["index"] + anteil) / len(chunk_plans) * 0.5)
+
         def transcribe_chunk_fn(chunk_wav_path: Path) -> list[dict[str, Any]]:  # noqa: F811
             audio_array = transcription_service.load_audio_array(chunk_wav_path)
             result = transcription_service.transcribe_audio_array(
-                whisper_model, audio_array, settings.batch_size, settings.language
+                whisper_model, audio_array, settings.batch_size, settings.language, fortschritt_fn=teilfortschritt
             )
             # Frueher lief hier zusaetzlich 'whisperx.align'. Der Schritt ist
             # mit dem Wegfall von WhisperX entfallen: faster-whisper liefert
@@ -611,6 +619,7 @@ def _run_transcription_stage(
 
         manifest_service.update_chunk_status(manifest, plan.index, manifest_service.STATUS_IN_BEARBEITUNG)
         manifest_service.save_manifest(work_dir, manifest)
+        laufender_chunk["index"] = plan.index
         try:
             if transcribe_chunk_fn is None:
                 # Nicht erreichbar: Ein Chunk ohne Transkript steht in 'chunks_offen', dann ist das Modell geladen.

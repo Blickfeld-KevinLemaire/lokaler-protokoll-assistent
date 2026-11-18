@@ -23,6 +23,7 @@ austauschbar: Die Tests brauchen weder Netz noch Ollama (CLAUDE.md, Regel 4).
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 import subprocess
 import sys
@@ -466,6 +467,7 @@ def _starte_app(ordner: Path | None) -> None:
             stderr=subprocess.DEVNULL,
             creationflags=_LOSGELOEST | _KEIN_FENSTER | _NEUE_GRUPPE,
             close_fds=True,
+            env=ollama_service.umgebung_fuer_dienst(),
         )
         return
     programm = ordner / "ollama app.exe"
@@ -499,6 +501,42 @@ def warte_auf_dienst(
         schlafen_fn(1.0)
 
 
+def _setze_benutzervariable(name: str, wert: str) -> None:  # pragma: no cover - schreibt in die echte Registry
+    """Dauerhafte Umgebungsvariable fuer das eigene Benutzerkonto (wie 'setx'), und laufenden Programmen Bescheid
+    geben -- so liest auch die Ollama-Anwendung, die mit Windows startet, sie beim naechsten Start."""
+    import ctypes
+    import winreg
+
+    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment", 0, winreg.KEY_SET_VALUE) as schluessel:
+        winreg.SetValueEx(schluessel, name, 0, winreg.REG_SZ, wert)
+    ergebnis = ctypes.c_ulong()
+    ctypes.windll.user32.SendMessageTimeoutW(  # type: ignore[attr-defined]
+        0xFFFF, 0x001A, 0, "Environment", 0x0002, 2000, ctypes.byref(ergebnis)
+    )
+
+
+def igpu_freischalten(
+    log: LogFn,
+    *,
+    braucht_fn: Callable[[], bool] | None = None,
+    setze_fn: Callable[[str, str], None] | None = None,
+) -> bool:
+    """Prozessorgrafik (Radeon 680M-890M, 8040S-8060S, Intel Arc): ``OLLAMA_IGPU_ENABLE=1`` fuer das Benutzerkonto
+    setzen, sonst laesst Ollama sie
+    links liegen. Nur auf solchen Rechnern, und nur diese eine Variable. (Die Vorgaben werden erst beim Aufruf
+    nachgeschlagen, damit die Tests sie fuer die ganze Suite abschalten koennen.)"""
+    if os.environ.get(ollama_service.IGPU_VARIABLE) or not (braucht_fn or ollama_service.braucht_igpu_freigabe)():
+        return False
+    try:
+        (setze_fn or _setze_benutzervariable)(ollama_service.IGPU_VARIABLE, "1")
+    except OSError as fehler:
+        log(f"Ollama ließ sich nicht für die Prozessorgrafik freischalten: {fehler}")
+        return False
+    os.environ[ollama_service.IGPU_VARIABLE] = "1"
+    log("Ollama darf die Prozessorgrafik nutzen (OLLAMA_IGPU_ENABLE=1 für Ihr Benutzerkonto).")
+    return True
+
+
 def installiere_ollama(
     ziel_ordner: Path,
     log: LogFn,
@@ -510,14 +548,21 @@ def installiere_ollama(
     install_fn: Callable[[Path], None] = installiere_still,
     warte_fn: Callable[[], bool] = warte_auf_dienst,
     abbrechen_fn: Callable[[], bool] = lambda: False,
+    igpu_fn: Callable[[LogFn], bool] = igpu_freischalten,
 ) -> bool:
     """Der ganze Ablauf. ``True``: Ollama laeuft danach. ``False``: installiert,
     aber der Dienst antwortet nicht. Fehler kommen als ``OllamaEinrichtungFehler``.
     Ist Ollama schon installiert, wird nur gestartet -- nie neu installiert."""
     status = status_fn()
+    # VOR Installation und Start: Die Ollama-Anwendung startet direkt nach der Installation und liest ihre
+    # Umgebung nur beim Start.
+    igpu_neu = igpu_fn(log)
     if status.installiert:
         log("Ollama ist bereits installiert" + (f" (Version {status.version})." if status.version else "."))
         if status.dienst_laeuft:
+            if igpu_neu:
+                log("Damit Ollama die Prozessorgrafik nutzt, Ollama einmal beenden (Symbol im Infobereich) – "
+                    "es startet dann mit der neuen Einstellung.")
             return True
         log("Ollama wird gestartet ...")
         return warte_fn()

@@ -304,10 +304,34 @@ def cuda_kann_wirklich_rechnen() -> bool:
         return False
 
 
+def amd_whisper_kann_rechnen() -> bool:
+    """Kann CTranslate2 (Whisper) auf einer AMD-Karte rechnen? Nur in einer Umgebung mit AMDs ROCm-Paketen
+    (``rocm_laufzeit_service``); dort meldet CTranslate2 die AMD-Karte unter dem Geraetenamen "cuda".
+
+    Bewusst NICHT auf NVIDIA-Rechnern: Dort entscheidet weiter ``cuda_kann_wirklich_rechnen``, das auch
+    PyTorch (Sprechertrennung) mit prueft."""
+    from protokoll_assistent.services import rocm_laufzeit_service
+
+    if not rocm_laufzeit_service.laufzeit_aktiv():
+        return False
+    try:
+        import ctranslate2  # type: ignore
+
+        return (
+            ctranslate2.get_cuda_device_count() > 0
+            and "float16" in ctranslate2.get_supported_compute_types("cuda")
+        )
+    except Exception:
+        # Zu alter Grafiktreiber, fehlende DLL ...: Die Transkription laeuft dann auf dem Prozessor.
+        return False
+
+
 def get_device_and_compute_type(requested_device: str = "cuda") -> tuple[str, str]:
     """Liefert (device, compute_type). Faellt kontrolliert auf CPU zurueck,
-    wenn CUDA angefordert, aber nicht benutzbar ist."""
-    if requested_device == "cuda" and cuda_kann_wirklich_rechnen():
+    wenn CUDA angefordert, aber nicht benutzbar ist. Mit einer AMD-Karte
+    (ROCm) heisst das Geraet fuer CTranslate2 ebenfalls "cuda" -- die
+    Sprechertrennung prueft deshalb selbst (``geraet_fuer_sprechertrennung``)."""
+    if requested_device == "cuda" and (cuda_kann_wirklich_rechnen() or amd_whisper_kann_rechnen()):
         return "cuda", "float16"
     return "cpu", "int8"
 
@@ -317,15 +341,18 @@ def get_gpu_description() -> str:
         import torch  # type: ignore
 
         if not torch.cuda.is_available():
-            # Auch der Fall "AMD- oder Intel-Grafikkarte vorhanden": Die
-            # Beschleunigung laeuft ueber CUDA, und CTranslate2 (ueber
-            # faster-whisper der Kern der Transkription) kann ausschliesslich
-            # CPU und CUDA. Fuer AMD gibt es unter Windows ausserdem gar
-            # keine PyTorch-Pakete. Deshalb rechnet hier die CPU - das
+            if amd_whisper_kann_rechnen():
+                return (
+                    "AMD-Grafikkarte (ROCm): Transkription auf der Grafikkarte, "
+                    "Sprechererkennung auf der CPU"
+                )
+            # Andere Karten: CTranslate2 (ueber faster-whisper der Kern der
+            # Transkription) rechnet nur mit CUDA oder - fuer die AMD-Karten aus
+            # 'amd_grafikkarten' - mit ROCm. Sonst rechnet hier die CPU; das
             # funktioniert vollstaendig, nur langsamer.
             return (
-                "keine nutzbare NVIDIA-GPU erkannt (CPU-Verarbeitung; "
-                "GPU-Beschleunigung ist nur mit NVIDIA/CUDA moeglich)"
+                "keine nutzbare Grafikkarte erkannt (CPU-Verarbeitung; beschleunigt "
+                "werden NVIDIA- und ausgewaehlte AMD-Karten)"
             )
         name = torch.cuda.get_device_name(0)
         if cuda_kann_wirklich_rechnen():
@@ -351,6 +378,10 @@ def geraet_fuer_sprechertrennung(geraet: str) -> str:
     erzwungen = os.environ.get(SPRECHERTRENNUNG_GERAET_VARIABLE, "").strip().lower()
     if erzwungen in ("cpu", "cuda"):
         return erzwungen
+    if geraet == "cuda" and not cuda_kann_wirklich_rechnen():
+        # Whisper rechnet auf einer AMD-Karte (CTranslate2 nennt sie "cuda"), PyTorch ist dort aber der
+        # CPU-Build: pyannote bleibt auf dem Prozessor, statt erst einen Prozess auf der GPU zu versuchen.
+        return "cpu"
     return geraet
 
 
@@ -362,27 +393,44 @@ def freier_grafikspeicher() -> int | None:
     5,6 GB von 8 GB belegte. Wer entscheiden will, ob Whisper noch Platz hat,
     zieht den Speicher der Ollama-Modelle selbst ab (siehe
     ``pipeline_service._grafikspeicher_fuer_whisper_freimachen``)."""
-    try:
-        import torch  # type: ignore
-
-        if not torch.cuda.is_available():
-            return None
-        frei, _gesamt = torch.cuda.mem_get_info()
-        return int(frei)
-    except Exception:
-        return None
+    speicher = _grafikspeicher()
+    return speicher[0] if speicher is not None else None
 
 
 def gesamter_grafikspeicher() -> int | None:
-    """Gesamter Grafikspeicher in Bytes, oder None ohne nutzbare CUDA-GPU."""
+    """Gesamter Grafikspeicher in Bytes, oder None ohne nutzbare Grafikkarte."""
+    speicher = _grafikspeicher()
+    return speicher[1] if speicher is not None else None
+
+
+def _grafikspeicher() -> tuple[int, int] | None:
+    """(frei, gesamt) in Bytes: ueber PyTorch (NVIDIA) oder, wenn Whisper auf einer AMD-Karte rechnet, ueber die
+    HIP-Laufzeit des AMD-Treibers. Ohne die zweite Quelle hielte Ollama auf einer 8-GB-Radeon sein Sprachmodell
+    fest, und Whisper liefe in einen Speicherfehler (siehe ``pipeline_service._grafikspeicher_fuer_whisper_freimachen``)."""
     try:
         import torch  # type: ignore
 
-        if not torch.cuda.is_available():
+        if torch.cuda.is_available():
+            frei, gesamt = torch.cuda.mem_get_info()
+            return int(frei), int(gesamt)
+    except Exception:  # noqa: S110 - ohne torch bleibt der Weg ueber HIP
+        pass
+    if not amd_whisper_kann_rechnen():
+        return None
+    return _hip_speicher()
+
+
+def _hip_speicher(lade_bibliothek=None) -> tuple[int, int] | None:
+    """Fragt ``hipMemGetInfo`` in der HIP-Laufzeit, die der AMD-Grafiktreiber nach System32 legt."""
+    import ctypes
+
+    try:
+        hip = (lade_bibliothek or ctypes.WinDLL)("amdhip64_7.dll")  # type: ignore[attr-defined]
+        frei, gesamt = ctypes.c_size_t(), ctypes.c_size_t()
+        if hip.hipMemGetInfo(ctypes.byref(frei), ctypes.byref(gesamt)) != 0:
             return None
-        _frei, gesamt = torch.cuda.mem_get_info()
-        return int(gesamt)
-    except Exception:
+        return int(frei.value), int(gesamt.value)
+    except (OSError, AttributeError):
         return None
 
 

@@ -1042,6 +1042,30 @@ def test_ist_alles_live_fertig_wird_whisper_nicht_geladen(monkeypatch, tmp_path,
     assert [segment["text"] for segment in ergebnis.segments] == ["alles live"]
 
 
+def test_fortschritt_waechst_auch_innerhalb_eines_chunks(monkeypatch, tmp_path, source_file):
+    # Kurze Aufnahmen sind EIN Chunk: Ohne Fortschritt im Chunk stand die Anzeige bis zum Ende auf 0 %.
+    monkeypatch.setattr(utils_paths, "get_work_dir", lambda: tmp_path / "arbeitsdaten")
+    _patch_ffmpeg(monkeypatch, total_duration=700.0)  # zwei Chunks
+    ts = pipeline_service.transcription_service
+    monkeypatch.setattr(ts, "load_whisper_model", lambda *a, **k: "modell")
+    monkeypatch.setattr(ts, "load_audio_array", lambda pfad: [])
+
+    def transkribiere(modell, audio, batch_size, sprache, fortschritt_fn=None):
+        fortschritt_fn(0.5)
+        return {"segments": [], "language": "de"}
+
+    monkeypatch.setattr(ts, "transcribe_audio_array", transkribiere)
+    monkeypatch.setattr(pipeline_service.model_service, "get_device_and_compute_type", lambda *_a: ("cpu", "int8"))
+    monkeypatch.setattr(pipeline_service.model_service, "prepare_offline_mode", lambda *_a: None)
+    monkeypatch.setattr(pipeline_service.model_service, "get_gpu_description", lambda: "CPU")
+    settings = _make_settings(source_file, tmp_path)
+    settings.enable_diarization = False
+    anteile: list[float] = []
+    pipeline_service.run_transcription(settings, pipeline_service.PipelineCallbacks(on_overall_progress=anteile.append))
+    # Halb durch Chunk 1 -> 12,5 %, Chunk 1 fertig -> 25 %, halb durch Chunk 2 -> 37,5 % ...
+    assert anteile[:4] == [0.125, 0.25, 0.375, 0.5]
+
+
 def test_live_segmente_mit_woertern_behalten_ihre_wortzeiten_im_chunk(monkeypatch, tmp_path, source_file):
     monkeypatch.setattr(utils_paths, "get_work_dir", lambda: tmp_path / "arbeitsdaten")
     _patch_ffmpeg(monkeypatch, total_duration=700.0)  # 0-600, 590-700
