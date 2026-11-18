@@ -1,0 +1,128 @@
+/* Gemeinsames Erscheinungsbild der Marketing-Motive (Farben aus gui/theme.py und dem Logo). */
+:root {
+  --nacht: #071a2b;
+  --navy: #0b2d3d;
+  --leiste: #0f2a4a;
+  --himmel: #4ab7f4;
+  --blau: #2563eb;
+  --tinte: #1c1e21;
+  --grau: #5b6270;
+  --flaeche: #f5f7fb;
+  --linie: #e3e7ee;
+  --gruen: #1f8a4c;
+  --gruen-bg: #eaf6ee;
+  --gruen-rand: #bfe6cc;
+  --rot: #d93025;
+  --s1: #2563eb; --s2: #e07a1f; --s3: #8b5cf6;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: var(--nacht); }
+body { font-family: "Inter", "DejaVu Sans", sans-serif; color: #fff; -webkit-font-smoothing: antialiased; overflow: hidden; }
+
+/* Bühne mit festem Format */
+.buehne { position: relative; overflow: hidden;
+  background:
+    radial-gradient(1200px 900px at 85% -10%, rgba(74,183,244,.28), transparent 60%),
+    radial-gradient(900px 900px at -10% 110%, rgba(37,99,235,.30), transparent 60%),
+    linear-gradient(160deg, #0b2d3d 0%, #071a2b 70%);
+}
+.buehne.hell { background: linear-gradient(170deg, #ffffff 0%, #eef3fa 100%); color: var(--tinte); }
+.raster::before { content: ""; position: absolute; inset: 0; pointer-events: none;
+  background-image: linear-gradient(rgba(255,255,255,.035) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.035) 1px, transparent 1px);
+  background-size: 60px 60px; mask-image: radial-gradient(ellipse at center, #000 30%, transparent 80%); }
+
+.akzent { color: var(--himmel); }
+.marke { display: block; }
+.chip { display: inline-flex; align-items: center; gap: .5em; padding: .45em .95em; border-radius: 999px;
+  background: rgba(74,183,244,.14); border: 1px solid rgba(74,183,244,.45); color: #cfeeff; font-weight: 600; }
+.chip.gruen { background: rgba(31,138,76,.16); border-color: rgba(80,200,130,.5); color: #c9f2d8; }
+
+/* ---------- App-Fenster (Nachbau der Oberfläche) ---------- */
+.fenster { text-align: left; width: 960px; border-radius: 14px; overflow: hidden; background: var(--flaeche); color: var(--tinte);
+  box-shadow: 0 40px 90px rgba(0,0,0,.45), 0 0 0 1px rgba(255,255,255,.08); font-size: 15px; }
+.titelzeile { height: 36px; background: #fff; border-bottom: 1px solid var(--linie); display: flex; align-items: center; padding: 0 0 0 14px; gap: 10px; font-size: 13px; color: var(--grau); }
+.titelzeile img { width: 16px; height: 16px; }
+.titelzeile .knoepfe { margin-left: auto; display: flex; height: 100%; }
+.titelzeile .knoepfe span { width: 46px; display: grid; place-items: center; font-size: 13px; color: #555; }
+.fenster-koerper { display: flex; height: 560px; }
+.seitenleiste { width: 232px; background: var(--leiste); color: #dbe5f4; padding: 22px 14px; display: flex; flex-direction: column; gap: 6px; }
+.seitenleiste .logo { width: 150px; margin: 0 0 2px 8px; }
+.seitenleiste .unter { margin: 0 0 16px 10px; color: #8fa6c4; font-size: 13px; letter-spacing: .04em; }
+.seitenleiste .primaer { background: var(--blau); color: #fff; border-radius: 8px; padding: 11px 14px; font-weight: 600; margin-bottom: 10px; }
+.seitenleiste .nav { padding: 10px 12px; border-radius: 8px; font-size: 14px; }
+.seitenleiste .nav.aktiv { background: rgba(255,255,255,.10); color: #fff; font-weight: 600; }
+.seitenleiste .abstand { flex: 1; }
+.inhalt { flex: 1; padding: 24px 28px; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.seitentitel { font-size: 22px; font-weight: 700; }
+.seitenunter { color: var(--grau); font-size: 14px; margin-top: -8px; }
+.datenschutz { background: var(--gruen-bg); border: 1px solid var(--gruen-rand); color: var(--gruen); border-radius: 8px; padding: 9px 12px; font-size: 13px; font-weight: 500; }
+.karte { background: #fff; border: 1px solid var(--linie); border-radius: 10px; padding: 16px 18px; }
+.karte h4 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--grau); margin-bottom: 12px; }
+
+/* Aufnahme */
+.aufnahme-kopf { display: flex; align-items: center; gap: 12px; font-weight: 600; }
+.punkt { width: 12px; height: 12px; border-radius: 50%; background: var(--rot); animation: blinken 1s steps(2) infinite; }
+.uhr { font-variant-numeric: tabular-nums; font-size: 28px; font-weight: 700; margin-left: auto; }
+.welle { display: flex; align-items: center; gap: 4px; height: 92px; margin: 14px 0; }
+.welle i { flex: 1; background: linear-gradient(var(--himmel), var(--blau)); border-radius: 3px; height: 20%; animation: welle .8s ease-in-out infinite alternate; }
+.knopfzeile { display: flex; gap: 10px; }
+.knopf { padding: 9px 16px; border-radius: 8px; border: 1px solid var(--linie); background: #fff; font-weight: 600; font-size: 14px; }
+.knopf.rot { background: var(--rot); color: #fff; border-color: var(--rot); }
+.knopf.blau { background: var(--blau); color: #fff; border-color: var(--blau); }
+
+/* Transkript */
+.zeile { display: grid; grid-template-columns: 78px 1fr; gap: 10px; padding: 9px 0; border-bottom: 1px dashed var(--linie); }
+.zeile:last-child { border-bottom: 0; }
+.zeit { color: #9aa0a8; font-variant-numeric: tabular-nums; font-size: 13px; padding-top: 2px; }
+.sprecher { font-weight: 700; margin-right: 6px; }
+.sp1 { color: var(--s1); } .sp2 { color: var(--s2); } .sp3 { color: var(--s3); }
+.sprecherliste { display: flex; gap: 8px; flex-wrap: wrap; }
+.sprecherliste span { padding: 5px 10px; border-radius: 999px; font-size: 13px; font-weight: 600; background: #f0f3f8; }
+.fortschritt { height: 8px; background: #e7ebf2; border-radius: 99px; overflow: hidden; }
+.fortschritt b { display: block; height: 100%; background: var(--blau); width: 0; animation: fuellen 2.6s ease-out both; }
+
+/* Protokoll-Dokument */
+.dokument { text-align: left; width: 760px; background: #fff; color: var(--tinte); border-radius: 12px; padding: 40px 46px; box-shadow: 0 40px 90px rgba(0,0,0,.45); font-size: 17px; }
+.dokument .kopf { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid var(--tinte); padding-bottom: 14px; margin-bottom: 20px; }
+.dokument h2 { font-size: 30px; }
+.dokument .meta { color: var(--grau); font-size: 14px; margin-top: 4px; }
+.dokument h3 { font-size: 15px; text-transform: uppercase; letter-spacing: .07em; color: var(--blau); margin: 20px 0 10px; }
+.dokument p, .dokument li { line-height: 1.5; }
+.dokument ul { padding-left: 22px; }
+.aufgabe { display: grid; grid-template-columns: 26px 1fr 110px 80px; gap: 10px; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--linie); }
+.aufgabe .kasten { width: 18px; height: 18px; border: 2px solid var(--blau); border-radius: 4px; }
+.aufgabe .wer { font-weight: 600; } .aufgabe .bis { color: var(--grau); font-variant-numeric: tabular-nums; text-align: right; }
+.word { display: inline-flex; align-items: center; gap: 8px; background: #185abd; color: #fff; font-weight: 700; font-size: 13px; padding: 6px 10px; border-radius: 6px; }
+
+/* VERMERK Raum (rundes Aufnahmegerät, 1,85-Zoll-Touchscreen) */
+.geraet { width: 460px; height: 460px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #3a3f47, #15181c 70%); padding: 26px;
+  box-shadow: 0 50px 90px rgba(0,0,0,.55), inset 0 2px 3px rgba(255,255,255,.18); position: relative; }
+.geraet .schirm { width: 100%; height: 100%; border-radius: 50%; background: #05080c; position: relative; overflow: hidden; display: grid; place-items: center; text-align: center; }
+.geraet .rec { color: #ff5a4f; font-weight: 800; letter-spacing: .12em; font-size: 22px; display: flex; align-items: center; gap: 10px; justify-content: center; }
+.geraet .rec .punkt { background: #ff5a4f; }
+.geraet .zeit-gross { font-size: 64px; font-weight: 800; color: #fff; font-variant-numeric: tabular-nums; margin: 6px 0; }
+.geraet .klein { color: #8fa6c4; font-size: 16px; }
+.geraet .live { color: var(--himmel); font-size: 16px; font-weight: 700; margin-top: 10px; }
+.geraet .erfolg { position: absolute; inset: 0; background: #1f8a4c; display: grid; place-items: center; color: #fff; font-weight: 800; font-size: 22px; letter-spacing: .04em; }
+.geraet .erfolg svg { width: 120px; height: 120px; display: block; margin: 0 auto 12px; }
+
+/* ---------- Animationen (werden zum Rendern pausiert und gezielt gesetzt) ---------- */
+.szene { position: absolute; inset: 0; opacity: 0; animation: sz-ein .55s cubic-bezier(.2,.8,.2,1) var(--von) both, sz-aus .45s ease-in var(--bis) forwards; }
+.ein { animation: ein .7s cubic-bezier(.2,.8,.2,1) var(--d, 0s) both; }
+.ein-links { animation: ein-links .7s cubic-bezier(.2,.8,.2,1) var(--d, 0s) both; }
+.zoom { animation: zoom .8s cubic-bezier(.2,.8,.2,1) var(--d, 0s) both; }
+.pop { animation: pop .5s cubic-bezier(.3,1.6,.5,1) var(--d, 0s) both; }
+.weg { animation: weg .4s ease-in var(--d, 0s) forwards; }
+@keyframes sz-ein { from { opacity: 0; transform: translateY(24px) scale(.985); } to { opacity: 1; transform: none; } }
+@keyframes sz-aus { from { opacity: 1; } to { opacity: 0; transform: translateY(-20px); } }
+@keyframes ein { from { opacity: 0; transform: translateY(28px); } to { opacity: 1; transform: none; } }
+@keyframes ein-links { from { opacity: 0; transform: translateX(-30px); } to { opacity: 1; transform: none; } }
+@keyframes zoom { from { opacity: 0; transform: scale(.86); } to { opacity: 1; transform: none; } }
+@keyframes pop { from { opacity: 0; transform: scale(.4); } to { opacity: 1; transform: none; } }
+@keyframes weg { to { opacity: 0; } }
+@keyframes blinken { 50% { opacity: .2; } }
+@keyframes welle { from { height: 12%; } to { height: 100%; } }
+@keyframes fuellen { to { width: 100%; } }
+@keyframes schweben { from { transform: translateY(-8px); } to { transform: translateY(8px); } }
+@keyframes funk { 0% { opacity: 0; transform: scale(.6); } 40% { opacity: 1; } 100% { opacity: 0; transform: scale(1.5); } }
+@keyframes laufband { from { stroke-dashoffset: 40; } to { stroke-dashoffset: 0; } }

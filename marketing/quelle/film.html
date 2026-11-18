@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="de"><head><meta charset="utf-8"><title>VERMERK Film</title>
+<link rel="stylesheet" href="vermerk.css">
+<style>
+  .buehne { width: var(--b); height: var(--h); }
+  .fmt-story  { --b: 1080px; --h: 1920px; --t: 92px; --u: 40px; --z: 1.04; --zd: 1.25; --zg: 1.35; }
+  .fmt-square { --b: 1080px; --h: 1080px; --t: 58px; --u: 28px; --z: .74;  --zd: .82;  --zg: .9; }
+  .fmt-wide   { --b: 1920px; --h: 1080px; --t: 64px; --u: 30px; --z: .98;  --zd: .9;   --zg: .95; }
+  .szene { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: calc(var(--t) * .8); text-align: center; padding: 0 70px; }
+  .titel { font-size: var(--t); font-weight: 800; line-height: 1.08; letter-spacing: -.02em; }
+  .unter { font-size: var(--u); color: #b9cde3; font-weight: 500; line-height: 1.35; max-width: 900px; }
+  .schritt { font-size: calc(var(--u) * .8); font-weight: 700; color: var(--himmel); letter-spacing: .14em; text-transform: uppercase; }
+  .vis { zoom: var(--z); } .vis-dok { zoom: var(--zd); } .vis-g { zoom: var(--zg); }
+  .wasserzeichen { position: absolute; top: 60px; left: 64px; width: 200px; opacity: .9; z-index: 5; }
+  .fmt-story .szene { gap: 70px; } .fmt-story .fenster-koerper { height: 640px; }
+  .fmt-square .wasserzeichen { top: 44px; left: 48px; width: 160px; }
+  .leiste { position: absolute; left: 0; bottom: 0; height: 8px; background: linear-gradient(90deg, var(--blau), var(--himmel)); width: 0; animation: fuellen var(--dauer) linear both; z-index: 5; }
+  .endlogo { width: 640px; } .fmt-square .endlogo { width: 520px; }
+  .wide-reihe { display: flex; align-items: center; gap: 70px; text-align: left; }
+  .wide-reihe .szene-text { max-width: 700px; display: flex; flex-direction: column; gap: 26px; }
+  .pc { width: 620px; height: 400px; border-radius: 26px; border: 3px solid rgba(74,183,244,.6); background: rgba(10,40,60,.55); position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px; box-shadow: 0 0 120px rgba(74,183,244,.25) inset; }
+  .pc .etikett { position: absolute; top: -20px; left: 36px; background: var(--nacht); padding: 0 14px; color: var(--himmel); font-weight: 700; font-size: 22px; letter-spacing: .1em; }
+  .pc .chip { font-size: 26px; }
+  .wolke { position: relative; width: 200px; opacity: .9; }
+  .wolke .strich { position: absolute; left: -10px; right: -10px; top: 50%; height: 10px; background: var(--rot); border-radius: 6px; transform: rotate(-22deg); }
+  .funkwellen { position: relative; width: 120px; height: 120px; }
+  .funkwellen i { position: absolute; inset: 0; border: 4px solid var(--himmel); border-radius: 50%; animation: funk 1.6s ease-out infinite; }
+  .funkwellen i:nth-child(2) { animation-delay: -.53s; } .funkwellen i:nth-child(3) { animation-delay: -1.06s; }
+  .raum-reihe { display: flex; align-items: center; gap: 40px; }
+  .fmt-story .raum-reihe { flex-direction: column; gap: 10px; zoom: 1.05; } .fmt-square .raum-reihe { zoom: .78; } .fmt-wide .raum-reihe { zoom: .95; }
+  .fmt-story .funkwellen { width: 80px; height: 80px; }
+  .mini { width: 420px; background: #fff; color: var(--tinte); border-radius: 12px; padding: 18px 20px; text-align: left; font-size: 17px; box-shadow: 0 30px 60px rgba(0,0,0,.4); }
+  .mini .k { display: flex; align-items: center; gap: 10px; font-weight: 700; margin-bottom: 10px; }
+  .mini .k img { width: 26px; }
+  .mini .zeile { grid-template-columns: 1fr; padding: 6px 0; }
+</style></head>
+<body><div id="b" class="buehne raster"></div>
+<script src="bausteine.js"></script>
+<script>
+const q = new URLSearchParams(location.search);
+const film = q.get("film") || "protokoll", fmt = q.get("fmt") || "story";
+const b = document.getElementById("b");
+b.classList.add("fmt-" + fmt);
+const sz = (von, bis, inhalt) => `<div class="szene" style="--von:${von}s;--bis:${bis}s">${inhalt}</div>`;
+const d = (s) => `style="--d:${s}s"`;
+const wide = fmt === "wide";
+
+const ende = (von, zeile, chip) => sz(von, 99, `
+  <img class="endlogo zoom" ${d(von + .1)} src="logo_hell.svg">
+  <div class="titel ein" ${d(von + .5)}>${zeile}</div>
+  <div class="ein" ${d(von + .9)}><span class="chip" style="font-size:calc(var(--u)*.85)">${chip}</span></div>`);
+
+const FILME = {
+  protokoll: { dauer: 16.5, endeAb: 13.7, html: () =>
+    sz(0, 2.6, `
+      <div class="titel ein" ${d(.15)}>60 Minuten<br>Besprechung.</div>
+      <div class="titel akzent ein" ${d(1.0)}>Wer schreibt<br>das Protokoll?</div>`) +
+    sz(2.8, 6.2, `
+      <div class="schritt ein" ${d(2.9)}>Schritt 1</div>
+      <div class="titel ein" ${d(3.0)} style="font-size:calc(var(--t)*.8)">Aufnehmen – oder Datei<br>hineinziehen.</div>
+      <div class="vis zoom" ${d(3.2)}>${aufnahmeSeite()}</div>`) +
+    sz(6.4, 10.0, `
+      <div class="schritt ein" ${d(6.5)}>Schritt 2</div>
+      <div class="titel ein" ${d(6.6)} style="font-size:calc(var(--t)*.8)">Wer hat was gesagt?<br><span class="akzent">Automatisch erkannt.</span></div>
+      <div class="vis zoom" ${d(6.7)}>${sprecherSeite(6.9)}</div>`) +
+    sz(10.2, 13.5, `
+      <div class="schritt ein" ${d(10.3)}>Schritt 3</div>
+      <div class="titel ein" ${d(10.4)} style="font-size:calc(var(--t)*.8)">Fertiges Protokoll –<br>mit Aufgaben.</div>
+      <div class="vis-dok zoom" ${d(10.5)}>${protokoll(10.7)}</div>`) +
+    ende(13.7, "100 % lokal.<br><span class='akzent'>Nichts verlässt Ihren PC.</span>", "VERMERK Desktop · für Windows")
+  },
+  datenschutz: { dauer: 11.5, endeAb: 7.8, html: () =>
+    sz(0, 3.0, `
+      <div class="titel ein" ${d(.15)}>Vertrauliche<br>Besprechung?</div>
+      <div class="titel akzent ein" ${d(1.0)}>Dann bleibt sie<br>auf Ihrem Rechner.</div>`) +
+    sz(3.2, 7.6, `
+      <div class="titel ein" ${d(3.3)} style="font-size:calc(var(--t)*.75)">Alles bleibt <span class="akzent">auf Ihrem PC.</span></div>
+      <div class="${wide ? "wide-reihe" : ""}" style="display:flex;flex-direction:${wide ? "row" : "column"};align-items:center;gap:60px">
+        <div class="pc zoom vis-g" ${d(3.3)}>
+          <span class="etikett">IHR PC</span>
+          <img src="icon_hell.svg" style="width:110px">
+          <span class="chip gruen pop" ${d(4.0)}>✓ Transkription · lokal</span>
+          <span class="chip gruen pop" ${d(4.5)}>✓ Protokoll · lokal (Ollama)</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:30px" class="ein" ${d(5.2)}>
+          <div class="wolke"><svg viewBox="0 0 64 40" fill="none" stroke="#8fa6c4" stroke-width="3"><path d="M18 36h30a12 12 0 0 0 0-24 16 16 0 0 0-30-2A12 12 0 0 0 18 36z"/></svg><div class="strich pop" ${d(5.7)}></div></div>
+          <div class="unter" style="text-align:left">Kein Upload.<br>Keine Cloud.<br>Auf Wunsch komplett offline.</div>
+        </div>
+      </div>`) +
+    ende(7.8, "Lokal, wenn's vertraulich ist.<br><span class='akzent' style='font-size:.7em'>Per API, wenn Sie wollen.</span>", "z. B. IONOS · STACKIT · Mistral · eigener Endpunkt")
+  },
+  raum: { dauer: 13, endeAb: 10.8, html: () =>
+    sz(0, 2.8, `
+      <div class="titel ein" ${d(.15)}>Gerät auf den Tisch.</div>
+      <div class="titel akzent ein" ${d(.9)}>Protokoll auf den PC.</div>
+      <div class="unter ein" ${d(1.5)}>VERMERK Raum – das WLAN-Aufnahmegerät für Besprechungsräume.</div>`) +
+    sz(3.0, 8.0, `
+      <div class="schritt ein" ${d(3.1)}>Live übertragen</div>
+      <div class="titel ein" ${d(3.2)} style="font-size:calc(var(--t)*.75)">Transkribiert wird schon<br>während der Besprechung.</div>
+      <div class="raum-reihe">
+        <div class="zoom" ${d(3.4)}>${geraet(`<div><div class="rec"><span class="punkt"></span>REC</div><div class="zeit-gross" data-uhr="1094" data-start="3">18:14</div><div class="klein">Besprechungsraum 2</div><div class="live">⇡ WLAN · live</div></div>`)}</div>
+        <div class="funkwellen ein" ${d(4.0)}><i></i><i></i><i></i></div>
+        <div class="mini ein" ${d(4.6)}>
+          <div class="k"><img src="icon_dunkel.svg">VERMERK Desktop · Live-Transkript</div>
+          ${TRANSKRIPT.slice(0, 4).map(([z, s, n, t], i) => `<div class="zeile ein" ${d(5.0 + i * .55)}><span><span class="sprecher sp${s}">${n}:</span>${t}</span></div>`).join("")}
+        </div>
+      </div>`) +
+    sz(8.2, 10.6, `
+      <div class="titel ein" ${d(8.3)} style="font-size:calc(var(--t)*.75)">Stopp drücken –<br><span class="akzent">fertig.</span></div>
+      <div class="vis-g zoom" ${d(8.4)}>${geraet(`<div class="erfolg pop" ${d(8.9)}><div>${HAKEN}TRANSKRIPTION<br>ERFOLGREICH</div></div>`)}</div>`) +
+    ende(10.8, "VERMERK Raum<br><span class='akzent'>+ VERMERK Desktop</span>", "Aufnahme per WLAN · Auswertung lokal")
+  },
+};
+
+const f = FILME[film];
+b.style.setProperty("--dauer", f.dauer + "s");
+b.innerHTML = `<img class="wasserzeichen weg" style="--d:${f.endeAb - .3}s" src="logo_hell.svg">` + f.html() + `<div class="leiste"></div>`;
+window.FILMDAUER = f.dauer;
+setzeZeit(0);
+</script></body></html>
