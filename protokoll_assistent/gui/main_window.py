@@ -231,6 +231,7 @@ class MainWindow(QMainWindow):
         self._protocol_worker: ProtocolWorker | None = None
         self._start_time: float | None = None
         self._chunk_progress = (0, 0)
+        self._gesamt_anteil = 0.0  # letzter Gesamtfortschritt (0..1), Grundlage der Restdauer
         self._last_transcription_result: pipeline_service.TranscriptionResult | None = None
         self._speaker_embeddings: dict[str, list[float]] = {}
         # Gesetzt, wenn im Dialog 'Verarbeitung waehlen' das Protokoll direkt im
@@ -2388,13 +2389,19 @@ class MainWindow(QMainWindow):
         self._update_remaining_estimate(elapsed)
 
     def _update_remaining_estimate(self, elapsed: float) -> None:
+        # Aus dem Gesamtfortschritt, der seit 11/2026 auch innerhalb eines Chunks waechst. Frueher zaehlte hier der
+        # gerade LAUFENDE Chunk als erledigt: Bei einer kurzen Aufnahme (Chunk 1 von 1) stand die Restdauer vom
+        # ersten Augenblick an auf 0:00.
+        anteil = self._gesamt_anteil
+        if anteil >= 0.01:
+            self.remaining_label.setText(format_duration_human(elapsed / anteil * (1 - anteil)))
+            return
         current, total = self._chunk_progress
-        if current <= 0 or total <= 0:
+        erledigt = current - 1
+        if erledigt <= 0 or total <= 0:
             self.remaining_label.setText("--")
             return
-        per_chunk = elapsed / current
-        remaining_chunks = max(0, total - current)
-        self.remaining_label.setText(format_duration_human(per_chunk * remaining_chunks))
+        self.remaining_label.setText(format_duration_human(elapsed / erledigt * max(0, total - erledigt)))
 
     def _on_transcription_stage_changed(self, key: str, detail: str) -> None:
         self.status_label.setText(detail)
@@ -2417,6 +2424,7 @@ class MainWindow(QMainWindow):
     def _fortschritt_zuruecksetzen(self, unbestimmt: bool = False) -> None:
         """Vor jedem Lauf: Die Anzeigen des vorigen Laufs (100 %, letzter Chunk, Restdauer 0) verschwinden."""
         self._chunk_progress = (0, 0)
+        self._gesamt_anteil = 0.0
         self.chunk_progress_bar.setMaximum(1)
         self.chunk_progress_bar.setValue(0)
         self.chunk_progress_bar.setFormat("")
@@ -2425,6 +2433,7 @@ class MainWindow(QMainWindow):
         self.remaining_label.setText("--")
 
     def _on_overall_progress(self, fraction: float) -> None:
+        self._gesamt_anteil = fraction
         self.overall_progress_bar.setRange(0, 100)
         self.overall_progress_bar.setValue(round(fraction * 100))
         # Das Geraet sieht einen Balken fuer beide Schritte: erst die Transkription, dann die Auswertung.

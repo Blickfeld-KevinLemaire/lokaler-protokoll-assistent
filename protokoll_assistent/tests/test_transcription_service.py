@@ -45,6 +45,29 @@ class _ModellAttrappe:
         return (segment for segment in self._segmente), _Info(self._sprache)
 
 
+def test_fortschritt_nach_jedem_segment():
+    modell = _ModellAttrappe([_Segment(0.0, 15.0, " A", None), _Segment(15.0, 30.0, " B", None)])
+    anteile: list[float] = []
+    # 60 s Audio bei 16 kHz; das Info-Objekt der Attrappe kennt keine Dauer.
+    transcription_service.transcribe_audio_array(modell, [0.0] * (60 * 16000), fortschritt_fn=anteile.append)
+    assert anteile == [0.25, 0.5]
+
+
+def test_fortschritt_mit_der_dauer_von_faster_whisper():
+    class Info(_Info):
+        duration = 20.0
+
+    class Modell(_ModellAttrappe):
+        def transcribe(self, _audio, **kwargs):
+            return (s for s in self._segmente), Info("de")
+
+    anteile: list[float] = []
+    transcription_service.transcribe_audio_array(
+        Modell([_Segment(0.0, 10.0, " A", None), _Segment(10.0, 25.0, " B", None)]), object(), fortschritt_fn=anteile.append
+    )
+    assert anteile == [0.5, 1.0]  # nie ueber 100 %
+
+
 def test_generator_wird_zu_einer_liste():
     # Der Generator von faster-whisper wird nur einmal durchlaufen. Wird er
     # nicht ausgewertet, waere das Ergebnis beim zweiten Zugriff leer.

@@ -36,7 +36,7 @@ from pathlib import Path
 from typing import Any
 
 from PySide6.QtCore import Qt, QThread, Signal
-from PySide6.QtGui import QCloseEvent
+from PySide6.QtGui import QCloseEvent, QColor
 from PySide6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
@@ -60,6 +60,7 @@ from PySide6.QtWidgets import (
 )
 
 from protokoll_assistent import bootstrap
+from protokoll_assistent.gui import theme
 from protokoll_assistent.gui.ersteinrichtung_raum import VermerkRaumSeite
 from protokoll_assistent.gui.settings_dialog import DATENSCHUTZ_HINWEIS_API
 from protokoll_assistent.services import (
@@ -85,6 +86,12 @@ HF_TOKEN_URL = "https://huggingface.co/settings/tokens"  # noqa: S105 -- eine Ad
 
 _ZEICHEN = {GUT: "✓", MAESSIG: "~", NICHT: "✗"}
 _STUFEN_TEXT = {GUT: "geht gut", MAESSIG: "geht, aber langsam", NICHT: "nicht sinnvoll"}
+_STUFEN_FARBE = {GUT: theme.SUCCESS, MAESSIG: theme.WARNING, NICHT: theme.DANGER}
+
+
+def _stufe_html(stufe: str) -> str:
+    """Zeichen und Einschaetzung in der Ampelfarbe der Stufe (gruen / orange / rot)."""
+    return f"<b style='color:{_STUFEN_FARBE[stufe]}'>{_ZEICHEN[stufe]} {_STUFEN_TEXT[stufe]}</b>"
 
 # Nicht 'DETACHED_PROCESS': Der neue Prozess hat dann gar keine Konsole, und
 # jedes Hilfsprogramm, das er startet, oeffnete ein eigenes schwarzes Fenster.
@@ -111,6 +118,23 @@ def _ollama_modelle() -> set[str]:
         return set(ollama_service.list_models(timeout=3))
     except ollama_service.OllamaError:
         return set()
+
+
+def _hervorheben(knopf: QPushButton, an: bool) -> None:
+    """Macht einen Knopf zum (blauen) Hauptknopf oder nimmt es zurueck. Qt wendet das Stylesheet nach einem neuen
+    Objektnamen nicht von selbst neu an -- ohne 'unpolish/polish' blieb "Weiter" grau, obwohl er der Hauptknopf war."""
+    knopf.setObjectName("PrimaryButton" if an else "")
+    knopf.style().unpolish(knopf)
+    knopf.style().polish(knopf)
+
+
+def _mitschrift_schon_geladen(whisper_modell: str | None, sprecher: bool) -> bool:
+    """Whisper (und, falls gewuenscht, pyannote) schon im Zwischenspeicher? Ohne Rechenumgebung: nein."""
+    from protokoll_assistent.services import model_download_service
+
+    if not whisper_modell or not model_download_service.whisper_schon_geladen(whisper_modell):
+        return False
+    return not sprecher or model_download_service.pyannote_schon_geladen()
 
 
 def _modell_da(name: str, vorhanden: set[str]) -> bool:
@@ -601,9 +625,7 @@ class ErsteinrichtungDialog(QDialog):
         self.profil_label.setText(rechner_analyse_service.beschreibe_profil(analyse.profil).replace("\n", "<br>"))
         for schaetzung in self.moeglichkeiten.schritte:
             _name, bewertung = self.schritt_zeilen[schaetzung.schritt]
-            bewertung.setText(
-                f"{_ZEICHEN[schaetzung.stufe]} {_STUFEN_TEXT[schaetzung.stufe]} – {schaetzung.text}"
-            )
+            bewertung.setText(f"{_stufe_html(schaetzung.stufe)} – {schaetzung.text}")
         hinweise = "".join(f"<li>{h}</li>" for h in analyse.hinweise)
         self.empfehlung_label.setText(
             f"<b>{self.moeglichkeiten.begruendung}</b>"
@@ -614,7 +636,9 @@ class ErsteinrichtungDialog(QDialog):
         for zeile, b in enumerate(analyse.bewertungen):
             empfohlen = analyse.empfehlung.get(b.bereich) == b.modell_id
             self.details_tabelle.setItem(zeile, 0, QTableWidgetItem(f"{b.bereich}: {b.name}" + ("  ★" if empfohlen else "")))
-            self.details_tabelle.setItem(zeile, 1, QTableWidgetItem(_STUFEN_TEXT[b.stufe]))
+            stufe_zelle = QTableWidgetItem(f"{_ZEICHEN[b.stufe]} {_STUFEN_TEXT[b.stufe]}")
+            stufe_zelle.setForeground(QColor(_STUFEN_FARBE[b.stufe]))
+            self.details_tabelle.setItem(zeile, 1, stufe_zelle)
             self.details_tabelle.setItem(zeile, 2, QTableWidgetItem(b.text))
         self.details_tabelle.resizeColumnToContents(0)
         self._arbeitsweise_vorauswaehlen()
@@ -857,6 +881,7 @@ class ErsteinrichtungDialog(QDialog):
             nachbearbeitung_lokal=konfig["nachbearbeitung_modus"] == "lokal",
             chat_lokal=konfig["chatbot_modus"] == "lokal",
             cuda_gpu=profil.cuda_gpu,
+            amd_rocm=profil.amd_rocm,
             whisper_modell=konfig["whisper_modell"] or model_service.WHISPER_MODEL_NAME,
             sprachmodell=sprache,
             einbettungsmodell=einbettung,
@@ -1129,18 +1154,40 @@ class ErsteinrichtungDialog(QDialog):
         self.mitschrift_weiter_button.clicked.connect(lambda: self._gehe_zu(self.S_FERTIG))
         knoepfe.addWidget(self.mitschrift_weiter_button)
         layout.addLayout(knoepfe)
+        self.whisper_wahl.currentIndexChanged.connect(self._mitschrift_vorhanden_pruefen)
         return seite
 
     def _mitschrift_vorbereiten(self) -> None:
         gespeichert = app_config.load_config()["whisper_modell"] or model_service.WHISPER_MODEL_NAME
         index = self.whisper_wahl.findData(gespeichert)
+        self.whisper_wahl.blockSignals(True)
         self.whisper_wahl.setCurrentIndex(max(index, 0))
+        self.whisper_wahl.blockSignals(False)
         self._sprecher_geaendert()
 
     def _sprecher_geaendert(self, *_args) -> None:
         vorhanden = hf_env.has_hf_token()
         self.token_vorhanden_label.setVisible(self.sprecher_checkbox.isChecked() and vorhanden)
         self.token_bereich.setVisible(self.sprecher_checkbox.isChecked() and not vorhanden)
+        self._mitschrift_vorhanden_pruefen()
+
+    def _mitschrift_vorhanden_pruefen(self, *_args) -> None:
+        """Liegt schon alles auf der Platte (frueherer Lauf, zweite Einrichtung)? Dann gibt es nichts zu laden:
+        kein "Herunterladen", sondern gleich "Weiter". Fragt nur die Platte, nie das Netz."""
+        if self._mitschrift is not None and self._mitschrift.isRunning():
+            return
+        da = _mitschrift_schon_geladen(self.whisper_wahl.currentData(), self.sprecher_checkbox.isChecked())
+        self._mitschrift_knoepfe(fertig=da, versucht=False)
+        if da:
+            self.mitschrift_log.setPlainText("Die Modelle für die Mitschrift sind schon auf diesem Computer.")
+
+    def _mitschrift_knoepfe(self, *, fertig: bool, versucht: bool) -> None:
+        """Genau ein hervorgehobener Knopf: "Weiter", wenn alles da ist -- sonst "Herunterladen" bzw. nach einem
+        Fehlschlag "Erneut versuchen" (dann ist "Weiter" auch moeglich, aber nicht hervorgehoben)."""
+        self.mitschrift_laden_button.setVisible(not fertig)
+        self.mitschrift_laden_button.setText("Erneut versuchen" if versucht else "Herunterladen")
+        self.mitschrift_weiter_button.setVisible(fertig or versucht)
+        _hervorheben(self.mitschrift_weiter_button, fertig)
 
     def _mitschrift_laden(self) -> None:
         if self._mitschrift is not None and self._mitschrift.isRunning():
@@ -1169,9 +1216,8 @@ class ErsteinrichtungDialog(QDialog):
         self.mitschrift_fortschritt.setRange(0, 1)
         self.mitschrift_fortschritt.setValue(1)
         self.mitschrift_laden_button.setEnabled(True)
-        self.mitschrift_laden_button.setText("Erneut versuchen" if not all(ergebnis.values()) else "Herunterladen")
-        self.mitschrift_weiter_button.setVisible(True)
-        self.mitschrift_weiter_button.setObjectName("PrimaryButton")
+        gelungen = bool(ergebnis) and all(ergebnis.values())
+        self._mitschrift_knoepfe(fertig=gelungen, versucht=not gelungen)
         # Die Rechenumgebung steht jetzt -- ein weiterer Neustart ist nicht noetig.
         app_config.update_config(einrichtung_fortsetzen="")
 

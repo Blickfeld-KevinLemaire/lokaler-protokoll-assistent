@@ -151,7 +151,31 @@ def test_cuda_meldung_ohne_karte(monkeypatch):
     ergebnis = diagnostics.check_cuda()
 
     assert ergebnis.ok is False
-    assert "Keine CUDA-GPU erkannt" in ergebnis.detail
+    assert "Keine nutzbare Grafikkarte erkannt" in ergebnis.detail
+
+
+def test_cuda_meldung_mit_amd_karte(monkeypatch):
+    from protokoll_assistent.services import model_service
+
+    _torch_ersetzen(monkeypatch, _TorchAttrappe(verfuegbar=False))
+    monkeypatch.setattr(model_service, "amd_whisper_kann_rechnen", lambda: True)
+
+    ergebnis = diagnostics.check_cuda()
+
+    assert ergebnis.ok is True
+    assert "AMD" in ergebnis.detail and "Sprechererkennung auf der CPU" in ergebnis.detail
+
+
+def test_grafikspeicher_einer_amd_karte(monkeypatch):
+    from protokoll_assistent.services import model_service
+
+    _torch_ersetzen(monkeypatch, _TorchAttrappe(verfuegbar=False))
+    monkeypatch.setattr(model_service, "amd_whisper_kann_rechnen", lambda: True)
+    monkeypatch.setattr(model_service, "_hip_speicher", lambda: (15 * 1024**3, 16 * 1024**3))
+
+    ergebnis = diagnostics.check_gpu_vram()
+
+    assert ergebnis.ok is True and ergebnis.extra["vram_gb"] == 16.0
 
 
 def test_cuda_meldung_mit_benutzbarer_karte(monkeypatch):
