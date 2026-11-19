@@ -16,6 +16,7 @@ pytest.importorskip("PySide6", reason="PySide6 ist nicht installiert.")
 
 from protokoll_assistent import bootstrap  # noqa: E402
 from protokoll_assistent.gui import ersteinrichtung as ee  # noqa: E402
+from protokoll_assistent.gui import theme  # noqa: E402
 from protokoll_assistent.services import (  # noqa: E402
     einrichtungsplan_service,
     ollama_service,
@@ -130,7 +131,9 @@ def test_rechner_seite_zeigt_je_schritt_eine_einschaetzung(dialog):
     assert not dialog.rechner_weiter_button.isEnabled()  # erst nach der Analyse
     _Ermittlung.instanzen[-1].fertig.emit(rechner_analyse_service.analysiere(LAPTOP), {})
     texte = {schritt: bewertung.text() for schritt, (_n, bewertung) in dialog.schritt_zeilen.items()}
-    assert texte[einrichtungsplan_service.SCHRITT_MITSCHRIFT].startswith("✓ geht gut")
+    mitschrift = texte[einrichtungsplan_service.SCHRITT_MITSCHRIFT]
+    assert "✓ geht gut</b>" in mitschrift and theme.SUCCESS in mitschrift  # gruen
+    assert "(Grafikkarte)" in mitschrift  # wo es laeuft, steht dabei
     assert "Minuten" in texte[einrichtungsplan_service.SCHRITT_PROTOKOLL]
     assert "alles auf diesem Computer" in dialog.empfehlung_label.text()
     assert dialog.details_tabelle.rowCount() > 0 and dialog.details_tabelle.isHidden()
@@ -391,7 +394,42 @@ def test_token_wird_gemerkt_aber_nie_in_die_konfiguration_geschrieben(fortsetzun
 
     arbeiter.fertig.emit({"whisper": True, "pyannote": True})
     assert app_config.load_config()["einrichtung_fortsetzen"] == ""  # kein weiterer Neustart
+    # Alles geladen: "Herunterladen" verschwindet, "Weiter" ist der (blaue) Hauptknopf.
     assert not fortsetzung.mitschrift_weiter_button.isHidden()
+    assert fortsetzung.mitschrift_laden_button.isHidden()
+    assert fortsetzung.mitschrift_weiter_button.objectName() == "PrimaryButton"
+
+
+def test_schon_geladene_modelle_brauchen_keinen_download(qt_widgets, konfig, monkeypatch):
+    monkeypatch.setattr(ee, "_mitschrift_schon_geladen", lambda modell, sprecher: True)
+    fenster = qt_widgets(ee.ErsteinrichtungDialog(start_bei=ee.FORTSETZEN_TRANSKRIPTION))
+    assert fenster.mitschrift_laden_button.isHidden()
+    assert not fenster.mitschrift_weiter_button.isHidden()
+    assert fenster.mitschrift_weiter_button.objectName() == "PrimaryButton"
+    assert "schon auf diesem Computer" in fenster.mitschrift_log.toPlainText()
+
+
+def test_anderes_whisper_modell_muss_wieder_geladen_werden(qt_widgets, konfig, monkeypatch):
+    monkeypatch.setattr(ee, "_mitschrift_schon_geladen", lambda modell, sprecher: modell == "large-v3-turbo")
+    fenster = qt_widgets(ee.ErsteinrichtungDialog(start_bei=ee.FORTSETZEN_TRANSKRIPTION))
+    fenster.whisper_wahl.setCurrentIndex(fenster.whisper_wahl.findData("large-v3-turbo"))
+    assert fenster.mitschrift_laden_button.isHidden()
+    fenster.whisper_wahl.setCurrentIndex(fenster.whisper_wahl.findData("large-v3"))
+    assert not fenster.mitschrift_laden_button.isHidden()
+    assert fenster.mitschrift_weiter_button.isHidden()
+
+
+def test_pruefung_auf_vorhandene_modelle(monkeypatch):
+    from protokoll_assistent.services import model_download_service as mds
+
+    # Ohne Rechenumgebung (kein faster-whisper, wie in den Tests) ist nichts da.
+    assert not mds.whisper_schon_geladen("small")
+    monkeypatch.setattr(mds, "whisper_schon_geladen", lambda modell: modell == "small")
+    monkeypatch.setattr(mds, "pyannote_schon_geladen", lambda: False)
+    assert ee._mitschrift_schon_geladen("small", sprecher=False)
+    assert not ee._mitschrift_schon_geladen("small", sprecher=True)  # pyannote fehlt noch
+    assert not ee._mitschrift_schon_geladen("large-v3", sprecher=False)
+    assert not ee._mitschrift_schon_geladen(None, sprecher=False)
 
 
 def test_ohne_merken_nur_fuer_die_sitzung(fortsetzung):
@@ -420,6 +458,9 @@ def test_ohne_token_und_ohne_sprechererkennung(fortsetzung):
     assert _Mitschrift.instanzen[-1].args[1:3] == (None, False)
     _Mitschrift.instanzen[-1].fertig.emit({"whisper": False})
     assert fortsetzung.mitschrift_laden_button.text() == "Erneut versuchen"
+    # Erneut versuchen ist der Hauptknopf; "Weiter" geht auch, ist aber nicht hervorgehoben.
+    assert not fortsetzung.mitschrift_weiter_button.isHidden()
+    assert fortsetzung.mitschrift_weiter_button.objectName() != "PrimaryButton"
 
 
 def test_vorhandener_zugang_wird_nicht_erneut_abgefragt(qt_widgets, konfig, monkeypatch):

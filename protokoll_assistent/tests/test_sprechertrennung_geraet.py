@@ -28,14 +28,27 @@ EMBEDDINGS = {"SPEAKER_00": [0.1, 0.2], "SPEAKER_01": [0.3, 0.4]}
 # --------------------------------------------------------------------------
 # Geraetewahl
 # --------------------------------------------------------------------------
-def test_geraet_folgt_whisper_ohne_vorgabe(monkeypatch):
+@pytest.fixture
+def torch_mit_cuda(monkeypatch):
+    """NVIDIA-Rechner: PyTorch kann auf der Karte rechnen (die Entwicklungsumgebung hat kein torch)."""
+    monkeypatch.setattr(model_service, "cuda_kann_wirklich_rechnen", lambda: True)
+
+
+def test_geraet_folgt_whisper_ohne_vorgabe(monkeypatch, torch_mit_cuda):
     monkeypatch.delenv(VARIABLE, raising=False)
     assert model_service.geraet_fuer_sprechertrennung("cuda") == "cuda"
     assert model_service.geraet_fuer_sprechertrennung("cpu") == "cpu"
 
 
+def test_amd_whisper_auf_der_karte_sprechertrennung_auf_der_cpu(monkeypatch):
+    # Mit ROCm rechnet Whisper auf der AMD-Karte ("cuda" fuer CTranslate2), PyTorch ist aber der CPU-Build.
+    monkeypatch.delenv(VARIABLE, raising=False)
+    monkeypatch.setattr(model_service, "cuda_kann_wirklich_rechnen", lambda: False)
+    assert model_service.geraet_fuer_sprechertrennung("cuda") == "cpu"
+
+
 @pytest.mark.parametrize(("wert", "erwartet"), [("cpu", "cpu"), (" CPU ", "cpu"), ("cuda", "cuda"), ("quatsch", "cuda")])
-def test_umgebungsvariable_erzwingt_das_geraet(monkeypatch, wert, erwartet):
+def test_umgebungsvariable_erzwingt_das_geraet(monkeypatch, torch_mit_cuda, wert, erwartet):
     monkeypatch.setenv(VARIABLE, wert)
     assert model_service.geraet_fuer_sprechertrennung("cuda") == erwartet
 
@@ -143,7 +156,7 @@ def _cpu_weg(monkeypatch):
     return geladen
 
 
-def test_pipeline_trennt_auf_der_gpu_im_eigenen_prozess(tmp_path, monkeypatch):
+def test_pipeline_trennt_auf_der_gpu_im_eigenen_prozess(tmp_path, monkeypatch, torch_mit_cuda):
     monkeypatch.delenv(VARIABLE, raising=False)
     gestartet = []
     monkeypatch.setattr(
@@ -161,7 +174,7 @@ def test_pipeline_trennt_auf_der_gpu_im_eigenen_prozess(tmp_path, monkeypatch):
     assert any("eigenen Prozess" in m for m in meldungen)
 
 
-def test_pipeline_faellt_auf_die_cpu_zurueck_wenn_der_prozess_scheitert(tmp_path, monkeypatch):
+def test_pipeline_faellt_auf_die_cpu_zurueck_wenn_der_prozess_scheitert(tmp_path, monkeypatch, torch_mit_cuda):
     monkeypatch.delenv(VARIABLE, raising=False)
 
     def scheitert(*a):

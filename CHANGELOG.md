@@ -8,6 +8,49 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.5.0-rc3] - 2026-11-18
+
+Dritter Kandidat für die Beta: AMD-Grafikkarten beschleunigen jetzt auch die Transkription, Ollama wird auf AMD,
+Intel Arc und Prozessorgrafik erkannt, und die Ersteinrichtung sagt ehrlich, was wo läuft und wie lange es dauert.
+
+### Added
+
+- **AMD-Grafikkarten beschleunigen die Transkription.** Auf RX 7000, RX 9000, Radeon PRO W7000 und Ryzen-AI-Grafik
+  (880M/890M, 8040S–8060S) richtet sich die Rechenumgebung jetzt mit CTranslate2 für ROCm und AMDs ROCm-Bibliotheken
+  ein (zusammen etwa 1,3 GB Download, alles mit festen Prüfsummen). Gemessen auf einer RX 9070 XT: large-v3-turbo in
+  17- bis 27-facher Echtzeit statt 2- bis 3-fach auf dem Prozessor (16 Kerne), mit demselben Text. Die
+  Sprechererkennung bleibt auf AMD-Karten beim Prozessor (PyTorch für AMD gibt es unter Windows nur als Vorschau).
+  Mit einem zu alten Grafiktreiber läuft die Transkription wie bisher auf dem Prozessor.
+- **Ollama auf AMD, Intel Arc und Prozessorgrafik.** Die Ersteinrichtung erkennt jetzt, dass Ollama nicht nur auf
+  NVIDIA rechnet: auf AMD-Karten über ROCm (RX 6800 und neuer) oder Vulkan (ältere Radeon-Karten), auf Intel Arc über
+  Vulkan und auf moderner Prozessorgrafik (Radeon 680M–890M, Intel Arc in Meteor/Lunar/Panther Lake). Für
+  Prozessorgrafik schaltet die Einrichtung Ollama mit `OLLAMA_IGPU_ENABLE=1` frei – sonst lässt Ollama sie liegen.
+  Welche Karten wie beschleunigen, steht in `services/grafikkarten_liste.py` (abgelesen an den mitgelieferten
+  Bibliotheken, nicht an Ollamas Dokumentation, die für Windows nur RX 7000 nennt).
+
+### Changed
+
+- **Die Ersteinrichtung sagt, was wo läuft.** Jeder Schritt (Mitschrift, Sprechererkennung, Protokoll, „Frag mein
+  Meeting“) nennt „Grafikkarte“ oder „Prozessor“, die Einschätzungen sind farbig (grün/orange/rot). Bisher hieß es bei
+  jeder Karte außer NVIDIA, alles laufe auf dem Prozessor – auch wenn Ollama die Karte längst nutzte.
+- **Größeres Sprachmodell, wo es passt.** Auf Grafikkarten, die Qwen 9B samt 32K-Kontext und Whisper zugleich fassen
+  (ab etwa 12 GB, z. B. 16-GB-Karten), empfiehlt die Einrichtung jetzt Qwen3.5 9B statt 4B. Qwen 4B blieb Standard,
+  weil es auf 6-GB-Karten passt.
+
+### Fixed
+
+- **Geschätzte Dauer des Protokolls passt zur Grafikkarte.** Die Ersteinrichtung zeigte für jede Karte 20–30 Minuten
+  je Stunde Aufnahme – gemessen auf einem Laptop mit 6 GB. Auf einer RX 9070 XT (16 GB) dauerte das Protokoll von
+  79 Minuten Aufnahme mit Qwen 9B tatsächlich 3 Minuten. Die Schätzung richtet sich jetzt nach dem Grafikspeicher:
+  ab 12 GB etwa 2–5 Minuten, ab 10 GB etwa 5–15 Minuten (nicht gemessen), darunter und bei Prozessorgrafik wie
+  bisher 20–30 Minuten.
+- **Fortschritt bei kurzen Aufnahmen.** Eine Aufnahme unter zehn Minuten ist ein einziger Abschnitt; die Anzeige stand
+  bis zum Ende auf 0 % und die Restdauer auf 0:00. Der Fortschritt wächst jetzt mit jedem erkannten Satz, die
+  Restdauer wird daraus geschätzt, und „Abbrechen“ greift auch mitten im Abschnitt.
+- **Ersteinrichtung, Mitschrift: kein „Herunterladen“ mehr, wenn schon alles da ist.** Liegen Whisper und die
+  Sprechererkennung bereits auf dem Rechner, zeigt die Seite gleich „Weiter“ (blau). Nach einem erfolgreichen Download
+  verschwindet „Herunterladen“; bisher blieb es hervorgehoben und „Weiter“ grau.
+
 ## [0.5.0-rc2] - 2026-11-13
 
 Zweiter Kandidat für die Beta: Ollama wird in der Ersteinrichtung wieder zuverlässig installiert, und die

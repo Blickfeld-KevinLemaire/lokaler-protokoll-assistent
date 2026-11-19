@@ -35,7 +35,14 @@ EMPFEHLUNG_API = "api"
 MITSCHRIFT_GPU_MIN_JE_STUNDE = (3, 5)  # 2:53 min
 SPRECHER_GPU_MIN_JE_STUNDE = (5, 8)  # 5:04 min
 SPRECHER_CPU_MIN_JE_STUNDE = 23  # 25 min, 16 Kerne
-PROTOKOLL_GPU_MIN_JE_STUNDE = (20, 30)  # 21 bzw. 31 min
+PROTOKOLL_GPU_MIN_JE_STUNDE = (20, 30)  # 21 bzw. 31 min -- auf 6 GB (RTX PRO 500, Qwen 4B, 21-42 Tokens/s)
+# Gemessen 18.11.2026 auf einer RX 9070 XT (16 GB), Qwen 9B: 79 min Aufnahme in 3 min, also ~2,3 min je Stunde
+# (9B schreibt dort 78 Tokens/s, 4B 106). Die frueher fuer JEDE Karte gezeigten 20-30 min waren dort zehnmal zu hoch.
+PROTOKOLL_GROSSE_KARTE_MIN_JE_STUNDE = (2, 5)
+GROSSE_KARTE_AB_GB = 12.0
+# NICHT gemessen: Karten zwischen 8 und 12 GB (vorsichtig zwischen beiden Messungen).
+PROTOKOLL_MITTLERE_KARTE_MIN_JE_STUNDE = (5, 15)
+MITTLERE_KARTE_AB_GB = 10.0
 # NICHT gemessen: wie viel langsamer das Protokoll auf dem Prozessor entsteht.
 PROTOKOLL_CPU_FAKTOR = (3, 6)
 CHAT_GPU_SEKUNDEN = (10, 30)  # gemessen 11-21 s je Frage (passende Ausschnitte)
@@ -48,6 +55,10 @@ LAUFZEIT_GPU_DOWNLOAD_GB = 3.0  # geschaetzt (PyTorch mit CUDA)
 LAUFZEIT_GPU_PLATZ_GB = 5.6  # gemessen: runtime\venv
 LAUFZEIT_CPU_DOWNLOAD_GB = 0.8  # geschaetzt
 LAUFZEIT_CPU_PLATZ_GB = 1.5  # geschaetzt
+# AMD: die CPU-Umgebung plus ROCm 7.2.1 (gemessen: 0,64 + 0,49 GB Download, 3,4 GB installiert) und
+# CTranslate2 mit ROCm (0,19 GB, Archiv mit allen Python-Fassungen).
+LAUFZEIT_AMD_DOWNLOAD_GB = LAUFZEIT_CPU_DOWNLOAD_GB + 1.3
+LAUFZEIT_AMD_PLATZ_GB = LAUFZEIT_CPU_PLATZ_GB + 3.4
 FFMPEG_GB = 0.2
 WHISPER_SMALL_GB = 0.5
 
@@ -89,11 +100,25 @@ def formatiere_dauer(von: float, bis: float) -> str:
     return f"etwa {von_m}–{bis_m} Minuten"
 
 
-def _stufe_von(analyse: Analyse, bereich: str) -> str:
+ORT_GRAFIKKARTE = "Grafikkarte"
+ORT_PROZESSOR = "Prozessor"
+
+
+def _empfohlene_bewertung(analyse: Analyse, bereich: str) -> rechner_analyse_service.Bewertung | None:
     modell = analyse.empfehlung.get(bereich)
     if modell is None:
-        return NICHT
-    return next((b.stufe for b in analyse.bewertungen if b.bereich == bereich and b.modell_id == modell), NICHT)
+        return None
+    return next((b for b in analyse.bewertungen if b.bereich == bereich and b.modell_id == modell), None)
+
+
+def _stufe_von(analyse: Analyse, bereich: str) -> str:
+    bewertung = _empfohlene_bewertung(analyse, bereich)
+    return bewertung.stufe if bewertung is not None else NICHT
+
+
+def _ort_von(analyse: Analyse, bereich: str) -> str:
+    bewertung = _empfohlene_bewertung(analyse, bereich)
+    return ORT_GRAFIKKARTE if bewertung is not None and bewertung.auf_grafikkarte else ORT_PROZESSOR
 
 
 def _mitschrift(analyse: Analyse) -> Schritteinschaetzung:
@@ -103,39 +128,58 @@ def _mitschrift(analyse: Analyse) -> Schritteinschaetzung:
     profil = analyse.profil
     von: float
     bis: float
-    if profil.cuda_gpu:
+    ort = _ort_von(analyse, rechner_analyse_service.BEREICH_TRANSKRIPTION)
+    if ort == ORT_GRAFIKKARTE:
+        # Gemessen auf NVIDIA (RTX PRO 500); eine RX 9070 XT schaffte 18-fache Echtzeit, also ebenfalls ~3 min.
         von, bis = MITSCHRIFT_GPU_MIN_JE_STUNDE
-        ort = "auf der Grafikkarte"
     else:
         modell = analyse.empfehlung[rechner_analyse_service.BEREICH_TRANSKRIPTION] or ""
         echtzeit = rechner_analyse_service.CPU_ECHTZEIT_FAKTOR.get(modell, 1.0) * rechner_analyse_service._cpu_faktor(profil)
         von, bis = 60 / echtzeit, 60 / echtzeit * 1.5
-        ort = "auf dem Prozessor"
     return Schritteinschaetzung(SCHRITT_MITSCHRIFT, stufe, f"{formatiere_dauer(von, bis)} je Stunde Aufnahme ({ort})")
 
 
 def _sprecher(analyse: Analyse, mitschrift: Schritteinschaetzung) -> Schritteinschaetzung:
     if mitschrift.stufe == NICHT:
         return Schritteinschaetzung(SCHRITT_SPRECHER, NICHT, "Nur zusammen mit der Mitschrift auf diesem Computer.")
+    # pyannote rechnet ueber PyTorch -- auf der Grafikkarte nur mit NVIDIA (CUDA). Fuer AMD gibt es PyTorch
+    # unter Windows nur als Vorschau; dort bleibt die Sprechererkennung beim Prozessor.
     if analyse.profil.cuda_gpu:
         von, bis = SPRECHER_GPU_MIN_JE_STUNDE
-        return Schritteinschaetzung(SCHRITT_SPRECHER, GUT, f"{formatiere_dauer(von, bis)} je Stunde (Grafikkarte)")
+        return Schritteinschaetzung(SCHRITT_SPRECHER, GUT, f"{formatiere_dauer(von, bis)} je Stunde ({ORT_GRAFIKKARTE})")
     minuten = SPRECHER_CPU_MIN_JE_STUNDE / rechner_analyse_service._cpu_faktor(analyse.profil)
     return Schritteinschaetzung(
-        SCHRITT_SPRECHER, MAESSIG, f"{formatiere_dauer(minuten, minuten * 1.5)} je Stunde (Prozessor) – optional"
+        SCHRITT_SPRECHER, MAESSIG, f"{formatiere_dauer(minuten, minuten * 1.5)} je Stunde ({ORT_PROZESSOR}) – optional"
     )
+
+
+def protokoll_minuten_auf_der_grafikkarte(profil: rechner_analyse_service.RechnerProfil) -> tuple[int, int]:
+    """Minuten je Stunde Aufnahme fuer das Protokoll auf der Grafikkarte -- nach Groesse der Karte. Prozessorgrafik
+    zaehlt wie eine kleine Karte: Sie rechnet im (langsamen) Arbeitsspeicher, auch wenn Windows ihr viel davon
+    zuteilt."""
+    speicher = 0.0 if profil.gpu_integriert else (profil.grafikspeicher_gb or 0.0)
+    if speicher >= GROSSE_KARTE_AB_GB:
+        return PROTOKOLL_GROSSE_KARTE_MIN_JE_STUNDE
+    if speicher >= MITTLERE_KARTE_AB_GB:
+        return PROTOKOLL_MITTLERE_KARTE_MIN_JE_STUNDE
+    return PROTOKOLL_GPU_MIN_JE_STUNDE
 
 
 def _protokoll(analyse: Analyse) -> Schritteinschaetzung:
     stufe = _stufe_von(analyse, rechner_analyse_service.BEREICH_NACHBEARBEITUNG)
     if stufe == NICHT:
         return Schritteinschaetzung(SCHRITT_PROTOKOLL, NICHT, "Auf diesem Computer nicht sinnvoll – besser online.")
+    ort = _ort_von(analyse, rechner_analyse_service.BEREICH_NACHBEARBEITUNG)
+    if ort == ORT_GRAFIKKARTE and stufe == GUT:
+        von, bis = protokoll_minuten_auf_der_grafikkarte(analyse.profil)
+        return Schritteinschaetzung(SCHRITT_PROTOKOLL, GUT, f"{formatiere_dauer(von, bis)} je Stunde Aufnahme ({ort})")
+    # Prozessor: der Wert der kleinen Karte mal dem (nicht gemessenen) Faktor fuer den Prozessor.
     von, bis = PROTOKOLL_GPU_MIN_JE_STUNDE
-    if analyse.profil.cuda_gpu and stufe == GUT:
-        return Schritteinschaetzung(SCHRITT_PROTOKOLL, GUT, f"{formatiere_dauer(von, bis)} je Stunde Aufnahme")
     faktor_von, faktor_bis = PROTOKOLL_CPU_FAKTOR
     return Schritteinschaetzung(
-        SCHRITT_PROTOKOLL, MAESSIG, f"{formatiere_dauer(von * faktor_von, bis * faktor_bis)} je Stunde Aufnahme"
+        SCHRITT_PROTOKOLL,
+        MAESSIG,
+        f"{formatiere_dauer(von * faktor_von, bis * faktor_bis)} je Stunde Aufnahme ({ORT_PROZESSOR})",
     )
 
 
@@ -144,8 +188,10 @@ def _chat(analyse: Analyse, protokoll: Schritteinschaetzung) -> Schritteinschaet
     if protokoll.stufe == NICHT or suche == NICHT:
         return Schritteinschaetzung(SCHRITT_CHAT, NICHT, "Auf diesem Computer nicht sinnvoll – besser online.")
     von, bis = CHAT_GPU_SEKUNDEN if protokoll.stufe == GUT else CHAT_CPU_SEKUNDEN
+    # "gut" gibt es fuer das Protokoll nur auf der Grafikkarte (siehe '_protokoll'); Ollama rechnet die Suche dort mit.
+    ort = ORT_GRAFIKKARTE if protokoll.stufe == GUT else ORT_PROZESSOR
     dauer = f"etwa {von}–{bis} Sekunden" if bis < 90 else f"etwa {max(1, round(von / 60))}–{round(bis / 60)} Minuten"
-    return Schritteinschaetzung(SCHRITT_CHAT, protokoll.stufe, f"{dauer} je Frage")
+    return Schritteinschaetzung(SCHRITT_CHAT, protokoll.stufe, f"{dauer} je Frage ({ort})")
 
 
 def schaetze(analyse: Analyse) -> Moeglichkeiten:
@@ -168,7 +214,7 @@ def schaetze(analyse: Analyse) -> Moeglichkeiten:
         begruendung = "Dieser Computer schafft alles selbst. Empfehlung: alles auf diesem Computer – nichts verlässt ihn."
     elif (
         protokoll.stufe == MAESSIG
-        and not analyse.profil.cuda_gpu
+        and not analyse.profil.ollama_gpu
         and analyse.profil.ram_gb is not None
         and analyse.profil.ram_gb < rechner_analyse_service.NACHBEARBEITUNG_GUT_RAM_GB
     ):
@@ -201,6 +247,7 @@ def bausteine_fuer(
     sprachmodell: str,
     einbettungsmodell: str,
     vorhanden: dict[str, bool] | None = None,
+    amd_rocm: bool = False,
 ) -> list[Baustein]:
     """Was fuer die gewaehlte Arbeitsweise geladen werden muss."""
     da = vorhanden or {}
@@ -231,6 +278,13 @@ def bausteine_fuer(
             laufzeit = baustein(
                 "laufzeit", "Rechenumgebung für die Grafikkarte (PyTorch, CUDA)", LAUFZEIT_GPU_DOWNLOAD_GB,
                 LAUFZEIT_GPU_PLATZ_GB, "Das Programm startet dafür einmal neu.",
+            )
+        elif amd_rocm:
+            laufzeit = baustein(
+                "laufzeit", "Rechenumgebung für die AMD-Grafikkarte (PyTorch, ROCm)", LAUFZEIT_AMD_DOWNLOAD_GB,
+                LAUFZEIT_AMD_PLATZ_GB,
+                "Die Transkription rechnet auf der Grafikkarte, die Sprechererkennung auf dem Prozessor. "
+                "Das Programm startet dafür einmal neu.",
             )
         else:
             laufzeit = baustein(

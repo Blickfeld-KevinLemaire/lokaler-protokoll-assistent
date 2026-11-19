@@ -36,7 +36,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from protokoll_assistent.services import model_service, ollama_service
+from protokoll_assistent.services import grafikkarten_liste, model_service, ollama_service
 
 GUT = "gut"
 MAESSIG = "maessig"
@@ -48,6 +48,13 @@ BEREICH_SUCHE = "Frag mein Meeting (Suche)"
 
 # Reserve fuer Betriebssystem, Sprechertrennung und andere Programme.
 SPEICHER_RESERVE_GB = 3.0
+# Eine AMD-Karte aus der Liste zaehlt erst ab so viel Grafikspeicher als Beschleuniger: Darunter passt weder
+# Whisper (gemessen 2,3 GB) noch das kleinste Sprachmodell. Betrifft vor allem Ryzen-AI-Prozessorgrafik, der im
+# BIOS/UEFI oft nur 0,5-2 GB fest zugewiesen sind.
+MIN_GRAFIKSPEICHER_GB = 3.0
+# Ab hier empfiehlt die Einrichtung das groessere Sprachmodell (Qwen 9B statt 4B): Modell samt 32K-Kontext UND
+# Whisper (falls es auf derselben Karte rechnet) passen gleichzeitig hinein -- auf 16 GB bequem, auf 12 GB nicht.
+GROSSES_SPRACHMODELL = "qwen3.5:9b-q4_K_M"
 # Arbeitsspeicher fuer den Kontext eines Sprachmodells (Ollama, 8192 Token).
 KONTEXT_ZUSCHLAG_GB = 1.5
 # Ein kleines Sprachmodell laeuft auf dem Prozessor nur dann flott ("gut"), wenn
@@ -106,14 +113,16 @@ def gpu_hersteller(name: str | None) -> str | None:
 
 def gpu_ist_integriert(name: str | None) -> bool:
     """Teilt sich die Grafik den Arbeitsspeicher mit dem Prozessor? Das ist bei
-    allen Intel-Karten ausser 'Arc' und bei AMD-Prozessorgrafik (Vega, 'Radeon
-    Graphics', 780M ...) der Fall. Bei einem unbekannten Hersteller geht die
-    Analyse vorsichtig davon aus, dass die Karte nichts beschleunigt."""
+    allen Intel-Karten ausser den Arc-Einzelkarten (A580, B580 ...; "Arc
+    Graphics" und "Arc 140V" sind Prozessorgrafik) und bei AMD-Prozessorgrafik
+    (Vega, 'Radeon Graphics', 780M ...) der Fall. Bei einem unbekannten
+    Hersteller geht die Analyse vorsichtig davon aus, dass die Karte nichts
+    beschleunigt."""
     hersteller = gpu_hersteller(name)
     if hersteller == HERSTELLER_NVIDIA:
         return False
     if hersteller == HERSTELLER_INTEL:
-        return "arc" not in (name or "").lower()
+        return not grafikkarten_liste.ist_intel_arc_einzelkarte(name)
     if hersteller == HERSTELLER_AMD:
         return _AMD_EINZELKARTE.search(name or "") is None
     return True
@@ -146,15 +155,76 @@ class RechnerProfil:
         return self.gpu_hersteller == HERSTELLER_NVIDIA and self.vram_gb is not None and self.vram_gb > 0
 
     @property
-    def radeon_moeglich(self) -> bool:
-        """Radeon-Einzelkarte: Ollama kann sie nutzen, aber nur bestimmte Modelle
-        (ROCm). Ob genau diese dazugehoert, laesst sich hier nicht vorab sagen."""
+    def intel_arc_prozessorgrafik(self) -> bool:
+        """Intel-Arc-Prozessorgrafik: Windows meldet dafuer nur ~128 MB eigenen Speicher, sie rechnet aber im
+        geteilten Arbeitsspeicher (bis zur Haelfte davon)."""
         return (
-            self.gpu_hersteller == HERSTELLER_AMD
-            and not self.gpu_integriert
-            and self.vram_gb is not None
-            and self.vram_gb > 0
+            self.gpu_hersteller == HERSTELLER_INTEL
+            and self.gpu_integriert
+            and grafikkarten_liste.ist_nutzbare_prozessorgrafik(self.gpu_name)
         )
+
+    @property
+    def grafikspeicher_gb(self) -> float | None:
+        """Speicher, mit dem die Karte rechnen kann: der eigene -- bei AMD-Prozessorgrafik der im BIOS fest
+        zugewiesene --, bei Intel-Arc-Prozessorgrafik die Haelfte des Arbeitsspeichers (so viel teilt Windows zu)."""
+        if self.intel_arc_prozessorgrafik:
+            return self.ram_gb / 2 if self.ram_gb else None
+        return self.vram_gb
+
+    @property
+    def _speicher_reicht(self) -> bool:
+        return self.grafikspeicher_gb is not None and self.grafikspeicher_gb >= MIN_GRAFIKSPEICHER_GB
+
+    @property
+    def amd_gfx(self) -> str | None:
+        """LLVM-Ziel der AMD-Karte, sofern sie in ``grafikkarten_liste`` (ROCm) steht."""
+        return grafikkarten_liste.gfx_ziel(self.gpu_name) if self.gpu_hersteller == HERSTELLER_AMD else None
+
+    @property
+    def _ollama_rocm(self) -> bool:
+        return self.amd_gfx in grafikkarten_liste.OLLAMA_ROCM_ZIELE
+
+    @property
+    def prozessorgrafik_nutzbar(self) -> bool:
+        """Moderne Prozessorgrafik, die Ollama beschleunigt -- unabhaengig davon, ob ihr Speicher schon reicht."""
+        return self.gpu_integriert and (self._ollama_rocm or grafikkarten_liste.ist_nutzbare_prozessorgrafik(self.gpu_name))
+
+    @property
+    def _vulkan_karte(self) -> bool:
+        """Karte, die Ollama ueber sein Vulkan-Backend nutzt: jede AMD-Einzelkarte ausserhalb der ROCm-Liste, Intel
+        Arc und moderne Prozessorgrafik (gemessen nur auf AMD, siehe ``grafikkarten_liste``)."""
+        if self.cuda_gpu or self._ollama_rocm or not self.hat_grafikkarte:
+            return False
+        if self.gpu_integriert:
+            return self.prozessorgrafik_nutzbar
+        return self.gpu_hersteller in (HERSTELLER_AMD, HERSTELLER_INTEL)
+
+    @property
+    def ollama_gpu(self) -> bool:
+        """Rechnet Ollama (Protokoll, "Frag mein Meeting") auf dieser Karte? NVIDIA ueber CUDA, AMD ueber ROCm oder
+        Vulkan, Intel Arc ueber Vulkan -- jeweils mit genug Speicher."""
+        return self.cuda_gpu or ((self._ollama_rocm or self._vulkan_karte) and self._speicher_reicht)
+
+    @property
+    def ollama_ueber_vulkan(self) -> bool:
+        return self.ollama_gpu and self._vulkan_karte
+
+    @property
+    def whisper_gpu(self) -> bool:
+        """Rechnet die Transkription auf dieser Karte? NVIDIA ueber CUDA, AMD laut Liste ueber ROCm. (CTranslate2
+        hat kein Vulkan- und kein Intel-Backend.)"""
+        return self.cuda_gpu or (self.amd_gfx in grafikkarten_liste.WHISPER_ROCM_ZIELE and self._speicher_reicht)
+
+    @property
+    def amd_rocm(self) -> bool:
+        """AMD-Karte, fuer die die Rechenumgebung CTranslate2 mit ROCm bekommt (Transkription auf der Karte)."""
+        return not self.cuda_gpu and self.whisper_gpu
+
+    @property
+    def braucht_igpu_freigabe(self) -> bool:
+        """Ollama verwirft Prozessorgrafik, solange OLLAMA_IGPU_ENABLE nicht gesetzt ist."""
+        return self.gpu_integriert and self.ollama_gpu
 
 
 @dataclass(frozen=True)
@@ -164,6 +234,8 @@ class Bewertung:
     name: str
     stufe: str
     text: str
+    # Rechnet das Modell bei dieser Einschaetzung auf der Grafikkarte (sonst: Prozessor)?
+    auf_grafikkarte: bool = False
 
 
 @dataclass
@@ -305,6 +377,8 @@ def _speicher_gb(roh) -> float | None:
     """Speichergroesse aus einem Registrywert: Zahl oder (je nach Treiber) Bytefolge."""
     if isinstance(roh, list) and roh and all(isinstance(b, int) for b in roh):
         roh = int.from_bytes(bytes(b & 0xFF for b in roh), "little")
+    elif isinstance(roh, (bytes, bytearray)) and roh:  # REG_BINARY direkt aus 'winreg'
+        roh = int.from_bytes(roh, "little")
     if isinstance(roh, (int, float)) and roh > 0:
         return float(roh) / (1024**3)
     return None
@@ -333,6 +407,44 @@ def _karten_aus_powershell_ausgabe(text: str) -> list[Grafikkarte]:
         if vram is None:
             vram = _speicher_gb(adapter.get("AdapterRAM"))
         karten.append((name, vram))
+    return karten
+
+
+_ANZEIGEADAPTER_SCHLUESSEL = r"SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}"
+
+
+def grafikkarten_aus_registry(winreg_modul=None) -> list[Grafikkarte]:
+    """Wie ``_grafikkarten_windows``, aber direkt aus der Registry: ohne PowerShell und damit schnell genug fuer
+    jeden Programmstart (``bootstrap`` entscheidet damit, ob die Rechenumgebung ROCm bekommt)."""
+    if winreg_modul is None:
+        try:
+            import winreg as winreg_modul  # type: ignore[no-redef]
+        except ImportError:
+            return []
+    karten: list[Grafikkarte] = []
+    try:
+        klasse = winreg_modul.OpenKey(winreg_modul.HKEY_LOCAL_MACHINE, _ANZEIGEADAPTER_SCHLUESSEL)
+    except OSError:
+        return karten
+    with klasse:
+        for nummer in range(64):
+            try:
+                unterschluessel = winreg_modul.EnumKey(klasse, nummer)
+            except OSError:
+                break
+            if not unterschluessel.isdigit():
+                continue  # 'Properties' und Aehnliches
+            try:
+                with winreg_modul.OpenKey(klasse, unterschluessel) as adapter:
+                    name = str(winreg_modul.QueryValueEx(adapter, "DriverDesc")[0]).strip()
+                    try:
+                        speicher = _speicher_gb(winreg_modul.QueryValueEx(adapter, "HardwareInformation.qwMemorySize")[0])
+                    except OSError:
+                        speicher = None
+            except OSError:
+                continue
+            if name and not any(wort in name.lower() for wort in _KEINE_GRAFIKKARTE):
+                karten.append((name, speicher))
     return karten
 
 
@@ -384,21 +496,39 @@ def beschreibe_profil(profil: RechnerProfil) -> str:
     teile.append(f"Arbeitsspeicher: {profil.ram_gb:.1f} GB" if profil.ram_gb else "Arbeitsspeicher: unbekannt")
     teile.append(f"Prozessorkerne: {profil.cpu_kerne}" if profil.cpu_kerne else "Prozessorkerne: unbekannt")
     if profil.hat_grafikkarte:
-        speicher = f" mit {profil.vram_gb:.1f} GB" if profil.vram_gb else ""
-        if profil.cuda_gpu:
-            zusatz = "beschleunigt Transkription und Nachbearbeitung"
-        elif profil.gpu_integriert:
-            zusatz = "in den Prozessor integriert, teilt sich den Arbeitsspeicher und beschleunigt hier nichts"
-        elif profil.radeon_moeglich:
-            zusatz = "für die Transkription nicht nutzbar (nur NVIDIA), für die Nachbearbeitung je nach Kartenmodell möglich"
+        if profil.intel_arc_prozessorgrafik and profil.grafikspeicher_gb:
+            speicher = f" mit bis zu {profil.grafikspeicher_gb:.1f} GB geteiltem Speicher"
         else:
-            zusatz = "wird nicht genutzt (beschleunigt wird nur mit NVIDIA)"
-        teile.append(f"Grafikkarte: {profil.gpu_name}{speicher} – {zusatz}")
+            speicher = f" mit {profil.vram_gb:.1f} GB" if profil.vram_gb else ""
+        teile.append(f"Grafikkarte: {profil.gpu_name}{speicher} – {_grafikkarte_zusatz(profil)}")
     else:
         teile.append("Grafikkarte: keine erkannt (der Prozessor rechnet)")
     if profil.freier_platz_gb is not None:
         teile.append(f"Freier Platz: {profil.freier_platz_gb:.0f} GB")
     return "\n".join(teile)
+
+
+def _grafikkarte_zusatz(profil: RechnerProfil) -> str:
+    """Was die Karte beschleunigt -- je Arbeitsschritt, damit niemand raten muss, was wo laeuft."""
+    if profil.cuda_gpu:
+        return "beschleunigt Transkription, Sprechererkennung, Protokoll und „Frag mein Meeting“"
+    if profil.whisper_gpu and profil.ollama_gpu:
+        return (
+            "beschleunigt Transkription, Protokoll und „Frag mein Meeting“; "
+            "die Sprechererkennung läuft auf dem Prozessor"
+        )
+    if profil.ollama_gpu:
+        weg = " (Ollama über Vulkan)" if profil.ollama_ueber_vulkan else " (Ollama)"
+        integriert = "in den Prozessor integriert, " if profil.gpu_integriert else ""
+        return (
+            f"{integriert}beschleunigt Protokoll und „Frag mein Meeting“{weg}; "
+            "Transkription und Sprechererkennung laufen auf dem Prozessor"
+        )
+    if profil.prozessorgrafik_nutzbar:
+        return "in den Prozessor integriert – zu wenig fest zugewiesener Grafikspeicher, alles läuft auf dem Prozessor"
+    if profil.gpu_integriert:
+        return "in den Prozessor integriert, teilt sich den Arbeitsspeicher und beschleunigt hier nichts"
+    return "wird nicht genutzt (beschleunigt werden NVIDIA-, AMD- und Intel-Arc-Karten mit mindestens 3 GB)"
 
 
 # --------------------------------------------------------------------------
@@ -417,14 +547,15 @@ def _cpu_faktor(profil: RechnerProfil) -> float:
 def _bewerte_whisper(profil: RechnerProfil, option: model_service.WhisperModelOption) -> Bewertung:
     name = option.label.split(" (")[0]
 
-    def ergebnis(stufe: str, text: str) -> Bewertung:
-        return Bewertung(BEREICH_TRANSKRIPTION, option.id, name, stufe, text)
+    def ergebnis(stufe: str, text: str, auf_grafikkarte: bool = False) -> Bewertung:
+        return Bewertung(BEREICH_TRANSKRIPTION, option.id, name, stufe, text, auf_grafikkarte)
 
-    if profil.cuda_gpu and profil.vram_gb is not None:
-        if profil.vram_gb >= option.min_vram_gb + model_service.SPEICHER_ZUSCHLAG_GB:
-            return ergebnis(GUT, "Läuft schnell auf der Grafikkarte.")
-        if profil.vram_gb >= option.min_vram_gb:
-            return ergebnis(MAESSIG, "Passt knapp in den Grafikspeicher; andere Programme schließen.")
+    speicher = profil.grafikspeicher_gb
+    if profil.whisper_gpu and speicher is not None:
+        if speicher >= option.min_vram_gb + model_service.SPEICHER_ZUSCHLAG_GB:
+            return ergebnis(GUT, "Läuft schnell auf der Grafikkarte.", True)
+        if speicher >= option.min_vram_gb:
+            return ergebnis(MAESSIG, "Passt knapp in den Grafikspeicher; andere Programme schließen.", True)
 
     bedarf = max(option.min_vram_gb, 0.5)
     if profil.ram_gb is not None and profil.ram_gb < bedarf + SPEICHER_RESERVE_GB:
@@ -448,20 +579,11 @@ def _bewerte_sprachmodell(profil: RechnerProfil, option: ollama_service.OllamaMo
         return Bewertung(BEREICH_NACHBEARBEITUNG, option.id, name, stufe, text)
 
     bedarf = option.groesse_gb + KONTEXT_ZUSCHLAG_GB
-    passt_in_den_grafikspeicher = profil.vram_gb is not None and profil.vram_gb >= bedarf
-    if profil.cuda_gpu and passt_in_den_grafikspeicher:
-        return ergebnis(GUT, "Läuft flüssig auf der Grafikkarte.")
-
-    auf_dem_prozessor = _sprachmodell_auf_dem_prozessor(profil, option, ergebnis)
-    if profil.radeon_moeglich and passt_in_den_grafikspeicher and auf_dem_prozessor.stufe != GUT:
-        # Ollama nutzt Radeon-Karten nur, wenn das Kartenmodell unterstuetzt wird
-        # (ROCm) -- das laesst sich vorab nicht sagen, deshalb hoechstens "maessig".
-        return ergebnis(
-            MAESSIG,
-            "Die Radeon-Karte kann Ollama beschleunigen, sofern sie unterstützt wird – "
-            "sonst läuft es auf dem Prozessor.",
-        )
-    return auf_dem_prozessor
+    passt_in_den_grafikspeicher = profil.grafikspeicher_gb is not None and profil.grafikspeicher_gb >= bedarf
+    if profil.ollama_gpu and passt_in_den_grafikspeicher:
+        text = "Läuft flüssig auf der Grafikkarte" + (" (über Vulkan)." if profil.ollama_ueber_vulkan else ".")
+        return Bewertung(BEREICH_NACHBEARBEITUNG, option.id, name, GUT, text, True)
+    return _sprachmodell_auf_dem_prozessor(profil, option, ergebnis)
 
 
 def _sprachmodell_auf_dem_prozessor(
@@ -495,7 +617,19 @@ def _bewerte_einbettung(profil: RechnerProfil, option: ollama_service.OllamaMode
     bedarf = option.groesse_gb + 1.0
     if profil.ram_gb is not None and profil.ram_gb < bedarf + SPEICHER_RESERVE_GB:
         return Bewertung(BEREICH_SUCHE, option.id, name, NICHT, f"Zu groß für den Arbeitsspeicher ({profil.ram_gb:.1f} GB).")
-    return Bewertung(BEREICH_SUCHE, option.id, name, GUT, "Klein genug für jeden üblichen Rechner.")
+    return Bewertung(
+        BEREICH_SUCHE, option.id, name, GUT, "Klein genug für jeden üblichen Rechner.", profil.ollama_gpu
+    )
+
+
+def grafikspeicher_fuer_grosses_modell(profil: RechnerProfil) -> float:
+    """So viel Grafikspeicher (GB) braucht es, damit das grosse Sprachmodell samt 32K-Kontext neben Whisper
+    passt -- dann muss Ollama fuer eine Transkription nichts entladen."""
+    option = ollama_service.get_modell_option(GROSSES_SPRACHMODELL)
+    bedarf = (option.groesse_gb if option else 6.6) + ollama_service.PROTOKOLL_KONTEXT_ZUSCHLAG_BYTES / 1024**3
+    if profil.whisper_gpu:
+        bedarf += model_service.WHISPER_GRAFIKSPEICHER_BYTES / 1024**3
+    return bedarf
 
 
 def _waehle(bewertungen: list[Bewertung], bevorzugt: list[str]) -> str | None:
@@ -523,6 +657,12 @@ def analysiere(profil: RechnerProfil) -> Analyse:
     nachbearbeitung_bevorzugt = (
         [lfm, ollama_service.DEFAULT_MODEL] if knapper_ram else [ollama_service.DEFAULT_MODEL, lfm]
     )
+    # Qwen 4B ist Standard, weil es auf 6-GB-Karten passt (dort gemessen). Auf einer Karte, die das 9B-Modell
+    # samt Kontext UND Whisper gleichzeitig fasst (ab ~12 GB, z. B. 16 GB), gibt es keinen Grund, darauf zu
+    # verzichten: genauer bei langen Besprechungen, und auf der Grafikkarte trotzdem schnell.
+    speicher = profil.grafikspeicher_gb
+    if profil.ollama_gpu and speicher is not None and speicher >= grafikspeicher_fuer_grosses_modell(profil):
+        nachbearbeitung_bevorzugt = [GROSSES_SPRACHMODELL, *nachbearbeitung_bevorzugt]
     empfehlung: dict[str, str | None] = {
         # Qualitaet vor Tempo: Turbo, solange es nicht ausfaellt, sonst das genuegsame 'small'.
         BEREICH_TRANSKRIPTION: _waehle(whisper, [model_service.WHISPER_MODEL_NAME, "small"]),
@@ -550,8 +690,9 @@ def _hinweise(
     sprache: list[Bewertung],
 ) -> list[str]:
     hinweise: list[str] = []
-    if not profil.cuda_gpu:
-        hinweise.append(_grafikhinweis(profil))
+    grafik = _grafikhinweis(profil)
+    if grafik is not None:
+        hinweise.append(grafik)
     if profil.ram_gb is not None and profil.ram_gb < 8:
         hinweise.append(
             f"Mit {profil.ram_gb:.1f} GB Arbeitsspeicher ist der Rechner knapp ausgestattet. "
@@ -580,22 +721,35 @@ def _hinweise(
     return hinweise
 
 
-def _grafikhinweis(profil: RechnerProfil) -> str:
+def _grafikhinweis(profil: RechnerProfil) -> str | None:
+    """Was auf diesem Rechner NICHT auf der Grafikkarte laeuft und warum -- ``None``, wenn es nichts zu sagen gibt
+    (alles, was sich beschleunigen laesst, wird beschleunigt; die Schritte zeigen ohnehin, was wo laeuft)."""
     langsamer = "Das funktioniert, ist aber langsamer – besonders bei der Nachbearbeitung."
+    if profil.whisper_gpu and profil.ollama_gpu:
+        return None
     if not profil.hat_grafikkarte:
         return f"Keine Grafikkarte erkannt: Alles läuft auf dem Prozessor. {langsamer}"
+    if profil.ollama_gpu:
+        weg = "Ollama über Vulkan" if profil.ollama_ueber_vulkan else "Ollama"
+        return (
+            f"Erkannt: {profil.gpu_name}. Protokoll und „Frag mein Meeting“ laufen auf der Grafikkarte ({weg}). "
+            "Die Transkription läuft auf dem Prozessor: Für diese Karte gibt es unter Windows keine "
+            "Beschleunigung dafür."
+        )
+    if profil.prozessorgrafik_nutzbar and profil.gpu_hersteller == HERSTELLER_AMD:
+        speicher = f"{profil.vram_gb:.1f} GB" if profil.vram_gb else "kaum"
+        return (
+            f"Die Prozessorgrafik ({profil.gpu_name}) kann das Protokoll beschleunigen, hat aber nur "
+            f"{speicher} fest zugewiesenen Grafikspeicher. Wer im BIOS/UEFI mehr zuweist (mindestens "
+            f"{MIN_GRAFIKSPEICHER_GB + 3:.0f} GB, oft „UMA Frame Buffer Size“ oder „iGPU Memory“), kann sie "
+            f"nutzen – die Einrichtung danach erneut starten. Bis dahin läuft alles auf dem Prozessor. {langsamer}"
+        )
     if profil.gpu_integriert:
         return (
             f"Die Grafik ({profil.gpu_name}) ist in den Prozessor integriert und teilt sich den "
             f"Arbeitsspeicher. Sie beschleunigt hier nichts: Alles läuft auf dem Prozessor. {langsamer}"
         )
-    if profil.radeon_moeglich:
-        return (
-            f"Erkannt: {profil.gpu_name}. Die Transkription nutzt nur NVIDIA-Karten (CUDA) und läuft "
-            "deshalb auf dem Prozessor. Ollama kann viele Radeon-Karten für die Nachbearbeitung nutzen – "
-            "ob genau diese unterstützt wird, zeigt sich erst beim Ausprobieren."
-        )
     return (
-        f"Erkannt: {profil.gpu_name}. Beschleunigt wird nur mit NVIDIA-Karten (CUDA); "
-        f"hier läuft alles auf dem Prozessor. {langsamer}"
+        f"Erkannt: {profil.gpu_name}. Beschleunigt werden NVIDIA-, AMD- und Intel-Arc-Karten mit mindestens "
+        f"{MIN_GRAFIKSPEICHER_GB:.0f} GB Grafikspeicher; hier läuft alles auf dem Prozessor. {langsamer}"
     )

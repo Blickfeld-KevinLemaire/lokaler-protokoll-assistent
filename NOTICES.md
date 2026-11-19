@@ -167,7 +167,8 @@ dem jeweiligen Urheber.
 |---|---|---|
 | FFmpeg | LGPL-2.1+ oder GPL-2.0+, je nach Build | Die ueblichen Windows-Builds sind GPL. Deshalb wird FFmpeg **nicht** mitgeliefert, sondern vom Anwender bereitgestellt oder auf seinen Wunsch heruntergeladen. |
 | PyTorch, torchaudio | BSD-3-Clause | in `.venv-whisperx` |
-| faster-whisper, CTranslate2 | MIT | Transkription; ersetzt seit 19.09.2026 WhisperX (siehe unten) |
+| faster-whisper, CTranslate2 | MIT | Transkription; ersetzt seit 19.09.2026 WhisperX (siehe unten). Auf AMD-Karten die ROCm-Fassung von CTranslate2 (4.9.0, ebenfalls MIT) von dessen Release-Seite |
+| AMD ROCm (`rocm`, `rocm-sdk-core`, `rocm-sdk-libraries-custom`, 7.2.1) | die Lizenzen der einzelnen ROCm-Bibliotheken von AMD; die pip-Pakete selbst nennen keine Lizenz (Stand 18.11.2026) – bei einer kommerziellen Verwertung pruefen | nur auf AMD-Karten, von AMD (`repo.radeon.com`) in die Laufzeitumgebung geladen; wird **nicht** mitgeliefert |
 | PyAV (`av`) | BSD-3-Clause | Audio-Dekodierung fuer faster-whisper |
 | pyannote.audio | MIT | in `.venv-whisperx` |
 | huggingface_hub | Apache-2.0 | Modell-Download |

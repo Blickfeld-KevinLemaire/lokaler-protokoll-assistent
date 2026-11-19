@@ -66,6 +66,18 @@ zugestimmt haben. Entsprechend gelten hier ein paar Punkte besonders:
   und CUDA laedt `bootstrap.py` bei einer frischen Installation erst, nachdem
   der Anwender in der Ersteinrichtung zugestimmt hat
   (`bootstrap.laufzeit_beim_start_einrichten`).
+* **AMD-Grafikkarten: zwei zusaetzliche Quellen, beide mit fester Pruefsumme**
+  (`protokoll_assistent/services/rocm_laufzeit_service.py`). Auf einer
+  AMD-Karte aus `grafikkarten_liste.py` laedt die Einrichtung AMDs
+  ROCm-Pakete von `repo.radeon.com` (pip prueft den SHA-256 jedes Pakets aus
+  der URL) und das Archiv mit CTranslate2 fuer ROCm von der Release-Seite von
+  CTranslate2 auf `github.com` (SHA-256 vor dem Auspacken geprueft, bei
+  Abweichung verworfen). Neue Fassungen werden nur mit neuer Pruefsumme im
+  Code uebernommen, nie "die neueste".
+* **Prozessorgrafik fuer Ollama:** Ist die beste Grafik eine nutzbare
+  Prozessorgrafik, setzt die Ersteinrichtung fuer das eigene Benutzerkonto die
+  Umgebungsvariable `OLLAMA_IGPU_ENABLE=1` (sonst ignoriert Ollama sie). Weitere
+  Einstellungen an Ollama oder am System werden nicht veraendert.
 * **Im lokalen Modus werden keine Audio- oder Videodaten uebertragen.**
   Bleibt das so, ist das eine Zusage an die Anwender — Aenderungen daran
   gehoeren ausdruecklich in die Release-Hinweise.

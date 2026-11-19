@@ -10,6 +10,8 @@ import pytest
 from protokoll_assistent.services import rechner_analyse_service as ra
 from protokoll_assistent.services.rechner_analyse_service import GUT, MAESSIG, NICHT, RechnerProfil
 
+# Vor dem Ersetzen durch conftest festgehalten (dort liefert die Registry fuer alle Tests keine Karten).
+ECHTE_REGISTRY = ra.grafikkarten_aus_registry
 
 def _stufe(analyse: ra.Analyse, modell_id: str) -> str:
     return next(b.stufe for b in analyse.bewertungen if b.modell_id == modell_id)
@@ -423,25 +425,46 @@ RADEON_PC = RechnerProfil(ram_gb=16, cpu_kerne=8, gpu_name="AMD Radeon RX 6700 X
 ONBOARD_LAPTOP = RechnerProfil(ram_gb=16, cpu_kerne=8, gpu_name="Intel(R) Iris(R) Xe Graphics", vram_gb=0.1, freier_platz_gb=300)
 
 
-def test_radeon_hilft_der_transkription_nicht():
-    # faster-whisper rechnet nur ueber CUDA: Die Radeon aendert an der Transkription nichts.
+def test_radeon_ausserhalb_der_rocm_liste_hilft_der_transkription_nicht():
+    # CTranslate2 rechnet nur ueber CUDA oder ROCm (Liste): Die RX 6700 XT aendert an der Transkription nichts.
     mit = ra.analysiere(RADEON_PC)
     ohne = ra.analysiere(RechnerProfil(ram_gb=16, cpu_kerne=8, freier_platz_gb=300))
     for modell in ("large-v3", "large-v3-turbo", "small"):
         assert _stufe(mit, modell) == _stufe(ohne, modell)
 
 
-def test_radeon_kann_die_nachbearbeitung_beschleunigen_aber_nie_sicher():
+def test_radeon_ausserhalb_der_rocm_liste_beschleunigt_ollama_ueber_vulkan():
     analyse = ra.analysiere(RADEON_PC)
+    assert RADEON_PC.ollama_gpu and RADEON_PC.ollama_ueber_vulkan
     # 9B passt (6,6 + 1,5 GB) in 12 GB, auf dem Prozessor waere es "nicht".
-    assert _stufe(analyse, "qwen3.5:9b-q4_K_M") == MAESSIG
+    assert _stufe(analyse, "qwen3.5:9b-q4_K_M") == GUT
     text = next(b.text for b in analyse.bewertungen if b.modell_id == "qwen3.5:9b-q4_K_M")
-    assert "Radeon" in text and "unterstützt" in text
-    # Wo der Prozessor ohnehin gut genug ist, bleibt es bei "gut".
-    assert _stufe(analyse, "qwen3.5:4b-q4_K_M") == GUT
+    assert "Vulkan" in text
     # Was nicht in den Grafikspeicher passt, wird nicht schoengerechnet.
     klein = ra.analysiere(RechnerProfil(ram_gb=16, cpu_kerne=8, gpu_name="AMD Radeon RX 6500 XT", vram_gb=4))
     assert _stufe(klein, "qwen3.5:9b-q4_K_M") == NICHT
+    # Unter 3 GB zaehlt eine Karte nicht als Beschleuniger.
+    assert not RechnerProfil(gpu_name="AMD Radeon RX 550", vram_gb=2).ollama_gpu
+
+
+def test_intel_arc_einzelkarte_beschleunigt_ollama_ueber_vulkan():
+    b580 = RechnerProfil(ram_gb=32, cpu_kerne=12, gpu_name="Intel(R) Arc(TM) B580 Graphics", vram_gb=12)
+    assert not b580.gpu_integriert and b580.ollama_ueber_vulkan and not b580.whisper_gpu
+    analyse = ra.analysiere(b580)
+    assert _stufe(analyse, "qwen3.5:9b-q4_K_M") == GUT
+    assert not next(b for b in analyse.bewertungen if b.modell_id == "large-v3-turbo").auf_grafikkarte
+
+
+def test_intel_arc_prozessorgrafik_rechnet_im_geteilten_speicher():
+    lunar_lake = RechnerProfil(ram_gb=32, cpu_kerne=8, gpu_name="Intel(R) Arc(TM) 140V GPU (16GB)", vram_gb=0.1)
+    assert lunar_lake.gpu_integriert and lunar_lake.intel_arc_prozessorgrafik
+    assert lunar_lake.grafikspeicher_gb == 16.0  # Haelfte des Arbeitsspeichers, nicht die gemeldeten 128 MB
+    assert lunar_lake.ollama_ueber_vulkan and lunar_lake.braucht_igpu_freigabe
+    analyse = ra.analysiere(lunar_lake)
+    assert _stufe(analyse, "qwen3.5:4b-q4_K_M") == GUT
+    assert "16.0 GB geteiltem Speicher" in ra.beschreibe_profil(lunar_lake)
+    # Ohne bekannten Arbeitsspeicher laesst sich nichts zusagen.
+    assert not RechnerProfil(gpu_name="Intel(R) Arc(TM) Graphics", vram_gb=0.1).ollama_gpu
 
 
 def test_integrierte_grafik_beschleunigt_nichts():
@@ -453,20 +476,141 @@ def test_integrierte_grafik_beschleunigt_nichts():
 
 
 def test_hinweise_je_grafikkarte():
-    radeon = "\n".join(ra.analysiere(RADEON_PC).hinweise)
-    assert "AMD Radeon RX 6700 XT" in radeon and "nur NVIDIA-Karten" in radeon and "Ollama" in radeon
+    radeon = "\n".join(ra.analysiere(RADEON_PC).hinweise)  # RX 6700 XT steht nicht in der ROCm-Liste
+    assert "AMD Radeon RX 6700 XT" in radeon and "Ollama über Vulkan" in radeon
+    assert "Transkription läuft auf dem Prozessor" in radeon
     arc = "\n".join(
         ra.analysiere(RechnerProfil(ram_gb=16, cpu_kerne=8, gpu_name="Intel(R) Arc(TM) A750", vram_gb=8)).hinweise
     )
-    assert "Arc" in arc and "nur mit NVIDIA" in arc
+    assert "Arc" in arc and "Ollama über Vulkan" in arc
+    unbekannt = "\n".join(ra.analysiere(RechnerProfil(ram_gb=16, cpu_kerne=8, gpu_name="AMD Radeon RX 550", vram_gb=2)).hinweise)
+    assert "NVIDIA-, AMD- und Intel-Arc-Karten" in unbekannt
     assert not any("Grafik" in h for h in ra.analysiere(GAMING_PC).hinweise)  # NVIDIA: nichts zu bemerken
+    assert not any("Grafik" in h for h in ra.analysiere(RX_9070_XT_PC).hinweise)  # ebenso
 
 
 def test_profilbeschreibung_je_grafikkarte():
-    assert "beschleunigt Transkription und Nachbearbeitung" in ra.beschreibe_profil(GAMING_PC)
-    assert "je nach Kartenmodell möglich" in ra.beschreibe_profil(RADEON_PC)
+    assert "beschleunigt Transkription, Sprechererkennung, Protokoll" in ra.beschreibe_profil(GAMING_PC)
+    amd = ra.beschreibe_profil(RX_9070_XT_PC)
+    assert "beschleunigt Transkription, Protokoll" in amd and "Sprechererkennung läuft auf dem Prozessor" in amd
+    rx6800 = ra.beschreibe_profil(RechnerProfil(gpu_name="AMD Radeon RX 6800 XT", vram_gb=16))
+    assert "beschleunigt Protokoll" in rx6800 and "Transkription und Sprechererkennung laufen auf dem Prozessor" in rx6800
+    assert "Vulkan" in ra.beschreibe_profil(RADEON_PC)
     assert "teilt sich den Arbeitsspeicher" in ra.beschreibe_profil(ONBOARD_LAPTOP)
     arc = ra.beschreibe_profil(RechnerProfil(gpu_name="Intel(R) Arc(TM) A750", vram_gb=8))
-    assert "wird nicht genutzt" in arc
+    assert "Ollama über Vulkan" in arc
+    assert "wird nicht genutzt" in ra.beschreibe_profil(RechnerProfil(gpu_name="AMD Radeon RX 550", vram_gb=2))
     ohne_speicher = ra.beschreibe_profil(RechnerProfil(gpu_name="AMD Radeon(TM) Graphics"))
     assert " mit " not in ohne_speicher
+    knappe_igpu = ra.beschreibe_profil(RechnerProfil(gpu_name="AMD Radeon(TM) 890M Graphics", vram_gb=0.5))
+    assert "zu wenig fest zugewiesener Grafikspeicher" in knappe_igpu
+
+
+# --------------------------------------------------------------------------
+# AMD-Karten aus der Liste (amd_grafikkarten)
+# --------------------------------------------------------------------------
+RX_9070_XT_PC = RechnerProfil(
+    ram_gb=32, cpu_kerne=16, gpu_name="AMD Radeon RX 9070 XT", vram_gb=15.9, freier_platz_gb=500
+)
+
+
+def test_rx_9070_xt_beschleunigt_transkription_und_protokoll():
+    analyse = ra.analysiere(RX_9070_XT_PC)
+    assert RX_9070_XT_PC.amd_rocm and RX_9070_XT_PC.ollama_gpu and not RX_9070_XT_PC.cuda_gpu
+    turbo = next(b for b in analyse.bewertungen if b.modell_id == "large-v3-turbo")
+    assert turbo.stufe == GUT and turbo.auf_grafikkarte
+    assert _stufe(analyse, "qwen3.5:9b-q4_K_M") == GUT
+    # 16 GB fassen das 9B-Modell samt Kontext UND Whisper: dann ist 9B die Empfehlung.
+    assert analyse.empfehlung[ra.BEREICH_NACHBEARBEITUNG] == "qwen3.5:9b-q4_K_M"
+    suche = next(b for b in analyse.bewertungen if b.modell_id == "bge-m3")
+    assert suche.auf_grafikkarte
+
+
+def test_grosses_modell_erst_wenn_es_neben_whisper_passt():
+    # 12 GB (RTX 4070): 9B laeuft gut, Standard bleibt aber 4B -- daneben passte Whisper nicht mehr.
+    assert ra.grafikspeicher_fuer_grosses_modell(GAMING_PC) > 12
+    assert ra.analysiere(GAMING_PC).empfehlung[ra.BEREICH_NACHBEARBEITUNG] == "qwen3.5:4b-q4_K_M"
+    rtx_16 = RechnerProfil(ram_gb=32, cpu_kerne=12, gpu_name="NVIDIA GeForce RTX 5070 Ti", vram_gb=16)
+    assert ra.analysiere(rtx_16).empfehlung[ra.BEREICH_NACHBEARBEITUNG] == "qwen3.5:9b-q4_K_M"
+    # Ohne Whisper auf der Karte (RX 6800: nur Ollama) reicht weniger.
+    rx6800 = RechnerProfil(gpu_name="AMD Radeon RX 6800", vram_gb=16)
+    assert ra.grafikspeicher_fuer_grosses_modell(rx6800) < ra.grafikspeicher_fuer_grosses_modell(rtx_16)
+
+
+def test_rx_6800_nur_ollama_auf_der_karte():
+    profil = RechnerProfil(ram_gb=32, cpu_kerne=8, gpu_name="AMD Radeon RX 6800 XT", vram_gb=16)
+    analyse = ra.analysiere(profil)
+    assert profil.ollama_gpu and not profil.whisper_gpu
+    turbo = next(b for b in analyse.bewertungen if b.modell_id == "large-v3-turbo")
+    assert not turbo.auf_grafikkarte
+    hinweis = "\n".join(analyse.hinweise)
+    assert "laufen auf der Grafikkarte (Ollama)" in hinweis and "Transkription läuft auf dem Prozessor" in hinweis
+
+
+def test_ryzen_ai_grafik_mit_genug_speicher_wird_genutzt():
+    strix_halo = RechnerProfil(ram_gb=128, cpu_kerne=16, gpu_name="AMD Radeon(TM) 8060S Graphics", vram_gb=64)
+    assert strix_halo.gpu_integriert and strix_halo.prozessorgrafik_nutzbar and strix_halo.braucht_igpu_freigabe
+    assert strix_halo.ollama_gpu and strix_halo.amd_rocm and not strix_halo.ollama_ueber_vulkan
+    assert ra.analysiere(strix_halo).empfehlung[ra.BEREICH_NACHBEARBEITUNG] == "qwen3.5:9b-q4_K_M"
+
+
+def test_ryzen_ai_grafik_mit_wenig_speicher_bekommt_einen_bios_hinweis():
+    knapp = RechnerProfil(ram_gb=32, cpu_kerne=12, gpu_name="AMD Radeon(TM) 890M Graphics", vram_gb=0.5)
+    assert knapp.prozessorgrafik_nutzbar and not knapp.ollama_gpu and not knapp.whisper_gpu
+    hinweis = "\n".join(ra.analysiere(knapp).hinweise)
+    assert "BIOS/UEFI" in hinweis and "0.5 GB" in hinweis
+
+
+def test_radeon_780m_ueber_vulkan_wenn_genug_zugewiesen():
+    phoenix = RechnerProfil(ram_gb=32, cpu_kerne=8, gpu_name="AMD Radeon(TM) 780M Graphics", vram_gb=8)
+    assert phoenix.ollama_ueber_vulkan and phoenix.braucht_igpu_freigabe and not phoenix.whisper_gpu
+
+
+def test_grafikkarten_aus_der_registry():
+    import types
+
+    class Schluessel:
+        def __init__(self, werte=None, unter=()):
+            self.werte, self.unter = werte or {}, list(unter)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    adapter = {
+        "0000": Schluessel({"DriverDesc": "AMD Radeon RX 9070 XT", "HardwareInformation.qwMemorySize": 16 * 1024**3}),
+        "0001": Schluessel({"DriverDesc": "Microsoft Basic Display Adapter"}),
+        "0002": Schluessel({"DriverDesc": "AMD Radeon(TM) Graphics", "HardwareInformation.qwMemorySize": (512 * 1024**2).to_bytes(8, "little")}),
+        "0003": Schluessel({}),  # ohne Namen
+    }
+    klasse = Schluessel(unter=[*adapter, "Properties"])
+
+    def oeffnen(eltern, name, *args):
+        if eltern == "HKLM":
+            return klasse
+        return adapter[name]
+
+    def aufzaehlen(schluessel, nummer):
+        if nummer >= len(schluessel.unter):
+            raise OSError
+        return schluessel.unter[nummer]
+
+    def abfragen(schluessel, name):
+        if name not in schluessel.werte:
+            raise OSError(name)
+        return schluessel.werte[name], 0
+
+    winreg = types.SimpleNamespace(
+        HKEY_LOCAL_MACHINE="HKLM", OpenKey=oeffnen, EnumKey=aufzaehlen, QueryValueEx=abfragen
+    )
+    assert ECHTE_REGISTRY(winreg) == [
+        ("AMD Radeon RX 9070 XT", 16.0),
+        ("AMD Radeon(TM) Graphics", 0.5),
+    ]
+
+    def kein_schluessel(*args):
+        raise OSError
+
+    assert ECHTE_REGISTRY(types.SimpleNamespace(HKEY_LOCAL_MACHINE="HKLM", OpenKey=kein_schluessel)) == []

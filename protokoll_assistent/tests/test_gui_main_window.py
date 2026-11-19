@@ -1213,9 +1213,27 @@ def test_restzeit_ohne_chunks(fenster):
 
 
 def test_restzeit_wird_geschaetzt(fenster):
+    # Chunk 2 von 6 LAEUFT: erledigt ist einer (60 s), es bleiben fuenf.
+    fenster._gesamt_anteil = 0.0
     fenster._chunk_progress = (2, 6)
     fenster._update_remaining_estimate(60.0)
-    assert fenster.remaining_label.text() == "2:00"
+    assert fenster.remaining_label.text() == "5:00"
+
+
+def test_restzeit_aus_dem_gesamtfortschritt(fenster):
+    # Kurze Aufnahme, ein Chunk: frueher stand hier vom ersten Augenblick an 0:00.
+    fenster._chunk_progress = (1, 1)
+    fenster._on_overall_progress(0.25)
+    fenster._update_remaining_estimate(60.0)
+    assert fenster.remaining_label.text() == "3:00"
+    assert fenster.overall_progress_bar.value() == 25
+
+
+def test_restzeit_am_anfang_unbekannt(fenster):
+    fenster._gesamt_anteil = 0.0
+    fenster._chunk_progress = (1, 1)
+    fenster._update_remaining_estimate(30.0)
+    assert fenster.remaining_label.text() == "--"
 
 
 def test_verstrichene_zeit_ohne_start(fenster):
