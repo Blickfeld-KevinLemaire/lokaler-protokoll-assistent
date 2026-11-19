@@ -179,9 +179,13 @@ static uint8_t peak_to_wave_level(uint16_t peak)
 
 static int battery_voltage_to_percent(float v)
 {
+    /* Gemessen am Geraet (ADC, Teiler x3): voll geladen am USB liegen 4,07 V an, nicht 4,2 V. Deshalb gilt
+     * ab 4,05 V "100 %". Oben bewusst flach, damit der Lade-Offset nach dem Abziehen (ca. 40-70 mV)
+     * die Anzeige nicht um 10 % springen laesst (frueher 4,00 V = 90 %). */
     if (v >= 4.05f) return 100;
-    if (v >= 4.00f) return 90 + (int)((v - 4.00f) * 200.0f);
-    if (v >= 3.90f) return 75 + (int)((v - 3.90f) * 150.0f);
+    if (v >= 4.00f) return 93 + (int)((v - 4.00f) * 140.0f);
+    if (v >= 3.95f) return 85 + (int)((v - 3.95f) * 160.0f);
+    if (v >= 3.90f) return 75 + (int)((v - 3.90f) * 200.0f);
     if (v >= 3.80f) return 55 + (int)((v - 3.80f) * 200.0f);
     if (v >= 3.70f) return 30 + (int)((v - 3.70f) * 250.0f);
     if (v >= 3.60f) return 15 + (int)((v - 3.60f) * 150.0f);
@@ -1040,8 +1044,11 @@ static void update_ui(void)
         static float previous_raw_voltage = 0.0f;
         static float power_reference_voltage = 0.0f;
         static int displayed_percent = -1;
-        static bool external_power = false;
-        static bool resync_percent = false;
+        static bool external_power = false;   /* aus dem Spannungssprung (Netzteil/Powerbank) */
+        static bool host_prev = false;        /* USB-Host (PC) beim letzten Durchlauf */
+        static bool usb_prev = false;         /* Kabel (PC oder Spannungssprung) beim letzten Durchlauf */
+        static float usb_v_peak = 0.0f;       /* hoechste Spannung seit dem Anstecken */
+        static uint32_t usb_peak_tick = 0;    /* wann sie zuletzt stieg: ab 5 min Ruhe gilt "voll" */
         static uint8_t power_up_hits = 0;
         static uint8_t power_down_hits = 0;
         static uint32_t power_change_tick = 0;
@@ -1063,16 +1070,17 @@ static void update_ui(void)
                 float raw_delta = v - previous_raw_voltage;
 
                 if (!external_power) {
-                    if (power_up_hits == 0 && raw_delta >= 0.060f) {
+                    /* Schwelle 30 mV: am Geraet gemessen springt die Spannung beim Einstecken um ca. 40-55 mV
+                     * (Ladestrom), die Stoerspitzen alle ~12 s sind nur ca. 24 mV hoch und eine Messung lang. */
+                    if (power_up_hits == 0 && raw_delta >= 0.030f) {
                         power_reference_voltage = previous_raw_voltage;
                         power_up_hits = 1;
                     } else if (power_up_hits > 0) {
-                        if (v >= power_reference_voltage + 0.050f) {
+                        if (v >= power_reference_voltage + 0.025f) {
                             power_up_hits++;
                             if (power_up_hits >= 2) {
                                 external_power = true;
                                 power_change_tick = now;
-                                resync_percent = true;
                                 power_up_hits = 0;
                                 power_down_hits = 0;
                                 printf("VERMERK USB/Power erkannt\n");
@@ -1082,18 +1090,17 @@ static void update_ui(void)
                         }
                     }
                 } else {
-                    if (power_down_hits == 0 && raw_delta <= -0.060f) {
+                    if (power_down_hits == 0 && raw_delta <= -0.030f) {
                         power_reference_voltage = previous_raw_voltage;
                         power_down_hits = 1;
                     } else if (power_down_hits > 0) {
-                        if (v <= power_reference_voltage - 0.050f) {
+                        if (v <= power_reference_voltage - 0.025f) {
                             power_down_hits++;
                             if (power_down_hits >= 2) {
                                 external_power = false;
                                 power_change_tick = now;
                                 power_down_hits = 0;
                                 power_up_hits = 0;
-                                resync_percent = true;
                                 printf("VERMERK USB/Power entfernt\n");
                             }
                         } else {
@@ -1105,23 +1112,62 @@ static void update_ui(void)
 
             previous_raw_voltage = v;
 
+            /* Kabel: PC (USB-Host, sicher) oder Netzteil/Powerbank (nur ueber den Spannungssprung). */
+            bool host = usb_serial_jtag_is_connected();
+            if (host_prev && !host) {
+                /* PC abgezogen: Sprung-Merker zuruecksetzen, Anzeige 30 s halten (Ladeoffset faellt weg) */
+                external_power = false;
+                power_change_tick = now;
+            }
+            host_prev = host;
+            bool usb_present = host || external_power;
+            if (usb_present && !usb_prev) {
+                usb_v_peak = slow_voltage;
+                usb_peak_tick = now;
+            }
+            if (!usb_present && usb_prev) {
+                power_change_tick = now;
+            }
+            usb_prev = usb_present;
+
             if (displayed_percent < 0) {
-                displayed_percent = battery_voltage_to_percent(v);
+                /* Am Kabel liegt die Spannung ca. 30-50 mV ueber dem Ruhewert (Ladestrom) */
+                displayed_percent = battery_voltage_to_percent(usb_present ? v - 0.03f : v);
                 last_percent_step = now;
-            } else if (!external_power && (now - power_change_tick) >= 30000) {
-                if (resync_percent) {
-                    /* Nach Ein-/Ausstecken einmalig direkt auf den neuen Wert springen */
-                    slow_voltage = fast_voltage;
-                    displayed_percent = battery_voltage_to_percent(slow_voltage);
-                    resync_percent = false;
+            } else if (usb_present) {
+                /* Am Kabel speist USB das Geraet, der Akku wird nur geladen: die Anzeige darf nicht fallen.
+                 * Der Spannungsabfall nach Ladeende ist Erholung der Zelle, kein Verbrauch. */
+                uint32_t since = now - last_percent_step;
+                int target = battery_voltage_to_percent(slow_voltage - 0.03f);
+                if (slow_voltage > usb_v_peak + 0.010f) {
+                    usb_v_peak = slow_voltage;
+                    usb_peak_tick = now;
+                }
+                if (slow_voltage >= 4.00f && (now - usb_peak_tick) >= 300000) {
+                    target = 100;   /* Spannung steigt seit 5 min nicht mehr: Ladeschluss, voll */
+                }
+                if (target > displayed_percent && since >= 10000) {
+                    displayed_percent++;
                     last_percent_step = now;
-                } else if ((now - last_percent_step) >= 10000) {
-                    /* Max. 1 % pro 10 s; nach oben erst ab +3 % (Erholung nach Last) */
+                }
+            } else if ((now - power_change_tick) >= 30000) {
+                {
                     int target = battery_voltage_to_percent(slow_voltage);
+                    uint32_t since = now - last_percent_step;
                     if (target < displayed_percent) {
-                        displayed_percent--;
-                        last_percent_step = now;
-                    } else if (target >= displayed_percent + 3) {
+                        /* Nach unten: max. 1 % pro 60 s. Ein echter Akku (1000 mAh, ca. 150-300 mA) verliert
+                         * hoechstens 1 % in 2-4 min; schnellere Spannungsabfaelle sind Lade-Offset nach
+                         * dem Abziehen, Erholung nach Last oder Rauschen. Fast leer (< 3,45 V): schneller,
+                         * damit "0 %" rechtzeitig vor dem Abschalten erscheint. */
+                        uint32_t down_ms = (slow_voltage < 3.45f) ? 5000 : 60000;
+                        if (since >= down_ms) {
+                            displayed_percent--;
+                            last_percent_step = now;
+                        }
+                    } else if (target > displayed_percent && since >= 10000 &&
+                               (target >= displayed_percent + 2 || target >= 99)) {
+                        /* Nach oben: ab +2 %, am oberen Ende aber auch einzeln, sonst bliebe die
+                         * Anzeige bei 98 % stehen (alter Fehler: "ab +3 %" gibt es bei 98 % nicht). */
                         displayed_percent++;
                         last_percent_step = now;
                     }
@@ -1130,17 +1176,41 @@ static void update_ui(void)
 
             if (displayed_percent != shown_percent) {
                 lv_label_set_text_fmt(battery_label, "AKKU %d%%", displayed_percent);
+                lv_obj_set_style_text_color(battery_label, lv_color_hex(0x4AB7F4), 0);   /* nach LEER/? zurueck */
                 shown_percent = displayed_percent;
             }
-            if (external_power != shown_charging) {
-                if (external_power) {
+            if (usb_present != shown_charging) {
+                if (usb_present) {
                     lv_obj_clear_flag(battery_charge_icon, LV_OBJ_FLAG_HIDDEN);
                 } else {
                     lv_obj_add_flag(battery_charge_icon, LV_OBJ_FLAG_HIDDEN);
                 }
-                shown_charging = external_power;
+                shown_charging = usb_present;
             }
             lv_obj_align_to(battery_charge_icon, battery_label, LV_ALIGN_OUT_LEFT_MID, -4, 0);
+        } else {
+            /* Kein plausibler Messwert: nicht "--" stehen lassen, sondern den Grund zeigen.
+             * 0,5..3,0 V: Zelle leer bzw. tiefentladen (die Schutzschaltung/der Regler schaltet bald ab).
+             * sonst (kein Wert, Wandlerfehler, Spannung zu hoch): "AKKU ?". */
+            int state = (v >= 0.5f && v < 3.0f) ? -3 : -4;
+            if (state != shown_percent) {
+                if (state == -3) {
+                    lv_label_set_text(battery_label, "AKKU LEER");
+                    lv_obj_set_style_text_color(battery_label, lv_color_hex(0xFF453A), 0);
+                } else {
+                    lv_label_set_text(battery_label, "AKKU ?");
+                    lv_obj_set_style_text_color(battery_label, lv_color_hex(0x4AB7F4), 0);
+                }
+                lv_obj_add_flag(battery_charge_icon, LV_OBJ_FLAG_HIDDEN);
+                lv_obj_align_to(battery_charge_icon, battery_label, LV_ALIGN_OUT_LEFT_MID, -4, 0);
+                shown_percent = state;
+                shown_charging = false;   /* Symbol beim Rueckkehren in den Messbereich neu setzen */
+            }
+            /* Filter und Ein-/Ausstecken-Erkennung neu starten, sobald wieder Werte kommen */
+            slow_voltage = 0.0f;
+            fast_voltage = 0.0f;
+            previous_raw_voltage = 0.0f;
+            displayed_percent = -1;
         }
 
         last_battery_update = now;
