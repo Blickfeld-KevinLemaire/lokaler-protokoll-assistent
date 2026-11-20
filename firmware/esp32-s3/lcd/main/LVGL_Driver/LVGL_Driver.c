@@ -9,6 +9,9 @@ lv_disp_draw_buf_t disp_buf;                                                 // 
 lv_disp_drv_t disp_drv;                                                      // contains callback functions
 lv_indev_drv_t indev_drv;
 
+volatile uint32_t vermerk_beruehrt_tick = 0;
+volatile bool vermerk_display_gedimmt = false;
+
 void example_increase_lvgl_tick(void *arg)
 {
     /* Tell LVGL how many milliseconds has elapsed */
@@ -58,15 +61,24 @@ void example_touchpad_read( lv_indev_drv_t * drv, lv_indev_data_t * data )
     bool touchpad_pressed = esp_lcd_touch_get_coordinates(drv->user_data, touchpad_x, touchpad_y, NULL, &touchpad_cnt, 5);
 
     // printf("CCCCCCCCCCCCC=%d  \r\n",touchpad_cnt);
+    static bool nur_aufwecken = false;   /* Beruehrung, die das gedimmte Display geweckt hat */
     if (touchpad_pressed && touchpad_cnt > 0) {
+        vermerk_beruehrt_tick = lv_tick_get();
+        if (vermerk_display_gedimmt || nur_aufwecken) {
+            /* Erst aufwecken: bis zum Loslassen keine Schaltflaeche ausloesen */
+            nur_aufwecken = true;
+            data->state = LV_INDEV_STATE_REL;
+            return;
+        }
         data->point.x = touchpad_x[0];
         data->point.y = touchpad_y[0];
         data->state = LV_INDEV_STATE_PR;
         // printf("X=%u Y=%u num=%d \r\n", data->point.x, data->point.y,touchpad_cnt);
     } else {
+        nur_aufwecken = false;
         data->state = LV_INDEV_STATE_REL;
     }
-   
+
 }
 /* Rotate display and touch, when rotated screen in LVGL. Called when driver parameters are updated. */
 void example_lvgl_port_update_callback(lv_disp_drv_t *drv)

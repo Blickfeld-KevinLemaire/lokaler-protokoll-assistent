@@ -979,6 +979,26 @@ static void test_auftraege_lesen(void)
     free(t);
     PRUEFE(vermerk_auftraege_lesen("{}", 2, NULL, 4) == -1);
 
+    /* volle Liste: VERMERK_AUFTRAEGE_MAX Namen mit je 60 Zeichen passen in den Puffer der Bedienung (6 KB) */
+    {
+        static char gross[6144];
+        size_t p = (size_t)snprintf(gross, sizeof(gross), "{\"auftraege\":[");
+        for (int k = 0; k < VERMERK_AUFTRAEGE_MAX; k++) {
+            p += (size_t)snprintf(gross + p, sizeof(gross) - p, "%s\"%02d%058d\"", k ? "," : "", k, 0);
+        }
+        p += (size_t)snprintf(gross + p, sizeof(gross) - p, "],\"anzeige\":[");
+        for (int k = 0; k < VERMERK_AUFTRAEGE_MAX; k++) {
+            p += (size_t)snprintf(gross + p, sizeof(gross) - p, "%s\"%02d%036d\"", k ? "," : "", k, 0);
+        }
+        p += (size_t)snprintf(gross + p, sizeof(gross) - p, "]}");
+        PRUEFE(p < sizeof(gross));
+        PRUEFE(vermerk_auftraege_lesen(gross, p, liste, VERMERK_AUFTRAEGE_MAX) == VERMERK_AUFTRAEGE_MAX);
+        char letzte[3];
+        snprintf(letzte, sizeof(letzte), "%02d", VERMERK_AUFTRAEGE_MAX - 1);
+        PRUEFE(strlen(liste[VERMERK_AUFTRAEGE_MAX - 1].name) == 60 && strncmp(liste[VERMERK_AUFTRAEGE_MAX - 1].name, letzte, 2) == 0);
+        PRUEFE(strlen(liste[0].anzeige) == 38);
+    }
+
     /* weniger Platz als Eintraege */
     t = kopie("{\"auftraege\":[\"A\",\"B\",\"C\"],\"anzeige\":[\"A\",\"B\",\"C\"]}", &n);
     PRUEFE(vermerk_auftraege_lesen(t, n, liste, 2) == 2);

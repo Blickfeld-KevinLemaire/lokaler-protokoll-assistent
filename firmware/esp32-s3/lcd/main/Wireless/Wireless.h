@@ -23,6 +23,12 @@ void WIFI_Init(void *arg);
 vermerk_ergebnis_t VERMERK_Upload_File(const char *path, const char *filename, vermerk_abbrechen_t abbrechen);
 void VERMERK_Wifi_Fast_Mode(bool on);
 
+/* Beacons, die das Funkteil im Energiesparen verschlaeft (je ca. 102 ms) */
+#define WLAN_LISTEN_INTERVALL 10
+
+/* Naechste Pruefung, ob Server/PC erreichbar sind, sofort ausfuehren (z. B. wenn das Geraet bedient wird) */
+void Wireless_Bald_Pruefen(void);
+
 /* Senden waehrend der Aufnahme: vom Upload-Manager waehrend einer Aufnahme regelmaessig aufrufen.
  * Tut nichts, wenn kein Ziel erreichbar ist. */
 void VERMERK_Live_Schritt(void);
