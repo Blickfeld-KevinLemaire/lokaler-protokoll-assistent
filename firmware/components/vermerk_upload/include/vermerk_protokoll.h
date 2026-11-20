@@ -93,7 +93,9 @@ size_t vermerk_prozent_kodieren(const char *utf8, char *ziel, size_t ziel_groess
 
 #define VERMERK_AUFTRAG_NAME_MAX    64   /* Bytes inklusive Nullbyte (die Software liefert hoechstens 60 Zeichen) */
 #define VERMERK_AUFTRAG_ANZEIGE_MAX 40
-#define VERMERK_AUFTRAEGE_MAX       12
+/* 20: die 9 eingebauten Vorlagen der Software und Platz fuer eigene. Die Antwort bleibt damit unter 3,5 KB
+ * (Puffer der Bedienung: 6 KB); die Liste liegt im PSRAM. Eine Software, die weniger schickt, geht weiter. */
+#define VERMERK_AUFTRAEGE_MAX       20
 
 typedef struct {
     char name[VERMERK_AUFTRAG_NAME_MAX];

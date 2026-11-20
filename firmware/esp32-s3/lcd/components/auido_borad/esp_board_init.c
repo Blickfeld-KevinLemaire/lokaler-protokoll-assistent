@@ -44,6 +44,11 @@ esp_err_t esp_get_feed_data(bool is_get_raw_channel, int16_t *buffer, int buffer
     return bsp_get_feed_data(is_get_raw_channel, buffer, buffer_len);
 }
 
+esp_err_t esp_mic_aktiv(bool an)
+{
+    return bsp_mic_aktiv(an);
+}
+
 int esp_get_feed_channel(void)
 {
     return bsp_get_feed_channel();

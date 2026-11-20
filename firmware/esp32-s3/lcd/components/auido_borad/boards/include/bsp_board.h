@@ -97,6 +97,9 @@ esp_err_t bsp_audio_play(const int16_t* data, int length, TickType_t ticks_to_wa
  */
 esp_err_t bsp_get_feed_data(bool is_get_raw_channel, int16_t *buffer, int buffer_len);
 
+/* Mikrofon aus (false) bzw. wieder an (true); aus der lesenden Aufgabe aufrufen */
+esp_err_t bsp_mic_aktiv(bool an);
+
 /**
  * @brief Get the record channel number.
  * 

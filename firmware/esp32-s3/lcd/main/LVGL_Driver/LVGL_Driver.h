@@ -26,3 +26,8 @@ void example_lvgl_port_update_callback(lv_disp_drv_t *drv);
 void example_increase_lvgl_tick(void *arg);
 
 void LVGL_Init(void);                     // Call this function to initialize the screen (must be called in the main function) !!!!!
+
+/* Display-Dimmen (Strom sparen): Zeitpunkt der letzten Beruehrung (lv_tick_get) und ob das Display
+ * gerade gedimmt ist. Eine Beruehrung im gedimmten Zustand weckt nur auf und loest nichts aus. */
+extern volatile uint32_t vermerk_beruehrt_tick;
+extern volatile bool vermerk_display_gedimmt;

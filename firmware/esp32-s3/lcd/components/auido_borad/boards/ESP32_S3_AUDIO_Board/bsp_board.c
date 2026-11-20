@@ -415,6 +415,30 @@ esp_err_t bsp_audio_play(const int16_t* data, int length, TickType_t ticks_to_wa
     return ret;
 }
 
+/* Mikrofon-Codec (ES7210) und I2S-Empfang abschalten bzw. wieder starten (Strom sparen im Leerlauf).
+ * Nur aus der Aufgabe aufrufen, die auch bsp_get_feed_data liest. */
+esp_err_t bsp_mic_aktiv(bool an)
+{
+    if (record_dev == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (!an) {
+        return esp_codec_dev_close(record_dev) == ESP_CODEC_DEV_OK ? ESP_OK : ESP_FAIL;
+    }
+    esp_codec_dev_sample_info_t fs = {
+        .sample_rate = 16000,
+        .channel = 2,
+        .bits_per_sample = 32,
+    };
+    if (esp_codec_dev_open(record_dev, &fs) != ESP_CODEC_DEV_OK) {
+        return ESP_FAIL;
+    }
+    for (int k = 0; k < 4; k++) {
+        esp_codec_dev_set_in_channel_gain(record_dev, ESP_CODEC_DEV_MAKE_CHANNEL_MASK(k), RECORD_VOLUME);
+    }
+    return ESP_OK;
+}
+
 esp_err_t bsp_get_feed_data(bool is_get_raw_channel, int16_t *buffer, int buffer_len)
 {
     esp_err_t ret = ESP_OK;
