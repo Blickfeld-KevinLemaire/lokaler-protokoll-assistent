@@ -150,6 +150,11 @@ pub fn startbefehl(
         DienstQuelle::Quelltext { python, projekt } => {
             argumente.push("-m".into());
             argumente.push("protokoll_assistent.api".into());
+            if cfg!(debug_assertions) {
+                // `tauri dev` laedt die Seite von Vite (http://localhost:5173); der Dienst erlaubt
+                // diesen Ursprung nur mit --entwicklung. Sonst bleibt das Fenster bei „Wird gestartet“.
+                argumente.push("--entwicklung".into());
+            }
             (python.clone(), projekt.clone())
         }
     };
@@ -851,6 +856,10 @@ mod tests {
             .map(|a| a.to_string_lossy().into())
             .collect();
         assert_eq!(&args[..2], ["-m", "protokoll_assistent.api"]);
+        assert_eq!(
+            args.iter().any(|a| a == "--entwicklung"),
+            cfg!(debug_assertions)
+        );
         assert_eq!(b.arbeitsordner, PathBuf::from("C:/repo"));
         assert!(!b
             .umgebung
