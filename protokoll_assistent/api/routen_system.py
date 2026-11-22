@@ -8,6 +8,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
@@ -35,6 +36,12 @@ geschuetzt = APIRouter(prefix="/api", tags=["system"])
 def gesundheit() -> dict[str, str]:
     """Ohne Anmeldung: Laeuft der Dienst? Verraet nichts ausser der Version."""
     return {"status": "ok", "version": VERSION}
+
+
+@oeffentlich.get("/anmeldung")
+def anmeldung(request: Request) -> dict[str, bool]:
+    """Ohne Anmeldung: Welche Arten der Anmeldung gibt es hier? (Name + Passwort nur mit mehreren Nutzern.)"""
+    return {"mehrbenutzer": dienste(request).mehrbenutzer}
 
 
 @oeffentlich.post("/anmelden")
@@ -105,6 +112,8 @@ def zustand(d: Dienste = Depends(dienste), wer: Angemeldet = Depends(angemeldet)
     letzte = d.steuerung.bus.letzte_nummer
     return {
         "letzte_nummer": letzte,
+        # Uhrzeit des Dienstes: Die Oberflaeche rechnet Restzeiten damit, nicht mit ihrer eigenen Uhr.
+        "jetzt": time.time(),
         "auftraege": [auftrag_fuer(d, wer, a.als_dict()) for a in d.steuerung.auftraege.liste()],
         "empfang": d.automatik.beschreibung() if d.automatik is not None and (wer.admin or not d.mehrbenutzer) else None,
         "freigaben": [
@@ -181,6 +190,17 @@ def ordner_oeffnen(daten: modelle.OrdnerOeffnen, d: Dienste = Depends(nur_deskto
     else:  # pragma: no cover - nur Windows
         os.startfile(str(pfad))  # type: ignore[attr-defined]  # noqa: S606
     return {"geoeffnet": True}
+
+
+@geschuetzt.post("/system/neustart")
+def neustart(d: Dienste = Depends(nur_desktop), _a: Angemeldet = Depends(nur_admin)) -> dict[str, bool]:
+    """Den Dienst neu starten (z. B. nach der Ersteinrichtung, damit die Rechenumgebung geladen wird). Der Dienst
+    beendet sich mit einem eigenen Exit-Code, und das Fenster startet ihn sofort wieder -- die Prozesse steuert
+    allein das Fenster."""
+    if d.neustart_anfordern is None:
+        raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, "Neu starten ist hier nicht möglich.")
+    d.neustart_anfordern()
+    return {"neustart": True}
 
 
 def _python_ist_eingefroren() -> bool:

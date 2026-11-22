@@ -37,6 +37,8 @@ class Dienste:
     # Wird nach dem Speichern der Einstellungen aufgerufen (Empfang neu anwenden usw.).
     nach_einstellungen: list[Callable[[dict[str, Any]], None]] = field(default_factory=list)
     plattform_windows: bool = os.name == "nt"
+    # Beendet den Dienst fuer einen Neustart durch das Fenster (siehe ``api/__main__``); None: geht hier nicht.
+    neustart_anfordern: Callable[[], None] | None = None
 
     @property
     def rolle(self) -> str:

@@ -66,6 +66,7 @@ def anbieter() -> list[dict[str, Any]]:
             "schluessel_link": a.schluessel_link,
             "doku_link": a.doku_link,
             "hat_platzhalter": a.hat_platzhalter,
+            "diarisierung_anbieter": a.diarisierung_anbieter,
             "chat": {"url": a.chat_url(), "modell": a.chat_modell} if a.kann_chat else None,
             "embedding": {"url": a.embedding_url(), "modell": a.embedding_modell} if a.kann_embeddings else None,
             "transkription": {"url": a.transkription_url(), "modell": a.transkription_modell}

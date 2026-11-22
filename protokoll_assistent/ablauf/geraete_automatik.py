@@ -129,6 +129,7 @@ class GeraeteAutomatik:
         self._dienst: geraete_empfang_service.GeraeteEmpfang | None = None
         self._stand: tuple[Any, ...] | None = None
         self.fehler: str | None = None
+        self.fehler_code: str | None = None
         self.zuletzt = ""
         # Ollama-Wache
         self._wache_stopp = threading.Event()
@@ -165,6 +166,7 @@ class GeraeteAutomatik:
             self._empfang_stoppen()
             self._stand = stand
             self.fehler = None
+            self.fehler_code = None
             if not aktiv:
                 self._empfang_melden()
                 return
@@ -185,8 +187,9 @@ class GeraeteAutomatik:
             dienst = self.abh.dienst_fabrik(ziel, geraete, port=port, bei_neuer_aufnahme=self._neue_aufnahme, **zusaetze)
             try:
                 dienst.starten()
-            except OSError as fehler:
-                self.fehler = f"Port {port} ist nicht nutzbar ({fehler.strerror or fehler}). Anderen Port in den Einstellungen wählen."
+            except OSError:
+                self.fehler = "Der Empfang ist gerade nicht möglich – ein anderes Programm benutzt denselben Anschluss."
+                self.fehler_code = "port_belegt"
                 self._empfang_melden()
                 return
             self._dienst = dienst
@@ -222,7 +225,7 @@ class GeraeteAutomatik:
     def beschreibung(self) -> dict[str, Any]:
         with self._sperre:
             if self._stand is None or self._dienst is None:
-                return {"aktiv": False, "fehler": self.fehler, "zuletzt": self.zuletzt}
+                return {"aktiv": False, "fehler": self.fehler, "fehler_code": self.fehler_code, "zuletzt": self.zuletzt}
             _aktiv, port, geraete, ziel, live = self._stand
             return {
                 "aktiv": True,
@@ -231,6 +234,7 @@ class GeraeteAutomatik:
                 "ziel": str(ziel),
                 "live": live,
                 "fehler": self.fehler,
+                "fehler_code": self.fehler_code,
                 "zuletzt": self.zuletzt,
             }
 
@@ -341,7 +345,7 @@ class GeraeteAutomatik:
             )
         except Ablauffehler as fehler:
             self.status.setze(geraet, datei, live_service.FEHLER, None, f"Verarbeitung nicht möglich: {fehler.titel}")
-            self.steuerung.hinweis(f"{fehler.titel}: {fehler.text}", stufe="fehler", quelle=geraet)
+            self.steuerung.hinweis(f"{fehler.titel}: {fehler.text}", stufe="fehler", quelle=geraet, code=fehler.code)
             return None
 
     def _spiegel(self, geraet: str, datei: str, zustand: str) -> Callable[[str, float | None, str], None]:
@@ -405,7 +409,7 @@ class GeraeteAutomatik:
             )
         except Ablauffehler as fehler:
             self._abschliessen(geraet, datei, pfad, live_service.FEHLER, f"Auswertung nicht möglich: {fehler.titel}")
-            self.steuerung.hinweis(f"{fehler.titel}: {fehler.text}", stufe="fehler", quelle=geraet)
+            self.steuerung.hinweis(f"{fehler.titel}: {fehler.text}", stufe="fehler", quelle=geraet, code=fehler.code)
             return None
 
     def _auswertung_beendet(self, auftrag: Auftrag, pfad: Path, geraet: str, datei: str, rueckfrage: bool) -> None:
@@ -574,23 +578,23 @@ class GeraeteAutomatik:
             if not self.abh.ollama_starten():
                 self._ollama_problem_aktiv = True
                 self.steuerung.hinweis(
-                    "Ollama ist nicht erreichbar und ließ sich nicht starten – Zusammenfassungen von VERMERK Raum "
-                    "schlagen so fehl. Bitte Ollama starten (Eingabeaufforderung: ollama serve).",
+                    "Die KI für Zusammenfassungen läuft nicht und ließ sich nicht starten.",
                     stufe="fehler",
                     quelle="ollama",
+                    code="ki_nicht_erreichbar",
                 )
                 return
             self._ollama_problem_aktiv = False
-            self.steuerung.hinweis("Ollama war beendet und wurde neu gestartet.", quelle="ollama")
+            self.steuerung.hinweis("Die KI für Zusammenfassungen wurde neu gestartet.", quelle="ollama", code="ki_neu_gestartet")
         if self.abh.modell_fehlt(modell):
             if self._ollama_modell_gemeldet != modell:
                 self._ollama_modell_gemeldet = modell
                 self._ollama_problem_aktiv = True
                 self.steuerung.hinweis(
-                    f"Das Sprachmodell {modell} fehlt bei Ollama – Zusammenfassungen von VERMERK Raum gehen erst, "
-                    "wenn es geladen ist.",
+                    "Das Sprachmodell für Zusammenfassungen fehlt noch.",
                     stufe="fehler",
                     quelle="ollama",
+                    code="modell_fehlt",
                 )
             return
         self._ollama_modell_gemeldet = None

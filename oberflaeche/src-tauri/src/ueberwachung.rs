@@ -173,6 +173,17 @@ fn basis_url(port: u16) -> String {
     format!("http://127.0.0.1:{port}")
 }
 
+/// Exit-Code, mit dem sich der Dienst auf Wunsch der Oberflaeche beendet
+/// (`POST /api/system/neustart`, z. B. nach der Ersteinrichtung). Das Fenster
+/// startet ihn dann sofort neu, ohne das Neustart-Budget zu belasten.
+pub const NEUSTART_EXIT_CODE: i32 = 75;
+const GRUND_NEUSTART_GEWUENSCHT: &str = "Neustart auf Wunsch";
+
+/// Hat sich der Dienst auf Wunsch beendet (und nicht wegen eines Fehlers)?
+pub fn ist_neustart_wunsch(code: Option<i32>) -> bool {
+    code == Some(NEUSTART_EXIT_CODE)
+}
+
 fn status_text(status: &ExitStatus) -> String {
     match status.code() {
         Some(3) => "Exit-Code 3: kein Port frei/bindbar".to_string(),
@@ -434,6 +445,12 @@ fn kind_wache(g: &Geteilt, e: &Einstellungen) {
         if g.ist_beendet() {
             return;
         }
+        if grund == GRUND_NEUSTART_GEWUENSCHT {
+            g.melden(Zustand::Neustart, "Der Dienst wird neu gestartet …", None);
+            g.kind_beenden(e.zeiten.beenden_zeitlimit);
+            g.melden(Zustand::Startet, "Der Dienst wird neu gestartet …", None);
+            continue;
+        }
         match budget.naechster_versuch() {
             Some(abstand) => {
                 g.melden(
@@ -694,6 +711,12 @@ fn lebenszeichen_beobachten(
         }
         if mit_kind {
             if let Some(status) = g.kind_status() {
+                if let Ok(s) = &status {
+                    if ist_neustart_wunsch(s.code()) {
+                        log::info!("Dienst beendet sich für einen gewünschten Neustart");
+                        return Some(GRUND_NEUSTART_GEWUENSCHT.into());
+                    }
+                }
                 let text = status.map(|s| status_text(&s)).unwrap_or_else(|f| f);
                 return Some(format!("Der Dienst wurde unerwartet beendet ({text})"));
             }
@@ -769,6 +792,15 @@ fn externe_wache(g: &Geteilt, e: &Einstellungen, port: u16, schluessel: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn neustart_wunsch_nur_mit_eigenem_exit_code() {
+        assert!(ist_neustart_wunsch(Some(NEUSTART_EXIT_CODE)));
+        assert!(!ist_neustart_wunsch(Some(0)));
+        assert!(!ist_neustart_wunsch(Some(1)));
+        assert!(!ist_neustart_wunsch(Some(3)));
+        assert!(!ist_neustart_wunsch(None));
+    }
 
     #[test]
     fn befehl_fuer_installierten_dienst() {

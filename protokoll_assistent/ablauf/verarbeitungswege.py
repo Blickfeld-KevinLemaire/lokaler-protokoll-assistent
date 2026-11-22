@@ -47,15 +47,22 @@ CODE_BELEGT = "belegt"
 UMGEBUNG_PRAEFIX = "VERMERK_API_SCHLUESSEL_"
 
 
+BEREICH_TRANSKRIPTION = "transkription"
+BEREICH_ZUSAMMENFASSUNG = "zusammenfassung"
+
+
 class Ablauffehler(Exception):
-    def __init__(self, titel: str, text: str, code: str = CODE_EINGABE):
+    """Texte fuer Menschen, nicht fuer Techniker: kein "API", kein "Ollama", kein "Endpunkt"."""
+
+    def __init__(self, titel: str, text: str, code: str = CODE_EINGABE, bereich: str = ""):
         super().__init__(text)
         self.titel = titel
         self.text = text
         self.code = code
+        self.bereich = bereich
 
     def als_dict(self) -> dict[str, str]:
-        return {"titel": self.titel, "text": self.text, "code": self.code}
+        return {"titel": self.titel, "text": self.text, "code": self.code, "bereich": self.bereich}
 
 
 class Schluesselablage:
@@ -179,27 +186,31 @@ def transkription_vorbereiten(
     diarize_fn: DiarizeFn | None = None
     if modus == "lokal" and not laufzeit_verfuegbar():
         raise Ablauffehler(
-            "Lokale Transkription nicht eingerichtet",
-            "Für die lokale Transkription fehlt noch die Rechenumgebung. Sie wird beim nächsten Start "
-            "eingerichtet, wenn Sie zustimmen – oder Sie wählen in den Einstellungen die Transkription über eine API.",
+            "Noch nicht bereit",
+            "Für das Umwandeln in Text auf diesem Computer fehlt noch ein Teil. Er wird eingerichtet, wenn Sie "
+            "zustimmen – oder Sie wählen in den Einstellungen einen Online-Dienst.",
             CODE_LOKALE_EINRICHTUNG,
+            BEREICH_TRANSKRIPTION,
         )
     if modus == "api":
         endpunkt = str(konfiguration.get("api_transkription_endpunkt") or "")
         modell = str(konfiguration.get("api_transkription_modell") or "")
         if not (api_anbieter.adresse_vollstaendig(endpunkt) and modell):
             raise Ablauffehler(
-                "Kein Anbieter gewählt",
-                "Für die Transkription über eine API ist noch kein Anbieter gewählt oder die Adresse "
-                "unvollständig. Bitte in den Einstellungen unter „Transkription“ einen Anbieter wählen.",
+                "Online-Dienst fehlt",
+                "Für das Umwandeln in Text ist noch kein Online-Dienst eingerichtet. Bitte in den Einstellungen "
+                "unter „Transkription“ einen wählen.",
                 CODE_EINSTELLUNGEN,
+                BEREICH_TRANSKRIPTION,
             )
         api_key = schluessel.hole("transkription")
         if not api_key:
             raise Ablauffehler(
-                "Kein API-Schlüssel",
-                "Bitte zuerst in den Einstellungen einen API-Schlüssel für die Transkription hinterlegen.",
+                "Zugangsschlüssel fehlt",
+                "Für den Online-Dienst fehlt noch der Zugangsschlüssel. Bitte in den Einstellungen unter "
+                "„Transkription“ eintragen.",
                 CODE_SCHLUESSEL,
+                BEREICH_TRANSKRIPTION,
             )
         transcribe_fn = functools.partial(
             api_transcription_service.transcribe_chunk_via_api,
@@ -270,26 +281,30 @@ def auswertung_vorbereiten(
         modell = str(konfiguration.get("api_nachbearbeitung_modell") or "")
         if not (api_anbieter.adresse_vollstaendig(endpunkt) and modell):
             raise Ablauffehler(
-                "Kein Anbieter gewählt",
-                "Für die Nachbearbeitung über eine API ist noch kein Anbieter gewählt oder die Adresse "
-                "unvollständig. Bitte in den Einstellungen unter „Nachbearbeitung“ einen Anbieter wählen.",
+                "Online-Dienst fehlt",
+                "Für die Zusammenfassung ist noch kein Online-Dienst eingerichtet. Bitte in den Einstellungen "
+                "unter „Zusammenfassung“ einen wählen.",
                 CODE_EINSTELLUNGEN,
+                BEREICH_ZUSAMMENFASSUNG,
             )
         api_key = schluessel.hole(schluessel.name_fuer_nachbearbeitung(konfiguration))
         if not api_key:
             raise Ablauffehler(
-                "Kein API-Schlüssel",
-                "Bitte zuerst in den Einstellungen einen API-Schlüssel für die Nachbearbeitung hinterlegen.",
+                "Zugangsschlüssel fehlt",
+                "Für den Online-Dienst fehlt noch der Zugangsschlüssel. Bitte in den Einstellungen unter "
+                "„Zusammenfassung“ eintragen.",
                 CODE_SCHLUESSEL,
+                BEREICH_ZUSAMMENFASSUNG,
             )
         generate_fn = api_auswertung_funktion(endpunkt, modell, api_key)
         kennung = f"api:{endpunkt}|{modell}"
     elif modell_fehlt(lokales_modell):
         raise Ablauffehler(
-            "Ollama-Modell fehlt",
-            f"Das Modell '{lokales_modell}' ist bei Ollama nicht installiert. Bitte in den Einstellungen unter "
-            "„Nachbearbeitung“ herunterladen oder ein anderes, bereits installiertes Modell wählen.",
+            "Sprachmodell fehlt",
+            "Das Sprachmodell für Zusammenfassungen ist noch nicht geladen. Bitte in den Einstellungen unter "
+            "„Zusammenfassung“ herunterladen.",
             CODE_MODELL_FEHLT,
+            BEREICH_ZUSAMMENFASSUNG,
         )
 
     einstellungen = pipeline_service.ProtocolSettings(

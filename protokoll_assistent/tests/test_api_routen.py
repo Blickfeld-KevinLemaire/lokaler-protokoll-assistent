@@ -248,3 +248,45 @@ def test_oberflaeche_ordner(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
     (tmp_path / "index.html").write_text("x", encoding="utf-8")
     monkeypatch.setenv("VERMERK_OBERFLAECHE", str(tmp_path))
     assert start.oberflaeche_ordner() == tmp_path
+
+
+# ---------------------------------------------------------------- Wuensche der Oberflaeche
+def test_anmeldung_oeffentlich_und_zustand_mit_uhr(umgebung: Umgebung) -> None:
+    client = umgebung.client
+    client.headers.pop("Authorization")
+    assert client.get("/api/anmeldung").json() == {"mehrbenutzer": False}
+    client.headers["Authorization"] = f"Bearer {start.UMGEBUNG_SCHLUESSEL}"  # falsch: Name statt Wert
+    assert client.get("/api/zustand").status_code == 401
+
+
+def test_zustand_hat_die_uhr_des_dienstes(umgebung: Umgebung) -> None:
+    import time
+
+    jetzt = umgebung.client.get("/api/zustand").json()["jetzt"]
+    assert abs(jetzt - time.time()) < 60
+
+
+def test_neustart_auf_wunsch(umgebung: Umgebung) -> None:
+    assert umgebung.client.post("/api/system/neustart").status_code == 501
+    gerufen: list[bool] = []
+    umgebung.dienste.neustart_anfordern = lambda: gerufen.append(True)
+    assert umgebung.client.post("/api/system/neustart").json() == {"neustart": True}
+    assert gerufen == [True]
+
+
+def test_exporte_lassen_sich_herunterladen(umgebung: Umgebung) -> None:
+    antwort = umgebung.client.post("/api/auftraege/transkription", json={"quelle": str(umgebung.audio())})
+    assert antwort.status_code == 201
+    umgebung.auftraege_ausfuehren()
+    kennung = umgebung.client.get("/api/besprechungen").json()[0]["id"]
+    export = umgebung.client.post(f"/api/besprechungen/{kennung}/export", json={"inhalt": "transkript", "formate": ["md", "txt"]}).json()
+    namen = [d["name"] for d in export["dateien"]]
+    dateien = {d["name"] for d in umgebung.client.get(f"/api/besprechungen/{kennung}").json()["dateien"]}
+    assert set(namen) <= dateien
+    assert umgebung.client.get(f"/api/besprechungen/{kennung}/dateien/{namen[0]}").status_code == 200
+
+
+def test_modell_laden_meldet_platz(umgebung: Umgebung, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(ollama_service, "pull_model", lambda name, progress_cb=None, **kw: None)
+    assert umgebung.client.post("/api/ollama/laden", json={"modell": "m"}).json()["platz"] == 0
+    assert umgebung.client.get("/api/einstellungen/anbieter").json()[0].keys() >= {"diarisierung_anbieter"}

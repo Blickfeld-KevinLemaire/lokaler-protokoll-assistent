@@ -182,7 +182,7 @@ describe('Fehler und Hinweise', () => {
 
   it('ordnet die übrigen Codes zu', () => {
     const f = (code: string, text = '') =>
-      fehlerFuerDialog(new ApiFehler(422, text, { titel: 'T', text, code }));
+      fehlerFuerDialog(new ApiFehler(422, text, { titel: 'T', text, code, bereich: '' }));
     expect(f('schluessel', 'Schlüssel für die Transkription').abschnitt).toBe('transkription');
     expect(f('schluessel', 'Schlüssel für die Nachbearbeitung').abschnitt).toBe('zusammenfassung');
     expect(f('einstellungen', 'unter „Nachbearbeitung“').abschnitt).toBe('zusammenfassung');

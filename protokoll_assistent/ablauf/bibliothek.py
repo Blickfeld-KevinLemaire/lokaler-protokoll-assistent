@@ -54,11 +54,16 @@ class Besprechung:
         return max(self.protokolle, key=lambda p: p.zeit) if self.protokolle else None
 
     def dateien(self) -> list[Path]:
-        """Alle Dateien der Besprechung (Transkript- und Protokollstaemme, bekannte Endungen)."""
+        """Alle Dateien der Besprechung: Transkript- und Protokollstaemme mit bekannten Endungen und die
+        Exporte (``<quellname>_transkript|protokoll|gesamt[_n].<endung>``, siehe ``dokument_export_service``)."""
         staemme = {self.transkript.stem, *(p.json.stem for p in self.protokolle)}
         ordner = self.transkript.parent
         gefunden = [ordner / f"{stamm}{endung}" for stamm in sorted(staemme) for endung in DATEI_ARTEN]
-        return [p for p in gefunden if p.is_file()]
+        export = re.compile(rf"^{re.escape(self.titel)}_(transkript|protokoll|gesamt)(_\d+)?$")
+        exporte = sorted(
+            p for p in ordner.iterdir() if p.is_file() and p.suffix.lower() in DATEI_ARTEN and export.match(p.stem)
+        ) if ordner.is_dir() else []
+        return [p for p in gefunden if p.is_file()] + [p for p in exporte if p not in gefunden]
 
     def als_dict(self) -> dict[str, Any]:
         neuestes = self.neuestes_protokoll

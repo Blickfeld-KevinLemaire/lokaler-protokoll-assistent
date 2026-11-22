@@ -48,7 +48,7 @@ def test_anschliessende_auswertung_scheitert_mit_hinweis(tmp_path: Path) -> None
     steuerung.abh.modell_fehlt = lambda modell: True
     steuerung.transkription_starten(TranskriptionsWunsch(_audio(tmp_path), tmp_path / "aus", mit_auswertung=True))
     alle_auftraege_ausfuehren(steuerung)
-    assert any("Ollama-Modell fehlt" in text for text in hinweise)
+    assert any("Sprachmodell fehlt" in text for text in hinweise)
     assert [a.art for a in steuerung.auftraege.liste()] == [ART_TRANSKRIPTION]
 
 

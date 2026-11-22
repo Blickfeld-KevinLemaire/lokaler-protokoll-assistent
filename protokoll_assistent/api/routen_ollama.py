@@ -48,4 +48,4 @@ def laden(daten: modelle.ModellLaden, d: Dienste = Depends(dienste), _a: Angemel
         return {"modell": name}
 
     auftrag = d.steuerung.auftraege.einreihen("modell_laden", name, ausfuehren, vorrang=-5, angaben={"modell": name})
-    return auftrag.als_dict()
+    return {**auftrag.als_dict(), "platz": d.steuerung.auftraege.platz(auftrag.id)}

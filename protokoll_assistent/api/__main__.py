@@ -57,6 +57,9 @@ from protokoll_assistent.utils.paths import ensure_system_prompt_file_exists, ge
 from protokoll_assistent.version import VERSION
 
 STANDARD_SERVER_PORT = 8780
+# Exit-Code fuer "bitte neu starten" -- das Fenster startet den Dienst dann sofort wieder
+# (oberflaeche/src-tauri/src/ueberwachung.rs, NEUSTART_EXIT_CODE).
+NEUSTART_EXIT_CODE = 75
 ENTWICKLUNG_URSPRUENGE = ("http://localhost:5173", "http://127.0.0.1:5173")
 
 
@@ -282,6 +285,7 @@ def starten(argumente: argparse.Namespace, argv: Sequence[str] = ()) -> int:
                 "Bitte in den Einstellungen einen anderen Port wählen.",
                 stufe="fehler",
                 quelle="netz",
+                code="port_belegt",
             )
         else:
             netz = dienste_erstellen(ROLLE_SERVER, None, steuerung=dienste.steuerung)
@@ -293,6 +297,16 @@ def starten(argumente: argparse.Namespace, argv: Sequence[str] = ()) -> int:
     def beenden() -> None:
         for s, _sock in server:
             s.should_exit = True
+
+    neustart_gewuenscht = threading.Event()
+
+    def neustart_anfordern() -> None:
+        neustart_gewuenscht.set()
+        # Kurz warten, damit die Antwort auf die Anfrage noch rausgeht.
+        threading.Timer(0.5, beenden).start()
+
+    if rolle == ROLLE_DESKTOP and os.environ.get("VERMERK_ELTERN_PID"):
+        dienste.neustart_anfordern = neustart_anfordern
 
     for eltern in os.environ.get("VERMERK_ELTERN_PID", "").split(","):
         if eltern.strip().isdigit():
@@ -320,7 +334,7 @@ def starten(argumente: argparse.Namespace, argv: Sequence[str] = ()) -> int:
         if dienste.automatik is not None:
             dienste.automatik.stoppen()
         dienste.steuerung.beenden()
-    return 0
+    return NEUSTART_EXIT_CODE if neustart_gewuenscht.is_set() else 0
 
 
 def zugang_anlegen(name: str) -> int:

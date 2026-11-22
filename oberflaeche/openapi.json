@@ -32,6 +32,32 @@
         }
       }
     },
+    "/api/anmeldung": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Anmeldung",
+        "description": "Ohne Anmeldung: Welche Arten der Anmeldung gibt es hier? (Name + Passwort nur mit mehreren Nutzern.)",
+        "operationId": "anmeldung_api_anmeldung_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "boolean"
+                  },
+                  "type": "object",
+                  "title": "Response Anmeldung Api Anmeldung Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/anmelden": {
       "post": {
         "tags": [
@@ -274,6 +300,32 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/system/neustart": {
+      "post": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Neustart",
+        "description": "Den Dienst neu starten (z. B. nach der Ersteinrichtung, damit die Rechenumgebung geladen wird). Der Dienst\nbeendet sich mit einem eigenen Exit-Code, und das Fenster startet ihn sofort wieder -- die Prozesse steuert\nallein das Fenster.",
+        "operationId": "neustart_api_system_neustart_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "boolean"
+                  },
+                  "type": "object",
+                  "title": "Response Neustart Api System Neustart Post"
                 }
               }
             }
@@ -4081,6 +4133,11 @@
           "code": {
             "type": "string",
             "title": "Code"
+          },
+          "bereich": {
+            "type": "string",
+            "title": "Bereich",
+            "default": ""
           }
         },
         "type": "object",
@@ -4787,6 +4844,10 @@
             "type": "integer",
             "title": "Letzte Nummer"
           },
+          "jetzt": {
+            "type": "number",
+            "title": "Jetzt"
+          },
           "auftraege": {
             "items": {
               "$ref": "#/components/schemas/Auftrag"
@@ -4820,6 +4881,7 @@
         "type": "object",
         "required": [
           "letzte_nummer",
+          "jetzt",
           "auftraege",
           "empfang",
           "freigaben"

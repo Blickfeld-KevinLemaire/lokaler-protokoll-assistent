@@ -24,6 +24,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/anmeldung': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Anmeldung
+     * @description Ohne Anmeldung: Welche Arten der Anmeldung gibt es hier? (Name + Passwort nur mit mehreren Nutzern.)
+     */
+    get: operations['anmeldung_api_anmeldung_get'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/anmelden': {
     parameters: {
       query?: never;
@@ -148,6 +168,28 @@ export interface paths {
      * @description Ordner oder Datei im Explorer zeigen -- nur in der Windows-Anwendung (nie fuer Zugriffe aus dem Netz).
      */
     post: operations['ordner_oeffnen_api_system_ordner_oeffnen_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/system/neustart': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Neustart
+     * @description Den Dienst neu starten (z. B. nach der Ersteinrichtung, damit die Rechenumgebung geladen wird). Der Dienst
+     *     beendet sich mit einem eigenen Exit-Code, und das Fenster startet ihn sofort wieder -- die Prozesse steuert
+     *     allein das Fenster.
+     */
+    post: operations['neustart_api_system_neustart_post'];
     delete?: never;
     options?: never;
     head?: never;
@@ -1675,6 +1717,11 @@ export interface components {
       text: string;
       /** Code */
       code: string;
+      /**
+       * Bereich
+       * @default
+       */
+      bereich: string;
     };
     /** Freigabe */
     Freigabe: {
@@ -1931,6 +1978,8 @@ export interface components {
     Zustand: {
       /** Letzte Nummer */
       letzte_nummer: number;
+      /** Jetzt */
+      jetzt: number;
       /** Auftraege */
       auftraege: components['schemas']['Auftrag'][];
       /** Empfang */
@@ -1968,6 +2017,28 @@ export interface operations {
         content: {
           'application/json': {
             [key: string]: string;
+          };
+        };
+      };
+    };
+  };
+  anmeldung_api_anmeldung_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            [key: string]: boolean;
           };
         };
       };
@@ -2156,6 +2227,28 @@ export interface operations {
         };
         content: {
           'application/json': components['schemas']['HTTPValidationError'];
+        };
+      };
+    };
+  };
+  neustart_api_system_neustart_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            [key: string]: boolean;
+          };
         };
       };
     };

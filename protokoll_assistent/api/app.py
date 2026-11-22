@@ -31,7 +31,7 @@ from protokoll_assistent.version import VERSION
 # Herkunft des Desktop-Fensters (Tauri 2 unter Windows bzw. andere Plattformen).
 TAURI_URSPRUENGE = ("http://tauri.localhost", "https://tauri.localhost", "tauri://localhost")
 # Endpunkte ohne Anmeldung. Jeder andere ist ueber die Abhaengigkeit am Router geschuetzt; ein Test prueft das.
-OEFFENTLICHE_PFADE = frozenset({"/api/gesundheit", "/api/anmelden", "/api/abmelden"})
+OEFFENTLICHE_PFADE = frozenset({"/api/gesundheit", "/api/anmeldung", "/api/anmelden", "/api/abmelden"})
 
 
 def _zugang_pruefen(request: Request) -> str:

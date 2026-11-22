@@ -11,6 +11,7 @@ class Fehler(BaseModel):
     titel: str
     text: str
     code: str
+    bereich: str = ""
 
 
 class Anmeldung(BaseModel):
@@ -69,6 +70,7 @@ class Auftrag(BaseModel):
 
 class Zustand(BaseModel):
     letzte_nummer: int
+    jetzt: float
     auftraege: list[Auftrag]
     empfang: dict[str, Any] | None
     freigaben: list[dict[str, str]]

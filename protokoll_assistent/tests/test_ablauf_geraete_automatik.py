@@ -114,7 +114,8 @@ def test_empfang_port_belegt(umgebung: Umgebung) -> None:
     umgebung.konfig["_scheitern"] = True
     umgebung.automatik.anwenden()
     assert not umgebung.automatik.laeuft
-    assert umgebung.automatik.fehler is not None and "nicht nutzbar" in umgebung.automatik.fehler
+    assert umgebung.automatik.fehler is not None and umgebung.automatik.fehler_code == "port_belegt"
+    assert umgebung.automatik.beschreibung()["fehler_code"] == "port_belegt"
 
 
 def test_port_auslegen() -> None:
@@ -293,7 +294,7 @@ def test_ollama_wache(umgebung: Umgebung) -> None:
     umgebung.modell_fehlt = True
     a.ollama_pruefen()
     a.ollama_pruefen()  # nur einmal melden
-    assert sum("fehlt bei Ollama" in text for _s, text in hinweise) == 1
+    assert sum("Sprachmodell für Zusammenfassungen fehlt" in text for _s, text in hinweise) == 1
     umgebung.modell_fehlt = False
     a.ollama_pruefen()
     assert hinweise[-1] == ("erledigt", "")

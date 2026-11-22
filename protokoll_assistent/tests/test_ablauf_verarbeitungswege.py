@@ -48,7 +48,7 @@ def test_lokal_ohne_laufzeit(tmp_path: Path) -> None:
     with pytest.raises(Ablauffehler) as info:
         wege.transkription_vorbereiten(wunsch, {}, Schluesselablage({}), laufzeit_verfuegbar=lambda: False)
     assert info.value.code == wege.CODE_LOKALE_EINRICHTUNG
-    assert info.value.als_dict()["titel"].startswith("Lokale Transkription")
+    assert info.value.als_dict()["titel"] == "Noch nicht bereit" and info.value.bereich == "transkription"
 
 
 def test_lokal_mit_laufzeit(tmp_path: Path) -> None:
