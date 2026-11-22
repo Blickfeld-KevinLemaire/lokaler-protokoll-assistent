@@ -265,8 +265,11 @@ def _relaunch(python_exe: Path) -> None:
         # hielte Port und Grafikkarte.
         bisher = child_env.get(ELTERN_VARIABLE, "").strip()
         child_env[ELTERN_VARIABLE] = ",".join(p for p in (bisher, str(os.getpid())) if p)
+    # Gebaute Fassung: '-B' schreibt kein '__pycache__' in den Programmordner (sonst blieben nach der
+    # Deinstallation hunderte Dateien liegen), '-s' laesst Pakete aus dem Nutzerprofil aussen vor.
+    schalter = ["-B", "-s"] if getattr(sys, "frozen", False) else []
     completed = subprocess.run(
-        [str(python_exe), "-m", ANWENDUNGSMODUL, *NEUSTART_ARGUMENTE],
+        [str(python_exe), *schalter, "-m", ANWENDUNGSMODUL, *NEUSTART_ARGUMENTE],
         env=child_env,
         cwd=str(cwd),
         creationflags=0 if _hat_konsole() else KEIN_FENSTER,

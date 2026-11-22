@@ -131,7 +131,8 @@ def _relaunch_cwd_testen(monkeypatch, tmp_path, *, app_dir: Path, hat_konsole: b
     assert exc_info.value.code == 0
     assert len(calls) == 1
     befehl, cwd = calls[0]
-    assert befehl == [str(Path("/irgendwo/python.exe")), "-m", "protokoll_assistent.app"]
+    schalter = ["-B", "-s"] if getattr(bootstrap.sys, "frozen", False) else []
+    assert befehl == [str(Path("/irgendwo/python.exe")), *schalter, "-m", "protokoll_assistent.app"]
     return Path(cwd)
 
 
@@ -704,3 +705,14 @@ def test_dienst_startet_sich_mit_derselben_befehlszeile_neu(monkeypatch, tmp_pat
     befehl, kwargs = aufrufe[0]
     assert befehl[1:] == ["-m", "protokoll_assistent.api", "--rolle", "desktop", "--port", "0", "--port-datei", "x.json"]
     assert kwargs["env"][bootstrap.ELTERN_VARIABLE] == f"4711,{os.getpid()}"
+
+
+def test_gebaute_fassung_startet_python_ohne_pycache_und_nutzerpakete(monkeypatch, tmp_path):
+    aufrufe = []
+    monkeypatch.setattr(bootstrap.subprocess, "run", lambda befehl, **kw: aufrufe.append(befehl) or subprocess.CompletedProcess(befehl, 0))
+    monkeypatch.setattr(bootstrap.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(bootstrap, "ANWENDUNGSMODUL", "protokoll_assistent.api")
+    monkeypatch.setattr(bootstrap, "NEUSTART_ARGUMENTE", ["--port", "0"])
+    with pytest.raises(SystemExit):
+        bootstrap._relaunch(tmp_path / "python.exe")
+    assert aufrufe[0][1:] == ["-B", "-s", "-m", "protokoll_assistent.api", "--port", "0"]
