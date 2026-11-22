@@ -8,8 +8,10 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
-Neue Oberfläche (Branch `feature/neue-oberflaeche`, Version 0.6.0-alpha.1). Einzelheiten zum Aufbau in
-`ARCHITEKTUR.md`.
+## [0.6.0-alpha.1] - 2026-11-22
+
+Testrelease der neuen Oberfläche (Branch `feature/neue-oberflaeche`), nicht für den normalen Einsatz. Einzelheiten
+zum Aufbau in `ARCHITEKTUR.md`.
 
 ### Added
 
@@ -26,6 +28,10 @@ Neue Oberfläche (Branch `feature/neue-oberflaeche`, Version 0.6.0-alpha.1). Ein
   Nutzer, Geräte und Einstellungen. Aufnahmegeräte gehören jeweils einem Nutzer.
 - Die Windows-Anwendung lässt sich weiterhin zusätzlich im Netz anbieten (ein Nutzer, Zugangsschlüssel).
 - PDF- und OpenDocument-Export ohne Qt (auch im Servermodus).
+- **Meldet sich ein Aufnahmegerät nicht** (meist blockiert die Windows-Firewall den Empfang), bietet die Anwendung
+  „Empfang freigeben“ an: nach einer Rückfrage von Windows gilt die Freigabe für Heim- und Firmennetze. Nach dem
+  Einrichten per USB prüft sie das sofort.
+- Auf der Startseite steht die ganze Warteschlange: was läuft und alles, was danach drankommt.
 
 ### Changed
 
@@ -38,6 +44,8 @@ Neue Oberfläche (Branch `feature/neue-oberflaeche`, Version 0.6.0-alpha.1). Ein
   und Transkript in einem). Text, Untertitel, PDF und die anderen Formate entstehen erst beim Exportieren. Unter
   „Dateien“ stehen nur dieses Dokument und die Exporte; die Daten, aus denen die Anwendung liest, bleiben verborgen.
   Servermodus mit Eingangsordner und Qt-Oberfläche legen Text und Untertitel weiterhin mit ab.
+- „Besprechungen“ heißen in der Oberfläche jetzt „Transkripte“.
+- Gerätenamen dürfen Leerzeichen und Umlaute enthalten (z. B. „Besprechungsraum 3“).
 
 ## [0.5.0-rc3] - 2026-11-18
 
@@ -829,7 +837,8 @@ Installation.
 - Installer für Windows (ohne Administratorrechte, mit mitgelieferter
   Python-Laufzeitumgebung)
 
-[Unreleased]: https://github.com/Blickfeld-KevinLemaire/lokaler-protokoll-assistent/compare/v0.5.0-rc2...HEAD
+[Unreleased]: https://github.com/Blickfeld-KevinLemaire/lokaler-protokoll-assistent/compare/v0.6.0-alpha.1...HEAD
+[0.6.0-alpha.1]: https://github.com/Blickfeld-KevinLemaire/lokaler-protokoll-assistent/compare/v0.5.0-rc3...v0.6.0-alpha.1
 [0.5.0-rc2]: https://github.com/Blickfeld-KevinLemaire/lokaler-protokoll-assistent/compare/v0.5.0-rc1...v0.5.0-rc2
 [0.5.0-rc1]: https://github.com/Blickfeld-KevinLemaire/lokaler-protokoll-assistent/compare/v0.5.0-beta...v0.5.0-rc1
 [0.5.0-beta]: https://github.com/Blickfeld-KevinLemaire/lokaler-protokoll-assistent/compare/v0.3.1...v0.5.0-beta
