@@ -1,0 +1,316 @@
+/* Farben nur über Variablen. Die Seitenleiste bleibt in beiden Modi dunkelblau. */
+:root {
+  --sb-bg: #0f2a4a;
+  --sb-text: #dbe5f4;
+  --sb-muted: #8fa6c4;
+  --sb-hover: rgba(255, 255, 255, 0.07);
+  --sb-linie: rgba(255, 255, 255, 0.09);
+  --sb-feld: rgba(255, 255, 255, 0.05);
+  --sb-ok: #4cc38a;
+  --sb-warn: #f2b45a;
+  --sb-fehler: #ff8a80;
+
+  --akzent: #2563eb;
+  --akzent-hover: #1d4fc4;
+  --akzent-text: #ffffff;
+  --akzent-weich: rgba(37, 99, 235, 0.09);
+  --link: #2563eb;
+
+  --bg: #f5f7fb;
+  --karte: #ffffff;
+  --karte-2: #f9fafc;
+  --rand: #e3e7ee;
+  --text: #1c1e21;
+  --text-2: #5b6270;
+  --text-3: #8a93a3;
+  --ok: #1f8a4c;
+  --ok-weich: #e8f5ee;
+  --warn: #b26a00;
+  --warn-weich: #fdf4e3;
+  --fehler: #d93025;
+  --fehler-weich: #fdeceb;
+  --feld: #ffffff;
+  --feld-rand: #cfd6e1;
+  --schatten: 0 1px 2px rgba(16, 24, 40, 0.04), 0 1px 3px rgba(16, 24, 40, 0.06);
+  --schatten-hoch: 0 12px 32px rgba(16, 24, 40, 0.16);
+  --fokus: 0 0 0 3px rgba(37, 99, 235, 0.35);
+  --radius: 10px;
+  --radius-klein: 7px;
+  --sp0: #2563eb;
+  --sp1: #0f8a6a;
+  --sp2: #b45309;
+  --sp3: #9333ea;
+  --sp4: #c2410c;
+  --sp5: #0e7490;
+
+  color-scheme: light;
+  font-family:
+    'Segoe UI',
+    system-ui,
+    -apple-system,
+    'Helvetica Neue',
+    Arial,
+    sans-serif;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--text);
+  background: var(--bg);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='hell']) {
+    --sb-bg: #0b2140;
+    --akzent-weich: rgba(59, 130, 246, 0.16);
+    --link: #7ea6ff;
+    --bg: #0f172a;
+    --karte: #172135;
+    --karte-2: #1b263c;
+    --rand: #263248;
+    --text: #e6eaf1;
+    --text-2: #a4afc2;
+    --text-3: #77839a;
+    --ok: #45b97c;
+    --ok-weich: rgba(69, 185, 124, 0.14);
+    --warn: #eaa64a;
+    --warn-weich: rgba(234, 166, 74, 0.14);
+    --fehler: #f27467;
+    --fehler-weich: rgba(242, 116, 103, 0.14);
+    --feld: #111a2c;
+    --feld-rand: #334059;
+    --schatten: 0 1px 2px rgba(0, 0, 0, 0.3);
+    --schatten-hoch: 0 16px 40px rgba(0, 0, 0, 0.5);
+    --fokus: 0 0 0 3px rgba(96, 145, 255, 0.45);
+    --sp0: #7ea6ff;
+    --sp1: #4cc9a4;
+    --sp2: #f0b354;
+    --sp3: #c79bff;
+    --sp4: #ff9a6b;
+    --sp5: #5cc8e0;
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme='dunkel'] {
+  --sb-bg: #0b2140;
+  --akzent-weich: rgba(59, 130, 246, 0.16);
+  --link: #7ea6ff;
+  --bg: #0f172a;
+  --karte: #172135;
+  --karte-2: #1b263c;
+  --rand: #263248;
+  --text: #e6eaf1;
+  --text-2: #a4afc2;
+  --text-3: #77839a;
+  --ok: #45b97c;
+  --ok-weich: rgba(69, 185, 124, 0.14);
+  --warn: #eaa64a;
+  --warn-weich: rgba(234, 166, 74, 0.14);
+  --fehler: #f27467;
+  --fehler-weich: rgba(242, 116, 103, 0.14);
+  --feld: #111a2c;
+  --feld-rand: #334059;
+  --schatten: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --schatten-hoch: 0 16px 40px rgba(0, 0, 0, 0.5);
+  --fokus: 0 0 0 3px rgba(96, 145, 255, 0.45);
+  --sp0: #7ea6ff;
+  --sp1: #4cc9a4;
+  --sp2: #f0b354;
+  --sp3: #c79bff;
+  --sp4: #ff9a6b;
+  --sp5: #5cc8e0;
+  color-scheme: dark;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+}
+
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+
+h1 {
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+h2 {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+a {
+  color: var(--link);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+:focus-visible {
+  outline: none;
+  box-shadow: var(--fokus);
+}
+
+/* Schaltflächen */
+.knopf {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 14px;
+  border-radius: var(--radius-klein);
+  border: 1px solid var(--feld-rand);
+  background: var(--karte);
+  color: var(--text);
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background 0.12s,
+    border-color 0.12s;
+}
+
+.knopf:hover:not(:disabled) {
+  background: var(--karte-2);
+  border-color: var(--text-3);
+}
+
+.knopf:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.knopf.primaer {
+  background: var(--akzent);
+  border-color: var(--akzent);
+  color: var(--akzent-text);
+}
+
+.knopf.primaer:hover:not(:disabled) {
+  background: var(--akzent-hover);
+  border-color: var(--akzent-hover);
+}
+
+.knopf.gross {
+  height: 40px;
+  padding: 0 20px;
+  font-size: 15px;
+}
+
+.knopf.leise {
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-2);
+}
+
+.knopf.leise:hover:not(:disabled) {
+  background: var(--akzent-weich);
+  border-color: transparent;
+  color: var(--text);
+}
+
+.knopf.gefahr {
+  color: var(--fehler);
+}
+
+.symbolknopf {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.symbolknopf:hover {
+  background: var(--akzent-weich);
+  color: var(--text);
+}
+
+/* Felder */
+.feld,
+select.feld,
+textarea.feld {
+  width: 100%;
+  height: 34px;
+  padding: 0 10px;
+  border-radius: var(--radius-klein);
+  border: 1px solid var(--feld-rand);
+  background: var(--feld);
+}
+
+textarea.feld {
+  height: auto;
+  padding: 10px 12px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.feld:focus-visible {
+  border-color: var(--akzent);
+}
+
+.karte {
+  background: var(--karte);
+  border: 1px solid var(--rand);
+  border-radius: var(--radius);
+  box-shadow: var(--schatten);
+}
+
+.leise {
+  color: var(--text-2);
+}
+
+.klein {
+  font-size: 12.5px;
+}
+
+.unsichtbar {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.zeile {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.leer {
+  padding: 40px 0;
+  text-align: center;
+  color: var(--text-3);
+}
