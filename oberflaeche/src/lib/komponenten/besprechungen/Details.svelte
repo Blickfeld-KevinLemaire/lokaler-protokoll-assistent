@@ -5,6 +5,7 @@
   import type { BesprechungDetails } from '$lib/api/typen';
   import { datumText, dauerText } from '$lib/logik/format';
   import { dialog } from '$lib/stores/oberflaeche.svelte';
+  import { personen } from '$lib/stores/personen.svelte';
   import { verbindung } from '$lib/stores/verbindung.svelte';
   import { zustand } from '$lib/stores/zustand.svelte';
   import Datenschutz from '../Datenschutz.svelte';
@@ -12,6 +13,7 @@
   import Dateien from './Dateien.svelte';
   import ExportDialog from './ExportDialog.svelte';
   import SprecherListe from './SprecherListe.svelte';
+  import TeilenDialog from './TeilenDialog.svelte';
   import Transkript from './Transkript.svelte';
   import Zusammenfassung from './Zusammenfassung.svelte';
 
@@ -28,7 +30,15 @@
   let reiter = $state(page.url.searchParams.get('reiter') ?? 'transkript');
   let text = $state('');
   let exportOffen = $state(false);
+  let teilenOffen = $state(false);
   let neuLaden = $state(0);
+
+  /** Geteilte Besprechung eines anderen: nur lesen. */
+  const eigen = $derived(details?.eigen !== false);
+
+  $effect(() => {
+    if (verbindung.mehrbenutzer) void personen.laden();
+  });
 
   const ungespeichert = $derived(!!details?.protokoll && text !== details.protokoll.text);
 
@@ -74,12 +84,20 @@
         <span>{datumText(details.zeit)}</span>
         <span>{dauerText(details.dauer_sekunden)}</span>
         {#if details.anzahl_sprecher}<span>{details.anzahl_sprecher} Sprecher</span>{/if}
+        {#if !eigen}<span class="geteilt">geteilt von {personen.anzeigename(details.besitzer)}</span>{/if}
       </div>
     {/if}
   </div>
-  <button class="knopf" type="button" disabled={!details} onclick={() => (exportOffen = true)}>
-    Exportieren
-  </button>
+  {#if details && eigen && verbindung.mehrbenutzer}
+    <button class="knopf" type="button" onclick={() => (teilenOffen = true)}>
+      {details.geteilt_mit?.length ? '👥 Geteilt' : 'Teilen'}
+    </button>
+  {/if}
+  {#if eigen}
+    <button class="knopf" type="button" disabled={!details} onclick={() => (exportOffen = true)}>
+      Exportieren
+    </button>
+  {/if}
   <Datenschutz />
 </header>
 
@@ -90,14 +108,25 @@
     {#if reiter === 'transkript'}
       <Transkript segmente={details.segmente} />
     {:else if reiter === 'sprecher'}
-      <SprecherListe id={details.id} sprecher={details.sprecher} gespeichert={() => neuLaden++} />
+      <SprecherListe
+        id={details.id}
+        sprecher={details.sprecher}
+        nurLesen={!eigen}
+        gespeichert={() => neuLaden++}
+      />
     {:else if reiter === 'zusammenfassung'}
-      <Zusammenfassung {details} bind:text {gespeichert} />
+      <Zusammenfassung {details} bind:text nurLesen={!eigen} {gespeichert} />
     {:else}
       <Dateien {details} />
     {/if}
   </div>
   <ExportDialog offen={exportOffen} {details} schliessen={() => (exportOffen = false)} />
+  <TeilenDialog
+    offen={teilenOffen}
+    {details}
+    schliessen={() => (teilenOffen = false)}
+    gespeichert={() => neuLaden++}
+  />
 {:else}
   <div class="leer">…</div>
 {/if}
@@ -126,6 +155,14 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .geteilt {
+    padding: 0 8px;
+    border-radius: 9px;
+    background: var(--akzent-weich);
+    color: var(--link);
+    font-weight: 500;
   }
 
   .meta {

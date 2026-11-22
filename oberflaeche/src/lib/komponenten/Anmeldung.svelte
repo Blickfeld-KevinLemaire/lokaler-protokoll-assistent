@@ -1,18 +1,48 @@
 <script lang="ts">
+  /** Anmeldung im Browser: Name und Passwort oder Zugangsschlüssel. */
   import { ApiFehler } from '$lib/api/client';
   import { verbindung } from '$lib/stores/verbindung.svelte';
 
+  type Art = 'passwort' | 'schluessel';
+  const ART_SCHLUESSEL = 'vermerk.anmeldeart';
+
+  function gemerkt(): Art {
+    try {
+      return localStorage.getItem(ART_SCHLUESSEL) === 'schluessel' ? 'schluessel' : 'passwort';
+    } catch {
+      return 'passwort';
+    }
+  }
+
+  let art = $state<Art>(gemerkt());
+  let name = $state('');
+  let passwort = $state('');
   let schluessel = $state('');
   let fehler = $state('');
   let laeuft = $state(false);
 
+  const vollstaendig = $derived(art === 'passwort' ? !!name.trim() && !!passwort : !!schluessel.trim());
+
+  function wechseln(neu: Art) {
+    art = neu;
+    fehler = '';
+    try {
+      localStorage.setItem(ART_SCHLUESSEL, neu);
+    } catch {
+      // nicht speicherbar
+    }
+  }
+
   async function absenden(e: SubmitEvent) {
     e.preventDefault();
-    if (!schluessel.trim()) return;
+    if (!vollstaendig) return;
     laeuft = true;
     fehler = '';
     try {
-      await verbindung.anmelden(schluessel.trim());
+      await verbindung.anmelden(
+        art === 'passwort' ? { name: name.trim(), passwort } : { schluessel: schluessel.trim() }
+      );
+      passwort = '';
       schluessel = '';
     } catch (f) {
       fehler = f instanceof ApiFehler ? f.message : 'Anmeldung nicht möglich.';
@@ -27,21 +57,43 @@
 <main class="anmeldung">
   <form class="karte" onsubmit={absenden}>
     <div class="logo"><img src="/vermerk_logo_hell.png" alt="VERMERK" width="180" height="40" /></div>
-    <label for="schluessel">Zugangsschlüssel</label>
-    <!-- svelte-ignore a11y_autofocus -->
-    <input
-      id="schluessel"
-      class="feld"
-      type="password"
-      autocomplete="current-password"
-      autofocus
-      bind:value={schluessel}
-      aria-invalid={!!fehler}
-      aria-describedby={fehler ? 'anmeldefehler' : undefined}
-    />
-    {#if fehler}<p id="anmeldefehler" class="fehler">{fehler}</p>{/if}
-    <button class="knopf primaer gross" type="submit" disabled={laeuft || !schluessel.trim()}>
-      Anmelden
+
+    {#if art === 'passwort'}
+      <label for="name">Name</label>
+      <!-- svelte-ignore a11y_autofocus -->
+      <input id="name" class="feld" autocomplete="username" autofocus bind:value={name} />
+      <label for="passwort">Passwort</label>
+      <input
+        id="passwort"
+        class="feld"
+        type="password"
+        autocomplete="current-password"
+        bind:value={passwort}
+        aria-invalid={!!fehler}
+        aria-describedby={fehler ? 'anmeldefehler' : undefined}
+      />
+    {:else}
+      <label for="schluessel">Zugangsschlüssel</label>
+      <!-- svelte-ignore a11y_autofocus -->
+      <input
+        id="schluessel"
+        class="feld"
+        type="password"
+        autocomplete="off"
+        autofocus
+        bind:value={schluessel}
+        aria-invalid={!!fehler}
+        aria-describedby={fehler ? 'anmeldefehler' : undefined}
+      />
+    {/if}
+    {#if fehler}<p id="anmeldefehler" class="fehler" role="alert">{fehler}</p>{/if}
+    <button class="knopf primaer gross" type="submit" disabled={laeuft || !vollstaendig}>Anmelden</button>
+    <button
+      class="wechsel"
+      type="button"
+      onclick={() => wechseln(art === 'passwort' ? 'schluessel' : 'passwort')}
+    >
+      {art === 'passwort' ? 'Mit Zugangsschlüssel anmelden' : 'Mit Name und Passwort anmelden'}
     </button>
   </form>
 </main>
@@ -57,10 +109,10 @@
 
   form {
     width: 340px;
-    padding: 0 28px 28px;
+    padding: 0 28px 20px;
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 8px;
     overflow: hidden;
   }
 
@@ -73,6 +125,7 @@
   label {
     font-weight: 600;
     font-size: 13px;
+    margin-top: 4px;
   }
 
   .fehler {
@@ -80,7 +133,18 @@
     font-size: 13px;
   }
 
-  button {
-    margin-top: 8px;
+  button[type='submit'] {
+    margin-top: 12px;
+  }
+
+  .wechsel {
+    margin-top: 4px;
+    padding: 6px;
+    border: none;
+    background: none;
+    color: var(--link);
+    font-size: 13px;
+    cursor: pointer;
+    border-radius: 6px;
   }
 </style>

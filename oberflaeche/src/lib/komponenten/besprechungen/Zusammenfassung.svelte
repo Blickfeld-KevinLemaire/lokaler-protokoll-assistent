@@ -1,7 +1,7 @@
 <script lang="ts">
   import { api } from '$lib/api/client';
   import type { BesprechungDetails, Vorlage } from '$lib/api/typen';
-  import { startHinweis } from '$lib/logik/warteschlange';
+  import { startMeldung } from '$lib/logik/warteschlange';
   import { einstellungen } from '$lib/stores/einstellungen.svelte';
   import { dialog, meldungen } from '$lib/stores/oberflaeche.svelte';
   import { zustand } from '$lib/stores/zustand.svelte';
@@ -11,8 +11,9 @@
   let {
     details,
     text = $bindable(),
+    nurLesen = false,
     gespeichert
-  }: { details: BesprechungDetails; text: string; gespeichert: () => void } = $props();
+  }: { details: BesprechungDetails; text: string; nurLesen?: boolean; gespeichert: () => void } = $props();
 
   let bearbeiten = $state(false);
   let speichert = $state(false);
@@ -63,13 +64,14 @@
       zustand.auftragAktualisieren(neu);
       text = original;
       bearbeiten = false;
-      meldungen.zeigen(startHinweis(zustand.auftraege, neu.id) ?? 'Zusammenfassung wird erstellt', 'info');
+      meldungen.zeigen(startMeldung(neu, zustand.auftraege) ?? 'Zusammenfassung wird erstellt', 'info');
     } catch (e) {
       dialog.zeigen(e, 'Start nicht möglich');
     }
   }
 </script>
 
+{#if !nurLesen}
 <div class="leiste">
   {#if vorlagen.length > 1}
     <select class="feld vorlage" aria-label="Vorlage" bind:value={vorlageName}>
@@ -105,7 +107,7 @@
       <button class="knopf" type="button" onclick={() => (bearbeiten = true)}>✎&nbsp; Bearbeiten</button>
     {/if}
   {/if}
-</div>
+</div>{/if}
 
 {#if auftrag}
   <div class="auftrag"><AuftragKarte {auftrag} /></div>

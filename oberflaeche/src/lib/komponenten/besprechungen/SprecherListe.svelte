@@ -4,7 +4,12 @@
   import { dauerText } from '$lib/logik/format';
   import { dialog, meldungen } from '$lib/stores/oberflaeche.svelte';
 
-  let { id, sprecher, gespeichert }: { id: string; sprecher: Sprecher[]; gespeichert: () => void } = $props();
+  let {
+    id,
+    sprecher,
+    nurLesen = false,
+    gespeichert
+  }: { id: string; sprecher: Sprecher[]; nurLesen?: boolean; gespeichert: () => void } = $props();
 
   let namen = $state<Record<string, string>>({});
   let speichert = $state(false);
@@ -43,14 +48,20 @@
       {#if s.id}
         <div class="zeile-sp">
           <span class="punkt" style:background="var(--sp{i % 6})" aria-hidden="true"></span>
-          <input class="feld" aria-label="Name für {s.id}" placeholder={s.id} bind:value={namen[s.id]} />
+          {#if nurLesen}
+            <span class="name">{s.name || s.id}</span>
+          {:else}
+            <input class="feld" aria-label="Name für {s.id}" placeholder={s.id} bind:value={namen[s.id]} />
+          {/if}
           <span class="leise klein">{dauerText(s.sekunden)}</span>
         </div>
       {/if}
     {/each}
-    <div class="fuss">
-      <button class="knopf primaer" type="submit" disabled={!geaendert || speichert}>Speichern</button>
-    </div>
+    {#if !nurLesen}
+      <div class="fuss">
+        <button class="knopf primaer" type="submit" disabled={!geaendert || speichert}>Speichern</button>
+      </div>
+    {/if}
   </form>
 {/if}
 
@@ -78,6 +89,11 @@
 
   .klein {
     text-align: right;
+  }
+
+  .name {
+    font-weight: 500;
+    line-height: 34px;
   }
 
   .fuss {

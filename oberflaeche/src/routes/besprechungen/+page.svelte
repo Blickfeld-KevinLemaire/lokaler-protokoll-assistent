@@ -7,6 +7,7 @@
   import Kopf from '$lib/komponenten/Kopf.svelte';
   import { datumText, dauerText, zeitLesen } from '$lib/logik/format';
   import { dialog } from '$lib/stores/oberflaeche.svelte';
+  import { personen } from '$lib/stores/personen.svelte';
   import { verbindung } from '$lib/stores/verbindung.svelte';
   import { zustand } from '$lib/stores/zustand.svelte';
 
@@ -24,6 +25,10 @@
       .besprechungen()
       .then((l) => (liste = l))
       .catch((e) => dialog.zeigen(e, 'Besprechungen nicht geladen'));
+  });
+
+  $effect(() => {
+    if (verbindung.mehrbenutzer) void personen.laden();
   });
 
   // Aus dem Status-Bereich kommt der Pfad des Transkripts; daraus wird die Besprechung.
@@ -77,7 +82,14 @@
       </div>
       {#each gefiltert as b (b.id)}
         <a class="zeile" role="row" href="/besprechungen?id={encodeURIComponent(b.id)}">
-          <span class="titel" role="cell">{b.titel}</span>
+          <span class="titel" role="cell">
+            <span class="text">{b.titel}</span>
+            {#if b.eigen === false}
+              <span class="geteilt">geteilt von {personen.anzeigename(b.besitzer)}</span>
+            {:else if b.geteilt_mit?.length}
+              <span class="geteilt leise" title="Geteilt">👥</span>
+            {/if}
+          </span>
           <span role="cell" class="leise">{datumText(b.zeit)}</span>
           <span role="cell" class="leise">{dauerText(b.dauer_sekunden)}</span>
           <span role="cell" class="leise">{b.anzahl_sprecher ?? '–'}</span>
@@ -127,10 +139,32 @@
   }
 
   .titel {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
     font-weight: 500;
+  }
+
+  .titel .text {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .geteilt {
+    flex: none;
+    padding: 1px 8px;
+    border-radius: 9px;
+    background: var(--akzent-weich);
+    color: var(--link);
+    font-size: 12px;
+    font-weight: 500;
+  }
+
+  .geteilt.leise {
+    background: none;
+    padding: 0;
   }
 
   .marke {

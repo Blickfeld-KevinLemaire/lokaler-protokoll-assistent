@@ -61,6 +61,14 @@
         </button>
       </li>
     {/if}
+    {#if verbindung.mehrbenutzer && verbindung.info}
+      <li>
+        <a href="/einstellungen#konto" title="Konto">
+          <span class="sym avatar" aria-hidden="true">{verbindung.info.anzeigename.slice(0, 1)}</span
+          >{verbindung.info.anzeigename}
+        </a>
+      </li>
+    {/if}
     <li>
       <a
         href="/einstellungen"
@@ -170,6 +178,17 @@
     width: 20px;
     text-align: center;
     font-size: 15px;
+  }
+
+  .avatar {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.14);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 22px;
+    text-transform: uppercase;
   }
 
   .raum {

@@ -3,7 +3,7 @@
  */
 import { api, nichtAngemeldetMelden } from '../api/client';
 import { ereignisseAbonnieren, type Abo, type StromZustand } from '../api/ereignisstrom';
-import type { Info } from '../api/typen';
+import type { Anmeldedaten, Info } from '../api/typen';
 import { Startgatter, type Phase } from '../start/gatter';
 import { istTauri, tauriHuelle } from '../tauri';
 import { einstellungen } from './einstellungen.svelte';
@@ -41,8 +41,18 @@ class Verbindung {
     await this.gatter.starten();
   }
 
-  async anmelden(schluessel: string): Promise<void> {
-    await this.gatter?.anmelden(schluessel);
+  async anmelden(daten: Anmeldedaten): Promise<void> {
+    await this.gatter?.anmelden(daten);
+  }
+
+  /** Mehrere Nutzer (Servermodus)? Dann gibt es Konto, Teilen und fremde Aufträge. */
+  get mehrbenutzer(): boolean {
+    return !!this.info?.mehrbenutzer;
+  }
+
+  /** Darf Einstellungen, Geräte, Vorlagen ändern (Windows-Anwendung: immer). */
+  get verwalten(): boolean {
+    return !this.info?.mehrbenutzer || !!this.info.admin;
   }
 
   async abmelden(): Promise<void> {

@@ -77,6 +77,8 @@ export interface LiveText {
 export interface GeraetEintrag {
   name: string;
   angelegt: string;
+  /** Servermodus: wem das Gerät gehört (Anmeldename) oder `null` (allgemein). */
+  besitzer?: string | null;
   geraete_id: string | null;
   kontakt: {
     zeit: number;
@@ -216,3 +218,31 @@ export interface Einstellungen {
 }
 
 export type SchluesselStand = Record<'transkription' | 'nachbearbeitung' | 'chatbot', boolean>;
+
+export type Anmeldedaten = { schluessel: string } | { name: string; passwort: string };
+
+export interface ZugangKurz {
+  bezeichnung: string;
+  angelegt: string;
+}
+
+/** Ein Nutzer, wie ihn `/api/nutzer` und `/api/ich` liefern (ohne Geheimnisse). */
+export interface Nutzer {
+  name: string;
+  anzeigename: string;
+  admin: boolean;
+  aktiv?: boolean;
+  hat_passwort: boolean;
+  zugaenge: ZugangKurz[];
+  angelegt?: string;
+}
+
+export interface NutzerName {
+  name: string;
+  anzeigename: string;
+}
+
+export interface NeuerZugang {
+  bezeichnung: string;
+  schluessel: string;
+}

@@ -10,6 +10,7 @@
   import { GERAETE_ZUSTAENDE } from '$lib/logik/stufen';
   import { einstellungen } from '$lib/stores/einstellungen.svelte';
   import { dialog, meldungen } from '$lib/stores/oberflaeche.svelte';
+  import { personen } from '$lib/stores/personen.svelte';
   import { verbindung } from '$lib/stores/verbindung.svelte';
   import { zustand } from '$lib/stores/zustand.svelte';
 
@@ -17,6 +18,7 @@
   let nichtVerfuegbar = $state(false);
   let vorlagen = $state<Vorlage[]>([]);
   let neuerName = $state('');
+  let besitzer = $state('');
   let anlegenOffen = $state(false);
   let angelegt = $state<GeraetAngelegt | null>(null);
   let port = $state<number | null>(null);
@@ -51,6 +53,10 @@
   });
 
   $effect(() => {
+    if (verbindung.mehrbenutzer) void personen.laden();
+  });
+
+  $effect(() => {
     if (w && port === null) port = w.geraete_empfang_port ?? 8765;
   });
 
@@ -65,7 +71,7 @@
   async function anlegen(e: SubmitEvent) {
     e.preventDefault();
     try {
-      angelegt = await api.geraetAnlegen(neuerName.trim());
+      angelegt = await api.geraetAnlegen(neuerName.trim(), besitzer || null);
       anlegenOffen = false;
       neuerName = '';
       void laden();
@@ -108,7 +114,8 @@
 {#if nichtVerfuegbar}
   <div class="leer">Hier nicht verfügbar</div>
 {:else}
-  <div class="raster">
+  <div class="raster" class:einzeln={!verbindung.verwalten}>
+    {#if verbindung.verwalten}
     <section class="karte block" aria-labelledby="empfang-titel">
       <h2 id="empfang-titel">Empfang</h2>
       <div class="zeile zwischen">
@@ -185,13 +192,16 @@
         {/snippet}
       </Erweitert>
     </section>
+    {/if}
 
     <section class="karte block" aria-labelledby="geraete-titel">
       <div class="zeile zwischen">
         <h2 id="geraete-titel">Geräte</h2>
-        <button class="knopf" type="button" onclick={() => (anlegenOffen = true)}>
-          +&nbsp; Gerät hinzufügen
-        </button>
+        {#if verbindung.verwalten}
+          <button class="knopf" type="button" onclick={() => (anlegenOffen = true)}>
+            +&nbsp; Gerät hinzufügen
+          </button>
+        {/if}
       </div>
       {#if !stand || stand.geraete.length === 0}
         <div class="leer klein">Noch keine Geräte</div>
@@ -202,7 +212,12 @@
             <li>
               <span class="punkt" class:online={!!g.kontakt} aria-hidden="true"></span>
               <div class="g-text">
-                <div class="g-name">{g.name}</div>
+                <div class="g-name">
+                  {g.name}
+                  {#if verbindung.mehrbenutzer && verbindung.verwalten}
+                    <span class="besitzer">{g.besitzer ? personen.anzeigename(g.besitzer) : 'Allgemein'}</span>
+                  {/if}
+                </div>
                 <div class="leise klein">
                   {#if s}
                     {GERAETE_ZUSTAENDE[s.zustand] ?? 'Aktiv'}
@@ -214,15 +229,17 @@
                   {#if g.kontakt?.andere_id}<span class="warn"> · anderes Gerät meldet sich</span>{/if}
                 </div>
               </div>
-              <button
-                class="symbolknopf"
-                type="button"
-                aria-label="{g.name} entfernen"
-                title="Entfernen"
-                onclick={() => entfernen(g.name)}
-              >
-                ✕
-              </button>
+              {#if verbindung.verwalten}
+                <button
+                  class="symbolknopf"
+                  type="button"
+                  aria-label="{g.name} entfernen"
+                  title="Entfernen"
+                  onclick={() => entfernen(g.name)}
+                >
+                  ✕
+                </button>
+              {/if}
             </li>
           {/each}
         </ul>
@@ -252,7 +269,7 @@
 
 <Dialog offen={anlegenOffen} titel="Gerät hinzufügen" schliessen={() => (anlegenOffen = false)}>
   {#snippet kinder()}
-    <form id="geraet-form" onsubmit={anlegen}>
+    <form id="geraet-form" class="formular" onsubmit={anlegen}>
       <label class="feldzeile">
         <span>Name</span>
         <!-- svelte-ignore a11y_autofocus -->
@@ -265,6 +282,15 @@
           bind:value={neuerName}
         />
       </label>
+      {#if verbindung.mehrbenutzer}
+        <label class="feldzeile">
+          <span>Gehört</span>
+          <select class="feld" bind:value={besitzer}>
+            <option value="">Allgemein</option>
+            {#each personen.liste as p (p.name)}<option value={p.name}>{p.anzeigename}</option>{/each}
+          </select>
+        </label>
+      {/if}
     </form>
   {/snippet}
   {#snippet knoepfe()}
@@ -317,6 +343,16 @@
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     gap: 20px;
     align-items: start;
+  }
+
+  .raster.einzeln {
+    grid-template-columns: minmax(0, 640px);
+  }
+
+  .formular {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
   }
 
   .block {
@@ -405,6 +441,13 @@
   .g-text {
     flex: 1;
     min-width: 0;
+  }
+
+  .besitzer {
+    margin-left: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-2);
   }
 
   .g-name {

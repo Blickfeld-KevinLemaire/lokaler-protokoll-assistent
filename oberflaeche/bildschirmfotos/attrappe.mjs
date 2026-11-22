@@ -125,7 +125,21 @@ function auftraege() {
       erstellt: jetzt() - 60
     })
   ];
+  const fremd = auftrag({
+    id: 'fremd1',
+    titel: 'Andere Verarbeitung',
+    herkunft: 'andere',
+    fremd: true,
+    status: 'laeuft',
+    erstellt: jetzt() - 500,
+    gestartet: jetzt() - 420,
+    fortschritt: 0.62
+  });
   switch (szenario) {
+    case 'nutzer':
+      return [fremd, { ...wartend[0], besitzer: 'anna', titel: 'Kundentermin Müller.mp3' }];
+    case 'admin':
+      return [{ ...laufend, besitzer: 'anna' }];
     case 'leer':
     case 'anmelden':
       return [];
@@ -137,6 +151,13 @@ function auftraege() {
       return [fertig, laufend, ...wartend];
   }
 }
+
+const NUTZER = [
+  { name: 'jonas', anzeigename: 'Jonas Weber', admin: true, aktiv: true, hat_passwort: true, zugaenge: [{ bezeichnung: 'Laptop', angelegt: '2026-11-02' }], angelegt: '2026-10-01' },
+  { name: 'anna', anzeigename: 'Anna Schmidt', admin: false, aktiv: true, hat_passwort: true, zugaenge: [{ bezeichnung: 'Büro-PC', angelegt: '2026-11-10' }], angelegt: '2026-10-03' },
+  { name: 'mehmet', anzeigename: 'Mehmet Kaya', admin: false, aktiv: true, hat_passwort: true, zugaenge: [], angelegt: '2026-10-20' },
+  { name: 'lisa', anzeigename: 'Lisa Braun', admin: false, aktiv: false, hat_passwort: false, zugaenge: [], angelegt: '2026-11-05' }
+];
 
 const BESPRECHUNGEN = [
   ['b1', 'Baubesprechung Hauptstraße 12', '20261121_143000', 3840, 4, true],
@@ -154,8 +175,18 @@ const BESPRECHUNGEN = [
   anzahl_sprecher: sprecher,
   sprache: 'de',
   hat_protokoll: protokoll,
-  protokolle: protokoll ? [{ id: `p-${id}`, zeit }] : []
+  protokolle: protokoll ? [{ id: `p-${id}`, zeit }] : [],
+  besitzer: null,
+  eigen: true,
+  geteilt_mit: id === 'b4' ? ['alle'] : []
 }));
+
+function besprechungen() {
+  if (szenario !== 'nutzer') return BESPRECHUNGEN;
+  return BESPRECHUNGEN.map((b) =>
+    b.id === 'b1' ? { ...b, id: 'jonas~b1', besitzer: 'jonas', eigen: false, geteilt_mit: ['anna'] } : { ...b, besitzer: 'anna' }
+  );
+}
 
 const SEGMENTE = [
   [
@@ -228,7 +259,7 @@ const PROTOKOLL = `# Baubesprechung Hauptstraße 12
 `;
 
 function details(id) {
-  const b = BESPRECHUNGEN.find((x) => x.id === id) ?? BESPRECHUNGEN[0];
+  const b = besprechungen().find((x) => x.id === id) ?? besprechungen()[0];
   const stamm = b.transkript.split('\\').pop().replace('.json', '');
   return {
     ...b,
@@ -344,11 +375,15 @@ async function api(anfrage, antwort, url) {
   if (szenario === 'anmelden' && !angemeldet && !mitSchluessel)
     return senden(antwort, 401, { detail: 'Nicht angemeldet.' });
 
-  if (p === '/api/info')
+  if (p === '/api/info') {
+    const mehr = szenario === 'nutzer' || szenario === 'admin';
     return senden(antwort, 200, {
       version: '0.6.0-alpha.1',
       rolle: mitSchluessel ? 'desktop' : 'server',
-      angemeldet_als: mitSchluessel ? 'desktop' : 'büro',
+      angemeldet_als: mehr ? (szenario === 'admin' ? 'jonas' : 'anna') : mitSchluessel ? 'desktop' : 'büro',
+      anzeigename: mehr ? (szenario === 'admin' ? 'Jonas Weber' : 'Anna Schmidt') : mitSchluessel ? 'desktop' : 'büro',
+      admin: szenario !== 'nutzer',
+      mehrbenutzer: mehr,
       faehigkeiten: {
         lokale_transkription: true,
         mikrofon: mitSchluessel,
@@ -359,11 +394,15 @@ async function api(anfrage, antwort, url) {
       einrichtung_abgeschlossen: true,
       ausgabeordner: einstellungen.ausgabeordner
     });
+  }
+  if (p === '/api/nutzer/namen') return senden(antwort, 200, NUTZER.map(({ name, anzeigename }) => ({ name, anzeigename })));
+  if (p === '/api/nutzer') return senden(antwort, 200, NUTZER);
+  if (p === '/api/ich') return senden(antwort, 200, NUTZER.find((n) => n.name === (szenario === 'admin' ? 'jonas' : 'anna')));
   if (p === '/api/zustand')
     return senden(antwort, 200, {
       letzte_nummer: nummer,
       auftraege: auftraege(),
-      empfang: { aktiv: true, port: 8765, geraete: 2, live: true, fehler: null, zuletzt: null },
+      empfang: szenario === 'nutzer' ? null : { aktiv: true, port: 8765, geraete: 2, live: true, fehler: null, zuletzt: null },
       freigaben: szenario === 'reihe' ? [{ geraet: 'Flur-EG', datei: 'rec_0007.wav', pfad: '' }] : []
     });
   if (p === '/api/ereignisse') {
@@ -426,7 +465,7 @@ async function api(anfrage, antwort, url) {
       { id: 'txt', name: 'Text', inhalte: ['transkript'] },
       { id: 'srt', name: 'Untertitel', inhalte: ['transkript'] }
     ]);
-  if (p === '/api/besprechungen') return senden(antwort, 200, BESPRECHUNGEN);
+  if (p === '/api/besprechungen') return senden(antwort, 200, besprechungen());
   if (p.startsWith('/api/besprechungen/'))
     return senden(antwort, 200, details(decodeURIComponent(p.split('/')[3])));
   if (p === '/api/auftraege/transkription' && m === 'POST') {

@@ -4,7 +4,9 @@
   import { api } from '$lib/api/client';
   import type { Anbieter, Einstellungen } from '$lib/api/typen';
   import Abschnitt from '$lib/komponenten/einstellungen/Abschnitt.svelte';
+  import Konto from '$lib/komponenten/einstellungen/Konto.svelte';
   import LokalesModell from '$lib/komponenten/einstellungen/LokalesModell.svelte';
+  import NutzerVerwaltung from '$lib/komponenten/einstellungen/NutzerVerwaltung.svelte';
   import OnlineDienst from '$lib/komponenten/einstellungen/OnlineDienst.svelte';
   import Systemcheck from '$lib/komponenten/einstellungen/Systemcheck.svelte';
   import Vorlagen from '$lib/komponenten/einstellungen/Vorlagen.svelte';
@@ -28,15 +30,23 @@
   const info = $derived(verbindung.info);
   const desktop = $derived(info?.rolle === 'desktop');
 
+  // Was jemand ohne Verwaltungsrecht nicht ändern darf, wird gar nicht erst gezeigt.
+  const verwalten = $derived(verbindung.verwalten);
   const ABSCHNITTE = $derived([
     { id: 'darstellung', text: 'Darstellung' },
-    { id: 'transkription', text: 'Transkription' },
-    { id: 'zusammenfassung', text: 'Zusammenfassung' },
-    { id: 'chat', text: 'Frag mein Meeting' },
-    ...(verbindung.tauri ? [{ id: 'ordner', text: 'Ordner' }] : []),
-    { id: 'vorlagen', text: 'Vorlagen' },
-    ...(desktop ? [{ id: 'netz', text: 'Im Netz anbieten' }] : []),
-    { id: 'systemcheck', text: 'Systemcheck' }
+    ...(verbindung.mehrbenutzer ? [{ id: 'konto', text: 'Konto' }] : []),
+    ...(verbindung.mehrbenutzer && info?.admin ? [{ id: 'nutzer', text: 'Nutzer' }] : []),
+    ...(verwalten
+      ? [
+          { id: 'transkription', text: 'Transkription' },
+          { id: 'zusammenfassung', text: 'Zusammenfassung' },
+          { id: 'chat', text: 'Frag mein Meeting' },
+          ...(verbindung.tauri ? [{ id: 'ordner', text: 'Ordner' }] : []),
+          { id: 'vorlagen', text: 'Vorlagen' },
+          ...(desktop ? [{ id: 'netz', text: 'Im Netz anbieten' }] : []),
+          { id: 'systemcheck', text: 'Systemcheck' }
+        ]
+      : [])
   ]);
 
   const MODI: { wert: Modus; text: string }[] = [
@@ -118,7 +128,23 @@
       {/snippet}
     </Abschnitt>
 
-    {#if w}
+    {#if verbindung.mehrbenutzer}
+      <Abschnitt id="konto" titel="Konto">
+        {#snippet kinder()}
+          <Konto />
+        {/snippet}
+      </Abschnitt>
+    {/if}
+
+    {#if verbindung.mehrbenutzer && info?.admin}
+      <Abschnitt id="nutzer" titel="Nutzer">
+        {#snippet kinder()}
+          <NutzerVerwaltung />
+        {/snippet}
+      </Abschnitt>
+    {/if}
+
+    {#if w && verwalten}
       <Abschnitt id="transkription" titel="Transkription">
         {#snippet kinder()}
           <Wahl
@@ -254,10 +280,10 @@
     {/if}
 
     <p class="version leise klein">
-      VERMERK {info?.version ?? ''}{info?.angemeldet_als && !verbindung.tauri
+      VERMERK {info?.version ?? ''}{info?.angemeldet_als && !verbindung.tauri && !verbindung.mehrbenutzer
         ? ` · angemeldet als ${info.angemeldet_als}`
         : ''}
-      {#if !verbindung.tauri}
+      {#if !verbindung.tauri && !verbindung.mehrbenutzer}
         · <button class="verweis" type="button" onclick={() => verbindung.abmelden()}>Abmelden</button>
       {/if}
     </p>

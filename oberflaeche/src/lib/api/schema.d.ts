@@ -325,6 +325,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/besprechungen/{kennung}/freigabe': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    /**
+     * Teilen
+     * @description Mit wem die Besprechung geteilt ist (``["alle"]``, einzelne Anmeldenamen oder leer).
+     */
+    put: operations['teilen_api_besprechungen__kennung__freigabe_put'];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/besprechungen/{kennung}/dateien/{name}': {
     parameters: {
       query?: never;
@@ -368,7 +388,7 @@ export interface paths {
     };
     /**
      * Eingang
-     * @description Aufnahmen im Eingangsordner (falls eingestellt) und im Aufnahmeordner, neueste zuerst.
+     * @description Aufnahmen im Aufnahmeordner und (Windows-Anwendung) im Eingangsordner, neueste zuerst.
      */
     get: operations['eingang_api_dateien_eingang_get'];
     put?: never;
@@ -655,14 +675,179 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/ich': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Ich */
+    get: operations['ich_api_ich_get'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/ich/passwort': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    /** Eigenes Passwort */
+    put: operations['eigenes_passwort_api_ich_passwort_put'];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/ich/zugaenge': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Eigener Zugang */
+    post: operations['eigener_zugang_api_ich_zugaenge_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/ich/zugaenge/{bezeichnung}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    /** Eigenen Zugang Entfernen */
+    delete: operations['eigenen_zugang_entfernen_api_ich_zugaenge__bezeichnung__delete'];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/nutzer': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Liste */
+    get: operations['liste_api_nutzer_get'];
+    put?: never;
+    /** Anlegen */
+    post: operations['anlegen_api_nutzer_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/nutzer/namen': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Namen
+     * @description Fuer das Teilen: wer ist da (nur Name und Anzeigename, aktive Nutzer).
+     */
+    get: operations['namen_api_nutzer_namen_get'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/nutzer/{name}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    /** Entfernen */
+    delete: operations['entfernen_api_nutzer__name__delete'];
+    options?: never;
+    head?: never;
+    /** Aendern */
+    patch: operations['aendern_api_nutzer__name__patch'];
+    trace?: never;
+  };
+  '/api/nutzer/{name}/zugaenge': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Zugang Fuer */
+    post: operations['zugang_fuer_api_nutzer__name__zugaenge_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/nutzer/{name}/zugaenge/{bezeichnung}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    /** Zugang Entfernen */
+    delete: operations['zugang_entfernen_api_nutzer__name__zugaenge__bezeichnung__delete'];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
 }
 export type webhooks = Record<string, never>;
 export interface components {
   schemas: {
-    /** Anmeldung */
+    /**
+     * Anmeldung
+     * @description Entweder ``schluessel`` (Zugangsschluessel) oder ``name`` + ``passwort``.
+     */
     Anmeldung: {
       /** Schluessel */
-      schluessel: string;
+      schluessel?: string | null;
+      /** Name */
+      name?: string | null;
+      /** Passwort */
+      passwort?: string | null;
     };
     /** Auftrag */
     Auftrag: {
@@ -680,6 +865,15 @@ export interface components {
       status: string;
       /** Erstellt */
       erstellt: number;
+      /** Besitzer */
+      besitzer?: string | null;
+      /**
+       * Fremd
+       * @default false
+       */
+      fremd: boolean;
+      /** Platz */
+      platz?: number | null;
       /** Gestartet */
       gestartet?: number | null;
       /** Beendet */
@@ -734,6 +928,18 @@ export interface components {
     };
     /** Besprechung */
     Besprechung: {
+      /** Besitzer */
+      besitzer?: string | null;
+      /**
+       * Eigen
+       * @default true
+       */
+      eigen: boolean;
+      /**
+       * Geteilt Mit
+       * @default []
+       */
+      geteilt_mit: string[];
       /** Id */
       id: string;
       /** Titel */
@@ -757,6 +963,18 @@ export interface components {
     };
     /** BesprechungDetails */
     BesprechungDetails: {
+      /** Besitzer */
+      besitzer?: string | null;
+      /**
+       * Eigen
+       * @default true
+       */
+      eigen: boolean;
+      /**
+       * Geteilt Mit
+       * @default []
+       */
+      geteilt_mit: string[];
       /** Id */
       id: string;
       /** Titel */
@@ -851,10 +1069,20 @@ export interface components {
       /** Code */
       code: string;
     };
+    /** Freigabe */
+    Freigabe: {
+      /**
+       * Mit
+       * @description "alle" oder Anmeldenamen; leer = nicht geteilt
+       */
+      mit?: string[];
+    };
     /** GeraetAnlegen */
     GeraetAnlegen: {
       /** Name */
       name: string;
+      /** Besitzer */
+      besitzer?: string | null;
     };
     /** HTTPValidationError */
     HTTPValidationError: {
@@ -869,6 +1097,12 @@ export interface components {
       rolle: string;
       /** Angemeldet Als */
       angemeldet_als: string;
+      /** Anzeigename */
+      anzeigename: string;
+      /** Admin */
+      admin: boolean;
+      /** Mehrbenutzer */
+      mehrbenutzer: boolean;
       faehigkeiten: components['schemas']['Faehigkeiten'];
       /** Einrichtung Abgeschlossen */
       einrichtung_abgeschlossen: boolean;
@@ -880,10 +1114,51 @@ export interface components {
       /** Modell */
       modell: string;
     };
+    /** NutzerAendern */
+    NutzerAendern: {
+      /** Anzeigename */
+      anzeigename?: string | null;
+      /** Admin */
+      admin?: boolean | null;
+      /** Aktiv */
+      aktiv?: boolean | null;
+      /**
+       * Passwort
+       * @description Neues Passwort; "" entfernt es
+       */
+      passwort?: string | null;
+    };
+    /** NutzerAnlegen */
+    NutzerAnlegen: {
+      /** Name */
+      name: string;
+      /**
+       * Anzeigename
+       * @default
+       */
+      anzeigename: string;
+      /**
+       * Admin
+       * @default false
+       */
+      admin: boolean;
+      /** Passwort */
+      passwort?: string | null;
+    };
     /** OrdnerOeffnen */
     OrdnerOeffnen: {
       /** Pfad */
       pfad: string;
+    };
+    /** PasswortAendern */
+    PasswortAendern: {
+      /**
+       * Bisher
+       * @default
+       */
+      bisher: string;
+      /** Neu */
+      neu: string;
     };
     /** ProtokollSpeichern */
     ProtokollSpeichern: {
@@ -1003,6 +1278,11 @@ export interface components {
     VorlageSpeichern: {
       /** Text */
       text: string;
+    };
+    /** ZugangAnlegen */
+    ZugangAnlegen: {
+      /** Bezeichnung */
+      bezeichnung: string;
     };
     /** Zustand */
     Zustand: {
@@ -1531,6 +1811,43 @@ export interface operations {
     requestBody: {
       content: {
         'application/json': components['schemas']['SprecherNamen'];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            [key: string]: unknown;
+          };
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['HTTPValidationError'];
+        };
+      };
+    };
+  };
+  teilen_api_besprechungen__kennung__freigabe_put: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        kennung: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['Freigabe'];
       };
     };
     responses: {
@@ -2219,6 +2536,351 @@ export interface operations {
         content: {
           'application/json': {
             [key: string]: unknown;
+          };
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['HTTPValidationError'];
+        };
+      };
+    };
+  };
+  ich_api_ich_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            [key: string]: unknown;
+          };
+        };
+      };
+    };
+  };
+  eigenes_passwort_api_ich_passwort_put: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['PasswortAendern'];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            [key: string]: boolean;
+          };
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['HTTPValidationError'];
+        };
+      };
+    };
+  };
+  eigener_zugang_api_ich_zugaenge_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['ZugangAnlegen'];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            [key: string]: string;
+          };
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['HTTPValidationError'];
+        };
+      };
+    };
+  };
+  eigenen_zugang_entfernen_api_ich_zugaenge__bezeichnung__delete: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        bezeichnung: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            [key: string]: boolean;
+          };
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['HTTPValidationError'];
+        };
+      };
+    };
+  };
+  liste_api_nutzer_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            [key: string]: unknown;
+          }[];
+        };
+      };
+    };
+  };
+  anlegen_api_nutzer_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['NutzerAnlegen'];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            [key: string]: unknown;
+          };
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['HTTPValidationError'];
+        };
+      };
+    };
+  };
+  namen_api_nutzer_namen_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            [key: string]: string;
+          }[];
+        };
+      };
+    };
+  };
+  entfernen_api_nutzer__name__delete: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        name: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            [key: string]: boolean;
+          };
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['HTTPValidationError'];
+        };
+      };
+    };
+  };
+  aendern_api_nutzer__name__patch: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        name: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['NutzerAendern'];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            [key: string]: unknown;
+          };
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['HTTPValidationError'];
+        };
+      };
+    };
+  };
+  zugang_fuer_api_nutzer__name__zugaenge_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        name: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['ZugangAnlegen'];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            [key: string]: string;
+          };
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['HTTPValidationError'];
+        };
+      };
+    };
+  };
+  zugang_entfernen_api_nutzer__name__zugaenge__bezeichnung__delete: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        name: string;
+        bezeichnung: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            [key: string]: boolean;
           };
         };
       };

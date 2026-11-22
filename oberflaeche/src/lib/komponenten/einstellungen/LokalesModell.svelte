@@ -2,7 +2,7 @@
   /** Sprachmodell auf diesem Computer: empfohlene Auswahl, Herunterladen als Auftrag in der Warteschlange. */
   import { api } from '$lib/api/client';
   import type { ModellStand } from '$lib/api/typen';
-  import { startHinweis } from '$lib/logik/warteschlange';
+  import { startMeldung } from '$lib/logik/warteschlange';
   import { einstellungen } from '$lib/stores/einstellungen.svelte';
   import { dialog, meldungen } from '$lib/stores/oberflaeche.svelte';
   import { verbindung } from '$lib/stores/verbindung.svelte';
@@ -58,7 +58,7 @@
     try {
       const auftrag = await api.modellLaden(id);
       zustand.auftragAktualisieren(auftrag);
-      meldungen.zeigen(startHinweis(zustand.auftraege, auftrag.id) ?? 'Wird heruntergeladen', 'info');
+      meldungen.zeigen(startMeldung(auftrag, zustand.auftraege) ?? 'Wird heruntergeladen', 'info');
     } catch (e) {
       dialog.zeigen(e, 'Herunterladen nicht möglich');
     }

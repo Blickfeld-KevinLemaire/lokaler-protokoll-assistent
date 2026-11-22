@@ -24,7 +24,7 @@
   );
   const erledigt = $derived.by(() => {
     const a = lage.zuletztErledigt;
-    if (!a || a.id === ausgeblendet || a.status === 'abgebrochen') return null;
+    if (!a || a.fremd || a.id === ausgeblendet || a.status === 'abgebrochen') return null;
     if (jetzt - (a.beendet ?? 0) > ERLEDIGT_ZEIGEN_S) return null;
     return a;
   });
@@ -66,6 +66,7 @@
       <div class="kopf">
         <span class="symbol" title={herkunft.text} aria-label={herkunft.text}>{herkunft.symbol}</span>
         <span class="titel" title={auftragTitel(laufend)}>{auftragTitel(laufend)}</span>
+        {#if !laufend.fremd}
         <button
           class="x"
           type="button"
@@ -75,8 +76,9 @@
         >
           ✕
         </button>
+        {/if}
       </div>
-      <div class="stufe">{stufenText(laufend.stufe, laufend.status)}</div>
+      <div class="stufe">{laufend.fremd ? 'Wird verarbeitet' : stufenText(laufend.stufe, laufend.status)}</div>
       <Fortschritt anteil={laufend.fortschritt} dunkel beschriftung="Fortschritt der Verarbeitung" />
       <div class="fuss">
         <span>{prozent !== null ? `${prozent} %` : ''}</span>
@@ -106,6 +108,7 @@
             <li>
               <span class="symbol" title={h.text}>{h.symbol}</span>
               <span class="titel" title={auftragTitel(a)}>{auftragTitel(a)}</span>
+              {#if !a.fremd}
               <button
                 class="x"
                 type="button"
@@ -114,6 +117,7 @@
               >
                 ✕
               </button>
+              {/if}
             </li>
           {/each}
         </ol>

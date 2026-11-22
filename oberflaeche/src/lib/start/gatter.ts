@@ -8,7 +8,7 @@
  * Browser: gleiche Herkunft und Sitzungs-Cookie; 401 heißt „Anmeldung zeigen“.
  */
 import { api, GatterGeschlossen, NichtAngemeldet, zugangSetzen, zugangSperren } from '../api/client';
-import type { Info } from '../api/typen';
+import type { Anmeldedaten, Info } from '../api/typen';
 import type { DienstStatus, Huelle } from '../tauri';
 
 export type Phase = 'startet' | 'bereit' | 'neustart' | 'fehlgeschlagen' | 'anmelden' | 'getrennt';
@@ -89,8 +89,8 @@ export class Startgatter {
   }
 
   /** Browser: nach erfolgreicher Anmeldung erneut öffnen. */
-  async anmelden(schluessel: string): Promise<void> {
-    await api.anmelden(schluessel);
+  async anmelden(daten: Anmeldedaten): Promise<void> {
+    await api.anmelden(daten);
     await this.oeffnen();
   }
 

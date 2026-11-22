@@ -9,7 +9,7 @@
   import Kopf from '$lib/komponenten/Kopf.svelte';
   import Schalter from '$lib/komponenten/Schalter.svelte';
   import Quelle, { type Auswahl } from '$lib/komponenten/transkription/Quelle.svelte';
-  import { startHinweis } from '$lib/logik/warteschlange';
+  import { startMeldung } from '$lib/logik/warteschlange';
   import { einstellungen } from '$lib/stores/einstellungen.svelte';
   import { dialog, meldungen } from '$lib/stores/oberflaeche.svelte';
   import { verbindung } from '$lib/stores/verbindung.svelte';
@@ -111,7 +111,7 @@
       zustand.auftragAktualisieren(auftrag);
       merken(auftrag.id);
       auswahl = null;
-      meldungen.zeigen(startHinweis(zustand.auftraege, auftrag.id) ?? 'Gestartet', 'info');
+      meldungen.zeigen(startMeldung(auftrag, zustand.auftraege) ?? 'Gestartet', 'info');
     } catch (e) {
       dialog.zeigen(e, 'Start nicht möglich');
     } finally {

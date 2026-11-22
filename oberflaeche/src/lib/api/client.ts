@@ -7,6 +7,7 @@
  * Antworten aus der alten Verbindung werden verworfen.
  */
 import type {
+  Anmeldedaten,
   Anbieter,
   Auftrag,
   Besprechung,
@@ -23,6 +24,9 @@ import type {
   GeraeteStand,
   Info,
   ModellStand,
+  NeuerZugang,
+  Nutzer,
+  NutzerName,
   SchluesselStand,
   TranskriptionAnfrage,
   Vorlage,
@@ -250,8 +254,8 @@ async function speichernUnter(pfad: string, name: string): Promise<void> {
 }
 
 export const api = {
-  anmelden: (schluessel: string) =>
-    json<{ angemeldet_als: string }>('POST', '/api/anmelden', { json: { schluessel } }),
+  anmelden: (daten: Anmeldedaten) =>
+    json<{ angemeldet_als: string }>('POST', '/api/anmelden', { json: daten }),
   abmelden: () => json<{ abgemeldet: boolean }>('POST', '/api/abmelden'),
   info: () => json<Info>('GET', '/api/info'),
   zustand: () => json<Zustand>('GET', '/api/zustand'),
@@ -312,7 +316,8 @@ export const api = {
     json<{ gespeichert: boolean }>('PUT', '/api/einstellungen/systemprompt', { json: { text } }),
 
   geraete: () => json<GeraeteStand>('GET', '/api/geraete'),
-  geraetAnlegen: (name: string) => json<GeraetAngelegt>('POST', '/api/geraete', { json: { name } }),
+  geraetAnlegen: (name: string, besitzer: string | null = null) =>
+    json<GeraetAngelegt>('POST', '/api/geraete', { json: besitzer ? { name, besitzer } : { name } }),
   geraetEntfernen: (name: string) => json<{ entfernt: boolean }>('DELETE', `/api/geraete/${pfadteil(name)}`),
 
   chat: (frage: string, besprechungen: string[], verlaufId: string | null, signal?: AbortSignal) =>
@@ -328,6 +333,32 @@ export const api = {
 
   modelle: () => json<ModellStand>('GET', '/api/ollama/modelle'),
   modellLaden: (modell: string) => json<Auftrag>('POST', '/api/ollama/laden', { json: { modell } }),
+
+  freigabeSetzen: (id: string, mit: string[]) =>
+    json<{ geteilt_mit: string[] }>('PUT', `/api/besprechungen/${pfadteil(id)}/freigabe`, { json: { mit } }),
+
+  ich: () => json<Nutzer>('GET', '/api/ich'),
+  passwortAendern: (bisher: string, neu: string) =>
+    json<{ gespeichert: boolean }>('PUT', '/api/ich/passwort', { json: { bisher, neu } }),
+  eigenerZugang: (bezeichnung: string) => json<NeuerZugang>('POST', '/api/ich/zugaenge', { json: { bezeichnung } }),
+  eigenenZugangEntfernen: (bezeichnung: string) =>
+    json<{ entfernt: boolean }>('DELETE', `/api/ich/zugaenge/${pfadteil(bezeichnung)}`),
+  nutzer: () => json<Nutzer[]>('GET', '/api/nutzer'),
+  nutzerNamen: () => json<NutzerName[]>('GET', '/api/nutzer/namen'),
+  nutzerAnlegen: (daten: { name: string; anzeigename: string; admin: boolean; passwort?: string | null }) =>
+    json<Nutzer>('POST', '/api/nutzer', { json: daten }),
+  nutzerAendern: (
+    name: string,
+    daten: { anzeigename?: string; admin?: boolean; aktiv?: boolean; passwort?: string | null }
+  ) => json<Nutzer>('PATCH', `/api/nutzer/${pfadteil(name)}`, { json: daten }),
+  nutzerEntfernen: (name: string) => json<{ entfernt: boolean }>('DELETE', `/api/nutzer/${pfadteil(name)}`),
+  nutzerZugang: (name: string, bezeichnung: string) =>
+    json<NeuerZugang>('POST', `/api/nutzer/${pfadteil(name)}/zugaenge`, { json: { bezeichnung } }),
+  nutzerZugangEntfernen: (name: string, bezeichnung: string) =>
+    json<{ entfernt: boolean }>(
+      'DELETE',
+      `/api/nutzer/${pfadteil(name)}/zugaenge/${pfadteil(bezeichnung)}`
+    ),
 
   diagnose: () => json<DiagnosePunkt[]>('GET', '/api/system/diagnose'),
   ordnerOeffnen: (pfad: string) =>
