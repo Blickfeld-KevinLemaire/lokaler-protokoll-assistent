@@ -549,6 +549,168 @@
         }
       }
     },
+    "/api/aufnahme": {
+      "get": {
+        "tags": [
+          "aufnahme"
+        ],
+        "summary": "Stand",
+        "operationId": "stand_api_aufnahme_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Stand Api Aufnahme Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/aufnahme/geraete": {
+      "get": {
+        "tags": [
+          "aufnahme"
+        ],
+        "summary": "Geraete",
+        "operationId": "geraete_api_aufnahme_geraete_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  "type": "array",
+                  "title": "Response Geraete Api Aufnahme Geraete Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/aufnahme/start": {
+      "post": {
+        "tags": [
+          "aufnahme"
+        ],
+        "summary": "Starten",
+        "operationId": "starten_api_aufnahme_start_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AufnahmeStart"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Starten Api Aufnahme Start Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/aufnahme/pause": {
+      "post": {
+        "tags": [
+          "aufnahme"
+        ],
+        "summary": "Pausieren",
+        "operationId": "pausieren_api_aufnahme_pause_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Pausieren Api Aufnahme Pause Post"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/aufnahme/fortsetzen": {
+      "post": {
+        "tags": [
+          "aufnahme"
+        ],
+        "summary": "Fortsetzen",
+        "operationId": "fortsetzen_api_aufnahme_fortsetzen_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Fortsetzen Api Aufnahme Fortsetzen Post"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/aufnahme/stopp": {
+      "post": {
+        "tags": [
+          "aufnahme"
+        ],
+        "summary": "Stoppen",
+        "description": "Beendet die Aufnahme; die WAV-Datei liegt danach im Aufnahmeordner (Antwort: Pfad, Name, Dauer).",
+        "operationId": "stoppen_api_aufnahme_stopp_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Stoppen Api Aufnahme Stopp Post"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/besprechungen/export/formate": {
       "get": {
         "tags": [
@@ -3069,6 +3231,24 @@
         "type": "object",
         "title": "Anmeldung",
         "description": "Entweder ``schluessel`` (Zugangsschluessel) oder ``name`` + ``passwort``."
+      },
+      "AufnahmeStart": {
+        "properties": {
+          "geraet": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 300
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Geraet"
+          }
+        },
+        "type": "object",
+        "title": "AufnahmeStart"
       },
       "Auftrag": {
         "properties": {

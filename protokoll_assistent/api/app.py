@@ -13,6 +13,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.staticfiles import StaticFiles
 
 from protokoll_assistent.api import (
+    routen_aufnahme,
     routen_auftraege,
     routen_besprechungen,
     routen_chat,
@@ -78,6 +79,7 @@ def app_erstellen(
     for router in (
         routen_system.geschuetzt,
         routen_auftraege.router,
+        routen_aufnahme.router,
         routen_besprechungen.router,
         routen_sprecher.router,
         routen_dateien.router,

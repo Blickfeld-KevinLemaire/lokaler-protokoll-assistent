@@ -36,6 +36,7 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
+from protokoll_assistent.ablauf.aufnahme import Aufnahmesteuerung
 from protokoll_assistent.ablauf.geraete_automatik import GeraeteAutomatik
 from protokoll_assistent.ablauf.nutzer import NutzerFehler, Nutzerverwaltung
 from protokoll_assistent.ablauf.steuerung import Steuerung
@@ -123,6 +124,13 @@ def dienste_erstellen(
     )
     dienste = Dienste(steuerung=steuerung, automatik=automatik, zugang=zugang)
     dienste.nach_einstellungen.append(automatik.anwenden)
+    if rolle == ROLLE_DESKTOP:
+        dienste.aufnahme = Aufnahmesteuerung(
+            steuerung.bus,
+            steuerung.aufnahmeordner,
+            konfiguration=steuerung.konfiguration,
+            merken=lambda name: app_config.update_config(aufnahmegeraet=name),
+        )
     return dienste
 
 

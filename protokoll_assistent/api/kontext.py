@@ -10,6 +10,7 @@ from typing import Any
 
 from fastapi import HTTPException, Request, status
 
+from protokoll_assistent.ablauf.aufnahme import Aufnahmesteuerung
 from protokoll_assistent.ablauf.freigaben import Freigaben
 from protokoll_assistent.ablauf.geraete_automatik import GeraeteAutomatik
 from protokoll_assistent.ablauf.nutzer import Nutzerverwaltung
@@ -39,6 +40,8 @@ class Dienste:
     plattform_windows: bool = os.name == "nt"
     # Beendet den Dienst fuer einen Neustart durch das Fenster (siehe ``api/__main__``); None: geht hier nicht.
     neustart_anfordern: Callable[[], None] | None = None
+    # Mikrofonaufnahme (nur Windows-Anwendung); None: gibt es hier nicht.
+    aufnahme: Aufnahmesteuerung | None = None
 
     @property
     def rolle(self) -> str:

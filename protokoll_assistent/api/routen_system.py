@@ -95,7 +95,7 @@ def info(d: Dienste = Depends(dienste), wer: Angemeldet = Depends(angemeldet)) -
         "mehrbenutzer": d.mehrbenutzer,
         "faehigkeiten": {
             "lokale_transkription": d.steuerung.abh.laufzeit_verfuegbar(),
-            "mikrofon": d.ist_desktop and _mikrofon_moeglich(),
+            "mikrofon": d.ist_desktop and d.aufnahme is not None and _mikrofon_moeglich(),
             "dateipfade": d.ist_desktop,
             "ordner_oeffnen": d.ist_desktop and d.plattform_windows,
             "geraete_empfang": d.automatik is not None,
