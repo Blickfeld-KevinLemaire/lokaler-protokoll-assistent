@@ -205,6 +205,34 @@ def rechenumgebung_vorbereiten(rolle: str, argv: Sequence[str]) -> None:
         bootstrap.ensure_runtime_and_relaunch()
 
 
+def eingang_einrichten(dienste: Dienste, umgebung: dict[str, str] | None = None) -> Any:
+    """Servermodus: Ist ``PROTOKOLL_EINGANG`` gesetzt, reiht eine Wache neue Dateien dort in die gemeinsame
+    Warteschlange ein (wie frueher ``python -m protokoll_assistent.server``). Gibt die Wache oder None zurueck."""
+    from protokoll_assistent.server.eingang_wache import EingangsWache
+    from protokoll_assistent.server.einstellungen import EinstellungsFehler, ServerEinstellungen
+
+    umgebung = dict(os.environ) if umgebung is None else umgebung
+    if not umgebung.get("PROTOKOLL_EINGANG"):
+        return None
+    try:
+        einstellungen = ServerEinstellungen.aus_umgebung(umgebung)
+    except EinstellungsFehler as fehler:
+        dienste.steuerung.hinweis(f"Eingangsordner nicht eingerichtet: {fehler}", stufe="fehler", quelle="netz")
+        return None
+    # Ohne eigene Einstellung landen die Ergebnisse im Ausgangsordner des Containers.
+    if not dienste.steuerung.konfiguration().get("ausgabeordner"):
+        app_config.update_config(ausgabeordner=str(einstellungen.ausgang))
+    besitzer = (umgebung.get("PROTOKOLL_EINGANG_NUTZER") or "").strip() or None
+    if besitzer is not None and (dienste.nutzer is None or dienste.nutzer.hole(besitzer) is None):
+        dienste.steuerung.hinweis(
+            f"PROTOKOLL_EINGANG_NUTZER: Den Nutzer „{besitzer}“ gibt es nicht; Ergebnisse sehen nur Admins.",
+            stufe="fehler",
+            quelle="netz",
+        )
+        besitzer = None
+    return EingangsWache(dienste.steuerung, einstellungen, paths.get_work_dir() / "eingang_zustand.json", besitzer=besitzer)
+
+
 def starten(argumente: argparse.Namespace, argv: Sequence[str] = ()) -> int:
     from protokoll_assistent.utils.logging_setup import setup_logging
 
@@ -274,6 +302,9 @@ def starten(argumente: argparse.Namespace, argv: Sequence[str] = ()) -> int:
     if dienste.automatik is not None:
         dienste.automatik.anwenden()
         dienste.automatik.wache_starten()
+    eingang = eingang_einrichten(dienste) if rolle == ROLLE_SERVER else None
+    if eingang is not None:
+        eingang.starten()
     if argumente.port_datei:
         # Erst jetzt: Der Port ist gebunden, Verbindungen warten in der Warteschlange des Sockets, bis uvicorn
         # sie annimmt -- das Fenster kann sich also sofort melden.
@@ -284,6 +315,8 @@ def starten(argumente: argparse.Namespace, argv: Sequence[str] = ()) -> int:
     try:
         asyncio.run(_laufen(server))
     finally:
+        if eingang is not None:
+            eingang.stoppen()
         if dienste.automatik is not None:
             dienste.automatik.stoppen()
         dienste.steuerung.beenden()
