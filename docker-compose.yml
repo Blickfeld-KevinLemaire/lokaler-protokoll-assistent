@@ -52,6 +52,13 @@ services:
       PROTOKOLL_EMPFANG: ${PROTOKOLL_EMPFANG:-0}
       PROTOKOLL_EMPFANG_PORT: ${PROTOKOLL_EMPFANG_PORT:-8765}
       PROTOKOLL_EMPFANG_GERAETE: ${PROTOKOLL_EMPFANG_GERAETE:-}
+      # Neue Oberflaeche: Wem gehoeren die Ergebnisse des Eingangsordners (Anmeldename)? Leer: nur Admins.
+      PROTOKOLL_EINGANG_NUTZER: ${PROTOKOLL_EINGANG_NUTZER:-}
+      # Nur fuer die Ersteinrichtung: ein Notfall-Zugangsschluessel mit Admin-Rechten. Danach leeren.
+      VERMERK_ZUGANG: ${VERMERK_ZUGANG:-}
+    # Oberflaeche im Browser (Anmeldung noetig): http://<server>:8780
+    ports:
+      - "8780:8780"
     # Empfang fuer die WLAN-Aufnahmegeraete: nur zusammen mit PROTOKOLL_EMPFANG=1
     # einkommentieren (siehe protokoll_assistent/server/README.md). Ab Werk
     # bleibt der Port zu.

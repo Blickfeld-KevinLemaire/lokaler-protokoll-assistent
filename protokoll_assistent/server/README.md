@@ -1,7 +1,7 @@
 # Servermodus (Container)
 
 Läuft ohne Oberfläche, zum Beispiel auf einem Linux-Server: Eine Aufnahme kommt
-in einem Ordner an, wird automatisch in Chunks verarbeitet, transkribiert und
+in einem Ordner an, wird automatisch transkribiert und
 zusammengefasst, und die Ergebnisse liegen danach in einem Ausgangsordner.
 
 ```
@@ -13,10 +13,39 @@ Aufnahmegerät ──►  daten/eingang/  ──►  Verarbeitung (Container)  �
    verarbeitet/ oder fehler/                                              (+ optional Rückmeldung per Webhook)
 ```
 
-Es ist dieselbe Verarbeitungskette wie in der Windows-Anwendung – nur ohne
-Fenster. Transkription und Protokoll laufen vollständig lokal (Whisper,
-pyannote, Ollama). Es gibt keine Weboberfläche und – solange der Empfang für
-die Aufnahmegeräte nicht eingeschaltet ist – keinen offenen Port.
+Es ist dieselbe Verarbeitungskette wie in der Windows-Anwendung. Transkription
+und Protokoll laufen vollständig lokal (Whisper, pyannote, Ollama).
+
+## Oberfläche im Browser, mehrere Nutzer (ab 0.6)
+
+Der Container startet die Programmschnittstelle in der Rolle `server`
+(`python3 -m protokoll_assistent.api --rolle server`) und liefert dieselbe
+Oberfläche wie die Windows-Anwendung an Browser aus: `http://<server>:8780`.
+Ohne Anmeldung geht nichts außer der Gesundheitsabfrage.
+
+* **Nutzer:** Jeder meldet sich mit Name + Passwort oder mit einem persönlichen
+  Zugangsschlüssel an (beides ist möglich, die Firma wählt). Jeder hat eigene
+  Besprechungen und kann sie mit Einzelnen oder allen teilen. Admins verwalten
+  Nutzer, Geräte und Einstellungen in der Oberfläche.
+* **Erster Admin:**
+  `docker compose exec protokoll python3 -m protokoll_assistent.api nutzer-anlegen <Name> --admin`
+  gibt einmal einen Zugangsschlüssel aus. Alternativ für die Ersteinrichtung
+  `VERMERK_ZUGANG` in der `.env` setzen (Notfallzugang mit Admin-Rechten) und
+  danach wieder leeren.
+* **Eingangsordner:** wie bisher; jede Datei wird ein Auftrag in der einen,
+  gemeinsamen Warteschlange (auch Aufträge aus dem Browser und von Geräten
+  laufen nie gleichzeitig). `PROTOKOLL_EINGANG_NUTZER` bestimmt, wem die
+  Ergebnisse gehören (leer: nur Admins sehen sie).
+* **Aufnahmegeräte:** werden in der Oberfläche angelegt und einem Nutzer
+  zugeordnet; dessen Ordner bekommt die Aufnahmen. Die Variablen
+  `PROTOKOLL_EMPFANG*` gelten nur noch für den alten Start ohne Oberfläche
+  (`python3 -m protokoll_assistent.server`), der weiter funktioniert.
+* **Daten:** Einstellungen, Nutzerliste und Freigaben liegen im Volume
+  `intern` (`/daten/intern`).
+* **Netz:** Port 8780 ist in der `docker-compose.yml` freigegeben. Für den
+  Zugriff von außerhalb des eigenen Netzes gehört ein Reverse-Proxy mit TLS
+  davor; erlaubte Hostnamen lassen sich mit `VERMERK_ERLAUBTE_HOSTS`
+  (Komma-Liste) einschränken.
 
 ## Schnellstart
 

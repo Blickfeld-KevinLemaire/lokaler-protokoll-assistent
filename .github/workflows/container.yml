@@ -12,7 +12,11 @@ on:
       - .dockerignore
       - docker-compose*.yml
       - protokoll_assistent/server/**
+      - protokoll_assistent/api/**
+      - protokoll_assistent/ablauf/**
       - protokoll_assistent/requirements-server.txt
+      - oberflaeche/package*.json
+      - oberflaeche/src/**
       - .github/workflows/container.yml
   pull_request:
     paths:
@@ -20,7 +24,11 @@ on:
       - .dockerignore
       - docker-compose*.yml
       - protokoll_assistent/server/**
+      - protokoll_assistent/api/**
+      - protokoll_assistent/ablauf/**
       - protokoll_assistent/requirements-server.txt
+      - oberflaeche/package*.json
+      - oberflaeche/src/**
       - .github/workflows/container.yml
   workflow_dispatch:
 
@@ -51,6 +59,18 @@ jobs:
       - name: Selbsttest im Image
         # Ohne Ollama und HF_TOKEN: nur FFmpeg, Pakete und die Ordner sind kritisch.
         run: docker run --rm protokoll-server:test python3 -m protokoll_assistent.server --pruefen
+
+      - name: Programmschnittstelle und Oberflaeche im Image
+        # Rolle server mit Notfall-Zugang: Gesundheit ohne, Info nur mit Schluessel, Oberflaeche ausgeliefert.
+        run: |
+          docker run -d --name vermerk-probe -p 8780:8780 -e VERMERK_ZUGANG=probe-zugang-0123456789 \
+            -e PROTOKOLL_PROTOKOLL_ERSTELLEN=0 protokoll-server:test
+          for i in $(seq 1 60); do curl -fsS http://127.0.0.1:8780/api/gesundheit && break; sleep 2; done
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8780/api/info)" = "401"
+          test "$(curl -s -o /dev/null -w '%{http_code}' -H 'Authorization: Bearer probe-zugang-0123456789' http://127.0.0.1:8780/api/info)" = "200"
+          curl -fsS http://127.0.0.1:8780/ | grep -qi "<html"
+          docker logs vermerk-probe | tail -20
+          docker rm -f vermerk-probe
 
       - name: Probelauf ohne Aufnahmen
         run: |
