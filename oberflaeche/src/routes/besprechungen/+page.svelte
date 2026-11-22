@@ -1,11 +1,20 @@
 <script lang="ts">
+  import Check from '@lucide/svelte/icons/check';
+  import Library from '@lucide/svelte/icons/library';
+  import Plus from '@lucide/svelte/icons/plus';
+  import Search from '@lucide/svelte/icons/search';
+  import SearchX from '@lucide/svelte/icons/search-x';
+  import Users from '@lucide/svelte/icons/users';
+  import { tick } from 'svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
   import { api } from '$lib/api/client';
   import type { Besprechung } from '$lib/api/typen';
   import Details from '$lib/komponenten/besprechungen/Details.svelte';
   import Kopf from '$lib/komponenten/Kopf.svelte';
+  import LeerZustand from '$lib/komponenten/LeerZustand.svelte';
   import { datumText, dauerText, zeitLesen } from '$lib/logik/format';
+  import { KUERZEL_TEXT } from '$lib/logik/tasten';
   import { dialog } from '$lib/stores/oberflaeche.svelte';
   import { personen } from '$lib/stores/personen.svelte';
   import { verbindung } from '$lib/stores/verbindung.svelte';
@@ -13,6 +22,7 @@
 
   let liste = $state<Besprechung[] | null>(null);
   let suche = $state('');
+  let suchfeld: HTMLInputElement | undefined = $state();
 
   const id = $derived(page.url.searchParams.get('id'));
   const transkript = $derived(page.url.searchParams.get('transkript'));
@@ -29,6 +39,13 @@
 
   $effect(() => {
     if (verbindung.mehrbenutzer) void personen.laden();
+  });
+
+  // „/“ von einer anderen Seite: hierher und in die Suche.
+  $effect(() => {
+    if (!page.url.searchParams.get('suche') || !suchfeld) return;
+    void tick().then(() => suchfeld?.focus());
+    void goto('/besprechungen', { replaceState: true, keepFocus: true, noScroll: true });
   });
 
   // Aus dem Status-Bereich kommt der Pfad des Transkripts; daraus wird die Besprechung.
@@ -57,20 +74,34 @@
 {:else}
   <Kopf titel="Besprechungen">
     {#snippet aktionen()}
-      <input
-        class="feld suche"
-        type="search"
-        placeholder="Suchen"
-        aria-label="Besprechungen suchen"
-        bind:value={suche}
-      />
+      <label class="suche">
+        <Search size={16} />
+        <input
+          id="besprechungen-suche"
+          class="feld"
+          type="search"
+          placeholder="Suchen"
+          aria-label="Besprechungen suchen"
+          title="Suchen ({KUERZEL_TEXT.suche})"
+          bind:this={suchfeld}
+          bind:value={suche}
+        />
+      </label>
     {/snippet}
   </Kopf>
 
   {#if liste === null}
     <div class="leer">…</div>
   {:else if gefiltert.length === 0}
-    <div class="leer">{suche ? 'Nichts gefunden' : 'Noch keine Besprechungen'}</div>
+    {#if suche}
+      <LeerZustand symbol={SearchX} titel="Nichts gefunden" />
+    {:else}
+      <LeerZustand symbol={Library} titel="Noch keine Besprechungen">
+        {#snippet aktion()}
+          <a class="knopf primaer" href="/?neu=1"><Plus size={16} /> Neue Transkription</a>
+        {/snippet}
+      </LeerZustand>
+    {/if}
   {:else}
     <div class="karte tabelle" role="table" aria-label="Besprechungen">
       <div class="zeile kopfzeile" role="row">
@@ -87,16 +118,18 @@
             {#if b.eigen === false}
               <span class="geteilt">geteilt von {personen.anzeigename(b.besitzer)}</span>
             {:else if verbindung.mehrbenutzer && b.geteilt_mit?.length}
-              <span class="geteilt leise" title="Geteilt">👥</span>
+              <span class="geteilt leise" title="Geteilt"><Users size={16} /></span>
             {/if}
           </span>
           <span role="cell" class="leise">{datumText(b.zeit)}</span>
           <span role="cell" class="leise">{dauerText(b.dauer_sekunden)}</span>
           <span role="cell" class="leise">{b.anzahl_sprecher ?? '–'}</span>
           <span role="cell">
-            {#if b.hat_protokoll}<span class="marke ja">✓ Vorhanden</span>{:else}<span class="marke">
-                –
-              </span>{/if}
+            {#if b.hat_protokoll}
+              <span class="marke ja"><Check size={16} /> Vorhanden</span>
+            {:else}
+              <span class="marke">–</span>
+            {/if}
           </span>
         </a>
       {/each}
@@ -106,7 +139,21 @@
 
 <style>
   .suche {
+    position: relative;
+    display: flex;
+    align-items: center;
     width: 240px;
+    color: var(--text-3);
+  }
+
+  .suche :global(.lucide-icon) {
+    position: absolute;
+    left: 10px;
+    pointer-events: none;
+  }
+
+  .suche input {
+    padding-left: 32px;
   }
 
   .tabelle {
@@ -173,7 +220,15 @@
   }
 
   .marke.ja {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
     color: var(--ok);
     font-weight: 500;
+  }
+
+  .geteilt.leise {
+    display: inline-flex;
+    color: var(--text-3);
   }
 </style>

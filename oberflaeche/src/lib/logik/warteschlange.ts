@@ -49,24 +49,35 @@ export function startHinweis(auftraege: Auftrag[], id: string): string | null {
   return `Startet nach der laufenden Verarbeitung (Platz ${platz})`;
 }
 
+export type HerkunftArt = 'pc' | 'geraet' | 'ordner' | 'andere';
+
 export interface Herkunft {
-  symbol: string;
+  /** Welches Symbol die Oberfläche zeigt (siehe komponenten/HerkunftSymbol.svelte). */
+  art: HerkunftArt;
   text: string;
 }
 
 /** `oberflaeche` → PC, `geraet:<Name>` → Gerät, `ordner…`/`eingang…` → Eingangsordner. */
 export function herkunftAnzeigen(herkunft: string): Herkunft {
-  if (herkunft === 'andere') return { symbol: '👥', text: 'Andere' };
-  if (herkunft.startsWith('geraet:')) return { symbol: '📡', text: herkunft.slice(7) || 'Gerät' };
+  if (herkunft === 'andere') return { art: 'andere', text: 'Andere' };
+  if (herkunft.startsWith('geraet:')) return { art: 'geraet', text: herkunft.slice(7) || 'Gerät' };
   if (herkunft.startsWith('ordner') || herkunft.startsWith('eingang'))
-    return { symbol: '📁', text: 'Ordner' };
-  return { symbol: '💻', text: 'PC' };
+    return { art: 'ordner', text: 'Ordner' };
+  return { art: 'pc', text: 'PC' };
 }
+
+/** Titel der Aufträge der Ersteinrichtung (`einrichtung_*`). */
+export const EINRICHTUNG_TITEL: Record<string, string> = {
+  einrichtung_ffmpeg: 'Werkzeug für Aufnahmen einrichten',
+  einrichtung_ollama: 'KI-Umgebung einrichten',
+  einrichtung_modelle: 'KI-Bausteine laden'
+};
 
 /** Anzeigename eines Auftrags ohne Dateiendung und ohne technische Namensteile. */
 export function auftragTitel(a: Auftrag): string {
   if (a.fremd) return 'Andere Verarbeitung';
   if (a.art === 'modell_laden') return 'Sprachmodell herunterladen';
+  if (a.art.startsWith('einrichtung_')) return EINRICHTUNG_TITEL[a.art] ?? 'Einrichtung';
   let titel = a.titel.replace(/\.[a-z0-9]{2,5}$/i, '');
   titel = titel.replace(/_lokal_transkript_\d{8}_\d{6}(_\d+)?$/, '');
   if (a.art === 'auswertung') return `Zusammenfassung: ${titel}`;

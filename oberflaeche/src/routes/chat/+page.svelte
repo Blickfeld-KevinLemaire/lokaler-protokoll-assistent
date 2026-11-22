@@ -1,12 +1,20 @@
 <script lang="ts">
+  import ChevronDown from '@lucide/svelte/icons/chevron-down';
+  import Library from '@lucide/svelte/icons/library';
+  import MessagesSquare from '@lucide/svelte/icons/messages-square';
+  import Plus from '@lucide/svelte/icons/plus';
+  import Send from '@lucide/svelte/icons/send';
+  import Square from '@lucide/svelte/icons/square';
+  import X from '@lucide/svelte/icons/x';
   import { tick } from 'svelte';
   import { fragen } from '$lib/api/chat';
   import { api } from '$lib/api/client';
   import type { Besprechung, ChatNachricht, ChatVerlaufKurz } from '$lib/api/typen';
   import Kopf from '$lib/komponenten/Kopf.svelte';
+  import LeerZustand from '$lib/komponenten/LeerZustand.svelte';
   import Markdown from '$lib/komponenten/Markdown.svelte';
   import { zeitLesen } from '$lib/logik/format';
-  import { dialog } from '$lib/stores/oberflaeche.svelte';
+  import { dialog, meldungen } from '$lib/stores/oberflaeche.svelte';
   import { verbindung } from '$lib/stores/verbindung.svelte';
 
   interface Eintrag extends ChatNachricht {
@@ -16,7 +24,9 @@
   }
 
   let verlaeufe = $state<ChatVerlaufKurz[]>([]);
-  let besprechungen = $state<Besprechung[]>([]);
+  let besprechungen = $state<Besprechung[] | null>(null);
+  /** Gelöscht, aber noch rückgängig zu machen (wird erst nach der Meldung wirklich gelöscht). */
+  let geloescht = $state<string[]>([]);
   let gewaehlt = $state<string[]>([]);
   let auswahlOffen = $state(false);
   let verlaufId = $state<string | null>(null);
@@ -68,16 +78,37 @@
     }
   }
 
-  async function loeschen(id: string) {
-    if (!confirm('Diesen Chat löschen?')) return;
-    try {
-      await api.chatVerlaufLoeschen(id);
-      if (verlaufId === id) neu();
-      await verlaeufeLaden();
-    } catch (e) {
-      dialog.zeigen(e);
-    }
+  /** Löschen mit „Rückgängig“: erst ausblenden, nach der Meldung wirklich löschen. */
+  function loeschen(id: string) {
+    const titel = verlaeufe.find((v) => v.id === id)?.titel ?? 'Chat';
+    geloescht = [...geloescht, id];
+    if (verlaufId === id) neu();
+    let zurueck = false;
+    meldungen.zeigen(`„${titel}“ gelöscht`, 'info', 6000, {
+      text: 'Rückgängig',
+      tun: () => {
+        zurueck = true;
+        geloescht = geloescht.filter((g) => g !== id);
+      }
+    });
+    setTimeout(async () => {
+      if (zurueck) return;
+      try {
+        await api.chatVerlaufLoeschen(id);
+        await verlaeufeLaden();
+      } catch (e) {
+        dialog.zeigen(e);
+      } finally {
+        geloescht = geloescht.filter((g) => g !== id);
+      }
+    }, 6500);
   }
+
+  function stoppen() {
+    abbruch?.abort();
+  }
+
+  const sichtbar = $derived(verlaeufe.filter((v) => !geloescht.includes(v.id)));
 
   async function senden(e?: SubmitEvent) {
     e?.preventDefault();
@@ -142,7 +173,7 @@
     gewaehlt.length === 0
       ? 'Alle Besprechungen'
       : gewaehlt.length === 1
-        ? (besprechungen.find((b) => b.id === gewaehlt[0])?.titel ?? '1 Besprechung')
+        ? (besprechungen?.find((b) => b.id === gewaehlt[0])?.titel ?? '1 Besprechung')
         : `${gewaehlt.length} Besprechungen`
   );
 
@@ -154,6 +185,12 @@
 
 <svelte:window
   onclick={(e) => auswahlOffen && !(e.target as HTMLElement).closest('.auswahl') && (auswahlOffen = false)}
+  onkeydown={(e) => {
+    if (e.key === 'Escape' && auswahlOffen) {
+      e.preventDefault();
+      auswahlOffen = false;
+    }
+  }}
 />
 
 <Kopf titel="Frag mein Meeting">
@@ -166,7 +203,8 @@
         aria-expanded={auswahlOffen}
         onclick={() => (auswahlOffen = !auswahlOffen)}
       >
-        {auswahlText} <span aria-hidden="true">▾</span>
+        <span class="auswahl-text">{auswahlText}</span>
+        <ChevronDown size={16} />
       </button>
       {#if auswahlOffen}
         <div class="liste karte" role="group" aria-label="Besprechungen auswählen">
@@ -174,7 +212,7 @@
             <input type="checkbox" checked={gewaehlt.length === 0} onchange={() => (gewaehlt = [])} />
             Alle Besprechungen
           </label>
-          {#each besprechungen as b (b.id)}
+          {#each besprechungen ?? [] as b (b.id)}
             <label class="option">
               <input type="checkbox" checked={gewaehlt.includes(b.id)} onchange={() => umschalten(b.id)} />
               <span class="name">{b.titel}</span>
@@ -188,9 +226,9 @@
 
 <div class="chat">
   <aside class="verlaeufe" aria-label="Frühere Chats">
-    <button class="knopf neu" type="button" onclick={neu}>+&nbsp; Neuer Chat</button>
+    <button class="knopf neu" type="button" onclick={neu}><Plus size={16} /> Neuer Chat</button>
     <ul>
-      {#each verlaeufe as v (v.id)}
+      {#each sichtbar as v (v.id)}
         <li class:aktiv={v.id === verlaufId}>
           <button class="eintrag" type="button" onclick={() => oeffnen(v.id)} title={v.titel}>
             <span class="name">{v.titel}</span>
@@ -199,10 +237,11 @@
           <button
             class="symbolknopf loeschen"
             type="button"
-            aria-label="Chat löschen"
+            aria-label="„{v.titel}“ löschen"
+            title="Löschen"
             onclick={() => loeschen(v.id)}
           >
-            ✕
+            <X size={16} />
           </button>
         </li>
       {/each}
@@ -212,7 +251,17 @@
   <section class="gespraech karte">
     <div class="nachrichten" bind:this={verlaufFeld} aria-live="polite">
       {#if nachrichten.length === 0}
-        <div class="leer-chat">💬</div>
+        <div class="leer-chat">
+          {#if besprechungen && besprechungen.length === 0}
+            <LeerZustand symbol={Library} titel="Noch keine Besprechungen">
+              {#snippet aktion()}
+                <a class="knopf primaer" href="/?neu=1"><Plus size={16} /> Neue Transkription</a>
+              {/snippet}
+            </LeerZustand>
+          {:else}
+            <LeerZustand symbol={MessagesSquare} titel="Was möchten Sie wissen?" />
+          {/if}
+        </div>
       {/if}
       {#each nachrichten as n, i (i)}
         {#if n.role === 'user'}
@@ -247,9 +296,13 @@
         aria-label="Frage"
         bind:value={frage}
         onkeydown={taste}></textarea>
-      <button class="knopf primaer" type="submit" disabled={!frage.trim() || laeuft} aria-label="Senden">
-        Senden
-      </button>
+      {#if laeuft}
+        <button class="knopf" type="button" onclick={stoppen}><Square size={14} /> Stopp</button>
+      {:else}
+        <button class="knopf primaer" type="submit" disabled={!frage.trim()}>
+          <Send size={16} /> Senden
+        </button>
+      {/if}
     </form>
   </section>
 </div>
@@ -261,6 +314,10 @@
 
   .auswahl .knopf {
     max-width: 280px;
+  }
+
+  .auswahl-text {
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
   }
@@ -388,8 +445,6 @@
 
   .leer-chat {
     margin: auto;
-    font-size: 34px;
-    opacity: 0.35;
   }
 
   .frage {

@@ -3,7 +3,7 @@ import { jsonAntwort } from '../../test/hilfen';
 import { api, ApiFehler, zugangSetzen, zugangSperren } from '../api/client';
 import type { Auftrag } from '../api/typen';
 import { fehlerFuerDialog } from './fehler';
-import { hinweisKurz } from './hinweise';
+import { empfangsFehlerText, hinweisKurz, HINWEIS_CODES } from './hinweise';
 import { restzeitText, RestzeitSchaetzer, rohRestzeit } from './restzeit';
 import { GERAETE_ZUSTAENDE, STUFEN, stufenText, UNBEKANNT } from './stufen';
 import {
@@ -37,7 +37,7 @@ function auftrag(teil: Partial<Auftrag>): Auftrag {
 }
 
 const FACHWORT =
-  /chunk|abschnitt|diari|whisper|ollama|\bapi\b|endpunkt|token|embedding|cuda|vram|json|sse|pipeline|modell-id/i;
+  /chunk|abschnitt|diari|whisper|ollama|\bapi\b|endpunkt|token|embedding|cuda|vram|json|\bsse\b|pipeline|modell-id/i;
 
 describe('Warteschlange', () => {
   const liste = [
@@ -92,8 +92,13 @@ describe('Warteschlange', () => {
   });
 
   it('zeigt die Herkunft und kurze Titel', () => {
-    expect(herkunftAnzeigen('geraet:Raum-3')).toEqual({ symbol: '📡', text: 'Raum-3' });
-    expect(herkunftAnzeigen('oberflaeche').symbol).toBe('💻');
+    expect(herkunftAnzeigen('geraet:Raum-3')).toEqual({ art: 'geraet', text: 'Raum-3' });
+    expect(herkunftAnzeigen('oberflaeche').art).toBe('pc');
+    expect(herkunftAnzeigen('eingang:x').art).toBe('ordner');
+    expect(auftragTitel(auftrag({ art: 'einrichtung_ollama', titel: 'Ollama einrichten' }))).toBe(
+      'KI-Umgebung einrichten'
+    );
+    expect(auftragTitel(auftrag({ art: 'einrichtung_ollama' }))).not.toMatch(FACHWORT);
     expect(
       auftragTitel(auftrag({ art: 'auswertung', titel: 'Team_lokal_transkript_20261121_101500.json' }))
     ).toBe('Zusammenfassung: Team');
@@ -156,16 +161,17 @@ describe('Fehler und Hinweise', () => {
     vi.unstubAllGlobals();
   });
 
-  it('macht aus 422 einen Dialog mit passendem Einstellungsabschnitt', async () => {
+  it('übernimmt Titel und Text des Dienstes und wählt den Abschnitt über „bereich“', async () => {
     zugangSetzen({ basisUrl: '', schluessel: null });
     vi.stubGlobal(
       'fetch',
       vi.fn(async () =>
         jsonAntwort(
           {
-            titel: 'Ollama-Modell fehlt',
-            text: "Das Modell 'x' ist bei Ollama nicht installiert.",
-            code: 'modell_fehlt'
+            titel: 'Sprachmodell fehlt',
+            text: 'Das Sprachmodell für Zusammenfassungen ist noch nicht geladen.',
+            code: 'modell_fehlt',
+            bereich: 'zusammenfassung'
           },
           422
         )
@@ -177,32 +183,50 @@ describe('Fehler und Hinweise', () => {
     const d = fehlerFuerDialog(fehler);
     expect(d.abschnitt).toBe('zusammenfassung');
     expect(d.titel).toBe('Sprachmodell fehlt');
+    expect(d.text).toBe('Das Sprachmodell für Zusammenfassungen ist noch nicht geladen.');
     expect(`${d.titel} ${d.text}`).not.toMatch(FACHWORT);
   });
 
-  it('ordnet die übrigen Codes zu', () => {
-    const f = (code: string, text = '') =>
-      fehlerFuerDialog(new ApiFehler(422, text, { titel: 'T', text, code, bereich: '' }));
-    expect(f('schluessel', 'Schlüssel für die Transkription').abschnitt).toBe('transkription');
-    expect(f('schluessel', 'Schlüssel für die Nachbearbeitung').abschnitt).toBe('zusammenfassung');
-    expect(f('einstellungen', 'unter „Nachbearbeitung“').abschnitt).toBe('zusammenfassung');
-    expect(f('lokale_einrichtung').abschnitt).toBe('transkription');
-    expect(f('eingabe', 'Datei ist leer').abschnitt).toBeNull();
-    expect(f('belegt', 'Gerade belegt').text).toBe('Gerade belegt');
+  it('nimmt „bereich“ statt den Text zu raten', () => {
+    const f = (code: string, bereich: string, text = 'unter „Zusammenfassung“') =>
+      fehlerFuerDialog(new ApiFehler(422, text, { titel: 'T', text, code, bereich }));
+    // Der Text sagt „Zusammenfassung“, der Bereich „transkription“: der Bereich gilt.
+    expect(f('schluessel', 'transkription').abschnitt).toBe('transkription');
+    expect(f('schluessel', 'zusammenfassung', 'x').abschnitt).toBe('zusammenfassung');
+    expect(f('einstellungen', 'zusammenfassung').abschnitt).toBe('zusammenfassung');
+    // Ohne Bereich nur, wo der Code eindeutig ist.
+    expect(f('schluessel', '').abschnitt).toBeNull();
+    expect(f('lokale_einrichtung', '').abschnitt).toBe('transkription');
+    expect(f('lokale_einrichtung', '').einrichten).toBe(true);
+    expect(f('modell_fehlt', '').abschnitt).toBe('zusammenfassung');
+    expect(f('eingabe', '', 'Datei ist leer').abschnitt).toBeNull();
+    expect(f('belegt', '', 'Gerade belegt').text).toBe('Gerade belegt');
     expect(fehlerFuerDialog(new ApiFehler(404, 'Weg')).text).toBe('Weg');
   });
 
-  it('kürzt Hinweise und lässt Fachbegriffe weg', () => {
-    const h = hinweisKurz({
-      text: 'Das Sprachmodell x fehlt bei Ollama – …',
-      stufe: 'fehler',
-      quelle: 'ollama'
+  it('ordnet Hinweise über „code“ zu, nicht über den Text', () => {
+    const h = (code: string | undefined, text = 'irgendein Text', quelle = 'ollama', bereich?: string) =>
+      hinweisKurz({ text, stufe: 'fehler', quelle, code, bereich });
+    expect(h('modell_fehlt')).toMatchObject({ text: 'Sprachmodell fehlt', abschnitt: 'zusammenfassung' });
+    expect(h('ki_nicht_erreichbar').text).toBe('KI für Zusammenfassungen nicht erreichbar');
+    expect(h('ki_neu_gestartet').text).toBe('KI wieder bereit');
+    expect(h('port_belegt', 'Port 8780 wird schon benutzt.', 'netz')).toMatchObject({
+      text: 'Im Netz anbieten gestört',
+      abschnitt: 'netz'
     });
-    expect(h.text).toBe('Sprachmodell fehlt');
-    expect(h.lang).toBe('');
-    expect(hinweisKurz({ text: 'Port 8780 wird schon benutzt.', stufe: 'fehler', quelle: '' }).text).toBe(
-      'Port belegt'
+    expect(h('schluessel', 'Zugangsschlüssel fehlt: …', 'Raum-3', 'zusammenfassung').abschnitt).toBe(
+      'zusammenfassung'
     );
+    // Ohne Code entscheidet der Wortlaut nicht über die Zuordnung (früher: „fehlt“ hieß Sprachmodell).
+    expect(h(undefined, 'Etwas fehlt noch.', 'ollama').text).toBe('Etwas fehlt noch.');
+    expect(h(undefined, 'Ollama antwortet nicht').text).toBe('Es gibt ein Problem');
+    expect(h(undefined, 'Ollama antwortet nicht').lang).toBe('');
+    for (const code of Object.keys(HINWEIS_CODES)) expect(h(code).text).not.toMatch(FACHWORT);
+  });
+
+  it('beschreibt Empfangsfehler über „fehler_code“', () => {
+    expect(empfangsFehlerText('port_belegt')).toBe('Empfang: Anschluss belegt');
+    expect(empfangsFehlerText(null)).toBe('Empfang gestört');
   });
 });
 

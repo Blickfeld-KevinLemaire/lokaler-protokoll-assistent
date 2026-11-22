@@ -20,6 +20,15 @@ export type EingangsDatei = S['EingangsDatei'];
 export type Vorlage = S['Vorlage'];
 export type Fehlerantwort = S['Fehler'];
 export type TranskriptionAnfrage = S['TranskriptionAnfrage'];
+export type EinrichtungStand = S['EinrichtungStand'];
+export type EinrichtungRechner = S['EinrichtungRechner'];
+export type EinrichtungSchritt = S['EinrichtungSchritt'];
+export type EinrichtungKosten = S['EinrichtungKosten'];
+export type EinrichtungBaustein = S['EinrichtungBaustein'];
+export type EinrichtungEntscheidung = S['EinrichtungEntscheidung'];
+export type EinrichtungModelle = S['EinrichtungModelle'];
+export type EinrichtungAnbieter = S['EinrichtungAnbieter'];
+export type EinrichtungAnbieterErgebnis = S['EinrichtungAnbieterErgebnis'];
 
 export interface Empfang {
   aktiv: boolean;
@@ -28,6 +37,8 @@ export interface Empfang {
   ziel?: string;
   live?: boolean;
   fehler?: string | null;
+  /** Maschinenlesbar: z. B. `port_belegt`. */
+  fehler_code?: string | null;
   zuletzt?: string | null;
 }
 
@@ -39,6 +50,8 @@ export interface Freigabe {
 
 export interface Zustand {
   letzte_nummer: number;
+  /** Uhr des Dienstes (Unix-Sekunden) beim Ausliefern. */
+  jetzt: number;
   auftraege: Auftrag[];
   empfang: Empfang | null;
   freigaben: Freigabe[];
@@ -56,6 +69,10 @@ export interface Hinweis {
   text: string;
   stufe: string;
   quelle: string;
+  /** z. B. `modell_fehlt`, `ki_nicht_erreichbar`, `ki_neu_gestartet`, `port_belegt` oder ein Code der Ablauffehler. */
+  code?: string;
+  /** Falls der Dienst ihn mitschickt: `transkription` | `zusammenfassung`. */
+  bereich?: string;
 }
 
 export interface GeraetStatus {
@@ -116,6 +133,8 @@ export interface Anbieter {
   schluessel_link: string;
   doku_link: string;
   hat_platzhalter: boolean;
+  /** Für die Sprechertrennung beim Online-Dienst (wird in `api_transkription_anbieter` übernommen). */
+  diarisierung_anbieter?: string;
   chat: AnbieterZiel | null;
   embedding: AnbieterZiel | null;
   transkription: AnbieterZiel | null;
@@ -274,4 +293,41 @@ export interface UsbEinrichtung {
   server_url?: string;
   server_token?: string;
   erste_nummer?: number | null;
+}
+
+export interface SprecherVorschlag {
+  name: string;
+  /** Deutlich erkannt; sonst nur ein vorsichtiger Vorschlag („Anna?“). */
+  sicher: boolean;
+}
+
+export interface SprecherVorschlaege {
+  vorschlaege: Record<string, SprecherVorschlag>;
+  /** Liegen für diese Besprechung Stimmen vor (sonst geht „Stimme merken“ nicht)? */
+  stimmen_vorhanden: boolean;
+}
+
+/** Eine gemerkte Stimme (ohne den Stimmabdruck selbst). */
+export interface SprecherProfil {
+  id: string;
+  name: string;
+  erstellt: string;
+  aktualisiert: string;
+}
+
+/** Mikrofonaufnahme im Dienst (Windows-Anwendung): `GET /api/aufnahme` und Ereignis `aufnahme`. */
+export interface AufnahmeStand {
+  laeuft: boolean;
+  pausiert: boolean;
+  /** Sekunden */
+  dauer: number;
+  /** Lautstärke 0..1 */
+  pegel: number;
+  geraet: string | null;
+}
+
+export interface AufnahmeGeraet {
+  name: string;
+  standard: boolean;
+  gewaehlt: boolean;
 }

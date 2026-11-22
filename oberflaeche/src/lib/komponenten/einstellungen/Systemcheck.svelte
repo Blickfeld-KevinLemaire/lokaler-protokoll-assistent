@@ -1,6 +1,10 @@
 <script lang="ts">
+  import Check from '@lucide/svelte/icons/check';
+  import CircleAlert from '@lucide/svelte/icons/circle-alert';
+  import CircleX from '@lucide/svelte/icons/circle-x';
   import { api } from '$lib/api/client';
   import type { DiagnosePunkt } from '$lib/api/typen';
+  import Erweitert from '../Erweitert.svelte';
   import { dialog } from '$lib/stores/oberflaeche.svelte';
 
   /** Prüfungen aus `utils/diagnostics.py` mit verständlichen Namen. */
@@ -55,16 +59,19 @@
           class:kritisch={!p.ok && p.kritisch}
           class:hinweis={!p.ok && !p.kritisch}
         >
-          {p.ok ? '✓' : p.kritisch ? '✕' : '!'}
+          {#if p.ok}<Check size={16} />{:else if p.kritisch}<CircleX size={16} />{:else}<CircleAlert
+              size={16}
+            />{/if}
         </span>
         <span>{NAMEN[p.id] ?? p.name}</span>
       </li>
     {/each}
   </ul>
-  <details class="details">
-    <summary>Details</summary>
-    <pre>{punkte.map((p) => `${p.ok ? 'OK ' : '-- '} ${p.name}: ${p.text}`).join('\n')}</pre>
-  </details>
+  <Erweitert titel="Details">
+    {#snippet kinder()}
+      <pre>{punkte!.map((p) => `${p.ok ? 'OK ' : '-- '} ${p.name}: ${p.text}`).join('\n')}</pre>
+    {/snippet}
+  </Erweitert>
 {/if}
 
 <style>
@@ -98,27 +105,18 @@
   }
 
   .ok {
-    background: var(--ok-weich);
     color: var(--ok);
   }
 
   .kritisch {
-    background: var(--fehler-weich);
     color: var(--fehler);
   }
 
   .hinweis {
-    background: var(--warn-weich);
     color: var(--warn);
   }
 
-  .details summary {
-    cursor: pointer;
-    color: var(--text-2);
-    font-size: 13px;
-  }
-
-  .details pre {
+  pre {
     font-size: 12px;
     white-space: pre-wrap;
     padding: 10px;

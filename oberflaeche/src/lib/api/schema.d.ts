@@ -282,6 +282,111 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/aufnahme': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Stand */
+    get: operations['stand_api_aufnahme_get'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/aufnahme/geraete': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Geraete */
+    get: operations['geraete_api_aufnahme_geraete_get'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/aufnahme/start': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Starten */
+    post: operations['starten_api_aufnahme_start_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/aufnahme/pause': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Pausieren */
+    post: operations['pausieren_api_aufnahme_pause_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/aufnahme/fortsetzen': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Fortsetzen */
+    post: operations['fortsetzen_api_aufnahme_fortsetzen_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/aufnahme/stopp': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Stoppen
+     * @description Beendet die Aufnahme; die WAV-Datei liegt danach im Aufnahmeordner (Antwort: Pfad, Name, Dauer).
+     */
+    post: operations['stoppen_api_aufnahme_stopp_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/besprechungen/export/formate': {
     parameters: {
       query?: never;
@@ -419,6 +524,121 @@ export interface paths {
     options?: never;
     head?: never;
     patch?: never;
+    trace?: never;
+  };
+  '/api/besprechungen/{kennung}/sprecher/vorschlaege': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Vorschlaege
+     * @description Bekannte Stimmen: je Sprecher ein Namensvorschlag aus den eigenen Profilen (``sicher``: deutlich erkannt).
+     */
+    get: operations['vorschlaege_api_besprechungen__kennung__sprecher_vorschlaege_get'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/besprechungen/{kennung}/sprecher/{sprecher_id}/hoerprobe': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Hoerprobe */
+    get: operations['hoerprobe_api_besprechungen__kennung__sprecher__sprecher_id__hoerprobe_get'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/besprechungen/{kennung}/sprecher/{sprecher_id}/profil': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Als Profil Merken
+     * @description Die Stimme dieses Sprechers merken, damit er in spaeteren Aufnahmen erkannt wird.
+     */
+    post: operations['als_profil_merken_api_besprechungen__kennung__sprecher__sprecher_id__profil_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/besprechungen/{kennung}/sprecher/{sprecher_id}/export': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Sprecher Exportieren
+     * @description Audio (WAV) und Text (TXT) eines Sprechers in den Ordner der Besprechung schreiben.
+     */
+    post: operations['sprecher_exportieren_api_besprechungen__kennung__sprecher__sprecher_id__export_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/sprecherprofile': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Profile
+     * @description Gemerkte Stimmen -- ohne die Stimmabdruecke selbst.
+     */
+    get: operations['profile_api_sprecherprofile_get'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/sprecherprofile/{profil_id}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    /** Profil Loeschen */
+    delete: operations['profil_loeschen_api_sprecherprofile__profil_id__delete'];
+    options?: never;
+    head?: never;
+    /** Profil Umbenennen */
+    patch: operations['profil_umbenennen_api_sprecherprofile__profil_id__patch'];
     trace?: never;
   };
   '/api/dateien/eingang': {
@@ -1156,6 +1376,11 @@ export interface components {
       /** Passwort */
       passwort?: string | null;
     };
+    /** AufnahmeStart */
+    AufnahmeStart: {
+      /** Geraet */
+      geraet?: string | null;
+    };
     /** Auftrag */
     Auftrag: {
       /** Id */
@@ -1814,6 +2039,11 @@ export interface components {
       /** Neu */
       neu: string;
     };
+    /** ProfilName */
+    ProfilName: {
+      /** Name */
+      name: string;
+    };
     /** ProtokollSpeichern */
     ProtokollSpeichern: {
       /** Text */
@@ -2425,6 +2655,151 @@ export interface operations {
       };
     };
   };
+  stand_api_aufnahme_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            [key: string]: unknown;
+          };
+        };
+      };
+    };
+  };
+  geraete_api_aufnahme_geraete_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            [key: string]: unknown;
+          }[];
+        };
+      };
+    };
+  };
+  starten_api_aufnahme_start_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['AufnahmeStart'];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            [key: string]: unknown;
+          };
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['HTTPValidationError'];
+        };
+      };
+    };
+  };
+  pausieren_api_aufnahme_pause_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            [key: string]: unknown;
+          };
+        };
+      };
+    };
+  };
+  fortsetzen_api_aufnahme_fortsetzen_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            [key: string]: unknown;
+          };
+        };
+      };
+    };
+  };
+  stoppen_api_aufnahme_stopp_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            [key: string]: unknown;
+          };
+        };
+      };
+    };
+  };
   formate_api_besprechungen_export_formate_get: {
     parameters: {
       query?: never;
@@ -2664,6 +3039,235 @@ export interface operations {
         content: {
           'application/json': {
             [key: string]: unknown;
+          };
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['HTTPValidationError'];
+        };
+      };
+    };
+  };
+  vorschlaege_api_besprechungen__kennung__sprecher_vorschlaege_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        kennung: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            [key: string]: unknown;
+          };
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['HTTPValidationError'];
+        };
+      };
+    };
+  };
+  hoerprobe_api_besprechungen__kennung__sprecher__sprecher_id__hoerprobe_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        kennung: string;
+        sprecher_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': unknown;
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['HTTPValidationError'];
+        };
+      };
+    };
+  };
+  als_profil_merken_api_besprechungen__kennung__sprecher__sprecher_id__profil_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        kennung: string;
+        sprecher_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['ProfilName'];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            [key: string]: unknown;
+          };
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['HTTPValidationError'];
+        };
+      };
+    };
+  };
+  sprecher_exportieren_api_besprechungen__kennung__sprecher__sprecher_id__export_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        kennung: string;
+        sprecher_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            [key: string]: unknown;
+          };
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['HTTPValidationError'];
+        };
+      };
+    };
+  };
+  profile_api_sprecherprofile_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            [key: string]: unknown;
+          }[];
+        };
+      };
+    };
+  };
+  profil_loeschen_api_sprecherprofile__profil_id__delete: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        profil_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            [key: string]: boolean;
+          };
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['HTTPValidationError'];
+        };
+      };
+    };
+  };
+  profil_umbenennen_api_sprecherprofile__profil_id__patch: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        profil_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['ProfilName'];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            [key: string]: boolean;
           };
         };
       };

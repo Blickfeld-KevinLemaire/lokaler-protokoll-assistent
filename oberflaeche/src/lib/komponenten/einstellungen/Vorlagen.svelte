@@ -1,5 +1,7 @@
 <script lang="ts">
   /** Vorlagen für Zusammenfassungen bearbeiten; „Standard“ ist der allgemeine Auftrag. */
+  import Check from '@lucide/svelte/icons/check';
+  import Plus from '@lucide/svelte/icons/plus';
   import { api } from '$lib/api/client';
   import type { Vorlage } from '$lib/api/typen';
   import { einstellungen } from '$lib/stores/einstellungen.svelte';
@@ -85,13 +87,13 @@
       {#each vorlagen as v (v.name)}<option value={v.name}>{v.name}</option>{/each}
     </select>
     {#if (aktiv ?? '') === auswahl}
-      <span class="ok klein">✓ Vorgabe</span>
+      <span class="ok klein"><Check size={16} /> Vorgabe</span>
     {:else}
       <button class="knopf leise" type="button" onclick={alsVorgabe}>Als Vorgabe</button>
     {/if}
     <span class="raum"></span>
     <button class="knopf leise" type="button" onclick={() => (neuOffen = !neuOffen)}>
-      +&nbsp; Neue Vorlage
+      <Plus size={16} /> Neue Vorlage
     </button>
   </div>
   {#if neuOffen}

@@ -1,9 +1,12 @@
 <script lang="ts">
+  import Sparkles from '@lucide/svelte/icons/sparkles';
+  import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
   import { tick } from 'svelte';
   import { page } from '$app/state';
   import { api } from '$lib/api/client';
   import type { Anbieter, Einstellungen } from '$lib/api/typen';
   import Abschnitt from '$lib/komponenten/einstellungen/Abschnitt.svelte';
+  import BekannteStimmen from '$lib/komponenten/einstellungen/BekannteStimmen.svelte';
   import Konto from '$lib/komponenten/einstellungen/Konto.svelte';
   import LokalesModell from '$lib/komponenten/einstellungen/LokalesModell.svelte';
   import NutzerVerwaltung from '$lib/komponenten/einstellungen/NutzerVerwaltung.svelte';
@@ -15,6 +18,7 @@
   import Info from '$lib/komponenten/Info.svelte';
   import Kopf from '$lib/komponenten/Kopf.svelte';
   import Schalter from '$lib/komponenten/Schalter.svelte';
+  import { einrichtung } from '$lib/stores/einrichtung.svelte';
   import { einstellungen } from '$lib/stores/einstellungen.svelte';
   import { dialog } from '$lib/stores/oberflaeche.svelte';
   import { thema, type Thema } from '$lib/stores/thema.svelte';
@@ -42,8 +46,14 @@
           { id: 'zusammenfassung', text: 'Zusammenfassung' },
           { id: 'chat', text: 'Frag mein Meeting' },
           ...(verbindung.tauri ? [{ id: 'ordner', text: 'Ordner' }] : []),
-          { id: 'vorlagen', text: 'Vorlagen' },
+          { id: 'vorlagen', text: 'Vorlagen' }
+        ]
+      : []),
+    { id: 'stimmen', text: 'Bekannte Stimmen' },
+    ...(verwalten
+      ? [
           ...(desktop ? [{ id: 'netz', text: 'Im Netz anbieten' }] : []),
+          ...(einrichtung.verfuegbar(info) ? [{ id: 'einrichtung', text: 'Einrichtung' }] : []),
           { id: 'systemcheck', text: 'Systemcheck' }
         ]
       : [])
@@ -155,7 +165,14 @@
           />
           {#if (w.transkription_modus ?? 'lokal') === 'lokal'}
             {#if info && !info.faehigkeiten.lokale_transkription}
-              <p class="warn">⚠ Auf diesem Computer noch nicht eingerichtet</p>
+              <p class="warn">
+                <TriangleAlert size={16} /> Auf diesem Computer noch nicht eingerichtet
+                {#if einrichtung.verfuegbar(info)}
+                  <button class="knopf" type="button" onclick={() => einrichtung.oeffnen()}>
+                    Einrichten
+                  </button>
+                {/if}
+              </p>
             {/if}
           {:else}
             <OnlineDienst bereich="transkription" {anbieter} />
@@ -229,7 +246,15 @@
           <Vorlagen />
         {/snippet}
       </Abschnitt>
+    {/if}
 
+    <Abschnitt id="stimmen" titel="Bekannte Stimmen">
+      {#snippet kinder()}
+        <BekannteStimmen />
+      {/snippet}
+    </Abschnitt>
+
+    {#if w && verwalten}
       {#if desktop}
         <Abschnitt id="netz" titel="Im Netz anbieten">
           {#snippet kinder()}
@@ -268,6 +293,22 @@
                 </div>
               {/snippet}
             </Erweitert>
+          {/snippet}
+        </Abschnitt>
+      {/if}
+
+      {#if einrichtung.verfuegbar(info)}
+        <Abschnitt id="einrichtung" titel="Einrichtung">
+          {#snippet kinder()}
+            <div class="zeile">
+              <button class="knopf" type="button" onclick={() => einrichtung.oeffnen()}>
+                <Sparkles size={16} /> Einrichtung öffnen
+              </button>
+              <Info
+                frage="Was passiert dabei?"
+                text="Sie wählen noch einmal, was auf diesem Computer läuft und was online. Geladen wird nur mit Ihrer Zustimmung."
+              />
+            </div>
           {/snippet}
         </Abschnitt>
       {/if}
@@ -332,6 +373,9 @@
   }
 
   .warn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
     color: var(--warn);
   }
 

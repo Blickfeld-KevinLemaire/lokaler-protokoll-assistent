@@ -63,6 +63,7 @@
   }
 
   label:has(input:focus-visible) {
-    box-shadow: var(--fokus);
+    outline: 2px solid var(--fokus-farbe);
+    outline-offset: 1px;
   }
 </style>

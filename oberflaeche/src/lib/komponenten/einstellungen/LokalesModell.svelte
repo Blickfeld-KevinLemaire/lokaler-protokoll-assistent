@@ -1,7 +1,10 @@
 <script lang="ts">
   /** Sprachmodell auf diesem Computer: empfohlene Auswahl, Herunterladen als Auftrag in der Warteschlange. */
+  import Check from '@lucide/svelte/icons/check';
+  import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
   import { api } from '$lib/api/client';
   import type { ModellStand } from '$lib/api/typen';
+  import { modellEinordnen } from '$lib/logik/modelle';
   import { startMeldung } from '$lib/logik/warteschlange';
   import { einstellungen } from '$lib/stores/einstellungen.svelte';
   import { dialog, meldungen } from '$lib/stores/oberflaeche.svelte';
@@ -40,12 +43,6 @@
     );
   }
 
-  /** „Qwen3.5 4B (empfohlener Standard)“ → Name und Zusatz getrennt. */
-  function teile(label: string): [string, string] {
-    const m = /^(.*?)\s*\((.*)\)\s*$/.exec(label);
-    return m ? [m[1]!, m[2]!] : [label, ''];
-  }
-
   async function waehlen(id: string) {
     try {
       await einstellungen.aendern({ [feld]: id });
@@ -66,20 +63,20 @@
 </script>
 
 {#if stand && !stand.laeuft}
-  <p class="warn">⚠ Die KI auf diesem Computer ist gerade nicht erreichbar.</p>
+  <p class="warn"><TriangleAlert size={16} /> Die KI auf diesem Computer ist gerade nicht erreichbar.</p>
 {/if}
 
 <ul class="modelle" role="radiogroup" aria-label="Sprachmodell">
   {#each stand?.empfohlen ?? [] as m (m.id)}
-    {@const [name, zusatz] = teile(m.label)}
+    {@const e = modellEinordnen(m.label)}
     {@const da = installiert(m.id)}
     {@const auftrag = ladeAuftrag(m.id)}
     <li class:aktiv={gewaehlt === m.id}>
       <label class="wahl">
         <input type="radio" name="modell-{feld}" checked={gewaehlt === m.id} onchange={() => waehlen(m.id)} />
         <span class="text">
-          <span class="name">{name}</span>
-          {#if zusatz}<span class="zusatz">{zusatz}</span>{/if}
+          <span class="name">{e.titel}</span>
+          <span class="zusatz">{[e.zusatz, e.name].filter(Boolean).join(' · ')}</span>
         </span>
       </label>
       <span class="groesse">{String(m.groesse_gb).replace('.', ',')} GB</span>
@@ -92,7 +89,7 @@
             />
           </span>
         {:else if da}
-          <span class="ok">✓ Vorhanden</span>
+          <span class="ok"><Check size={16} /> Vorhanden</span>
         {:else}
           <button class="knopf" type="button" disabled={!stand?.laeuft} onclick={() => laden(m.id)}>
             Herunterladen
@@ -105,6 +102,9 @@
 
 <style>
   .warn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
     color: var(--warn);
   }
 
@@ -173,6 +173,9 @@
   }
 
   .ok {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
     color: var(--ok);
     font-size: 13px;
   }

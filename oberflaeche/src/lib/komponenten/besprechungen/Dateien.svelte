@@ -1,4 +1,6 @@
 <script lang="ts">
+  import Download from '@lucide/svelte/icons/download';
+  import FolderOpen from '@lucide/svelte/icons/folder-open';
   import { api } from '$lib/api/client';
   import type { BesprechungDetails } from '$lib/api/typen';
   import { groesseText, ordnerVon } from '$lib/logik/format';
@@ -54,7 +56,15 @@
         <span class="leise klein">{groesseText(d.groesse)}</span>
         <span class="knoepfe">
           {#if zeigenMoeglich}
-            <button class="knopf leise" type="button" onclick={() => zeigen(d.name)}>Im Ordner zeigen</button>
+            <button
+              class="symbolknopf"
+              type="button"
+              aria-label="{d.name} im Ordner zeigen"
+              title="Im Ordner zeigen"
+              onclick={() => zeigen(d.name)}
+            >
+              <FolderOpen />
+            </button>
           {/if}
           <button
             class="symbolknopf"
@@ -63,7 +73,7 @@
             title="Herunterladen"
             onclick={() => speichern(d.name)}
           >
-            ⤓
+            <Download />
           </button>
         </span>
       </li>

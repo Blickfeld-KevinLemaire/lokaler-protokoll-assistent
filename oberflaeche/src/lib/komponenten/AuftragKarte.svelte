@@ -1,12 +1,14 @@
 <script lang="ts">
   /** Ein Auftrag mit Fortschritt und Live-Text; bei Fehlern die Meldungen eingeklappt unter „Details“. */
+  import X from '@lucide/svelte/icons/x';
   import { api } from '$lib/api/client';
   import type { Auftrag } from '$lib/api/typen';
-  import { restzeitFuerAuftrag } from '$lib/logik/restzeit';
+  import { zeitenFuerAuftrag } from '$lib/logik/restzeit';
   import { stufenText } from '$lib/logik/stufen';
   import { auftragTitel, platzInReihe } from '$lib/logik/warteschlange';
   import { dialog, uhr } from '$lib/stores/oberflaeche.svelte';
   import { zustand } from '$lib/stores/zustand.svelte';
+  import Erweitert from './Erweitert.svelte';
   import Fortschritt from './Fortschritt.svelte';
 
   let { auftrag, schliessen }: { auftrag: Auftrag; schliessen?: () => void } = $props();
@@ -14,11 +16,12 @@
   let textfeld: HTMLDivElement | undefined = $state();
 
   const jetzt = $derived(zustand.jetztDienst(uhr.jetzt));
-  const restzeit = $derived(
+  const zeiten = $derived(
     auftrag.status === 'laeuft'
-      ? restzeitFuerAuftrag(auftrag.id, auftrag.fortschritt, auftrag.gestartet, jetzt)
-      : ''
+      ? zeitenFuerAuftrag(auftrag.id, auftrag.fortschritt, auftrag.gestartet, jetzt, uhr.jetzt)
+      : null
   );
+  const restzeit = $derived(zeiten?.text ? [zeiten.text, zeiten.fertig].filter(Boolean).join(' · ') : '');
   const platz = $derived(platzInReihe(zustand.auftraege, auftrag.id));
   const ergebnis = $derived(
     (auftrag.ergebnis?.transkript_json as string | undefined) ??
@@ -64,7 +67,9 @@
         <a class="knopf primaer" href="/besprechungen?transkript={encodeURIComponent(ergebnis)}">Öffnen</a>
       {/if}
       {#if schliessen}
-        <button class="symbolknopf" type="button" aria-label="Schließen" onclick={schliessen}>✕</button>
+        <button class="symbolknopf" type="button" aria-label="Schließen" onclick={schliessen}>
+          <X size={16} />
+        </button>
       {/if}
     {/if}
   </div>
@@ -84,10 +89,11 @@
   {#if auftrag.status === 'fehler'}
     {#if auftrag.fehler}<p class="fehlertext">{auftrag.fehler}</p>{/if}
     {#if auftrag.meldungen?.length}
-      <details class="details">
-        <summary>Details</summary>
-        <pre>{auftrag.meldungen.join('\n')}</pre>
-      </details>
+      <Erweitert titel="Details">
+        {#snippet kinder()}
+          <pre>{auftrag.meldungen.join('\n')}</pre>
+        {/snippet}
+      </Erweitert>
     {/if}
   {/if}
 </section>
@@ -153,13 +159,7 @@
     color: var(--text);
   }
 
-  .details summary {
-    cursor: pointer;
-    color: var(--text-2);
-    font-size: 13px;
-  }
-
-  .details pre {
+  pre {
     max-height: 200px;
     overflow: auto;
     font-size: 12px;

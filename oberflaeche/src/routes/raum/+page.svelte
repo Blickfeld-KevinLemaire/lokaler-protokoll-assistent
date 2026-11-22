@@ -1,16 +1,25 @@
 <script lang="ts">
+  import Hourglass from '@lucide/svelte/icons/hourglass';
+  import Plus from '@lucide/svelte/icons/plus';
+  import Radio from '@lucide/svelte/icons/radio';
+  import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
+  import Usb from '@lucide/svelte/icons/usb';
+  import X from '@lucide/svelte/icons/x';
   import { api, ApiFehler } from '$lib/api/client';
-  import type { GeraetAngelegt, GeraeteStand, Vorlage } from '$lib/api/typen';
-  import Dialog from '$lib/komponenten/Dialog.svelte';
+  import type { GeraeteStand, Vorlage } from '$lib/api/typen';
+  import Bestaetigen from '$lib/komponenten/Bestaetigen.svelte';
   import Erweitert from '$lib/komponenten/Erweitert.svelte';
   import Info from '$lib/komponenten/Info.svelte';
   import Kopf from '$lib/komponenten/Kopf.svelte';
+  import LeerZustand from '$lib/komponenten/LeerZustand.svelte';
+  import GeraetHinzufuegen from '$lib/komponenten/raum/GeraetHinzufuegen.svelte';
   import UsbEinrichtung from '$lib/komponenten/raum/UsbEinrichtung.svelte';
   import Schalter from '$lib/komponenten/Schalter.svelte';
   import { uhrzeit } from '$lib/logik/format';
+  import { empfangsFehlerText } from '$lib/logik/hinweise';
   import { GERAETE_ZUSTAENDE } from '$lib/logik/stufen';
   import { einstellungen } from '$lib/stores/einstellungen.svelte';
-  import { dialog, meldungen } from '$lib/stores/oberflaeche.svelte';
+  import { dialog } from '$lib/stores/oberflaeche.svelte';
   import { personen } from '$lib/stores/personen.svelte';
   import { verbindung } from '$lib/stores/verbindung.svelte';
   import { zustand } from '$lib/stores/zustand.svelte';
@@ -18,11 +27,9 @@
   let stand = $state<GeraeteStand | null>(null);
   let nichtVerfuegbar = $state(false);
   let vorlagen = $state<Vorlage[]>([]);
-  let neuerName = $state('');
   let usbOffen = $state(false);
-  let besitzer = $state('');
   let anlegenOffen = $state(false);
-  let angelegt = $state<GeraetAngelegt | null>(null);
+  let entfernenName = $state<string | null>(null);
   let port = $state<number | null>(null);
 
   const w = $derived(einstellungen.werte);
@@ -74,34 +81,14 @@
     }
   }
 
-  async function anlegen(e: SubmitEvent) {
-    e.preventDefault();
-    try {
-      angelegt = await api.geraetAnlegen(neuerName.trim(), besitzer || null);
-      anlegenOffen = false;
-      neuerName = '';
-      void laden();
-    } catch (f) {
-      dialog.zeigen(f, 'Gerät nicht angelegt');
-    }
-  }
-
-  async function entfernen(name: string) {
-    if (!confirm(`„${name}“ entfernen? Das Gerät kann danach nichts mehr senden.`)) return;
+  async function entfernen() {
+    const name = entfernenName;
+    if (!name) return;
     try {
       await api.geraetEntfernen(name);
       void laden();
     } catch (e) {
       dialog.zeigen(e);
-    }
-  }
-
-  async function kopieren(text: string) {
-    try {
-      await navigator.clipboard.writeText(text);
-      meldungen.zeigen('Kopiert');
-    } catch {
-      meldungen.zeigen('Kopieren nicht möglich', 'fehler');
     }
   }
 
@@ -112,7 +99,6 @@
 
   const liveTexte = $derived(Object.values(zustand.live).filter((l) => l.text));
   const empfang = $derived(zustand.empfang ?? stand?.empfang ?? null);
-  const portBelegt = $derived(/belegt|benutzt|in use|10048/i.test(empfang?.fehler ?? ''));
 </script>
 
 <Kopf titel="VERMERK Raum" />
@@ -135,7 +121,12 @@
             <span class="marke" class:an={empfang.aktiv}>{empfang.aktiv ? 'Empfang an' : 'Aus'}</span>
           {/if}
         </div>
-        {#if empfang?.fehler}<p class="warn">⚠ {portBelegt ? 'Port belegt' : 'Empfang gestört'}</p>{/if}
+        {#if empfang?.fehler}
+          <p class="warn" title={empfang.fehler}>
+            <TriangleAlert size={16} />
+            {empfangsFehlerText(empfang.fehler_code)}
+          </p>
+        {/if}
         <Schalter
           an={!!w?.geraete_live_aktiv}
           beschriftung="Live mitschreiben"
@@ -207,21 +198,21 @@
           <div class="zeile">
             {#if usbMoeglich}
               <button class="knopf leise" type="button" onclick={() => (anlegenOffen = true)}>
-                Ohne Kabel
+                <Plus size={16} /> Ohne USB hinzufügen
               </button>
               <button class="knopf primaer" type="button" onclick={() => (usbOffen = true)}>
-                🔌&nbsp; Gerät per USB verbinden
+                <Usb size={16} /> Gerät per USB verbinden
               </button>
             {:else}
               <button class="knopf" type="button" onclick={() => (anlegenOffen = true)}>
-                +&nbsp; Gerät hinzufügen
+                <Plus size={16} /> Gerät hinzufügen
               </button>
             {/if}
           </div>
         {/if}
       </div>
       {#if !stand || stand.geraete.length === 0}
-        <div class="leer klein">Noch keine Geräte</div>
+        <LeerZustand symbol={Radio} titel="Noch keine Geräte" klein />
       {:else}
         <ul class="geraete">
           {#each stand.geraete as g (g.name)}
@@ -254,9 +245,9 @@
                   type="button"
                   aria-label="{g.name} entfernen"
                   title="Entfernen"
-                  onclick={() => entfernen(g.name)}
+                  onclick={() => (entfernenName = g.name)}
                 >
-                  ✕
+                  <X size={16} />
                 </button>
               {/if}
             </li>
@@ -268,7 +259,7 @@
         <h3 class="unterkopf">Wartet auf Freigabe am Gerät</h3>
         <ul class="freigaben">
           {#each zustand.freigaben as f (f.geraet + f.datei)}
-            <li><span aria-hidden="true">⏳</span> {f.geraet} · {f.datei}</li>
+            <li><Hourglass size={16} /> {f.geraet} · {f.datei}</li>
           {/each}
         </ul>
       {/if}
@@ -288,75 +279,20 @@
 
 <UsbEinrichtung offen={usbOffen} schliessen={() => (usbOffen = false)} fertig={() => void laden()} />
 
-<Dialog offen={anlegenOffen} titel="Gerät hinzufügen" schliessen={() => (anlegenOffen = false)}>
-  {#snippet kinder()}
-    <form id="geraet-form" class="formular" onsubmit={anlegen}>
-      <label class="feldzeile">
-        <span>Name</span>
-        <!-- svelte-ignore a11y_autofocus -->
-        <input
-          class="feld"
-          maxlength="32"
-          pattern="[A-Za-z0-9_\-]+"
-          placeholder="z. B. Raum-3"
-          autofocus
-          bind:value={neuerName}
-        />
-      </label>
-      {#if verbindung.mehrbenutzer}
-        <label class="feldzeile">
-          <span>Gehört</span>
-          <select class="feld" bind:value={besitzer}>
-            <option value="">Allgemein</option>
-            {#each personen.liste as p (p.name)}<option value={p.name}>{p.anzeigename}</option>{/each}
-          </select>
-        </label>
-      {/if}
-    </form>
-  {/snippet}
-  {#snippet knoepfe()}
-    <button class="knopf" type="button" onclick={() => (anlegenOffen = false)}>Abbrechen</button>
-    <button class="knopf primaer" type="submit" form="geraet-form" disabled={!neuerName.trim()}>
-      Hinzufügen
-    </button>
-  {/snippet}
-</Dialog>
+<GeraetHinzufuegen
+  offen={anlegenOffen}
+  schliessen={() => (anlegenOffen = false)}
+  fertig={() => void laden()}
+/>
 
-<Dialog
-  offen={!!angelegt}
-  titel="„{angelegt?.name}“ einrichten"
-  schliessen={() => (angelegt = null)}
-  breite={560}
->
-  {#snippet kinder()}
-    {#if angelegt}
-      <p class="einmal">Wird nur jetzt angezeigt.</p>
-      <div class="kopierzeile">
-        <span>Adresse</span>
-        <code>{angelegt.basis_url}</code>
-        <button class="knopf" type="button" onclick={() => kopieren(angelegt!.basis_url)}>Kopieren</button>
-      </div>
-      <div class="kopierzeile">
-        <span>Schlüssel</span>
-        <code>{angelegt.token}</code>
-        <button class="knopf" type="button" onclick={() => kopieren(angelegt!.token)}>Kopieren</button>
-      </div>
-      <Erweitert titel="Für die Gerätesoftware">
-        {#snippet kinder()}
-          <div class="kopierzeile">
-            <pre>{angelegt!.konfiguration}</pre>
-            <button class="knopf" type="button" onclick={() => kopieren(angelegt!.konfiguration)}>
-              Kopieren
-            </button>
-          </div>
-        {/snippet}
-      </Erweitert>
-    {/if}
-  {/snippet}
-  {#snippet knoepfe()}
-    <button class="knopf primaer" type="button" onclick={() => (angelegt = null)}>Fertig</button>
-  {/snippet}
-</Dialog>
+<Bestaetigen
+  offen={!!entfernenName}
+  titel="„{entfernenName}“ entfernen?"
+  text="Das Gerät kann danach nichts mehr senden."
+  verb="Entfernen"
+  bestaetigen={entfernen}
+  schliessen={() => (entfernenName = null)}
+/>
 
 <style>
   .raster {
@@ -368,12 +304,6 @@
 
   .raster.einzeln {
     grid-template-columns: minmax(0, 640px);
-  }
-
-  .formular {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
   }
 
   .block {
@@ -484,7 +414,16 @@
   }
 
   .freigaben li {
+    display: flex;
+    align-items: center;
+    gap: 8px;
     padding: 4px 0;
+  }
+
+  p.warn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
   }
 
   .live {
@@ -505,39 +444,5 @@
     overflow-y: auto;
     white-space: pre-wrap;
     line-height: 1.6;
-  }
-
-  .einmal {
-    color: var(--warn);
-    font-weight: 600;
-    margin-bottom: 12px;
-  }
-
-  .kopierzeile {
-    display: grid;
-    grid-template-columns: 80px minmax(0, 1fr) auto;
-    gap: 10px;
-    align-items: center;
-    margin-bottom: 8px;
-  }
-
-  .kopierzeile code {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    padding: 6px 8px;
-    border-radius: 6px;
-    background: var(--karte-2);
-  }
-
-  .kopierzeile pre {
-    grid-column: 1 / 3;
-    margin: 0;
-    padding: 8px;
-    border-radius: 6px;
-    background: var(--karte-2);
-    font-size: 12px;
-    overflow-x: auto;
-    color: var(--text);
   }
 </style>

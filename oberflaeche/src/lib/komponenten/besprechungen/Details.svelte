@@ -1,5 +1,7 @@
 <script lang="ts">
-  import { beforeNavigate } from '$app/navigation';
+  import ArrowLeft from '@lucide/svelte/icons/arrow-left';
+  import Users from '@lucide/svelte/icons/users';
+  import { beforeNavigate, goto } from '$app/navigation';
   import { page } from '$app/state';
   import { api } from '$lib/api/client';
   import type { BesprechungDetails } from '$lib/api/typen';
@@ -8,6 +10,7 @@
   import { personen } from '$lib/stores/personen.svelte';
   import { verbindung } from '$lib/stores/verbindung.svelte';
   import { zustand } from '$lib/stores/zustand.svelte';
+  import Bestaetigen from '../Bestaetigen.svelte';
   import Datenschutz from '../Datenschutz.svelte';
   import Reiter from '../Reiter.svelte';
   import Dateien from './Dateien.svelte';
@@ -32,6 +35,9 @@
   let exportOffen = $state(false);
   let teilenOffen = $state(false);
   let neuLaden = $state(0);
+  /** Wohin es gehen sollte, als ungespeicherte Änderungen das Verlassen aufhielten. */
+  let wartendesZiel = $state<URL | null>(null);
+  let verlassenErlaubt = false;
 
   /** Geteilte Besprechung eines anderen: nur lesen. */
   const eigen = $derived(details?.eigen !== false);
@@ -58,8 +64,19 @@
   });
 
   beforeNavigate((nav) => {
-    if (ungespeichert && !confirm('Änderungen an der Zusammenfassung verwerfen?')) nav.cancel();
+    if (!ungespeichert || verlassenErlaubt) return;
+    nav.cancel();
+    // Fenster schließen: das übernimmt die Rückfrage des Browsers (beforeunload).
+    if (nav.type !== 'leave' && nav.to) wartendesZiel = nav.to.url;
   });
+
+  function verlassen() {
+    const ziel = wartendesZiel;
+    wartendesZiel = null;
+    if (!ziel) return;
+    verlassenErlaubt = true;
+    void goto(ziel.pathname + ziel.search + ziel.hash);
+  }
 
   function gespeichert() {
     if (details?.protokoll) details.protokoll.text = text;
@@ -76,7 +93,9 @@
 <svelte:head><title>{details?.titel ?? 'Besprechung'} · VERMERK</title></svelte:head>
 
 <header class="kopf">
-  <a class="zurueck symbolknopf" href="/besprechungen" aria-label="Zurück zur Liste" title="Zurück">←</a>
+  <a class="zurueck symbolknopf" href="/besprechungen" aria-label="Zurück zur Liste" title="Zurück">
+    <ArrowLeft size={20} />
+  </a>
   <div class="titel">
     <h1>{details?.titel ?? ''}</h1>
     {#if details}
@@ -90,7 +109,7 @@
   </div>
   {#if details && eigen && verbindung.mehrbenutzer}
     <button class="knopf" type="button" onclick={() => (teilenOffen = true)}>
-      {details.geteilt_mit?.length ? '👥 Geteilt' : 'Teilen'}
+      {#if details.geteilt_mit?.length}<Users size={16} /> Geteilt{:else}Teilen{/if}
     </button>
   {/if}
   {#if eigen}
@@ -113,6 +132,7 @@
         sprecher={details.sprecher}
         nurLesen={!eigen}
         gespeichert={() => neuLaden++}
+        zuDateien={() => (reiter = 'dateien')}
       />
     {:else if reiter === 'zusammenfassung'}
       <Zusammenfassung {details} bind:text nurLesen={!eigen} {gespeichert} />
@@ -120,7 +140,12 @@
       <Dateien {details} />
     {/if}
   </div>
-  <ExportDialog offen={exportOffen} {details} schliessen={() => (exportOffen = false)} />
+  <ExportDialog
+    offen={exportOffen}
+    {details}
+    schliessen={() => (exportOffen = false)}
+    exportiert={() => neuLaden++}
+  />
   <TeilenDialog
     offen={teilenOffen}
     {details}
@@ -130,6 +155,15 @@
 {:else}
   <div class="leer">…</div>
 {/if}
+
+<Bestaetigen
+  offen={!!wartendesZiel}
+  titel="Änderungen verwerfen?"
+  text="Die Änderungen an der Zusammenfassung sind noch nicht gespeichert."
+  verb="Verwerfen"
+  bestaetigen={verlassen}
+  schliessen={() => (wartendesZiel = null)}
+/>
 
 <style>
   .kopf {
@@ -142,7 +176,6 @@
   .zurueck {
     width: 34px;
     height: 34px;
-    font-size: 17px;
     text-decoration: none;
   }
 

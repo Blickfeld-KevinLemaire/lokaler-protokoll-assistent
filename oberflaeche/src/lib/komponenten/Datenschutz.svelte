@@ -1,5 +1,7 @@
 <script lang="ts">
   /** Kleines Abzeichen im Seitenkopf: alles auf diesem Computer oder (teilweise) über einen Online-Dienst. */
+  import Cloud from '@lucide/svelte/icons/cloud';
+  import Lock from '@lucide/svelte/icons/lock';
   import { einstellungen } from '$lib/stores/einstellungen.svelte';
   import Info from './Info.svelte';
 
@@ -22,7 +24,7 @@
 {#if w}
   {#if online.length === 0}
     <span class="abzeichen lokal">
-      <span aria-hidden="true">🔒</span> Lokal
+      <Lock size={14} strokeWidth={2} /> Lokal
       <Info
         frage="Was bedeutet Lokal?"
         text="Aufnahmen und Texte bleiben auf diesem Computer. Nichts wird an einen Online-Dienst geschickt."
@@ -30,7 +32,7 @@
     </span>
   {:else}
     <span class="abzeichen online">
-      <span aria-hidden="true">☁</span> Online-Dienst
+      <Cloud size={14} strokeWidth={2} /> Online-Dienst
       <Info
         frage="Was verlässt den Computer?"
         text={`An den gewählten Online-Dienst geht ${aufzaehlen(online)}. Alles andere bleibt hier.`}
