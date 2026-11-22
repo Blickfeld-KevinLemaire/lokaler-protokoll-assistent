@@ -7,21 +7,32 @@ name: Release-Build
 #   git tag v0.1.0
 #   git push origin v0.1.0
 #
-# Es entstehen ZWEI Dateien - beide aus demselben Build, seit es nur noch
-# EINE Anwendung gibt:
+# Ausgeliefert wird die NEUE Oberflaeche (ARCHITEKTUR.md):
+#
+#   VERMERK.exe          das Tauri-Fenster (oberflaeche/src-tauri, mit der
+#                        eingebetteten Svelte-Oberflaeche aus oberflaeche/build)
+#   dienst\              der Python-Dienst als One-Directory-Build
+#                        (vermerk_dienst.spec -> vermerk-dienst.exe)
+#
+# Es entstehen ZWEI Dateien aus demselben Build:
 #
 #   VERMERK-Desktop-Setup-<Version>.exe   Installer fuer Anwender.
-#       Enthaelt die gebaute Anwendung, die Programmdateien fuer den lokalen
-#       Modus und eine mitgelieferte Python-Laufzeitumgebung. Installiert
-#       ohne Administratorrechte pro Benutzer.
+#       Enthaelt VERMERK.exe, den Dienst, die Programmdateien als Quelltext
+#       fuer den lokalen Modus und eine mitgelieferte Python-Laufzeitumgebung.
+#       Installiert ohne Administratorrechte pro Benutzer.
 #
-#   VERMERK-Desktop-windows.zip           Der reine PyInstaller-Build,
-#       fuer Rechner, auf denen die Einrichtung schon gelaufen ist.
+#   VERMERK-Desktop-windows.zip           Nur VERMERK.exe + Ordner 'dienst'
+#       (+ Lizenzhinweise), fuer den reinen API-Modus.
 #
 # WICHTIG: Der Build enthaelt keine KI-Modelle und kein PyTorch/WhisperX. Wer
 # in den Einstellungen "Lokal" waehlt, laesst sich diese Umgebung beim ersten
-# Start selbst einrichten und braucht dafuer ein installiertes Python
-# 3.10/3.11. Im reinen API-Modus wird davon nichts gebraucht.
+# Start selbst einrichten (mit dem Python aus dem Installer). Im reinen
+# API-Modus wird davon nichts gebraucht.
+#
+# Vor dem Build: Tests, Versionspruefung (alle Versionsangaben und der Tag
+# muessen uebereinstimmen). Nach dem Build: Rauchtest des GEBAUTEN Dienstes
+# mit eingeschalteter Anmeldung (tools/dienst_rauchtest.py) - scheitert er,
+# gibt es kein Release.
 
 on:
   push:
@@ -51,7 +62,7 @@ jobs:
     runs-on: windows-latest
     # Tests plus Build plus Installer; ein haengender Schritt soll den Laeufer
     # nicht die Vorgabe von sechs Stunden belegen.
-    timeout-minutes: 60
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v7
 
@@ -61,6 +72,26 @@ jobs:
           cache-dependency-glob: uv.lock
 
       - run: uv sync --python 3.11
+
+      - name: Versionen pruefen
+        # pyproject.toml, version.py, package.json, tauri.conf.json, Cargo.toml
+        # und - bei einem Tag oder einer Versionseingabe - der Tag selbst.
+        shell: pwsh
+        env:
+          EINGABE_VERSION: ${{ inputs.version }}
+        run: |
+          $tag = ""
+          if ($env:GITHUB_REF -like "refs/tags/v*") {
+            $tag = $env:GITHUB_REF_NAME
+          } elseif ($env:EINGABE_VERSION) {
+            $tag = "v$($env:EINGABE_VERSION)"
+          }
+          if ($tag) {
+            uv run python tools/versionen_pruefen.py $tag
+          } else {
+            uv run python tools/versionen_pruefen.py
+          }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Tests vor dem Build
         # Ein Release soll nie aus einem roten Stand entstehen.
@@ -74,29 +105,78 @@ jobs:
         if: always()
         run: uv run python -m protokoll_assistent.tools.testergebnis_zusammenfassen testergebnis.xml "Tests vor dem Build"
 
-      - name: PyInstaller ausfuehren
-        run: uv run pyinstaller --noconfirm protokoll_assistent.spec
+      - name: Node einrichten
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: oberflaeche/package-lock.json
+
+      - name: Oberflaeche bauen
+        # Alle Werkzeuge aus package-lock.json, nichts aus einem CDN.
+        working-directory: oberflaeche
+        run: |
+          npm ci
+          npm run build
+
+      - name: Rust einrichten
+        shell: pwsh
+        run: |
+          rustup toolchain install stable --profile minimal --no-self-update
+          rustup default stable
+          cargo --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Fenster bauen (VERMERK.exe)
+        # Ohne Bundler (Inno Setup bleibt der Installer). 'tauri/custom-protocol'
+        # bettet oberflaeche/build ein - ohne das Merkmal luede die EXE die Seite
+        # vom Entwicklungsserver.
+        working-directory: oberflaeche/src-tauri
+        run: cargo build --release --locked --features tauri/custom-protocol
+
+      - name: Dienst bauen (PyInstaller)
+        run: uv run pyinstaller --noconfirm vermerk_dienst.spec
+
+      - name: Rauchtest des gebauten Dienstes
+        # Startet dist/vermerk-dienst/vermerk-dienst.exe zweimal mit --port 0,
+        # Portdatei und Schluessel und prueft Gesundheit, Anmeldung (401/200)
+        # und die Host-Pruefung. Scheitert er, gibt es kein Release.
+        run: uv run python tools/dienst_rauchtest.py dist/vermerk-dienst/vermerk-dienst.exe
 
       - name: Archiv packen
         shell: pwsh
         run: |
-          $quelle = "dist\VERMERK-Desktop"
-          if (-not (Test-Path $quelle)) {
-            Write-Error "Build-Ergebnis fehlt: $quelle"
-            exit 1
-          }
-          # Lizenzhinweise aus '_internal' nach oben holen, damit sie im
-          # Archiv sofort sichtbar sind (LGPL-Pflicht, siehe NOTICES.md).
-          Copy-Item "$quelle\_internal\NOTICES.md" $quelle -Force
-          Copy-Item "$quelle\_internal\LICENSE"    $quelle -Force
-          Copy-Item "$quelle\_internal\lizenzen"   $quelle -Recurse -Force
-          foreach ($pflicht in @("NOTICES.md", "LICENSE", "lizenzen\lgpl-3.0.txt")) {
-            if (-not (Test-Path (Join-Path $quelle $pflicht))) {
-              Write-Error "Lizenzdatei fehlt im Build: $pflicht"
+          $fenster = "oberflaeche\src-tauri\target\release\VERMERK.exe"
+          $dienst = "dist\vermerk-dienst"
+          foreach ($pflicht in @($fenster, "$dienst\vermerk-dienst.exe")) {
+            if (-not (Test-Path $pflicht)) {
+              Write-Error "Build-Ergebnis fehlt: $pflicht"
               exit 1
             }
           }
-          Compress-Archive -Path "$quelle\*" -DestinationPath "VERMERK-Desktop-windows.zip"
+          # Ordner, die ein Start des Dienstes anlegen kann (Rauchtest), gehoeren
+          # nicht in Archiv und Installer.
+          foreach ($rest in @("einstellungen", "logs", "ausgabe", "aufnahmen", "arbeitsdaten", "sprecherprofile", "chatverlaeufe", "zwischenstaende")) {
+            Remove-Item (Join-Path $dienst $rest) -Recurse -Force -ErrorAction SilentlyContinue
+          }
+          $ziel = "dist\VERMERK"
+          New-Item -ItemType Directory -Force $ziel | Out-Null
+          Copy-Item $fenster $ziel -Force
+          Copy-Item $dienst (Join-Path $ziel "dienst") -Recurse -Force
+          Copy-Item "NOTICES.md" $ziel -Force
+          Copy-Item "LICENSE"    $ziel -Force
+          Copy-Item "lizenzen"   $ziel -Recurse -Force
+          foreach ($pflicht in @("VERMERK.exe", "dienst\vermerk-dienst.exe", "NOTICES.md", "LICENSE")) {
+            if (-not (Test-Path (Join-Path $ziel $pflicht))) {
+              Write-Error "Datei fehlt im Archiv: $pflicht"
+              exit 1
+            }
+          }
+          foreach ($datei in @("$ziel\VERMERK.exe", "$ziel\dienst\vermerk-dienst.exe")) {
+            $mb = [math]::Round((Get-Item $datei).Length / 1MB, 1)
+            Write-Host "$datei ($mb MB)"
+          }
+          Compress-Archive -Path "$ziel\*" -DestinationPath "VERMERK-Desktop-windows.zip"
 
       - name: Python-Laufzeitumgebung fuer den Installer holen
         # Damit Anwender fuer den lokalen Modus kein Python selbst
@@ -196,11 +276,14 @@ jobs:
             ohne Administratorrechte, legt einen Startmenue-Eintrag an und
             laesst sich normal ueber "Apps & Features" wieder entfernen.
 
-            Die ZIP-Datei ist nur fuer Rechner gedacht, auf denen die
-            Einrichtung bereits gelaufen ist.
+            Die ZIP-Datei (VERMERK.exe + Ordner `dienst`) taugt nur fuer den
+            reinen API-Modus.
 
             ## Hinweise zu diesem Build
 
+            * Neue Oberflaeche: `VERMERK.exe` ist ein Fenster auf Basis von
+              Tauri und Microsoft Edge WebView2 (unter Windows 10/11
+              vorinstalliert), der Dienst laeuft im Hintergrund mit.
             * Es gibt **eine** Anwendung fuer beide Wege. Ob Transkription und
               Nachbearbeitung lokal oder ueber eine API laufen, ist eine
               Einstellung im Programm - kein eigenes Programm mehr.

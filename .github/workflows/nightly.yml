@@ -4,7 +4,7 @@ name: Naechtlicher Lauf
 #
 # Zweck: Dinge finden, die ohne Code-Aenderung kaputtgehen -
 #   * neu veroeffentlichte Sicherheitsluecken in Abhaengigkeiten,
-#   * ein PyInstaller-Build, der nicht mehr durchlaeuft.
+#   * ein Build (Fenster, Dienst, Installer), der nicht mehr durchlaeuft.
 #
 # Damit kein Kontingent fuer nichts verbraucht wird, entfaellt der Build, wenn
 # sich seit dem letzten erfolgreichen naechtlichen Lauf nichts ausser
@@ -109,8 +109,8 @@ jobs:
     needs: aenderungen_pruefen
     if: needs.aenderungen_pruefen.outputs.neue_commits == 'true'
     runs-on: windows-latest
-    # Normal gut vier Minuten.
-    timeout-minutes: 45
+    # Mit dem Rust-Build gut zehn Minuten.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
 
@@ -121,24 +121,71 @@ jobs:
 
       - run: uv sync --python 3.11
 
-      - name: Anwendung bauen
-        # WhisperX/PyTorch/pyannote werden hier absichtlich NICHT installiert:
-        # sie sind mehrere Gigabyte gross und brauchen eine GPU-Umgebung. Die
-        # Spezifikationsdatei verkraftet fehlende Pakete (siehe das try/except
-        # um 'collect_all'). Dieser Lauf beantwortet deshalb genau eine Frage:
-        # Laeuft der Build ueberhaupt noch durch, oder ist die Spezifikation/
-        # ein Import kaputt?
-        run: uv run pyinstaller --noconfirm protokoll_assistent.spec
-
-      - name: Ist eine EXE entstanden?
+      # Dieselben Bausteine wie release.yml: Oberflaeche, Fenster (Tauri),
+      # Dienst (PyInstaller) und dessen Rauchtest. WhisperX/PyTorch/pyannote
+      # werden hier absichtlich NICHT installiert - sie richtet der lokale
+      # Modus beim Anwender selbst ein. Dieser Lauf beantwortet die Frage:
+      # Laeuft der Build ueberhaupt noch durch, und startet der Dienst?
+      - name: Gibt es die Oberflaeche schon?
+        id: oberflaeche
         shell: pwsh
         run: |
-          $exe = "dist\VERMERK-Desktop\VERMERK-Desktop.exe"
-          if (-not (Test-Path $exe)) {
-            Write-Error "Der Build hat keine EXE erzeugt: $exe"
-            exit 1
+          $da = Test-Path "oberflaeche/package-lock.json"
+          "vorhanden=$($da.ToString().ToLower())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Node einrichten
+        if: steps.oberflaeche.outputs.vorhanden == 'true'
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: oberflaeche/package-lock.json
+
+      - name: Oberflaeche bauen
+        if: steps.oberflaeche.outputs.vorhanden == 'true'
+        working-directory: oberflaeche
+        run: |
+          npm ci
+          npm run build
+
+      - name: Platzhalter statt Oberflaeche
+        # Solange oberflaeche/ noch keine Svelte-App enthaelt: Tauri braucht beim
+        # Kompilieren einen Ordner 'build' mit index.html.
+        if: steps.oberflaeche.outputs.vorhanden != 'true'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force oberflaeche/build | Out-Null
+          Set-Content -Path oberflaeche/build/index.html -Value '<!doctype html><title>VERMERK</title><p>Platzhalter (naechtlicher Build ohne Oberflaeche)</p>' -Encoding utf8
+
+      - name: Rust einrichten
+        shell: pwsh
+        run: |
+          rustup toolchain install stable --profile minimal --no-self-update
+          rustup default stable
+          cargo --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Fenster bauen (VERMERK.exe)
+        working-directory: oberflaeche/src-tauri
+        run: cargo build --release --locked --features tauri/custom-protocol
+
+      - name: Dienst bauen (PyInstaller)
+        run: uv run pyinstaller --noconfirm vermerk_dienst.spec
+
+      - name: Rauchtest des gebauten Dienstes
+        run: uv run python tools/dienst_rauchtest.py dist/vermerk-dienst/vermerk-dienst.exe
+
+      - name: Sind die EXE-Dateien entstanden?
+        shell: pwsh
+        run: |
+          foreach ($exe in @("oberflaeche\src-tauri\target\release\VERMERK.exe", "dist\vermerk-dienst\vermerk-dienst.exe")) {
+            if (-not (Test-Path $exe)) {
+              Write-Error "Der Build hat keine EXE erzeugt: $exe"
+              exit 1
+            }
+            $mb = [math]::Round((Get-Item $exe).Length / 1MB, 1)
+            Write-Host "Build erfolgreich: $exe ($mb MB)"
           }
-          Write-Host "Build erfolgreich: $exe"
 
       - name: Python-Laufzeitumgebung fuer den Installer holen
         # Damit Anwender kein Python selbst installieren muessen.

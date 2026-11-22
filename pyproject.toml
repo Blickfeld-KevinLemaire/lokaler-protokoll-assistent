@@ -8,7 +8,7 @@
 # ---------------------------------------------------------------------------
 [project]
 name = "lokaler-protokoll-assistent"
-version = "0.5.0-rc3"
+version = "0.6.0-alpha.1"
 description = "Protokoll-Assistent: eine Windows-Anwendung (PySide6) fuer lokale und API-gestuetzte Transkription und Protokollauswertung"
 readme = "README.md"
 requires-python = ">=3.10,<3.12"
@@ -102,6 +102,14 @@ omit = [
     "*/__init__.py",
     "*/conftest.py",
     "*/protokoll_assistent.spec",
+    # Build- und Release-Werkzeuge ausserhalb des Pakets. Sie laufen nicht in der Testsuite, sondern
+    # selbst als Pruefung in der CI: 'vermerk_dienst.py' ist nur der PyInstaller-Einstieg des Dienstes
+    # (wie 'protokoll_assistent.spec'), 'tools/dienst_rauchtest.py' startet in release.yml den GEBAUTEN
+    # Dienst, 'tools/versionen_pruefen.py' laeuft in ci.yml und release.yml. Bewusst einzeln benannt,
+    # damit 'protokoll_assistent/tools/' gemessen bleibt.
+    "vermerk_dienst.py",
+    "tools/dienst_rauchtest.py",
+    "tools/versionen_pruefen.py",
     # PySide6 laedt interne Module ohne Quelldatei (shiboken). Sie tauchen mit
     # relativen Namen auf, coverage sucht sie im Projektordner und meldet bei
     # jedem Lauf "Couldn't parse". Mit dem Projekt haben sie nichts zu tun.

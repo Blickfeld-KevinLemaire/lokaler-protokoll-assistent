@@ -21,7 +21,9 @@ pub const UMGEBUNG_PYTHON: &str = "VERMERK_PYTHON";
 pub const UMGEBUNG_PROJEKT: &str = "VERMERK_PROJEKT";
 
 /// Relativ zum Ordner von `VERMERK.exe`.
-pub const DIENST_RELATIV: &str = "dienst/vermerk-dienst.exe";
+pub fn dienst_exe(exe_ordner: &Path) -> PathBuf {
+    exe_ordner.join("dienst").join("vermerk-dienst.exe")
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DienstQuelle {
@@ -108,7 +110,7 @@ pub fn aufloesen(
         })?;
         return Ok(DienstQuelle::Extern { port, schluessel });
     }
-    let installiert = exe_ordner.join(DIENST_RELATIV);
+    let installiert = dienst_exe(exe_ordner);
     if existiert(&installiert) {
         return Ok(DienstQuelle::Installiert {
             exe: installiert,
@@ -182,7 +184,7 @@ mod tests {
     #[test]
     fn extern_hat_vorrang_und_braucht_schluessel() {
         let exe = Path::new("C:/App");
-        let installiert = exe.join(DIENST_RELATIV);
+        let installiert = dienst_exe(exe);
         let mut u = UmgebungsWerte {
             extern_url: Some("http://127.0.0.1:9000".into()),
             schluessel: Some("k".into()),
@@ -208,7 +210,7 @@ mod tests {
     #[test]
     fn installierter_dienst() {
         let exe = Path::new("C:/Programme/VERMERK");
-        let installiert = exe.join(DIENST_RELATIV);
+        let installiert = dienst_exe(exe);
         let u = UmgebungsWerte {
             python: Some("C:/py/python.exe".into()),
             ..Default::default()

@@ -124,6 +124,59 @@ Sie kommen als Abhaengigkeiten mit und liegen als reines Python (cffi: mit einer
   Abhängigkeiten. Es wurde **kein Code daraus übernommen**; der Chatbot ist
   eine eigene, kleine Umsetzung in `services/chat_service.py`.
 
+### Tauri 2 — das Fenster `VERMERK.exe` (ab 0.6.0)
+
+* `tauri` 2.12.7, `tauri-build` 2.7.6, `tauri-runtime-wry` 2.12.5, `wry` 0.57.3,
+  `tao` 0.37.3 und die Plugins `tauri-plugin-dialog` 2.8.4,
+  `tauri-plugin-single-instance` 2.5.5, `tauri-plugin-log` 2.10.2
+* Urheber: The Tauri Programme within The Commons Conservancy und Mitwirkende
+* Lizenz: wahlweise **MIT** oder **Apache-2.0** (gewaehlt: MIT)
+* Bezugsquelle: https://tauri.app — https://github.com/tauri-apps/tauri
+* Weitere Rust-Bibliotheken in der EXE (vollstaendig in
+  `oberflaeche/src-tauri/Cargo.lock`): ganz ueberwiegend MIT und/oder
+  Apache-2.0, daneben Unicode-3.0, Zlib, BSD-3-Clause, 0BSD, CC0-1.0 und
+  Unlicense — alles freizuegige Lizenzen ohne Offenlegungspflicht, verlangt
+  wird nur der Urheberhinweis (dieser Text). Darunter u. a. `windows-sys`
+  (Microsoft, MIT oder Apache-2.0), `webview2-com` (MIT), `serde`,
+  `serde_json`, `log`, `time`, `base64`, `getrandom` (je MIT oder Apache-2.0).
+* **MPL-2.0** (dateibezogenes Copyleft): `cssparser`, `cssparser-macros`,
+  `selectors`, `dtoa-short` (ueber `tauri-utils`) und `option-ext` (ueber
+  `dirs`). Sie werden **unveraendert** von crates.io uebernommen; ihr
+  Quelltext ist dort in genau der Fassung aus `Cargo.lock` oeffentlich
+  erhaeltlich. Werden sie je veraendert, muessen die geaenderten Dateien
+  offengelegt werden — der uebrige Code nicht.
+* Rust-Standardbibliothek: MIT oder Apache-2.0.
+
+### Microsoft Edge WebView2 — wird nicht mitgeliefert
+
+Das Fenster zeigt die Oberflaeche mit der WebView2-Laufzeit von Microsoft an.
+Sie ist unter Windows 10 und 11 Bestandteil des Systems (Evergreen Runtime)
+und wird **weder** in die EXE noch in den Installer gepackt. Es gelten die
+Bedingungen von Microsoft zwischen Microsoft und dem Anwender. Fehlt sie auf
+einem Rechner ausnahmsweise, laesst sie sich kostenlos von Microsoft
+installieren: https://developer.microsoft.com/microsoft-edge/webview2/
+
+### Der Dienst `dienst\vermerk-dienst.exe` (ab 0.6.0)
+
+Der Dienst ist wie die bisherige EXE ein PyInstaller-Build (One-Directory,
+siehe unten) und enthaelt **kein** Qt. Zusaetzlich zu den oben genannten
+Paketen (python-docx, sounddevice, keyring, pyserial, truststore, lxml …):
+
+| Paket | Fassung | Lizenz |
+|---|---|---|
+| FastAPI | 0.165.0 | MIT |
+| Starlette | 1.10.0 | BSD-3-Clause |
+| uvicorn | 0.54.0 | BSD-3-Clause |
+| h11 | 0.16.0 | MIT |
+| anyio | 4.16.0 | MIT |
+| click | 8.5.1 | BSD-3-Clause |
+| pydantic / pydantic-core | 2.14.4 / 2.50.5 | MIT |
+| python-multipart | 0.0.34 | Apache-2.0 |
+| ReportLab (PDF-Export) | 5.1.0 | BSD-3-Clause |
+| Pillow (von ReportLab benutzt) | 13.0.0 | MIT-CMU (HPND) |
+
+Die genauen Fassungen eines Builds stehen in `uv.lock`.
+
 ### PyInstaller (6.22.3) — nur der Startlader
 
 * Lizenz: GPL-2.0 **mit Ausnahmeregelung**
