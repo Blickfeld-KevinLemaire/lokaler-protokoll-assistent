@@ -76,7 +76,8 @@ EMPFANGSORDNER = ".empfang"
 ERLAUBTE_ENDUNGEN = (".opus", ".ogg", ".wav", ".mp3")
 
 _DATEINAME = re.compile(r"^[A-Za-z0-9_-]{1,64}\.(?:opus|ogg|wav|mp3)$", re.IGNORECASE)
-_GERAETENAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$")
+# Buchstaben (auch Umlaute), Ziffern, Leerzeichen, "_" und "-"; vorn und hinten ein Buchstabe oder eine Ziffer.
+_GERAETENAME = re.compile(r"^[^\W_](?:[\w \-]*[^\W_])?$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _GERAETE_ID = re.compile(r"^[0-9a-f]{12}$")
 _FIRMWARE = re.compile(r"^[A-Za-z0-9._/+-]{1,64}$")
@@ -106,9 +107,11 @@ def token_hash(token: str) -> str:
 
 
 def geraetename_gueltig(name: str) -> bool:
-    """Buchstaben, Ziffern, ``_`` und ``-``, hoechstens 32 Zeichen. Der Name
-    steht spaeter vorn im Dateinamen jeder Aufnahme dieses Geraets."""
-    return bool(_GERAETENAME.match(name))
+    """Buchstaben (auch Umlaute), Ziffern, Leerzeichen, ``_`` und ``-``, hoechstens 32 Zeichen. Der Name
+    steht spaeter vorn im Dateinamen jeder Aufnahme dieses Geraets -- deshalb keine Zeichen, die in Dateinamen
+    stoeren (``/ \\ : * ? " < > |``), und kein Leerzeichen am Anfang oder Ende. Das Geraet selbst kennt den Namen
+    nicht (er haengt am Token), die Firmware ist davon also nicht betroffen."""
+    return len(name) <= 32 and bool(_GERAETENAME.match(name))
 
 
 def dateiname_gueltig(name: str) -> bool:

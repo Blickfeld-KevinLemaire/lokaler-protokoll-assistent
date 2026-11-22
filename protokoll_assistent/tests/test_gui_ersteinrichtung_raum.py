@@ -226,7 +226,7 @@ def test_bei_mehreren_adressen_laesst_sich_die_richtige_eintragen(qt_widgets, ko
 @pytest.mark.parametrize(
     ("name", "wlan", "passwort", "meldung"),
     [
-        ("mit leerzeichen", "Buero", "geheim123", "Name"),
+        ("mit/schraegstrich", "Buero", "geheim123", "Name"),
         ("C6-Lager", "Buero", "geheim123", "anderes Gerät heißt"),
         ("S3-Neu", "", "geheim123", "WLAN-Name"),
         ("S3-Neu", "Buero", "kurz", "Passwort"),

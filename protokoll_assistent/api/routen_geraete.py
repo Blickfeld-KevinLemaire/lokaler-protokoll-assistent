@@ -69,7 +69,7 @@ def anlegen(daten: modelle.GeraetAnlegen, d: Dienste = Depends(dienste), _a: Ang
     if not geraete_empfang_service.geraetename_gueltig(name):
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
-            "Erlaubt sind Buchstaben, Ziffern, „_“ und „-“, höchstens 32 Zeichen, ohne Leerzeichen.",
+            "Gerätename: Buchstaben, Ziffern, Leerzeichen, „_“ und „-“, höchstens 32 Zeichen.",
         )
     konfig = d.steuerung.konfiguration()
     geraete = [dict(e) for e in konfig.get("geraete_empfang_geraete") or [] if isinstance(e, dict)]

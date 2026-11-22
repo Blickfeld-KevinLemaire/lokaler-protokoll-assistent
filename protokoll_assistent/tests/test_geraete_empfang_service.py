@@ -81,7 +81,7 @@ def test_geraete_aus_text():
     ("text", "meldung"),
     [
         ("S3-Audio", "Name:SHA256"),
-        ("S3 Audio:" + "a" * 64, "Name:SHA256"),
+        ("S3/Audio:" + "a" * 64, "Name:SHA256"),
         ("S3:abc", "SHA-256"),
         ("S3:" + "a" * 64 + ",s3:" + "b" * 64, "mehrfach"),
     ],
@@ -429,6 +429,27 @@ def test_upload_ueber_http_mit_wiederaufnahme(dienst):
     )
     assert status == 200 and antwort == {"naechstes_byte": 3000, "fertig": True, "datei": "S3-Audio_H5_007.opus"}
     assert (dienst.ablage.ziel / "S3-Audio_H5_007.opus").read_bytes() == daten
+
+
+@pytest.mark.parametrize(
+    ("name", "gueltig"),
+    [
+        ("Raum-3", True),
+        ("Besprechungsraum 3", True),
+        ("Jens Büro", True),
+        ("A", True),
+        ("x" * 32, True),
+        ("x" * 33, False),
+        (" Raum", False),
+        ("Raum ", False),
+        ("_Raum", False),
+        ("Raum/3", False),
+        ("Raum:3", False),
+        ("", False),
+    ],
+)
+def test_geraetename_gueltig(name, gueltig):
+    assert empfang.geraetename_gueltig(name) is gueltig
 
 
 def test_geraetename_kommt_aus_dem_token(dienst):

@@ -158,7 +158,7 @@
           <input
             class="feld"
             maxlength="32"
-            placeholder="z. B. Raum-3"
+            placeholder="z. B. Besprechungsraum 3"
             disabled={schritt === 'einrichten'}
             bind:value={name}
           />

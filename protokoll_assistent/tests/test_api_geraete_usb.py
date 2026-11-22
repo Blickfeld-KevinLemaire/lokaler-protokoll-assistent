@@ -63,7 +63,7 @@ def test_erkennen_und_einrichten(umgebung: tuple[Umgebung, GeraetAttrappe]) -> N
 def test_einrichten_fehlerfaelle(umgebung: tuple[Umgebung, GeraetAttrappe], monkeypatch: pytest.MonkeyPatch) -> None:
     u, geraet = umgebung
     basis = {"port": "COM5", "wlan_ssid": "Buero", "wlan_passwort": "geheim123"}
-    assert u.client.post("/api/geraete/usb/einrichten", json={**basis, "name": "mit leer"}).status_code == 400
+    assert u.client.post("/api/geraete/usb/einrichten", json={**basis, "name": "mit/strich"}).status_code == 400
     assert u.client.post("/api/geraete/usb/einrichten", json={**basis, "name": "R", "wlan_passwort": "kurz"}).status_code in (400, 422)
     app_config.update_config(geraete_empfang_geraete=[{"name": "Raum-1", "token_sha256": "a" * 64, "geraete_id": "anderes"}])
     assert u.client.post("/api/geraete/usb/einrichten", json={**basis, "name": "Raum-1"}).status_code == 409

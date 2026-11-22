@@ -612,7 +612,7 @@ def test_token_erzeugen_zeigt_token_und_hash(capsys):
 
 
 def test_token_erzeugen_prueft_den_namen(capsys):
-    assert main(["--token-erzeugen", "S3 Audio"], {}) == 2
+    assert main(["--token-erzeugen", "S3/Audio"], {}) == 2
     assert "kein gueltiger Geraetename" in capsys.readouterr().err
 
 

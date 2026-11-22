@@ -78,7 +78,7 @@ def test_anbieter_vorlagen_und_systemprompt(umgebung: Umgebung, monkeypatch: pyt
 # ---------------------------------------------------------------- Geraete
 def test_geraete_anlegen_zeigt_token_einmal(umgebung: Umgebung) -> None:
     client = umgebung.client
-    assert client.post("/api/geraete", json={"name": "mit leerzeichen"}).status_code == 400
+    assert client.post("/api/geraete", json={"name": "mit/strich"}).status_code == 400
     neu = client.post("/api/geraete", json={"name": "Raum-1"}).json()
     assert neu["token"] and neu["token"] in neu["konfiguration"]
     assert client.post("/api/geraete", json={"name": "raum-1"}).status_code == 409
@@ -190,7 +190,7 @@ def test_desktop_schluessel(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
 
 def test_zugang_und_nutzer_anlegen(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     eigene_konfiguration(monkeypatch, tmp_path)
-    assert start.main(["zugang-anlegen", "mit leerzeichen"]) == 2
+    assert start.main(["zugang-anlegen", "mit/strich"]) == 2
     assert start.main(["zugang-anlegen", "Laptop"]) == 0
     schluessel = capsys.readouterr().out.strip().splitlines()[-1]
     eintrag = app_config.load_config()["server_zugaenge"][0]

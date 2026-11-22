@@ -88,7 +88,7 @@ def einrichten(daten: UsbEinrichten, d: Dienste = Depends(nur_desktop), _a: Ange
     a = automatik(d)
     name = daten.name.strip()
     if not geraete_empfang_service.geraetename_gueltig(name):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Name: Buchstaben, Ziffern, „_“ und „-“, höchstens 32 Zeichen.")
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Gerätename: Buchstaben, Ziffern, Leerzeichen, „_“ und „-“, höchstens 32 Zeichen.")
     konfig = d.steuerung.konfiguration()
     port_empfang = int(konfig.get("geraete_empfang_port") or geraete_empfang_service.STANDARD_PORT)
     pc_url = daten.pc_url.strip() or next(iter(basis_urls(port_empfang)), "")

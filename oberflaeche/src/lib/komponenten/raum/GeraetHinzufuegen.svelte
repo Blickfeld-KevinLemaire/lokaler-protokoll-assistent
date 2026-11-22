@@ -52,7 +52,7 @@
           class="feld"
           maxlength="32"
           pattern="[A-Za-z0-9_\-]+"
-          placeholder="z. B. Raum-3"
+          placeholder="z. B. Besprechungsraum 3"
           autofocus
           bind:value={name}
         />

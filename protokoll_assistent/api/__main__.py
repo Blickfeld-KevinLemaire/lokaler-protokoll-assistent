@@ -351,7 +351,7 @@ def zugang_anlegen(name: str) -> int:
 
     name = name.strip()
     if not geraete_empfang_service.geraetename_gueltig(name):
-        print("Name: Buchstaben, Ziffern, _ und -, höchstens 32 Zeichen.", file=sys.stderr)
+        print("Gerätename: Buchstaben, Ziffern, Leerzeichen, „_“ und „-“, höchstens 32 Zeichen.", file=sys.stderr)
         return 2
     konfig = app_config.load_config()
     zugaenge = [dict(z) for z in konfig.get("server_zugaenge") or [] if isinstance(z, dict) and z.get("name") != name]

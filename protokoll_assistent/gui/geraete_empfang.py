@@ -442,7 +442,7 @@ class GeraeteSeite(QWidget):
             QMessageBox.warning(
                 self,
                 "Gerät hinzufügen",
-                "Erlaubt sind Buchstaben, Ziffern, „_“ und „-“, höchstens 32 Zeichen, ohne Leerzeichen.",
+                "Erlaubt sind Buchstaben, Ziffern, Leerzeichen, „_“ und „-“, höchstens 32 Zeichen.",
             )
             return
         if any(str(e.get("name", "")).lower() == name.lower() for e in self._geraete):

@@ -191,7 +191,7 @@ def test_geraet_hinzufuegen_zeigt_token_einmal_und_speichert_nur_den_hash(seite,
     assert seite.tabelle.rowCount() == 2 and seite.tabelle.item(1, 2).text() == "–"
 
 
-@pytest.mark.parametrize(("name", "warnung"), [("S3 mit Leerzeichen", "Erlaubt"), ("s3", "gibt es schon")])
+@pytest.mark.parametrize(("name", "warnung"), [("S3/Flur", "Erlaubt"), ("s3", "gibt es schon")])
 def test_ungueltiger_oder_doppelter_name_wird_abgelehnt(seite, monkeypatch, name, warnung):
     warnungen: list[str] = []
     monkeypatch.setattr(seite, "_name_erfragen", lambda: name)

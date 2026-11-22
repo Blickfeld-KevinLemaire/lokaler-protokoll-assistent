@@ -413,7 +413,7 @@ class VermerkRaumSeite(QWidget):
             return
         name = self.name_edit.text().strip()
         if not geraete_empfang_service.geraetename_gueltig(name):
-            self.status_label.setText("❌ Name: Buchstaben, Ziffern, „_“ und „-“, höchstens 32 Zeichen, ohne Leerzeichen.")
+            self.status_label.setText("❌ Name: Buchstaben, Ziffern, Leerzeichen, „_“ und „-“, höchstens 32 Zeichen.")
             return
         if any(
             str(e.get("name", "")).lower() == name.lower() and e.get("geraete_id") != info.geraete_id
