@@ -151,6 +151,36 @@ eigener Schritt mit Firmware-Änderung.
 Erster Admin im Container: `python -m protokoll_assistent.api nutzer-anlegen <Name> --admin`
 (gibt einen Zugangsschlüssel einmal aus) oder vorübergehend `VERMERK_ZUGANG` setzen.
 
+## Ersteinrichtung
+
+Nur in der Windows-Anwendung (Rolle `desktop`, sonst 403); Endpunkte in
+`api/routen_einrichtung.py`, Datenformen `Einrichtung*` in `api/modelle.py`.
+Die Seiten führt die Oberfläche selbst; der Dienst liefert Zahlen und schreibt
+dieselben Einstellungen wie der alte Assistent (`gui/ersteinrichtung.py`).
+Grundregel: **Nichts wird ohne `zustimmung: true` im Aufruf geladen.**
+
+| Seite | Endpunkt | Was er tut |
+|---|---|---|
+| Start | `GET /api/einrichtung/stand` | `einrichtung_abgeschlossen`, `naechster_schritt` (`willkommen` / `neustart` / `mitschrift` / `fertig`), Arbeitsweise, `vorhanden`, `offen` (fehlende Bausteine), `neustart_noetig`, laufende Einrichtungsaufträge. Lädt nichts. |
+| Willkommen | – | reiner Text |
+| VERMERK Raum (optional) | `POST /api/geraete`, `PATCH /api/einstellungen {"geraete_empfang_aktiv": true}` | Gerät anlegen, Token einmal anzeigen. Das Beschreiben des Geräts per USB gibt es (noch) nicht über die Schnittstelle. |
+| Ihr Computer | `GET /api/einrichtung/rechner[?neu=true]` | Hardware, je Schritt (`mitschrift`, `sprecher`, `protokoll`, `chat`) Stufe `gut`/`maessig`/`nicht` mit `dauer_von`/`dauer_bis` in `einheit` und `ort`, Empfehlung `lokal`/`gemischt`/`api`/`null`, machbare Modelle mit `empfohlen`. Einmal je Dienst ermittelt. |
+| Arbeitsweise | `POST /api/einrichtung/entscheidung` | `{transkription, nachbearbeitung, chatbot: "lokal"\|"api", sprachmodell?, whisper_modell?, zustimmung_rechenumgebung}`. Ein Online-Dienst wird nie vorausgewählt. |
+| Online-Dienst | `POST /api/einrichtung/anbieter` | `{bereich, anbieter, endpunkt?, modell?, schluessel?, merken}` – trägt Adresse und Modell des Anbieters ein (Liste: `GET /api/einstellungen/anbieter`). |
+| Was nötig ist | `GET /api/einrichtung/kosten[?transkription=…&nachbearbeitung=…&chatbot=…]` | Bausteine mit Download/Platz in GB, Summe, Downloaddauer bei 50 Mbit/s, `platz_knapp`, `zustimmung_noetig`, Ollama-Lizenzlinks. Mit Parametern nur Vorschau. |
+| Einrichtung | `POST /api/einrichtung/ffmpeg`, `/ollama`, `/modelle` | Aufträge (`einrichtung_ffmpeg`/`_ollama`/`_modelle`, Vorrang −5); Fortschritt wie bei jedem Auftrag über `/api/ereignisse`. Ollama: vom Hersteller laden, Signatur „Ollama Inc." prüfen, still installieren, Dienst starten (nie mitgeliefert). Ein zweiter Aufruf liefert den laufenden Auftrag. |
+| Mitschrift | `POST /api/einrichtung/modelle {whisper, sprechertrennung, hf_token?}` | Whisper und pyannote – nur, wenn der Dienst schon in der Rechenumgebung läuft (sonst 409). `angaben.teile` zeigt, was einzeln gelang. |
+| Fertig | `POST /api/einrichtung/abschliessen` | `einrichtung_abgeschlossen`; Antwort wie `stand` mit `neustart_noetig` und `online_ohne_anbieter`. |
+| „Später" | `POST /api/einrichtung/spaeter {nicht_mehr_fragen}` | bricht wartende Einrichtungsaufträge ab; mit `nicht_mehr_fragen` gilt die Einrichtung als abgeschlossen, ohne Zustimmung wird die Rechenumgebung zurückgestellt. |
+
+**Rechenumgebung und Neustart.** PyTorch & Co. richtet `bootstrap.py` beim
+nächsten Start des Dienstes ein – nur mit Zustimmung (`entscheidung` mit
+`zustimmung_rechenumgebung: true` setzt `einrichtung_fortsetzen="transkription"`;
+ohne Zustimmung `lokale_einrichtung_zurueckgestellt=true`). Steht in einer
+Antwort `neustart_noetig: true`, sagt die Oberfläche „Die App startet kurz neu";
+den Dienst neu zu starten ist Sache des Fensters. Danach meldet `stand`
+`naechster_schritt: "mitschrift"`.
+
 ## Was bewusst so bleibt
 * Die Geräteschnittstelle (`GERAETE-SCHNITTSTELLE.md`, Port 8765) ändert sich
   nicht – die Firmware verlässt sich Byte für Byte darauf.

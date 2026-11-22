@@ -1292,6 +1292,440 @@
         }
       }
     },
+    "/api/einrichtung/stand": {
+      "get": {
+        "tags": [
+          "einrichtung"
+        ],
+        "summary": "Stand",
+        "description": "Wo die Einrichtung steht: abgeschlossen?, naechster Schritt, Arbeitsweise, was schon da ist und was fuer\ndie gewaehlte Arbeitsweise noch fehlt, laufende Einrichtungsauftraege. Laedt nichts.",
+        "operationId": "stand_api_einrichtung_stand_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EinrichtungStand"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/einrichtung/rechner": {
+      "get": {
+        "tags": [
+          "einrichtung"
+        ],
+        "summary": "Rechner",
+        "description": "Seite \"Ihr Computer\": Hardware, je Arbeitsschritt \"gut / maessig / nicht\" mit Dauer als Zahlen, die\nEmpfehlung (lokal / gemischt / online / keine) und die Modelle, die hier laufen. Laedt nichts.",
+        "operationId": "rechner_api_einrichtung_rechner_get",
+        "parameters": [
+          {
+            "name": "neu",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Neu"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EinrichtungRechner"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/einrichtung/kosten": {
+      "get": {
+        "tags": [
+          "einrichtung"
+        ],
+        "summary": "Kosten",
+        "description": "Seite \"Was noetig ist\": Bausteine mit Download und Platz (GB), Summe, ungefaehre Downloaddauer. Ohne\nAngaben fuer die gespeicherte Arbeitsweise; mit ``transkription``/``nachbearbeitung``/``chatbot`` als\nVorschau, ohne etwas zu speichern.",
+        "operationId": "kosten_api_einrichtung_kosten_get",
+        "parameters": [
+          {
+            "name": "transkription",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "lokal",
+                    "api"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Transkription"
+            }
+          },
+          {
+            "name": "nachbearbeitung",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "lokal",
+                    "api"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Nachbearbeitung"
+            }
+          },
+          {
+            "name": "chatbot",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "lokal",
+                    "api"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Chatbot"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EinrichtungKosten"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/einrichtung/entscheidung": {
+      "post": {
+        "tags": [
+          "einrichtung"
+        ],
+        "summary": "Entscheidung",
+        "description": "Seite \"Arbeitsweise\" (und die Zustimmung zur Rechenumgebung von \"Was noetig ist\"). Schreibt dieselben\nEinstellungen wie der alte Assistent. Ein Online-Dienst wird nie von selbst gewaehlt -- das entscheidet der\nAufruf.",
+        "operationId": "entscheidung_api_einrichtung_entscheidung_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EinrichtungEntscheidung"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EinrichtungStand"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/einrichtung/ffmpeg": {
+      "post": {
+        "tags": [
+          "einrichtung"
+        ],
+        "summary": "Ffmpeg",
+        "description": "FFmpeg (liest Audio- und Videodateien) als portable Fassung laden -- nur, wenn es fehlt. Als Auftrag.",
+        "operationId": "ffmpeg_api_einrichtung_ffmpeg_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EinrichtungZustimmung"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Auftrag"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/einrichtung/ollama": {
+      "post": {
+        "tags": [
+          "einrichtung"
+        ],
+        "summary": "Ollama",
+        "description": "Ollama vom Hersteller laden, Signatur pruefen (\"Ollama Inc.\"), still fuer das eigene Konto installieren und\nden Dienst starten. Ist Ollama schon installiert, wird nur gestartet. Als Auftrag mit Fortschritt (Bytes).",
+        "operationId": "ollama_api_einrichtung_ollama_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EinrichtungZustimmung"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Auftrag"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/einrichtung/modelle": {
+      "post": {
+        "tags": [
+          "einrichtung"
+        ],
+        "summary": "Modelle Laden",
+        "description": "Seiten \"Einrichtung\" und \"Mitschrift\": Sprachmodelle (Ollama), Spracherkennung (Whisper) und\nSprechererkennung (pyannote) laden -- der Reihe nach, als ein Auftrag. Was einzeln gelang, steht waehrend\nund nach dem Lauf in ``angaben.teile``; scheitert etwas, endet der Auftrag mit ``fehler``.",
+        "operationId": "modelle_laden_api_einrichtung_modelle_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EinrichtungModelle"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Auftrag"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/einrichtung/anbieter": {
+      "post": {
+        "tags": [
+          "einrichtung"
+        ],
+        "summary": "Anbieter",
+        "description": "Online-Dienst fuer einen Bereich: traegt Adresse und Modell des Anbieters ein (wie die Auswahl in den\nEinstellungen) und legt auf Wunsch den Schluessel ab. Die Liste der Anbieter: ``GET /api/einstellungen/anbieter``.",
+        "operationId": "anbieter_api_einrichtung_anbieter_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EinrichtungAnbieter"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EinrichtungAnbieterErgebnis"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/einrichtung/spaeter": {
+      "post": {
+        "tags": [
+          "einrichtung"
+        ],
+        "summary": "Spaeter",
+        "description": "\"Spaeter einrichten\": Ohne ``nicht_mehr_fragen`` aendert sich nichts (die Einrichtung erscheint beim\nnaechsten Start wieder). Mit: gilt als abgeschlossen -- und ohne Zustimmung wird die Rechenumgebung\nzurueckgestellt, damit der naechste Start nichts ungefragt laedt.",
+        "operationId": "spaeter_api_einrichtung_spaeter_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EinrichtungSpaeter"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EinrichtungStand"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/einrichtung/abschliessen": {
+      "post": {
+        "tags": [
+          "einrichtung"
+        ],
+        "summary": "Abschliessen",
+        "description": "Seite \"Fertig\": Einrichtung abgeschlossen. ``neustart_noetig`` in der Antwort sagt, ob der Dienst fuer die\nlokale Mitschrift noch einmal starten muss (\"Die App startet kurz neu\"); ``online_ohne_anbieter``, wo noch\nAnbieter und Schluessel fehlen.",
+        "operationId": "abschliessen_api_einrichtung_abschliessen_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EinrichtungStand"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/geraete": {
       "get": {
         "tags": [
@@ -2663,6 +3097,808 @@
           "geaendert"
         ],
         "title": "EingangsDatei"
+      },
+      "EinrichtungAnbieter": {
+        "properties": {
+          "bereich": {
+            "type": "string",
+            "enum": [
+              "transkription",
+              "nachbearbeitung",
+              "chatbot"
+            ],
+            "title": "Bereich"
+          },
+          "anbieter": {
+            "type": "string",
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Anbieter",
+            "description": "Kennung aus /api/einstellungen/anbieter oder \"eigener\""
+          },
+          "endpunkt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Endpunkt"
+          },
+          "modell": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Modell"
+          },
+          "einbettung_endpunkt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Einbettung Endpunkt"
+          },
+          "einbettung_modell": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Einbettung Modell"
+          },
+          "schluessel": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 4096
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Schluessel"
+          },
+          "merken": {
+            "type": "boolean",
+            "title": "Merken",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "bereich",
+          "anbieter"
+        ],
+        "title": "EinrichtungAnbieter"
+      },
+      "EinrichtungAnbieterErgebnis": {
+        "properties": {
+          "bereich": {
+            "type": "string",
+            "title": "Bereich"
+          },
+          "anbieter": {
+            "type": "string",
+            "title": "Anbieter"
+          },
+          "endpunkt": {
+            "type": "string",
+            "title": "Endpunkt"
+          },
+          "modell": {
+            "type": "string",
+            "title": "Modell"
+          },
+          "adresse_vollstaendig": {
+            "type": "boolean",
+            "title": "Adresse Vollstaendig"
+          },
+          "schluessel_vorhanden": {
+            "type": "boolean",
+            "title": "Schluessel Vorhanden"
+          },
+          "gemerkt": {
+            "type": "boolean",
+            "title": "Gemerkt"
+          }
+        },
+        "type": "object",
+        "required": [
+          "bereich",
+          "anbieter",
+          "endpunkt",
+          "modell",
+          "adresse_vollstaendig",
+          "schluessel_vorhanden",
+          "gemerkt"
+        ],
+        "title": "EinrichtungAnbieterErgebnis"
+      },
+      "EinrichtungBaustein": {
+        "properties": {
+          "kennung": {
+            "type": "string",
+            "title": "Kennung",
+            "description": "\"ffmpeg\" | \"ollama\" | \"sprachmodell\" | \"einbettung\" | \"laufzeit\" | \"whisper\" | \"pyannote\""
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "download_gb": {
+            "type": "number",
+            "title": "Download Gb"
+          },
+          "platz_gb": {
+            "type": "number",
+            "title": "Platz Gb"
+          },
+          "hinweis": {
+            "type": "string",
+            "title": "Hinweis"
+          },
+          "vorhanden": {
+            "type": "boolean",
+            "title": "Vorhanden"
+          }
+        },
+        "type": "object",
+        "required": [
+          "kennung",
+          "name",
+          "download_gb",
+          "platz_gb",
+          "hinweis",
+          "vorhanden"
+        ],
+        "title": "EinrichtungBaustein"
+      },
+      "EinrichtungEntscheidung": {
+        "properties": {
+          "transkription": {
+            "type": "string",
+            "enum": [
+              "lokal",
+              "api"
+            ],
+            "title": "Transkription"
+          },
+          "nachbearbeitung": {
+            "type": "string",
+            "enum": [
+              "lokal",
+              "api"
+            ],
+            "title": "Nachbearbeitung"
+          },
+          "chatbot": {
+            "type": "string",
+            "enum": [
+              "lokal",
+              "api"
+            ],
+            "title": "Chatbot"
+          },
+          "sprachmodell": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sprachmodell",
+            "description": "Ollama-Modell fuer das Protokoll (aus /rechner)"
+          },
+          "whisper_modell": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Whisper Modell"
+          },
+          "zustimmung_rechenumgebung": {
+            "type": "boolean",
+            "title": "Zustimmung Rechenumgebung",
+            "description": "Zustimmung, die Rechenumgebung fuer die lokale Mitschrift beim naechsten Start zu laden",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "transkription",
+          "nachbearbeitung",
+          "chatbot"
+        ],
+        "title": "EinrichtungEntscheidung"
+      },
+      "EinrichtungKosten": {
+        "properties": {
+          "arbeitsweise": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Arbeitsweise"
+          },
+          "bausteine": {
+            "items": {
+              "$ref": "#/components/schemas/EinrichtungBaustein"
+            },
+            "type": "array",
+            "title": "Bausteine"
+          },
+          "download_gb": {
+            "type": "number",
+            "title": "Download Gb"
+          },
+          "platz_gb": {
+            "type": "number",
+            "title": "Platz Gb"
+          },
+          "download_minuten_von": {
+            "type": "number",
+            "title": "Download Minuten Von"
+          },
+          "download_minuten_bis": {
+            "type": "number",
+            "title": "Download Minuten Bis"
+          },
+          "annahme_mbit": {
+            "type": "integer",
+            "title": "Annahme Mbit"
+          },
+          "freier_platz_gb": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Freier Platz Gb"
+          },
+          "platz_knapp": {
+            "type": "boolean",
+            "title": "Platz Knapp"
+          },
+          "zustimmung_noetig": {
+            "type": "boolean",
+            "title": "Zustimmung Noetig"
+          },
+          "neustart_noetig": {
+            "type": "boolean",
+            "title": "Neustart Noetig"
+          },
+          "ollama_lizenz": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ollama Lizenz"
+          }
+        },
+        "type": "object",
+        "required": [
+          "arbeitsweise",
+          "bausteine",
+          "download_gb",
+          "platz_gb",
+          "download_minuten_von",
+          "download_minuten_bis",
+          "annahme_mbit",
+          "freier_platz_gb",
+          "platz_knapp",
+          "zustimmung_noetig",
+          "neustart_noetig",
+          "ollama_lizenz"
+        ],
+        "title": "EinrichtungKosten"
+      },
+      "EinrichtungModell": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "groesse_gb": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Groesse Gb"
+          },
+          "stufe": {
+            "type": "string",
+            "title": "Stufe"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "auf_grafikkarte": {
+            "type": "boolean",
+            "title": "Auf Grafikkarte"
+          },
+          "empfohlen": {
+            "type": "boolean",
+            "title": "Empfohlen"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "stufe",
+          "text",
+          "auf_grafikkarte",
+          "empfohlen"
+        ],
+        "title": "EinrichtungModell"
+      },
+      "EinrichtungModelle": {
+        "properties": {
+          "zustimmung": {
+            "type": "boolean",
+            "title": "Zustimmung",
+            "description": "Ausdrueckliche Zustimmung zum Herunterladen; ohne sie wird nichts geladen"
+          },
+          "sprachmodelle": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "maxItems": 10
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sprachmodelle",
+            "description": "Ollama-Modelle; ohne Angabe: was die Arbeitsweise braucht und fehlt"
+          },
+          "whisper": {
+            "type": "boolean",
+            "title": "Whisper",
+            "default": false
+          },
+          "whisper_modell": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Whisper Modell",
+            "description": "ohne Angabe: das eingestellte"
+          },
+          "sprechertrennung": {
+            "type": "boolean",
+            "title": "Sprechertrennung",
+            "default": false
+          },
+          "hf_token": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 512
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hf Token",
+            "description": "Zugang zu Hugging Face (wird nie zurueckgegeben)"
+          },
+          "hf_token_merken": {
+            "type": "boolean",
+            "title": "Hf Token Merken",
+            "default": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "zustimmung"
+        ],
+        "title": "EinrichtungModelle"
+      },
+      "EinrichtungRechner": {
+        "properties": {
+          "profil": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Profil"
+          },
+          "schritte": {
+            "items": {
+              "$ref": "#/components/schemas/EinrichtungSchritt"
+            },
+            "type": "array",
+            "title": "Schritte"
+          },
+          "empfehlung": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Empfehlung",
+            "description": "\"lokal\" | \"gemischt\" | \"api\" | null (Anwender entscheidet)"
+          },
+          "begruendung": {
+            "type": "string",
+            "title": "Begruendung"
+          },
+          "hinweise": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Hinweise"
+          },
+          "empfohlene_modelle": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "object",
+            "title": "Empfohlene Modelle"
+          },
+          "whisper_modelle": {
+            "items": {
+              "$ref": "#/components/schemas/EinrichtungModell"
+            },
+            "type": "array",
+            "title": "Whisper Modelle"
+          },
+          "sprachmodelle": {
+            "items": {
+              "$ref": "#/components/schemas/EinrichtungModell"
+            },
+            "type": "array",
+            "title": "Sprachmodelle"
+          },
+          "einbettungsmodelle": {
+            "items": {
+              "$ref": "#/components/schemas/EinrichtungModell"
+            },
+            "type": "array",
+            "title": "Einbettungsmodelle"
+          }
+        },
+        "type": "object",
+        "required": [
+          "profil",
+          "schritte",
+          "empfehlung",
+          "begruendung",
+          "hinweise",
+          "empfohlene_modelle",
+          "whisper_modelle",
+          "sprachmodelle",
+          "einbettungsmodelle"
+        ],
+        "title": "EinrichtungRechner"
+      },
+      "EinrichtungSchritt": {
+        "properties": {
+          "kennung": {
+            "type": "string",
+            "title": "Kennung",
+            "description": "\"mitschrift\" | \"sprecher\" | \"protokoll\" | \"chat\""
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "stufe": {
+            "type": "string",
+            "title": "Stufe",
+            "description": "\"gut\" | \"maessig\" | \"nicht\""
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "dauer_von": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dauer Von"
+          },
+          "dauer_bis": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dauer Bis"
+          },
+          "einheit": {
+            "type": "string",
+            "title": "Einheit",
+            "description": "\"minuten_je_stunde_aufnahme\" | \"sekunden_je_frage\" | \"\"",
+            "default": ""
+          },
+          "ort": {
+            "type": "string",
+            "title": "Ort",
+            "description": "\"Grafikkarte\" | \"Prozessor\" | \"\"",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "kennung",
+          "name",
+          "stufe",
+          "text"
+        ],
+        "title": "EinrichtungSchritt"
+      },
+      "EinrichtungSpaeter": {
+        "properties": {
+          "nicht_mehr_fragen": {
+            "type": "boolean",
+            "title": "Nicht Mehr Fragen",
+            "default": false
+          }
+        },
+        "type": "object",
+        "title": "EinrichtungSpaeter"
+      },
+      "EinrichtungStand": {
+        "properties": {
+          "einrichtung_abgeschlossen": {
+            "type": "boolean",
+            "title": "Einrichtung Abgeschlossen"
+          },
+          "naechster_schritt": {
+            "type": "string",
+            "title": "Naechster Schritt",
+            "description": "\"willkommen\" | \"neustart\" | \"mitschrift\" | \"fertig\""
+          },
+          "einrichtung_fortsetzen": {
+            "type": "string",
+            "title": "Einrichtung Fortsetzen"
+          },
+          "lokale_einrichtung_zurueckgestellt": {
+            "type": "boolean",
+            "title": "Lokale Einrichtung Zurueckgestellt"
+          },
+          "arbeitsweise": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Arbeitsweise",
+            "description": "{\"transkription\", \"nachbearbeitung\", \"chatbot\"} -> \"lokal\" | \"api\""
+          },
+          "modelle": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Modelle"
+          },
+          "vorhanden": {
+            "$ref": "#/components/schemas/EinrichtungVorhanden"
+          },
+          "offen": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Offen",
+            "description": "Kennungen der Bausteine (wie in /kosten), die fuer die Arbeitsweise noch fehlen"
+          },
+          "rechenumgebung_fehlt": {
+            "type": "boolean",
+            "title": "Rechenumgebung Fehlt"
+          },
+          "neustart_noetig": {
+            "type": "boolean",
+            "title": "Neustart Noetig",
+            "description": "Der Dienst muss einmal neu starten (\"Die App startet kurz neu\")"
+          },
+          "online_ohne_anbieter": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Online Ohne Anbieter"
+          },
+          "geraete": {
+            "type": "integer",
+            "title": "Geraete"
+          },
+          "geraete_empfang_aktiv": {
+            "type": "boolean",
+            "title": "Geraete Empfang Aktiv"
+          },
+          "auftraege": {
+            "items": {
+              "$ref": "#/components/schemas/Auftrag"
+            },
+            "type": "array",
+            "title": "Auftraege"
+          }
+        },
+        "type": "object",
+        "required": [
+          "einrichtung_abgeschlossen",
+          "naechster_schritt",
+          "einrichtung_fortsetzen",
+          "lokale_einrichtung_zurueckgestellt",
+          "arbeitsweise",
+          "modelle",
+          "vorhanden",
+          "offen",
+          "rechenumgebung_fehlt",
+          "neustart_noetig",
+          "online_ohne_anbieter",
+          "geraete",
+          "geraete_empfang_aktiv",
+          "auftraege"
+        ],
+        "title": "EinrichtungStand"
+      },
+      "EinrichtungVorhanden": {
+        "properties": {
+          "ffmpeg": {
+            "type": "boolean",
+            "title": "Ffmpeg"
+          },
+          "ollama": {
+            "type": "boolean",
+            "title": "Ollama"
+          },
+          "ollama_laeuft": {
+            "type": "boolean",
+            "title": "Ollama Laeuft"
+          },
+          "ollama_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ollama Version"
+          },
+          "ollama_modelle": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Ollama Modelle",
+            "default": []
+          },
+          "laufzeit": {
+            "type": "boolean",
+            "title": "Laufzeit",
+            "description": "Rechenumgebung (PyTorch & Co.) liegt auf der Platte"
+          },
+          "laufzeit_aktiv": {
+            "type": "boolean",
+            "title": "Laufzeit Aktiv",
+            "description": "Dieser Dienst laeuft schon in der Rechenumgebung"
+          },
+          "sprachmodell": {
+            "type": "boolean",
+            "title": "Sprachmodell"
+          },
+          "einbettung": {
+            "type": "boolean",
+            "title": "Einbettung"
+          },
+          "whisper": {
+            "type": "boolean",
+            "title": "Whisper"
+          },
+          "pyannote": {
+            "type": "boolean",
+            "title": "Pyannote"
+          },
+          "hf_token": {
+            "type": "boolean",
+            "title": "Hf Token"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ffmpeg",
+          "ollama",
+          "ollama_laeuft",
+          "laufzeit",
+          "laufzeit_aktiv",
+          "sprachmodell",
+          "einbettung",
+          "whisper",
+          "pyannote",
+          "hf_token"
+        ],
+        "title": "EinrichtungVorhanden",
+        "description": "Was schon auf diesem Rechner ist (gefragt werden nur Platte, Registry und der lokale Ollama-Dienst)."
+      },
+      "EinrichtungZustimmung": {
+        "properties": {
+          "zustimmung": {
+            "type": "boolean",
+            "title": "Zustimmung",
+            "description": "Ausdrueckliche Zustimmung zum Herunterladen; ohne sie wird nichts geladen"
+          }
+        },
+        "type": "object",
+        "required": [
+          "zustimmung"
+        ],
+        "title": "EinrichtungZustimmung"
       },
       "ExportAnfrage": {
         "properties": {
