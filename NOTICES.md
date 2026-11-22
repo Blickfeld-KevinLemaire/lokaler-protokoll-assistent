@@ -156,6 +156,23 @@ Bedingungen von Microsoft zwischen Microsoft und dem Anwender. Fehlt sie auf
 einem Rechner ausnahmsweise, laesst sie sich kostenlos von Microsoft
 installieren: https://developer.microsoft.com/microsoft-edge/webview2/
 
+### Die Oberflaeche (ab 0.6.0)
+
+Die Oberflaeche ist mit SvelteKit gebaut und wird als fertige Webseite
+(HTML/JS/CSS) in `VERMERK.exe` bzw. im Dienst mitgeliefert. Darin enthalten:
+
+| Paket | Lizenz |
+|---|---|
+| Svelte / SvelteKit | MIT |
+| Lucide-Symbole (`@lucide/svelte`) | ISC |
+| marked (Markdown) | MIT |
+| DOMPurify | Apache-2.0 oder MPL-2.0 (Wahl: Apache-2.0) |
+| `@tauri-apps/api`, `@tauri-apps/plugin-dialog` | MIT oder Apache-2.0 |
+
+Die genauen Fassungen stehen in `oberflaeche/package-lock.json`. Entwicklungs-
+werkzeuge (Vite, TypeScript, Vitest, Playwright, eslint, prettier …) werden
+nicht ausgeliefert.
+
 ### Der Dienst `dienst\vermerk-dienst.exe` (ab 0.6.0)
 
 Der Dienst ist wie die bisherige EXE ein PyInstaller-Build (One-Directory,

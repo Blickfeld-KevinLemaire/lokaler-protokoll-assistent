@@ -111,10 +111,10 @@ class Steuerung:
         basis = get_recordings_dir()
         return basis / NUTZER_ORDNER / besitzer if self.mehrbenutzer and besitzer else basis
 
-    def hinweis(self, text: str, *, stufe: str = "info", quelle: str = "", code: str = "") -> None:
+    def hinweis(self, text: str, *, stufe: str = "info", quelle: str = "", code: str = "", bereich: str = "") -> None:
         """Eine Meldung fuer die Oberflaeche, die zu keinem Auftrag gehoert. ``code`` sagt der Oberflaeche,
         worum es geht (z. B. ``modell_fehlt``, ``ki_nicht_erreichbar``, ``port_belegt``)."""
-        self.bus.senden("hinweis", {"text": text, "stufe": stufe, "quelle": quelle, "code": code})
+        self.bus.senden("hinweis", {"text": text, "stufe": stufe, "quelle": quelle, "code": code, "bereich": bereich})
 
     # ------------------------------------------------------------------
     # Transkription
@@ -157,7 +157,7 @@ class Steuerung:
                         besitzer=besitzer,
                     )
                 except Ablauffehler as fehler:
-                    self.hinweis(f"{fehler.titel}: {fehler.text}", stufe="fehler", code=fehler.code)
+                    self.hinweis(f"{fehler.titel}: {fehler.text}", stufe="fehler", code=fehler.code, bereich=fehler.bereich)
             if nach_ende is not None:
                 nach_ende(auftrag)
 

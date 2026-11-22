@@ -562,3 +562,14 @@ def test_nach_dem_neustart_weiter_mit_der_mitschrift(umgebung: Umgebung) -> None
     assert stand["naechster_schritt"] == "mitschrift" and stand["neustart_noetig"] is False
     stand = umgebung.client.post("/api/einrichtung/abschliessen").json()
     assert app_config.load_config()["einrichtung_fortsetzen"] == "" and stand["rechenumgebung_fehlt"] is False
+
+
+def test_naechster_schritt_nach_spaetem_neustart() -> None:
+    """Abgeschlossen, aber der zugestimmte Neustart kam erst spaeter: Danach wird die Mitschrift noch angeboten."""
+    fortsetzen = {"einrichtung_fortsetzen": routen_einrichtung.FORTSETZEN_TRANSKRIPTION, "einrichtung_abgeschlossen": True}
+    assert routen_einrichtung._naechster_schritt(fortsetzen, {"laufzeit_aktiv": True}) == "mitschrift"
+    assert routen_einrichtung._naechster_schritt(fortsetzen, {"laufzeit_aktiv": False}) == "fertig"
+    offen = {"einrichtung_fortsetzen": routen_einrichtung.FORTSETZEN_TRANSKRIPTION}
+    assert routen_einrichtung._naechster_schritt(offen, {"laufzeit_aktiv": False}) == "neustart"
+    assert routen_einrichtung._naechster_schritt({"einrichtung_abgeschlossen": True}, {"laufzeit_aktiv": True}) == "fertig"
+    assert routen_einrichtung._naechster_schritt({}, {"laufzeit_aktiv": False}) == "willkommen"

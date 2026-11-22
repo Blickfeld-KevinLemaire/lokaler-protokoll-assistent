@@ -345,7 +345,7 @@ class GeraeteAutomatik:
             )
         except Ablauffehler as fehler:
             self.status.setze(geraet, datei, live_service.FEHLER, None, f"Verarbeitung nicht möglich: {fehler.titel}")
-            self.steuerung.hinweis(f"{fehler.titel}: {fehler.text}", stufe="fehler", quelle=geraet, code=fehler.code)
+            self.steuerung.hinweis(f"{fehler.titel}: {fehler.text}", stufe="fehler", quelle=geraet, code=fehler.code, bereich=fehler.bereich)
             return None
 
     def _spiegel(self, geraet: str, datei: str, zustand: str) -> Callable[[str, float | None, str], None]:
@@ -409,7 +409,7 @@ class GeraeteAutomatik:
             )
         except Ablauffehler as fehler:
             self._abschliessen(geraet, datei, pfad, live_service.FEHLER, f"Auswertung nicht möglich: {fehler.titel}")
-            self.steuerung.hinweis(f"{fehler.titel}: {fehler.text}", stufe="fehler", quelle=geraet, code=fehler.code)
+            self.steuerung.hinweis(f"{fehler.titel}: {fehler.text}", stufe="fehler", quelle=geraet, code=fehler.code, bereich=fehler.bereich)
             return None
 
     def _auswertung_beendet(self, auftrag: Auftrag, pfad: Path, geraet: str, datei: str, rueckfrage: bool) -> None:

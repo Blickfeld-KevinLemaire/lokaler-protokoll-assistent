@@ -2216,6 +2216,10 @@ export interface components {
       empfang: {
         [key: string]: unknown;
       } | null;
+      /** Aufnahme */
+      aufnahme?: {
+        [key: string]: unknown;
+      } | null;
       /** Freigaben */
       freigaben: {
         [key: string]: string;

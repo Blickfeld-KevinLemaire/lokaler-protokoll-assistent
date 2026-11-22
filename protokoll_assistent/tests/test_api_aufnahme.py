@@ -170,3 +170,10 @@ def test_nicht_im_servermodus_und_nicht_ohne_steuerung(tmp_path: Path, monkeypat
     server = app_bauen(tmp_path, rolle=ROLLE_SERVER)
     server.client.headers["Authorization"] = f"Bearer {ZUGANG}"
     assert server.client.get("/api/aufnahme").status_code == 403
+
+
+def test_zustand_enthaelt_die_aufnahme(umgebung: Umgebung) -> None:
+    assert umgebung.client.get("/api/zustand").json()["aufnahme"]["laeuft"] is False
+    umgebung.client.post("/api/aufnahme/start", json={})
+    assert umgebung.client.get("/api/zustand").json()["aufnahme"]["laeuft"] is True
+    umgebung.client.post("/api/aufnahme/stopp")

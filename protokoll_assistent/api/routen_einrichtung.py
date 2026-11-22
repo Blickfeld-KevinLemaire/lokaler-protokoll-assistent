@@ -171,11 +171,14 @@ def _einrichtungs_auftraege(d: Dienste) -> list[dict[str, Any]]:
 
 
 def _naechster_schritt(konfig: dict[str, Any], vorhanden: dict[str, Any]) -> str:
+    if konfig.get("einrichtung_fortsetzen") == FORTSETZEN_TRANSKRIPTION:
+        # Nach dem Neustart in der Rechenumgebung: weiter mit den Modellen fuer die Mitschrift -- auch wenn die
+        # Einrichtung schon abgeschlossen wurde und der Neustart erst spaeter kam.
+        if vorhanden["laufzeit_aktiv"]:
+            return "mitschrift"
+        return "fertig" if konfig.get("einrichtung_abgeschlossen") else "neustart"
     if konfig.get("einrichtung_abgeschlossen"):
         return "fertig"
-    if konfig.get("einrichtung_fortsetzen") == FORTSETZEN_TRANSKRIPTION:
-        # Nach dem Neustart in der Rechenumgebung: weiter mit den Modellen fuer die Mitschrift.
-        return "mitschrift" if vorhanden["laufzeit_aktiv"] else "neustart"
     return "willkommen"
 
 

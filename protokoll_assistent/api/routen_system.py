@@ -116,6 +116,7 @@ def zustand(d: Dienste = Depends(dienste), wer: Angemeldet = Depends(angemeldet)
         "jetzt": time.time(),
         "auftraege": [auftrag_fuer(d, wer, a.als_dict()) for a in d.steuerung.auftraege.liste()],
         "empfang": d.automatik.beschreibung() if d.automatik is not None and (wer.admin or not d.mehrbenutzer) else None,
+        "aufnahme": d.aufnahme.stand() if d.aufnahme is not None else None,
         "freigaben": [
             f
             for f in (d.automatik.wartende_freigaben() if d.automatik is not None else [])

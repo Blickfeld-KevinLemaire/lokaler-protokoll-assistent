@@ -5401,6 +5401,18 @@
             ],
             "title": "Empfang"
           },
+          "aufnahme": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Aufnahme"
+          },
           "freigaben": {
             "items": {
               "additionalProperties": {

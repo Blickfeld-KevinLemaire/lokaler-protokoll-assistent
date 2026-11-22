@@ -83,3 +83,13 @@ def test_starten_und_beenden() -> None:
     steuerung.starten()
     steuerung.beenden()
     assert steuerung.ausgabeordner().name
+
+
+def test_hinweis_traegt_code_und_bereich(tmp_path: Path) -> None:
+    steuerung, _pipeline = steuerung_fuer_test({})
+    hinweise: list[dict[str, str]] = []
+    steuerung.bus.abonnieren(lambda e: hinweise.append(e.daten) if e.art == "hinweis" else None)
+    steuerung.abh.modell_fehlt = lambda modell: True
+    steuerung.transkription_starten(TranskriptionsWunsch(_audio(tmp_path), tmp_path / "aus", mit_auswertung=True))
+    alle_auftraege_ausfuehren(steuerung)
+    assert hinweise[-1]["code"] == "modell_fehlt" and hinweise[-1]["bereich"] == "zusammenfassung"

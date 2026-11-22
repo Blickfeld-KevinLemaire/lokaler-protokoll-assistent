@@ -73,6 +73,7 @@ class Zustand(BaseModel):
     jetzt: float
     auftraege: list[Auftrag]
     empfang: dict[str, Any] | None
+    aufnahme: dict[str, Any] | None = None
     freigaben: list[dict[str, str]]
 
 
