@@ -1,0 +1,59 @@
+[package]
+name = "vermerk"
+# Muss zu pyproject.toml, protokoll_assistent/version.py, oberflaeche/package.json
+# und tauri.conf.json passen (tools/versionen_pruefen.py prueft das).
+version = "0.6.0-alpha.1"
+description = "VERMERK – Desktop-Fenster (Tauri 2) fuer den Protokoll-Dienst"
+authors = ["Kevin Lemaire"]
+license = "LicenseRef-Proprietaer"
+publish = false
+edition = "2021"
+
+[lib]
+# Die Logik liegt in der Bibliothek, damit 'cargo test' und der
+# Integrationstest unter 'tests/' sie ohne Fenster pruefen koennen.
+name = "vermerk_lib"
+crate-type = ["rlib"]
+
+[[bin]]
+# Ergibt 'VERMERK.exe' – auch mit einem einfachen 'cargo build'.
+#
+# Gebaute Fassung OHNE das Tauri-Werkzeug (so baut release.yml):
+#   cargo build --release --features tauri/custom-protocol
+# Ohne 'tauri/custom-protocol' laedt die EXE die Seite vom Entwicklungsserver
+# (devUrl) statt der eingebetteten 'oberflaeche/build'. Mit dem Werkzeug
+# ('npm run tauri build -- --no-bundle') setzt es das Merkmal selbst.
+name = "VERMERK"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2.7.6", features = [] }
+
+[dependencies]
+# '@tauri-apps/*' (npm) und diese Crates muessen auf demselben Major.Minor
+# stehen (tools/versionen_pruefen.py vergleicht mit 'tauri').
+tauri = { version = "2.12.7", features = [] }
+tauri-plugin-dialog = "2.8.4"
+tauri-plugin-single-instance = "2.5.5"
+tauri-plugin-log = "2.10.2"
+log = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+getrandom = "0.3"
+base64 = "0.22"
+time = { version = "0.3", features = ["local-offset"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.60", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_JobObjects",
+    "Win32_System_Threading",
+] }
+
+[profile.release]
+# Kein 'strip'/'lto'-Feintuning: Die EXE ist ohnehin klein, und lesbare
+# Absturzberichte sind wichtiger als ein paar hundert KB.
+codegen-units = 16
+panic = "unwind"
