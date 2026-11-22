@@ -27,10 +27,11 @@ from protokoll_assistent.ablauf.verarbeitungswege import (
 )
 from protokoll_assistent.services import ollama_service, pipeline_service
 from protokoll_assistent.utils import app_config
-from protokoll_assistent.utils.paths import get_default_output_dir
+from protokoll_assistent.utils.paths import get_default_output_dir, get_recordings_dir
 
 ART_TRANSKRIPTION = "transkription"
 ART_AUSWERTUNG = "auswertung"
+NUTZER_ORDNER = "nutzer"
 
 TranskriptionsFn = Callable[..., pipeline_service.TranscriptionResult]
 ProtokollFn = Callable[..., pipeline_service.ProtocolResult]
@@ -83,6 +84,9 @@ class Steuerung:
         self.schluessel = schluessel or Schluesselablage()
         self.abh = abhaengigkeiten or Abhaengigkeiten()
         self.auftraege = Auftragsverwaltung(self.bus)
+        # Servermodus mit mehreren Nutzern: Jeder hat einen eigenen Unterordner (``nutzer/<name>``) fuer
+        # Aufnahmen und Ergebnisse. In der Windows-Anwendung bleibt alles, wie es war.
+        self.mehrbenutzer = False
 
     # ------------------------------------------------------------------
     def starten(self) -> None:
@@ -94,9 +98,18 @@ class Steuerung:
     def konfiguration(self) -> dict[str, Any]:
         return self.abh.konfiguration_laden()
 
-    def ausgabeordner(self) -> Path:
+    def ausgabe_basis(self) -> Path:
         gespeichert = self.konfiguration().get("ausgabeordner")
         return Path(gespeichert) if gespeichert else get_default_output_dir()
+
+    def ausgabeordner(self, besitzer: str | None = None) -> Path:
+        """Wohin die Ergebnisse kommen. Mit Besitzer (Servermodus) in dessen eigenen Ordner."""
+        basis = self.ausgabe_basis()
+        return basis / NUTZER_ORDNER / besitzer if self.mehrbenutzer and besitzer else basis
+
+    def aufnahmeordner(self, besitzer: str | None = None) -> Path:
+        basis = get_recordings_dir()
+        return basis / NUTZER_ORDNER / besitzer if self.mehrbenutzer and besitzer else basis
 
     def hinweis(self, text: str, *, stufe: str = "info", quelle: str = "") -> None:
         """Eine Meldung fuer die Oberflaeche, die zu keinem Auftrag gehoert."""
@@ -114,6 +127,7 @@ class Steuerung:
         vorrang: int = auftraege_modul.VORRANG_NORMAL,
         nach_ende: Nachfolger | None = None,
         fortschritt_spiegeln: Callable[[str, float | None, str], None] | None = None,
+        besitzer: str | None = None,
     ) -> Auftrag:
         """Prueft sofort (``Ablauffehler``) und reiht dann ein. ``mit_auswertung`` im Wunsch schliesst nach
         einer erfolgreichen Transkription die Auswertung als eigenen Auftrag an."""
@@ -139,6 +153,7 @@ class Steuerung:
                         ),
                         herkunft=herkunft,
                         vorrang=vorrang,
+                        besitzer=besitzer,
                     )
                 except Ablauffehler as fehler:
                     self.hinweis(f"{fehler.titel}: {fehler.text}", stufe="fehler")
@@ -153,6 +168,7 @@ class Steuerung:
             vorrang=vorrang,
             angaben={"quelle": str(wunsch.quelle), "modus": lauf.modus, "mit_auswertung": wunsch.mit_auswertung},
             nach_ende=danach,
+            besitzer=besitzer,
         )
 
     # ------------------------------------------------------------------
@@ -166,6 +182,7 @@ class Steuerung:
         vorrang: int = auftraege_modul.VORRANG_NORMAL,
         nach_ende: Nachfolger | None = None,
         fortschritt_spiegeln: Callable[[str, float | None, str], None] | None = None,
+        besitzer: str | None = None,
     ) -> Auftrag:
         lauf = auswertung_vorbereiten(wunsch, self.konfiguration(), self.schluessel, modell_fehlt=self.abh.modell_fehlt)
 
@@ -184,6 +201,7 @@ class Steuerung:
             vorrang=vorrang,
             angaben={"transkript": str(wunsch.transkript), "modus": lauf.modus},
             nach_ende=nach_ende,
+            besitzer=besitzer,
         )
 
     def abbrechen(self, auftrag_id: str) -> bool:

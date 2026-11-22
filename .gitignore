@@ -60,6 +60,11 @@ arbeitsdaten/
 sprecherprofile/
 # Gespeicherte Chatverlaeufe (Inhalte aus Besprechungen) - nie versionieren.
 chatverlaeufe/
+# Zugang zur Programmschnittstelle im Entwicklungsbetrieb (Schluessel im Klartext) und die Nutzerliste des
+# Servermodus (Passwort-Hashes) - nie versionieren.
+api_zugang.json
+nutzer.json
+freigaben.json
 
 # Sicherheitsnetz: Medien- und Protokolldateien gehoeren nie ins Repository,
 # egal in welchem Ordner sie auftauchen.

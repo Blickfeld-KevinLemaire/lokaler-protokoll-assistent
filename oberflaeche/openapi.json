@@ -698,6 +698,61 @@
         }
       }
     },
+    "/api/besprechungen/{kennung}/freigabe": {
+      "put": {
+        "tags": [
+          "besprechungen"
+        ],
+        "summary": "Teilen",
+        "description": "Mit wem die Besprechung geteilt ist (``[\"alle\"]``, einzelne Anmeldenamen oder leer).",
+        "operationId": "teilen_api_besprechungen__kennung__freigabe_put",
+        "parameters": [
+          {
+            "name": "kennung",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Kennung"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Freigabe"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Teilen Api Besprechungen  Kennung  Freigabe Put"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/besprechungen/{kennung}/dateien/{name}": {
       "get": {
         "tags": [
@@ -807,7 +862,7 @@
           "dateien"
         ],
         "summary": "Eingang",
-        "description": "Aufnahmen im Eingangsordner (falls eingestellt) und im Aufnahmeordner, neueste zuerst.",
+        "description": "Aufnahmen im Aufnahmeordner und (Windows-Anwendung) im Eingangsordner, neueste zuerst.",
         "operationId": "eingang_api_dateien_eingang_get",
         "responses": {
           "200": {
@@ -1567,6 +1622,470 @@
           }
         }
       }
+    },
+    "/api/ich": {
+      "get": {
+        "tags": [
+          "nutzer"
+        ],
+        "summary": "Ich",
+        "operationId": "ich_api_ich_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Ich Api Ich Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ich/passwort": {
+      "put": {
+        "tags": [
+          "nutzer"
+        ],
+        "summary": "Eigenes Passwort",
+        "operationId": "eigenes_passwort_api_ich_passwort_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasswortAendern"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "boolean"
+                  },
+                  "type": "object",
+                  "title": "Response Eigenes Passwort Api Ich Passwort Put"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ich/zugaenge": {
+      "post": {
+        "tags": [
+          "nutzer"
+        ],
+        "summary": "Eigener Zugang",
+        "operationId": "eigener_zugang_api_ich_zugaenge_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ZugangAnlegen"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "title": "Response Eigener Zugang Api Ich Zugaenge Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ich/zugaenge/{bezeichnung}": {
+      "delete": {
+        "tags": [
+          "nutzer"
+        ],
+        "summary": "Eigenen Zugang Entfernen",
+        "operationId": "eigenen_zugang_entfernen_api_ich_zugaenge__bezeichnung__delete",
+        "parameters": [
+          {
+            "name": "bezeichnung",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Bezeichnung"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "boolean"
+                  },
+                  "title": "Response Eigenen Zugang Entfernen Api Ich Zugaenge  Bezeichnung  Delete"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/nutzer": {
+      "get": {
+        "tags": [
+          "nutzer"
+        ],
+        "summary": "Liste",
+        "operationId": "liste_api_nutzer_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  "type": "array",
+                  "title": "Response Liste Api Nutzer Get"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "nutzer"
+        ],
+        "summary": "Anlegen",
+        "operationId": "anlegen_api_nutzer_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NutzerAnlegen"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Anlegen Api Nutzer Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/nutzer/namen": {
+      "get": {
+        "tags": [
+          "nutzer"
+        ],
+        "summary": "Namen",
+        "description": "Fuer das Teilen: wer ist da (nur Name und Anzeigename, aktive Nutzer).",
+        "operationId": "namen_api_nutzer_namen_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "type": "object"
+                  },
+                  "type": "array",
+                  "title": "Response Namen Api Nutzer Namen Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/nutzer/{name}": {
+      "patch": {
+        "tags": [
+          "nutzer"
+        ],
+        "summary": "Aendern",
+        "operationId": "aendern_api_nutzer__name__patch",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Name"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NutzerAendern"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Aendern Api Nutzer  Name  Patch"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "nutzer"
+        ],
+        "summary": "Entfernen",
+        "operationId": "entfernen_api_nutzer__name__delete",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Name"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "boolean"
+                  },
+                  "title": "Response Entfernen Api Nutzer  Name  Delete"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/nutzer/{name}/zugaenge": {
+      "post": {
+        "tags": [
+          "nutzer"
+        ],
+        "summary": "Zugang Fuer",
+        "operationId": "zugang_fuer_api_nutzer__name__zugaenge_post",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Name"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ZugangAnlegen"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Zugang Fuer Api Nutzer  Name  Zugaenge Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/nutzer/{name}/zugaenge/{bezeichnung}": {
+      "delete": {
+        "tags": [
+          "nutzer"
+        ],
+        "summary": "Zugang Entfernen",
+        "operationId": "zugang_entfernen_api_nutzer__name__zugaenge__bezeichnung__delete",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Name"
+            }
+          },
+          {
+            "name": "bezeichnung",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Bezeichnung"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "boolean"
+                  },
+                  "title": "Response Zugang Entfernen Api Nutzer  Name  Zugaenge  Bezeichnung  Delete"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1574,17 +2093,45 @@
       "Anmeldung": {
         "properties": {
           "schluessel": {
-            "type": "string",
-            "maxLength": 256,
-            "minLength": 1,
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 256
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Schluessel"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "passwort": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 512
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Passwort"
           }
         },
         "type": "object",
-        "required": [
-          "schluessel"
-        ],
-        "title": "Anmeldung"
+        "title": "Anmeldung",
+        "description": "Entweder ``schluessel`` (Zugangsschluessel) oder ``name`` + ``passwort``."
       },
       "Auftrag": {
         "properties": {
@@ -1615,6 +2162,33 @@
           "erstellt": {
             "type": "number",
             "title": "Erstellt"
+          },
+          "besitzer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Besitzer"
+          },
+          "fremd": {
+            "type": "boolean",
+            "title": "Fremd",
+            "default": false
+          },
+          "platz": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Platz"
           },
           "gestartet": {
             "anyOf": [
@@ -1756,6 +2330,30 @@
       },
       "Besprechung": {
         "properties": {
+          "besitzer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Besitzer"
+          },
+          "eigen": {
+            "type": "boolean",
+            "title": "Eigen",
+            "default": true
+          },
+          "geteilt_mit": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Geteilt Mit",
+            "default": []
+          },
           "id": {
             "type": "string",
             "title": "Id"
@@ -1833,6 +2431,30 @@
       },
       "BesprechungDetails": {
         "properties": {
+          "besitzer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Besitzer"
+          },
+          "eigen": {
+            "type": "boolean",
+            "title": "Eigen",
+            "default": true
+          },
+          "geteilt_mit": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Geteilt Mit",
+            "default": []
+          },
           "id": {
             "type": "string",
             "title": "Id"
@@ -2121,6 +2743,21 @@
         ],
         "title": "Fehler"
       },
+      "Freigabe": {
+        "properties": {
+          "mit": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 200,
+            "title": "Mit",
+            "description": "\"alle\" oder Anmeldenamen; leer = nicht geteilt"
+          }
+        },
+        "type": "object",
+        "title": "Freigabe"
+      },
       "GeraetAnlegen": {
         "properties": {
           "name": {
@@ -2128,6 +2765,18 @@
             "maxLength": 40,
             "minLength": 1,
             "title": "Name"
+          },
+          "besitzer": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 32
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Besitzer"
           }
         },
         "type": "object",
@@ -2163,6 +2812,18 @@
             "type": "string",
             "title": "Angemeldet Als"
           },
+          "anzeigename": {
+            "type": "string",
+            "title": "Anzeigename"
+          },
+          "admin": {
+            "type": "boolean",
+            "title": "Admin"
+          },
+          "mehrbenutzer": {
+            "type": "boolean",
+            "title": "Mehrbenutzer"
+          },
           "faehigkeiten": {
             "$ref": "#/components/schemas/Faehigkeiten"
           },
@@ -2180,6 +2841,9 @@
           "version",
           "rolle",
           "angemeldet_als",
+          "anzeigename",
+          "admin",
+          "mehrbenutzer",
           "faehigkeiten",
           "einrichtung_abgeschlossen",
           "ausgabeordner"
@@ -2201,6 +2865,97 @@
         ],
         "title": "ModellLaden"
       },
+      "NutzerAendern": {
+        "properties": {
+          "anzeigename": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 80
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Anzeigename"
+          },
+          "admin": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Admin"
+          },
+          "aktiv": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Aktiv"
+          },
+          "passwort": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 512
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Passwort",
+            "description": "Neues Passwort; \"\" entfernt es"
+          }
+        },
+        "type": "object",
+        "title": "NutzerAendern"
+      },
+      "NutzerAnlegen": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 32,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "anzeigename": {
+            "type": "string",
+            "maxLength": 80,
+            "title": "Anzeigename",
+            "default": ""
+          },
+          "admin": {
+            "type": "boolean",
+            "title": "Admin",
+            "default": false
+          },
+          "passwort": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 512
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Passwort"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "NutzerAnlegen"
+      },
       "OrdnerOeffnen": {
         "properties": {
           "pfad": {
@@ -2213,6 +2968,27 @@
           "pfad"
         ],
         "title": "OrdnerOeffnen"
+      },
+      "PasswortAendern": {
+        "properties": {
+          "bisher": {
+            "type": "string",
+            "maxLength": 512,
+            "title": "Bisher",
+            "default": ""
+          },
+          "neu": {
+            "type": "string",
+            "maxLength": 512,
+            "minLength": 1,
+            "title": "Neu"
+          }
+        },
+        "type": "object",
+        "required": [
+          "neu"
+        ],
+        "title": "PasswortAendern"
       },
       "ProtokollSpeichern": {
         "properties": {
@@ -2560,6 +3336,21 @@
           "text"
         ],
         "title": "VorlageSpeichern"
+      },
+      "ZugangAnlegen": {
+        "properties": {
+          "bezeichnung": {
+            "type": "string",
+            "maxLength": 60,
+            "minLength": 1,
+            "title": "Bezeichnung"
+          }
+        },
+        "type": "object",
+        "required": [
+          "bezeichnung"
+        ],
+        "title": "ZugangAnlegen"
       },
       "Zustand": {
         "properties": {

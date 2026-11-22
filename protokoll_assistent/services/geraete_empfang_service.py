@@ -267,8 +267,12 @@ class Ablage:
         bei_abschluss: Callable[[str, str, Path], None] | None = None,
         bei_verworfen: Callable[[str, str], None] | None = None,
         jetzt: Callable[[], float] = time.time,
+        ziel_fuer_geraet: Callable[[str], Path] | None = None,
     ):
         self.ziel = ziel
+        # Mehrere Nutzer (Servermodus): Jede fertige Aufnahme kommt in den Ordner des Nutzers, dem das Geraet
+        # gehoert. Die Teilstaende bleiben im gemeinsamen Empfangsordner.
+        self._ziel_fuer_geraet = ziel_fuer_geraet
         self._ordner = ziel / EMPFANGSORDNER
         self._max_datei_bytes = max_datei_bytes
         self._platz_reserve = platz_reserve_bytes
@@ -451,7 +455,7 @@ class Ablage:
                 self._verwerfen(teil)
                 self._verworfen_melden(geraet, datei)
                 return Antwort(200, {"naechstes_byte": gesamt, "fertig": True, "datei": fertig[kennung]["datei"]})
-            ziel = self._freier_zielname(f"{geraet}_{datei}")
+            ziel = self._freier_zielname(f"{geraet}_{datei}", geraet)
             # Erst ablegen, dann merken: Faellt dazwischen der Strom aus, entsteht
             # schlimmstenfalls eine doppelte Datei -- umgekehrt ginge sie verloren.
             try:
@@ -487,12 +491,14 @@ class Ablage:
                 logger.exception("Meldung ueber die neue Aufnahme fehlgeschlagen")
         return Antwort(200, {"naechstes_byte": gesamt, "fertig": True, "datei": ziel.name})
 
-    def _freier_zielname(self, name: str) -> Path:
-        ziel = self.ziel / name
+    def _freier_zielname(self, name: str, geraet: str = "") -> Path:
+        ordner = self._ziel_fuer_geraet(geraet) if self._ziel_fuer_geraet is not None and geraet else self.ziel
+        ordner.mkdir(parents=True, exist_ok=True)
+        ziel = ordner / name
         stamm, endung = ziel.stem, ziel.suffix
         nummer = 2
         while ziel.exists():
-            ziel = self.ziel / f"{stamm}_{nummer}{endung}"
+            ziel = ordner / f"{stamm}_{nummer}{endung}"
             nummer += 1
         return ziel
 
@@ -891,6 +897,7 @@ class GeraeteEmpfang:
         bei_zusammenfassung: Callable[[str, str], bool] | None = None,
         bei_keine_zusammenfassung: Callable[[str, str], bool] | None = None,
         fragen: Any = None,
+        ziel_fuer_geraet: Callable[[str], Path] | None = None,
     ):
         self.geraete: tuple[Geraet, ...] = tuple(geraete)
         self.ablage = Ablage(
@@ -900,6 +907,7 @@ class GeraeteEmpfang:
             bei_teil=bei_teil,
             bei_abschluss=bei_abschluss,
             bei_verworfen=bei_verworfen,
+            ziel_fuer_geraet=ziel_fuer_geraet,
         )
         self._status_fn = status_fn
         self._auftraege_fn = auftraege_fn

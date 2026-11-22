@@ -176,6 +176,8 @@ class GeraeteAutomatik:
                 "bei_wunsch": self._wunsch,
                 "fragen": self.fragen,
             }
+            if self.steuerung.mehrbenutzer:
+                zusaetze["ziel_fuer_geraet"] = lambda geraet: self.steuerung.aufnahmeordner(self.besitzer_von(geraet))
             if live_aktiv:
                 zusaetze["bei_teil"] = self.live.teil_gewachsen
                 zusaetze["bei_abschluss"] = self._abschluss
@@ -202,6 +204,16 @@ class GeraeteAutomatik:
             self._empfang_stoppen()
         self.live.stoppen()
         self.fragen.stoppen()
+
+    def besitzer_von(self, geraet: str) -> str | None:
+        """Wem das Geraet gehoert (Servermodus). In der Windows-Anwendung immer None: ein Rechner, ein Mensch."""
+        if not self.steuerung.mehrbenutzer:
+            return None
+        for eintrag in self.steuerung.konfiguration().get("geraete_empfang_geraete") or []:
+            if isinstance(eintrag, dict) and str(eintrag.get("name", "")).lower() == geraet.lower():
+                besitzer = str(eintrag.get("besitzer") or "").strip()
+                return besitzer or None
+        return None
 
     def kontakte(self) -> dict[str, geraete_empfang_service.Kontakt]:
         dienst = self._dienst
@@ -305,6 +317,7 @@ class GeraeteAutomatik:
         auftrag_text = gewaehlt if gewaehlt is not None else alle_vorlagen().get(str(config.get("geraete_live_auftrag") or ""), "")
         wunsch = self.wuensche.hole(geraet, datei)
         rueckfrage = wunsch is not None and wunsch.rueckfrage
+        besitzer = self.besitzer_von(geraet)
         self.status.setze(geraet, datei, live_service.TRANSKRIPTION, 0.0, "Transkription beginnt")
         self._zuletzt(f"Automatische Verarbeitung: {pfad.name} von {geraet}")
 
@@ -315,7 +328,7 @@ class GeraeteAutomatik:
             return self.steuerung.transkription_starten(
                 TranskriptionsWunsch(
                     quelle=pfad,
-                    ausgabe=self.steuerung.ausgabeordner(),
+                    ausgabe=self.steuerung.ausgabeordner(besitzer),
                     sprache=config.get("sprache") or "de",
                     offline=bool(config.get("offline", False)),
                     vorab_live=self.live.vorab_fuer(pfad),
@@ -324,6 +337,7 @@ class GeraeteAutomatik:
                 vorrang=auftraege.VORRANG_GERAET,
                 nach_ende=danach,
                 fortschritt_spiegeln=self._spiegel(geraet, datei, live_service.TRANSKRIPTION),
+                besitzer=besitzer,
             )
         except Ablauffehler as fehler:
             self.status.setze(geraet, datei, live_service.FEHLER, None, f"Verarbeitung nicht möglich: {fehler.titel}")
@@ -363,9 +377,10 @@ class GeraeteAutomatik:
         self, geraet: str, datei: str, pfad: Path, transkript: Path, auftrag_text: str, *, rueckfrage: bool, vorrang: int
     ) -> Auftrag | None:
         config = self.steuerung.konfiguration()
+        besitzer = self.besitzer_von(geraet)
         wunsch = AuswertungsWunsch(
             transkript=transkript,
-            ausgabe=self.steuerung.ausgabeordner(),
+            ausgabe=self.steuerung.ausgabeordner(besitzer),
             systemprompt=auftrag_text,
             abschnitt_sekunden=chunking_service.auswertungs_abschnitt(config.get("geraete_live_abschnitt_sekunden")),
         )
@@ -386,6 +401,7 @@ class GeraeteAutomatik:
                 vorrang=vorrang,
                 nach_ende=danach,
                 fortschritt_spiegeln=self._spiegel(geraet, datei, live_service.AUSWERTUNG),
+                besitzer=besitzer,
             )
         except Ablauffehler as fehler:
             self._abschliessen(geraet, datei, pfad, live_service.FEHLER, f"Auswertung nicht möglich: {fehler.titel}")

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -118,8 +119,10 @@ def test_export_ohne_ziel_oder_format_meldet_das(qt_widgets, tmp_path):
     assert "mindestens ein Format" in dialog.status_label.text() and not dialog.ordner_oeffnen_button.isEnabled()
 
 
-def test_export_teilweise_und_fehler(qt_widgets, tmp_path):
-    dialog = _dialog(qt_widgets, tmp_path)  # kein Qt-Schreiber uebergeben -> PDF/ODT scheitern
+def test_export_teilweise_und_fehler(qt_widgets, tmp_path, monkeypatch):
+    # Kein Qt-Schreiber uebergeben und die eigenen Schreiber fehlen -> PDF/ODT scheitern.
+    monkeypatch.setitem(sys.modules, "protokoll_assistent.services.dokument_schreiber", None)
+    dialog = _dialog(qt_widgets, tmp_path)
     dialog.ziel_edit.setText(str(tmp_path / "z"))
     for kennung, box in dialog.format_checkboxen.items():
         box.setChecked(kennung in ("md", "pdf"))

@@ -8,7 +8,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from protokoll_assistent.api import modelle
-from protokoll_assistent.api.kontext import Dienste, automatik, dienste
+from protokoll_assistent.api.kontext import Angemeldet, Dienste, angemeldet, automatik, dienste, nur_admin
 from protokoll_assistent.services import geraete_empfang_service
 from protokoll_assistent.utils import app_config
 
@@ -25,7 +25,7 @@ def basis_urls(port: int) -> list[str]:
 
 
 @router.get("")
-def stand(d: Dienste = Depends(dienste)) -> dict[str, Any]:
+def stand(d: Dienste = Depends(dienste), wer: Angemeldet = Depends(angemeldet)) -> dict[str, Any]:
     a = automatik(d)
     konfig = d.steuerung.konfiguration()
     kontakte = a.kontakte()
@@ -35,12 +35,16 @@ def stand(d: Dienste = Depends(dienste)) -> dict[str, Any]:
         if not isinstance(eintrag, dict):
             continue
         name = str(eintrag.get("name", ""))
+        besitzer = str(eintrag.get("besitzer") or "") or None
+        if d.mehrbenutzer and not wer.admin and (besitzer or "").lower() != (wer.besitzer or "").lower():
+            continue  # fremde Geraete sieht nur ein Admin
         kontakt = kontakte.get(name)
         erwartet = str(eintrag.get("geraete_id") or "")
         geraete.append(
             {
                 "name": name,
                 "angelegt": eintrag.get("angelegt", ""),
+                "besitzer": besitzer,
                 "geraete_id": erwartet or None,
                 "kontakt": None
                 if kontakt is None
@@ -53,11 +57,13 @@ def stand(d: Dienste = Depends(dienste)) -> dict[str, Any]:
                 },
             }
         )
-    return {"empfang": a.beschreibung(), "geraete": geraete, "adressen": basis_urls(port), "freigaben": a.wartende_freigaben()}
+    freigaben = [f for f in a.wartende_freigaben() if not d.mehrbenutzer or wer.admin or a.besitzer_von(f["geraet"]) == wer.besitzer]
+    empfang = a.beschreibung() if wer.admin or not d.mehrbenutzer else {"aktiv": a.laeuft}
+    return {"empfang": empfang, "geraete": geraete, "adressen": basis_urls(port), "freigaben": freigaben}
 
 
 @router.post("", status_code=201)
-def anlegen(daten: modelle.GeraetAnlegen, d: Dienste = Depends(dienste)) -> dict[str, Any]:
+def anlegen(daten: modelle.GeraetAnlegen, d: Dienste = Depends(dienste), _a: Angemeldet = Depends(nur_admin)) -> dict[str, Any]:
     a = automatik(d)
     name = daten.name.strip()
     if not geraete_empfang_service.geraetename_gueltig(name):
@@ -69,8 +75,14 @@ def anlegen(daten: modelle.GeraetAnlegen, d: Dienste = Depends(dienste)) -> dict
     geraete = [dict(e) for e in konfig.get("geraete_empfang_geraete") or [] if isinstance(e, dict)]
     if any(str(e.get("name", "")).lower() == name.lower() for e in geraete):
         raise HTTPException(status.HTTP_409_CONFLICT, f"Ein Gerät „{name}“ gibt es schon.")
+    besitzer = (daten.besitzer or "").strip() or None
+    if besitzer is not None and (not d.mehrbenutzer or d.nutzer is None or d.nutzer.hole(besitzer) is None):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Den Nutzer „{besitzer}“ gibt es nicht.")
     token = geraete_empfang_service.token_erzeugen()
-    geraete.append({"name": name, "token_sha256": geraete_empfang_service.token_hash(token), "angelegt": dt.date.today().isoformat()})
+    eintrag: dict[str, Any] = {"name": name, "token_sha256": geraete_empfang_service.token_hash(token), "angelegt": dt.date.today().isoformat()}
+    if besitzer is not None:
+        eintrag["besitzer"] = besitzer
+    geraete.append(eintrag)
     neu = app_config.update_config(geraete_empfang_geraete=geraete)
     a.anwenden(neu)
     port = int(neu.get("geraete_empfang_port") or geraete_empfang_service.STANDARD_PORT)
@@ -81,7 +93,7 @@ def anlegen(daten: modelle.GeraetAnlegen, d: Dienste = Depends(dienste)) -> dict
 
 
 @router.delete("/{name}")
-def entfernen(name: str, d: Dienste = Depends(dienste)) -> dict[str, bool]:
+def entfernen(name: str, d: Dienste = Depends(dienste), _a: Angemeldet = Depends(nur_admin)) -> dict[str, bool]:
     a = automatik(d)
     konfig = d.steuerung.konfiguration()
     vorher = [dict(e) for e in konfig.get("geraete_empfang_geraete") or [] if isinstance(e, dict)]

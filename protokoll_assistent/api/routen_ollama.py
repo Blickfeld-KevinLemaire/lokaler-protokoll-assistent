@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends
 
 from protokoll_assistent.ablauf.auftraege import Fortschritt
 from protokoll_assistent.api import modelle
-from protokoll_assistent.api.kontext import Dienste, dienste
+from protokoll_assistent.api.kontext import Angemeldet, Dienste, dienste, nur_admin
 from protokoll_assistent.services import ollama_service
 
 router = APIRouter(prefix="/api/ollama", tags=["ollama"])
@@ -34,7 +34,7 @@ def modelle_stand() -> dict[str, Any]:
 
 
 @router.post("/laden", status_code=201)
-def laden(daten: modelle.ModellLaden, d: Dienste = Depends(dienste)) -> dict[str, Any]:
+def laden(daten: modelle.ModellLaden, d: Dienste = Depends(dienste), _a: Angemeldet = Depends(nur_admin)) -> dict[str, Any]:
     """Laedt ein Modell herunter. Laeuft als Auftrag mit niedrigem Vorrang -- eine Verarbeitung geht vor."""
     name = daten.modell.strip()
 

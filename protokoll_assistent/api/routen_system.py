@@ -18,8 +18,9 @@ from fastapi.responses import StreamingResponse
 from protokoll_assistent.ablauf.ereignisse import Ereignis
 from protokoll_assistent.ablauf.verarbeitungswege import lokale_laufzeit_verfuegbar
 from protokoll_assistent.api import modelle
-from protokoll_assistent.api.kontext import Dienste, dienste, nur_desktop
+from protokoll_assistent.api.kontext import Angemeldet, Dienste, angemeldet, dienste, nur_admin, nur_desktop
 from protokoll_assistent.api.sicherheit import COOKIE_NAME, SITZUNG_SEKUNDEN
+from protokoll_assistent.api.sichtbarkeit import auftrag_fuer, ereignis_fuer
 from protokoll_assistent.utils import diagnostics
 from protokoll_assistent.version import VERSION
 
@@ -42,9 +43,14 @@ def anmelden(daten: modelle.Anmeldung, request: Request, response: Response) -> 
     adresse = request.client.host if request.client else "?"
     if d.zugang.zu_viele_fehlversuche(adresse):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Zu viele Fehlversuche. Bitte eine Minute warten.")
-    ergebnis = d.zugang.anmelden(daten.schluessel, adresse)
+    if daten.name:
+        ergebnis = d.zugang.anmelden_mit_passwort(daten.name, daten.passwort or "", adresse)
+        fehltext = "Name oder Passwort stimmen nicht."
+    else:
+        ergebnis = d.zugang.anmelden(daten.schluessel or "", adresse)
+        fehltext = "Der Zugangsschlüssel stimmt nicht."
     if ergebnis is None:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Der Zugangsschlüssel stimmt nicht.")
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, fehltext)
     token, name = ergebnis
     response.set_cookie(
         COOKIE_NAME,
@@ -70,12 +76,16 @@ def _mikrofon_moeglich() -> bool:
 
 
 @geschuetzt.get("/info", response_model=modelle.Info)
-def info(request: Request, d: Dienste = Depends(dienste)) -> dict[str, Any]:
+def info(d: Dienste = Depends(dienste), wer: Angemeldet = Depends(angemeldet)) -> dict[str, Any]:
     konfig = d.steuerung.konfiguration()
+    eintrag = d.nutzer.hole(wer.name) if d.nutzer is not None else None
     return {
         "version": VERSION,
         "rolle": d.rolle,
-        "angemeldet_als": d.zugang.wer(request) or "",
+        "angemeldet_als": wer.name,
+        "anzeigename": eintrag.anzeigename if eintrag is not None else wer.name,
+        "admin": wer.admin,
+        "mehrbenutzer": d.mehrbenutzer,
         "faehigkeiten": {
             "lokale_transkription": d.steuerung.abh.laufzeit_verfuegbar(),
             "mikrofon": d.ist_desktop and _mikrofon_moeglich(),
@@ -84,20 +94,24 @@ def info(request: Request, d: Dienste = Depends(dienste)) -> dict[str, Any]:
             "geraete_empfang": d.automatik is not None,
         },
         "einrichtung_abgeschlossen": bool(konfig.get("einrichtung_abgeschlossen")),
-        "ausgabeordner": str(d.ausgabeordner()),
+        "ausgabeordner": str(d.ausgabeordner(wer)),
     }
 
 
 @geschuetzt.get("/zustand", response_model=modelle.Zustand)
-def zustand(d: Dienste = Depends(dienste)) -> dict[str, Any]:
+def zustand(d: Dienste = Depends(dienste), wer: Angemeldet = Depends(angemeldet)) -> dict[str, Any]:
     """Vollstaendiger Stand mit der Nummer des letzten Ereignisses. Danach ``/ereignisse?seit=<nummer>``
     abonnieren: So geht zwischen Laden und Abo nichts verloren."""
     letzte = d.steuerung.bus.letzte_nummer
     return {
         "letzte_nummer": letzte,
-        "auftraege": [a.als_dict() for a in d.steuerung.auftraege.liste()],
-        "empfang": d.automatik.beschreibung() if d.automatik is not None else None,
-        "freigaben": d.automatik.wartende_freigaben() if d.automatik is not None else [],
+        "auftraege": [auftrag_fuer(d, wer, a.als_dict()) for a in d.steuerung.auftraege.liste()],
+        "empfang": d.automatik.beschreibung() if d.automatik is not None and (wer.admin or not d.mehrbenutzer) else None,
+        "freigaben": [
+            f
+            for f in (d.automatik.wartende_freigaben() if d.automatik is not None else [])
+            if not d.mehrbenutzer or wer.admin or d.automatik.besitzer_von(f["geraet"]) == wer.besitzer  # type: ignore[union-attr]
+        ],
     }
 
 
@@ -114,6 +128,7 @@ async def ereignisse(
     seit: int | None = None,
     last_event_id: str | None = Header(default=None),
     d: Dienste = Depends(dienste),
+    wer: Angemeldet = Depends(angemeldet),
 ) -> StreamingResponse:
     """Strom aller Ereignisse ab ``seit`` (oder ``Last-Event-ID``). Der Client liest ihn mit ``fetch`` (die
     Kopfzeile ``Authorization`` laesst sich mit ``EventSource`` nicht setzen)."""
@@ -132,7 +147,9 @@ async def ereignisse(
                 except asyncio.TimeoutError:
                     yield ": herzschlag\n\n"
                     continue
-                yield sse_zeile(ereignis)
+                sichtbar = ereignis_fuer(d, wer, ereignis.art, ereignis.daten)
+                if sichtbar is not None:
+                    yield sse_zeile(ereignis if sichtbar is ereignis.daten else Ereignis(ereignis.nummer, ereignis.art, sichtbar, ereignis.zeit))
         finally:
             abo.beenden()
 
@@ -144,8 +161,8 @@ async def ereignisse(
 
 
 @geschuetzt.get("/system/diagnose")
-def diagnose(d: Dienste = Depends(dienste)) -> list[dict[str, Any]]:
-    pruefungen = diagnostics.run_diagnostics(output_dir=d.ausgabeordner())
+def diagnose(d: Dienste = Depends(dienste), _admin: Angemeldet = Depends(nur_admin)) -> list[dict[str, Any]]:
+    pruefungen = diagnostics.run_diagnostics(output_dir=d.ausgabe_basis())
     return [
         {"id": p.key, "name": p.label, "ok": p.ok, "text": p.detail, "kritisch": p.critical} for p in pruefungen
     ]

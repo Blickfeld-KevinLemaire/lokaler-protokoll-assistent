@@ -204,6 +204,10 @@ def _report_python_diagnosis_and_exit() -> None:
 # Ein Pfadstart ("python .../app.py") legt nur den Ordner der Datei in den
 # Suchpfad, kein einziger Paketimport waere dann aufloesbar.
 ANWENDUNGSMODUL = "protokoll_assistent.app"
+# Was der Neustart in der Rechenumgebung zusaetzlich bekommt (der Dienst: seine Befehlszeile).
+NEUSTART_ARGUMENTE: list[str] = []
+DIENSTMODUL = "protokoll_assistent.api"
+ELTERN_VARIABLE = "VERMERK_ELTERN_PID"
 
 
 def _hat_konsole() -> bool:
@@ -255,13 +259,27 @@ def _relaunch(python_exe: Path) -> None:
     # bestehen, so oeffnen dessen Hilfsprozesse (ffmpeg, ...) auch keine eigenen.
     # Hat dieser Prozess selbst schon eine Konsole (Start aus dem Terminal),
     # erbt das Kind sie ohne neues Fenster -- dort bleibt die Ausgabe sichtbar.
+    if ANWENDUNGSMODUL == DIENSTMODUL:
+        # Der neu gestartete Dienst beendet sich auch, wenn DIESER Prozess endet (das Fenster startet ihn neu
+        # oder beendet ihn) -- nicht nur, wenn das Fenster endet. Sonst bliebe er als Waise zurueck und
+        # hielte Port und Grafikkarte.
+        bisher = child_env.get(ELTERN_VARIABLE, "").strip()
+        child_env[ELTERN_VARIABLE] = ",".join(p for p in (bisher, str(os.getpid())) if p)
     completed = subprocess.run(
-        [str(python_exe), "-m", ANWENDUNGSMODUL],
+        [str(python_exe), "-m", ANWENDUNGSMODUL, *NEUSTART_ARGUMENTE],
         env=child_env,
         cwd=str(cwd),
         creationflags=0 if _hat_konsole() else KEIN_FENSTER,
     )
     sys.exit(completed.returncode)
+
+
+def als_dienst(argumente: list[str]) -> None:
+    """Der Neustart in der Rechenumgebung startet den Dienst der neuen Oberflaeche (mit derselben
+    Befehlszeile) statt der alten Qt-Anwendung."""
+    global ANWENDUNGSMODUL, NEUSTART_ARGUMENTE
+    ANWENDUNGSMODUL = DIENSTMODUL
+    NEUSTART_ARGUMENTE = list(argumente)
 
 
 def laufzeit_beim_start_einrichten(konfig: dict[str, Any], fenster_moeglich: bool, laufzeit_vorhanden: bool) -> bool:

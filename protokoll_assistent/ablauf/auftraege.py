@@ -76,6 +76,8 @@ class Auftrag:
     fehler: str | None = None
     # Frei verwendbare Angaben fuer die Oberflaeche (Quelldatei, Geraet ...), JSON-faehig.
     angaben: dict[str, Any] = field(default_factory=dict)
+    # Servermodus: wem der Auftrag gehoert (Anmeldename). In der Windows-Anwendung immer None.
+    besitzer: str | None = None
 
     def als_dict(self, *, mit_vorschau: bool = True) -> dict[str, Any]:
         return {
@@ -83,6 +85,7 @@ class Auftrag:
             "art": self.art,
             "titel": self.titel,
             "herkunft": self.herkunft,
+            "besitzer": self.besitzer,
             "vorrang": self.vorrang,
             "status": self.status.value,
             "erstellt": self.erstellt,
@@ -228,6 +231,7 @@ class Auftragsverwaltung:
         vorrang: int = VORRANG_NORMAL,
         angaben: dict[str, Any] | None = None,
         nach_ende: Nachfolger | None = None,
+        besitzer: str | None = None,
     ) -> Auftrag:
         """``nach_ende`` laeuft im Arbeitsfaden, sobald der Auftrag erledigt ist (gleich wie) --
         dort darf er Folgeauftraege einreihen."""
@@ -239,6 +243,7 @@ class Auftragsverwaltung:
             vorrang=vorrang,
             erstellt=self._jetzt(),
             angaben=dict(angaben or {}),
+            besitzer=besitzer,
         )
         with self._sperre:
             self._eintraege[auftrag.id] = _Eintrag(auftrag, funktion, nach_ende, threading.Event())
@@ -278,6 +283,22 @@ class Auftragsverwaltung:
             return self._laufend is not None or any(
                 e.auftrag.status is Status.WARTET for e in self._eintraege.values()
             )
+
+    def platz(self, auftrag_id: str) -> int | None:
+        """Wie viele Auftraege vor diesem drankommen (der laufende zaehlt mit). 0: laeuft gerade oder ist als
+        Naechster dran, ohne dass etwas laeuft. ``None``: erledigt oder unbekannt."""
+        with self._sperre:
+            eintrag = self._eintraege.get(auftrag_id)
+            if eintrag is None or eintrag.auftrag.status in ERLEDIGT:
+                return None
+            if eintrag.auftrag.status is Status.LAEUFT:
+                return 0
+            wartend = sorted(
+                (e for e in self._eintraege.values() if e.auftrag.status is Status.WARTET),
+                key=lambda e: (-e.auftrag.vorrang, self._position[e.auftrag.id]),
+            )
+            vorher = next(i for i, e in enumerate(wartend) if e.auftrag.id == auftrag_id)
+            return vorher + (1 if self._laufend is not None else 0)
 
     def laufender(self) -> Auftrag | None:
         with self._sperre:
@@ -408,3 +429,21 @@ class Auftragsverwaltung:
     def nachmelden(self) -> None:
         """Von aussen (z. B. einem Zeitgeber der Programmschnittstelle) aufrufbar."""
         self._nachmelden_ausfuehren()
+
+
+# --------------------------------------------------------------------------
+# Sicht anderer Nutzer (Servermodus)
+# --------------------------------------------------------------------------
+FREMD_FELDER = ("id", "art", "status", "vorrang", "erstellt", "gestartet", "beendet", "fortschritt")
+
+
+def fuer_betrachter(daten: dict[str, Any], betrachter: str | None, *, alles_sehen: bool) -> dict[str, Any]:
+    """Was ein Nutzer von einem Auftrag sieht. Eigene (und in der Windows-Anwendung alle): vollstaendig.
+    Fremde: nur so viel, dass die eigene Position in der Warteschlange und die Wartezeit verstaendlich sind --
+    kein Dateiname, keine Vorschau, kein Ergebnis."""
+    besitzer = daten.get("besitzer")
+    if alles_sehen or besitzer is None or (betrachter is not None and str(besitzer).lower() == betrachter.lower()):
+        return daten
+    fremd = {k: daten.get(k) for k in FREMD_FELDER if k in daten}
+    fremd.update({"titel": "Andere Verarbeitung", "herkunft": "andere", "besitzer": None, "fremd": True})
+    return fremd

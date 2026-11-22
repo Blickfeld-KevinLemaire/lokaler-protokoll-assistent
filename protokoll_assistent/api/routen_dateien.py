@@ -10,7 +10,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
 
 from protokoll_assistent.api import modelle
-from protokoll_assistent.api.kontext import Dienste, dienste
+from protokoll_assistent.api.kontext import Angemeldet, Dienste, angemeldet, dienste
 
 router = APIRouter(prefix="/api/dateien", tags=["dateien"])
 
@@ -50,11 +50,11 @@ def _audio_in(ordner: Path) -> list[dict[str, Any]]:
 
 
 @router.get("/eingang", response_model=list[modelle.EingangsDatei])
-def eingang(d: Dienste = Depends(dienste)) -> list[dict[str, Any]]:
-    """Aufnahmen im Eingangsordner (falls eingestellt) und im Aufnahmeordner, neueste zuerst."""
-    ordner = [d.hochlade_ordner()]
+def eingang(d: Dienste = Depends(dienste), wer: Angemeldet = Depends(angemeldet)) -> list[dict[str, Any]]:
+    """Aufnahmen im Aufnahmeordner und (Windows-Anwendung) im Eingangsordner, neueste zuerst."""
+    ordner = [d.aufnahmeordner(wer)]
     eingabe = d.steuerung.konfiguration().get("eingabeordner")
-    if eingabe and Path(eingabe) not in ordner:
+    if eingabe and not d.mehrbenutzer and Path(eingabe) not in ordner:
         ordner.append(Path(eingabe))
     gesehen: set[str] = set()
     ergebnis = []
@@ -67,11 +67,11 @@ def eingang(d: Dienste = Depends(dienste)) -> list[dict[str, Any]]:
 
 
 @router.post("/hochladen", response_model=modelle.EingangsDatei, status_code=201)
-def hochladen(datei: UploadFile, d: Dienste = Depends(dienste)) -> dict[str, Any]:
+def hochladen(datei: UploadFile, d: Dienste = Depends(dienste), wer: Angemeldet = Depends(angemeldet)) -> dict[str, Any]:
     name = sicherer_name(datei.filename or "aufnahme")
     if Path(name).suffix.lower() not in AUDIO_ENDUNGEN:
         raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, "Dieses Dateiformat wird nicht unterstützt.")
-    ordner = d.hochlade_ordner()
+    ordner = d.aufnahmeordner(wer)
     ordner.mkdir(parents=True, exist_ok=True)
     ziel = _eindeutig(ordner, name)
     teil = ziel.with_name(ziel.name + ".part")

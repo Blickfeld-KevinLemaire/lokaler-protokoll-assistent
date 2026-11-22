@@ -132,6 +132,25 @@ Die Oberfläche erkennt am Tauri-Objekt (`window.__TAURI_INTERNALS__`) und an
 * Bündel-Ressourcen vor `cargo build` bereitstellen (Tauri prüft sie beim
   Kompilieren).
 
+## Nutzer, Geräte und Daten
+
+| | Windows-Anwendung | Servermodus |
+|---|---|---|
+| Menschen | einer | mehrere, eindeutig angemeldet |
+| Anmeldung | Schlüssel je Start (Fenster); „im Netz anbieten": feste Zugangsschlüssel, derselbe eine Mensch | Name + Passwort **und/oder** persönliche Zugangsschlüssel – die Firma wählt; Microsoft-Anmeldung (Entra ID) später, App-Registrierung beim Kunden |
+| Daten | wie bisher (`ausgabe/`, `aufnahmen/`) | je Nutzer `…/nutzer/<name>/`; Besprechungen teilbar mit Einzelnen oder allen (lesen, herunterladen, im Chat fragen; ändern nur der Besitzer) |
+| Aufnahmegeräte | beliebig viele, alle gehören dem einen Menschen | jedes Gerät gehört einem Nutzer; seine Aufnahmen landen in dessen Ordner. Ohne Besitzer: allgemeiner Ordner, nur für Admins |
+| Admin | – (der eine Mensch darf alles) | verwaltet Nutzer, Geräte, Einstellungen, Schlüssel; sieht Auftragstitel, aber keine fremden Inhalte |
+| Warteschlange | eine | eine für alle; fremde Aufträge erscheinen als „Andere Verarbeitung" mit Stand, ohne Inhalt |
+
+Die Geräte-Firmware ändert sich dafür nicht: Das Token bestimmt das Gerät, die
+Zuordnung zum Nutzer steht nur auf dem Server. Geräte, die sich mehrere
+Menschen teilen (Auswahl „wer bin ich" am Gerät), wären ein späterer,
+eigener Schritt mit Firmware-Änderung.
+
+Erster Admin im Container: `python -m protokoll_assistent.api nutzer-anlegen <Name> --admin`
+(gibt einen Zugangsschlüssel einmal aus) oder vorübergehend `VERMERK_ZUGANG` setzen.
+
 ## Was bewusst so bleibt
 * Die Geräteschnittstelle (`GERAETE-SCHNITTSTELLE.md`, Port 8765) ändert sich
   nicht – die Firmware verlässt sich Byte für Byte darauf.

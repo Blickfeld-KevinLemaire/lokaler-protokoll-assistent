@@ -22,6 +22,8 @@ from dataclasses import dataclass, field
 
 from fastapi import HTTPException, Request, status
 
+from protokoll_assistent.ablauf.nutzer import Nutzerverwaltung
+
 ROLLE_DESKTOP = "desktop"
 ROLLE_SERVER = "server"
 ROLLEN = (ROLLE_DESKTOP, ROLLE_SERVER)
@@ -57,11 +59,14 @@ class Zugang:
 
     ``start_schluessel``: der Schluessel dieses Starts (Rolle desktop).
     ``zugaenge``: Name -> SHA-256 eines Zugangsschluessels (Rolle server; liest bei jeder Anmeldung neu, damit
-    neu angelegte oder entfernte Zugaenge sofort gelten)."""
+    neu angelegte oder entfernte Zugaenge sofort gelten).
+    ``nutzer``: Nutzerverwaltung des Servermodus mit mehreren Nutzern (Passwort und persoenliche Schluessel).
+    Ohne sie gibt es genau einen Menschen, und der darf alles."""
 
     rolle: str
     start_schluessel: str | None = None
     zugaenge: Callable[[], dict[str, str]] = dict
+    nutzer: Nutzerverwaltung | None = None
     jetzt: Callable[[], float] = time.time
     _sitzungen: dict[str, _Sitzung] = field(default_factory=dict)
     _fehlversuche: dict[str, list[float]] = field(default_factory=dict)
@@ -82,6 +87,10 @@ class Zugang:
     def _passender_zugang(self, schluessel: str) -> str | None:
         if self.start_schluessel and hmac.compare_digest(schluessel, self.start_schluessel):
             return "desktop"
+        if self.nutzer is not None:
+            gefunden = self.nutzer.zugang_pruefen(schluessel)
+            if gefunden is not None:
+                return gefunden.name
         gesucht = schluessel_hash(schluessel)
         treffer = None
         for name, hashwert in self.zugaenge().items():
@@ -105,7 +114,24 @@ class Zugang:
             if sitzung.ablauf < self.jetzt():
                 del self._sitzungen[token]
                 return None
-            return sitzung.name
+            name = sitzung.name
+        # Ein inzwischen entfernter oder gesperrter Nutzer verliert auch eine laufende Sitzung.
+        if self.nutzer is not None and name not in {"desktop", *self.zugaenge()}:
+            gefunden = self.nutzer.hole(name)
+            if gefunden is None or not gefunden.aktiv:
+                self.abmelden(token)
+                return None
+        return name
+
+    def ist_admin(self, name: str | None) -> bool:
+        """Ohne Nutzerverwaltung (ein Rechner, ein Mensch) darf jeder Angemeldete alles. Mit ihr: Admins und
+        der Notfallzugang aus der Umgebung (``VERMERK_ZUGANG``, fuer die Ersteinrichtung eines Containers)."""
+        if name is None:
+            return False
+        if self.nutzer is None or name == "umgebung":
+            return True
+        gefunden = self.nutzer.hole(name)
+        return gefunden is not None and gefunden.admin and gefunden.aktiv
 
     def pruefen(self, request: Request) -> str:
         name = self.wer(request)
@@ -135,6 +161,18 @@ class Zugang:
         with self._sperre:
             self._sitzungen[token] = _Sitzung(name, self.jetzt() + SITZUNG_SEKUNDEN)
         return token, name
+
+    def anmelden_mit_passwort(self, name: str, passwort: str, adresse: str) -> tuple[str, str] | None:
+        """Anmeldung mit Name und Passwort (nur mit Nutzerverwaltung). Merkt Fehlversuche je Adresse."""
+        gefunden = self.nutzer.passwort_pruefen(name, passwort) if self.nutzer is not None and name else None
+        if gefunden is None:
+            with self._sperre:
+                self._fehlversuche.setdefault(adresse, []).append(self.jetzt())
+            return None
+        token = secrets.token_urlsafe(32)
+        with self._sperre:
+            self._sitzungen[token] = _Sitzung(gefunden.name, self.jetzt() + SITZUNG_SEKUNDEN)
+        return token, gefunden.name
 
     def abmelden(self, token: str | None) -> None:
         if token:

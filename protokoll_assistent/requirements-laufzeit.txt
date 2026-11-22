@@ -59,3 +59,10 @@ pyserial>=3.5
 # Zertifikatspruefung ueber Windows ('utils/netz.py'): Downloads, API-Aufrufe und Hugging Face
 # hinter Firmenproxys. Ohne das Paket faellt die Anwendung auf curl/PowerShell zurueck.
 truststore>=0.10.0
+
+# Programmschnittstelle der neuen Oberflaeche (protokoll_assistent/api/) und PDF-Export ohne Qt
+# (services/dokument_schreiber.py). Alles reines Python bzw. fertige Wheels.
+fastapi>=0.115
+uvicorn>=0.32
+python-multipart>=0.0.18
+reportlab>=4.2

@@ -14,7 +14,11 @@ class Fehler(BaseModel):
 
 
 class Anmeldung(BaseModel):
-    schluessel: str = Field(min_length=1, max_length=256)
+    """Entweder ``schluessel`` (Zugangsschluessel) oder ``name`` + ``passwort``."""
+
+    schluessel: str | None = Field(default=None, max_length=256)
+    name: str | None = Field(default=None, max_length=64)
+    passwort: str | None = Field(default=None, max_length=512)
 
 
 class Faehigkeiten(BaseModel):
@@ -29,6 +33,9 @@ class Info(BaseModel):
     version: str
     rolle: str
     angemeldet_als: str
+    anzeigename: str
+    admin: bool
+    mehrbenutzer: bool
     faehigkeiten: Faehigkeiten
     einrichtung_abgeschlossen: bool
     ausgabeordner: str
@@ -42,6 +49,11 @@ class Auftrag(BaseModel):
     vorrang: int
     status: str
     erstellt: float
+    besitzer: str | None = None
+    # Auftrag eines anderen Nutzers (Servermodus): nur Stand und Platz, ohne Inhalt.
+    fremd: bool = False
+    # Nur in der Antwort auf einen Start: wie viele Auftraege vorher drankommen (0 = sofort).
+    platz: int | None = None
     gestartet: float | None = None
     beendet: float | None = None
     stufe: str = ""
@@ -80,6 +92,9 @@ class AuswertungAnfrage(BaseModel):
 
 
 class Besprechung(BaseModel):
+    besitzer: str | None = None
+    eigen: bool = True
+    geteilt_mit: list[str] = []
     id: str
     titel: str
     zeit: str
@@ -161,6 +176,8 @@ class VorlageSpeichern(BaseModel):
 
 class GeraetAnlegen(BaseModel):
     name: str = Field(min_length=1, max_length=40)
+    # Servermodus: wem das Geraet gehoert (Anmeldename). Ohne: allgemeiner Ordner, nur fuer Admins sichtbar.
+    besitzer: str | None = Field(default=None, max_length=32)
 
 
 class ChatAnfrage(BaseModel):
@@ -175,3 +192,30 @@ class OrdnerOeffnen(BaseModel):
 
 class ModellLaden(BaseModel):
     modell: str = Field(min_length=1, max_length=200)
+
+
+class Freigabe(BaseModel):
+    mit: list[str] = Field(default_factory=list, max_length=200, description='"alle" oder Anmeldenamen; leer = nicht geteilt')
+
+
+class NutzerAnlegen(BaseModel):
+    name: str = Field(min_length=1, max_length=32)
+    anzeigename: str = Field(default="", max_length=80)
+    admin: bool = False
+    passwort: str | None = Field(default=None, max_length=512)
+
+
+class NutzerAendern(BaseModel):
+    anzeigename: str | None = Field(default=None, max_length=80)
+    admin: bool | None = None
+    aktiv: bool | None = None
+    passwort: str | None = Field(default=None, max_length=512, description='Neues Passwort; "" entfernt es')
+
+
+class PasswortAendern(BaseModel):
+    bisher: str = Field(default="", max_length=512)
+    neu: str = Field(min_length=1, max_length=512)
+
+
+class ZugangAnlegen(BaseModel):
+    bezeichnung: str = Field(min_length=1, max_length=60)

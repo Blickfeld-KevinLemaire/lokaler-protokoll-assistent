@@ -4,6 +4,8 @@ Netzwerk-/pip-/venv-Operationen: alle side-effect-behafteten Aufrufe
 
 from __future__ import annotations
 
+import os
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -503,9 +505,12 @@ def test_anwendungsordner_aus_der_umgebung(monkeypatch, tmp_path):
     assert paths.get_project_root() == paket.parent
     assert environment_service.REQUIREMENTS_DIR == paket
 
-    # Die gebaute EXE richtet sich immer nach ihrem eigenen Ordner.
+    # Die gebaute EXE richtet sich nach ihrem eigenen Ordner -- ausser das Fenster gibt einen vor (der Dienst
+    # der neuen Oberflaeche liegt in '<app>\dienst\', seine Daten aber in '<app>\').
     monkeypatch.setattr(paths.sys, "frozen", True, raising=False)
     monkeypatch.setattr(paths.sys, "executable", str(tmp_path / "exe" / "VERMERK-Desktop.exe"))
+    assert paths.get_app_dir() == tmp_path
+    monkeypatch.delenv(paths.ANWENDUNGSORDNER_VARIABLE)
     assert paths.get_app_dir() == (tmp_path / "exe").resolve()
 
 
@@ -678,3 +683,24 @@ def test_fehlende_paketlisten_werden_gemeldet(monkeypatch, tmp_path):
     with pytest.raises(SystemExit):
         bootstrap.ensure_runtime_and_relaunch()
     assert any("Paketlisten" in m for m in meldungen)
+
+
+def test_dienst_startet_sich_mit_derselben_befehlszeile_neu(monkeypatch, tmp_path):
+    """Neue Oberflaeche: Der Dienst wechselt fuer den lokalen Modus in die Rechenumgebung und startet dort
+    'protokoll_assistent.api' mit denselben Argumenten. Der neue Prozess beobachtet zusaetzlich diesen."""
+    aufrufe = []
+
+    def merken(befehl, **kwargs):
+        aufrufe.append((befehl, kwargs))
+        return subprocess.CompletedProcess(befehl, 0)
+
+    monkeypatch.setattr(bootstrap.subprocess, "run", merken)
+    monkeypatch.setattr(bootstrap, "ANWENDUNGSMODUL", bootstrap.ANWENDUNGSMODUL)
+    monkeypatch.setattr(bootstrap, "NEUSTART_ARGUMENTE", [])
+    monkeypatch.setenv(bootstrap.ELTERN_VARIABLE, "4711")
+    bootstrap.als_dienst(["--rolle", "desktop", "--port", "0", "--port-datei", "x.json"])
+    with pytest.raises(SystemExit):
+        bootstrap._relaunch(tmp_path / "python.exe")
+    befehl, kwargs = aufrufe[0]
+    assert befehl[1:] == ["-m", "protokoll_assistent.api", "--rolle", "desktop", "--port", "0", "--port-datei", "x.json"]
+    assert kwargs["env"][bootstrap.ELTERN_VARIABLE] == f"4711,{os.getpid()}"

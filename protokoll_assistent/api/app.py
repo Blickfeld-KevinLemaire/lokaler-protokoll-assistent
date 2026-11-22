@@ -19,6 +19,7 @@ from protokoll_assistent.api import (
     routen_dateien,
     routen_einstellungen,
     routen_geraete,
+    routen_nutzer,
     routen_ollama,
     routen_system,
 )
@@ -80,6 +81,7 @@ def app_erstellen(
         routen_geraete.router,
         routen_chat.router,
         routen_ollama.router,
+        routen_nutzer.router,
     ):
         geschuetzt.include_router(router)
     app.include_router(routen_system.oeffentlich)
