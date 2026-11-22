@@ -39,6 +39,30 @@ Voraussetzung dafür und soll bleiben. Das Paket `server/` darf deshalb **nie**
 `requirements-server.txt` (Regel 8: nicht mit den anderen Listen vermischen).
 Die Tests des Servers laufen überall; das Image baut `.github/workflows/container.yml`.
 
+### Neue Oberfläche (Branch `feature/neue-oberflaeche`, ab 0.6)
+
+Auf diesem Branch wird die Qt-Oberfläche durch eine SvelteKit-Oberfläche
+(`oberflaeche/`) in einem Tauri-Fenster (`oberflaeche/src-tauri/`) ersetzt; die
+Logik liegt ohne Qt in `ablauf/`, die Programmschnittstelle in `api/`
+(FastAPI, Rollen desktop/server). **Zielbild, Prozessmodell und verbindliche
+Regeln stehen in `ARCHITEKTUR.md` – dort zuerst lesen.** Das Wichtigste:
+
+* Eine Auftragswarteschlange für alles (`ablauf/auftraege.py`) – nie zwei
+  Verarbeitungen parallel. Neue lang laufende Arbeit wird ein Auftrag.
+* Jeder Endpunkt ist über die Abhängigkeit am Router geschützt; ein Test ruft
+  alle ohne Anmeldung auf. Kein Betrieb ohne Schlüssel.
+* `oberflaeche/openapi.json` ist der eingecheckte Vertrag (Test prüft ihn).
+  Nach Änderungen an `api/`:
+  `uv run python -m protokoll_assistent.api openapi > oberflaeche/openapi.json`
+  und in `oberflaeche/` `npm run api:typen`.
+* Oberfläche: `npm ci`, `npm run check`, `npm run lint`, `npm test`,
+  `npm run build` (alle in der CI, Job „Oberfläche“). Fenster: `cargo fmt
+  --check`, `cargo clippy -- -D warnings`, `cargo test` in `oberflaeche/src-tauri`.
+* Versionen gleich halten: `uv run python tools/versionen_pruefen.py`.
+* Die Qt-Oberfläche (`gui/`, `app.py`) liegt noch im Repository, wird aber nicht
+  mehr gebaut oder ausgeliefert; sie wird in einem eigenen Schritt entfernt
+  (dann auch die Regeln 5 und 7 und die Startskripte nach Regel 8 anpassen).
+
 ### Vorgeschichte (wichtig beim Lesen alter Commits)
 
 Bis September 2026 waren das **drei** getrennte Anwendungen: eine

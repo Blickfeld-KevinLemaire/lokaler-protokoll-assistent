@@ -8,6 +8,33 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+Neue Oberfläche (Branch `feature/neue-oberflaeche`, Version 0.6.0-alpha.1). Einzelheiten zum Aufbau in
+`ARCHITEKTUR.md`.
+
+### Added
+
+- **Neue Oberfläche** im bekannten Look (dunkle Seitenleiste mit VERMERK), in hell und dunkel, ohne Erklärtexte und
+  ohne Fachbegriffe. Kurze Erklärungen stehen hinter (i)-Symbolen. Fortschritt zeigt, wie weit es ist und wann es
+  fertig ist.
+- **Statusbereich in der Seitenleiste:** was gerade läuft, was wartet (auch Aufträge von Aufnahmegeräten),
+  Freigaben am Gerät, Hinweise und der Zustand des Empfangs.
+- **Eine Warteschlange für alles.** Aufträge vom PC, von Aufnahmegeräten und aus dem Eingangsordner laufen
+  nacheinander, nie gleichzeitig (vorher konnte eine Geräteaufnahme zusammen mit einer Transkription vom PC den
+  Grafikspeicher sprengen). Freigaben am Gerät gehen vor.
+- **Servermodus mit Oberfläche im Browser und mehreren Nutzern:** Anmeldung mit Name und Passwort oder mit
+  persönlichem Zugangsschlüssel, eigene Besprechungen je Nutzer, Teilen mit Einzelnen oder allen, Admins verwalten
+  Nutzer, Geräte und Einstellungen. Aufnahmegeräte gehören jeweils einem Nutzer.
+- Die Windows-Anwendung lässt sich weiterhin zusätzlich im Netz anbieten (ein Nutzer, Zugangsschlüssel).
+- PDF- und OpenDocument-Export ohne Qt (auch im Servermodus).
+
+### Changed
+
+- Die Windows-Anwendung besteht aus einem Fenster (Tauri) und einem Dienst (Python). Der Dienst bekommt seinen Port
+  vom System, meldet ihn über eine Handschlag-Datei, und das Fenster prüft mit seinem Schlüssel, dass es mit dem
+  eigenen Dienst spricht. Ein zweiter Start holt nur das vorhandene Fenster nach vorn.
+- Der Container startet die Programmschnittstelle (`python3 -m protokoll_assistent.api --rolle server`) und
+  liefert die Oberfläche auf Port 8780 aus.
+
 ## [0.5.0-rc3] - 2026-11-18
 
 Dritter Kandidat für die Beta: AMD-Grafikkarten beschleunigen jetzt auch die Transkription, Ollama wird auf AMD,
