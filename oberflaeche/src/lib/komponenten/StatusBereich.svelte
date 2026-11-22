@@ -67,18 +67,20 @@
         <span class="symbol" title={herkunft.text} aria-label={herkunft.text}>{herkunft.symbol}</span>
         <span class="titel" title={auftragTitel(laufend)}>{auftragTitel(laufend)}</span>
         {#if !laufend.fremd}
-        <button
-          class="x"
-          type="button"
-          aria-label="Verarbeitung abbrechen"
-          title="Abbrechen"
-          onclick={() => abbrechen(laufend)}
-        >
-          ✕
-        </button>
+          <button
+            class="x"
+            type="button"
+            aria-label="Verarbeitung abbrechen"
+            title="Abbrechen"
+            onclick={() => abbrechen(laufend)}
+          >
+            ✕
+          </button>
         {/if}
       </div>
-      <div class="stufe">{laufend.fremd ? 'Wird verarbeitet' : stufenText(laufend.stufe, laufend.status)}</div>
+      <div class="stufe">
+        {laufend.fremd ? 'Wird verarbeitet' : stufenText(laufend.stufe, laufend.status)}
+      </div>
       <Fortschritt anteil={laufend.fortschritt} dunkel beschriftung="Fortschritt der Verarbeitung" />
       <div class="fuss">
         <span>{prozent !== null ? `${prozent} %` : ''}</span>
@@ -109,14 +111,14 @@
               <span class="symbol" title={h.text}>{h.symbol}</span>
               <span class="titel" title={auftragTitel(a)}>{auftragTitel(a)}</span>
               {#if !a.fremd}
-              <button
-                class="x"
-                type="button"
-                aria-label="Aus der Warteschlange nehmen"
-                onclick={() => abbrechen(a)}
-              >
-                ✕
-              </button>
+                <button
+                  class="x"
+                  type="button"
+                  aria-label="Aus der Warteschlange nehmen"
+                  onclick={() => abbrechen(a)}
+                >
+                  ✕
+                </button>
               {/if}
             </li>
           {/each}

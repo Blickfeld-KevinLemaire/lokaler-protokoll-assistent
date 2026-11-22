@@ -129,25 +129,41 @@
           aria-label="{n.anzeigename} entfernen"
           title="Entfernen"
           disabled={n.name.toLowerCase() === ich}
-          onclick={() => entfernen(n)}>✕</button
+          onclick={() => entfernen(n)}
         >
+          ✕
+        </button>
       </li>
     {/each}
   </ul>
-  <div><button class="knopf" type="button" onclick={() => (neuOffen = true)}>+&nbsp; Nutzer anlegen</button></div>
+  <div>
+    <button class="knopf" type="button" onclick={() => (neuOffen = true)}>+&nbsp; Nutzer anlegen</button>
+  </div>
 </div>
 
 <Dialog offen={neuOffen} titel="Nutzer anlegen" schliessen={() => (neuOffen = false)}>
   {#snippet kinder()}
     <form id="nutzer-neu" class="formular" onsubmit={anlegen}>
-      <label class="feldzeile"><span>Anmeldename</span><input class="feld" maxlength="32" autocomplete="off" bind:value={neu.name} /></label>
-      <label class="feldzeile"><span>Anzeigename</span><input class="feld" maxlength="80" bind:value={neu.anzeigename} /></label>
-      <label class="feldzeile"
-        ><span>Passwort</span><input class="feld" type="password" autocomplete="new-password" bind:value={neu.passwort} /></label
-      >
+      <label class="feldzeile">
+        <span>Anmeldename</span><input class="feld" maxlength="32" autocomplete="off" bind:value={neu.name} />
+      </label>
+      <label class="feldzeile">
+        <span>Anzeigename</span><input class="feld" maxlength="80" bind:value={neu.anzeigename} />
+      </label>
+      <label class="feldzeile">
+        <span>Passwort</span><input
+          class="feld"
+          type="password"
+          autocomplete="new-password"
+          bind:value={neu.passwort}
+        />
+      </label>
       <Schalter bind:an={neu.admin} beschriftung="Darf verwalten">
         {#snippet info()}
-          <Info frage="Was bedeutet verwalten?" text="Ändert Einstellungen, legt Nutzer und Geräte an. Alle anderen sehen nur ihre eigenen Besprechungen." />
+          <Info
+            frage="Was bedeutet verwalten?"
+            text="Ändert Einstellungen, legt Nutzer und Geräte an. Alle anderen sehen nur ihre eigenen Besprechungen."
+          />
         {/snippet}
       </Schalter>
     </form>
@@ -158,31 +174,59 @@
   {/snippet}
 </Dialog>
 
-<Dialog offen={!!bearbeiten} titel={bearbeiten?.anzeigename ?? ''} schliessen={() => (bearbeiten = null)} breite={480}>
+<Dialog
+  offen={!!bearbeiten}
+  titel={bearbeiten?.anzeigename ?? ''}
+  schliessen={() => (bearbeiten = null)}
+  breite={480}
+>
   {#snippet kinder()}
     <div class="formular">
-      <label class="feldzeile"><span>Anzeigename</span><input class="feld" maxlength="80" bind:value={form.anzeigename} /></label>
-      <label class="feldzeile"
-        ><span>Neues Passwort</span><input
+      <label class="feldzeile">
+        <span>Anzeigename</span><input class="feld" maxlength="80" bind:value={form.anzeigename} />
+      </label>
+      <label class="feldzeile">
+        <span>Neues Passwort</span><input
           class="feld"
           type="password"
           autocomplete="new-password"
           placeholder="Unverändert lassen"
           bind:value={form.passwort}
-        /></label
-      >
-      <Schalter bind:an={form.admin} beschriftung="Darf verwalten" deaktiviert={bearbeiten?.name.toLowerCase() === ich} />
-      <Schalter bind:an={form.aktiv} beschriftung="Darf sich anmelden" deaktiviert={bearbeiten?.name.toLowerCase() === ich} />
+        />
+      </label>
+      <Schalter
+        bind:an={form.admin}
+        beschriftung="Darf verwalten"
+        deaktiviert={bearbeiten?.name.toLowerCase() === ich}
+      />
+      <Schalter
+        bind:an={form.aktiv}
+        beschriftung="Darf sich anmelden"
+        deaktiviert={bearbeiten?.name.toLowerCase() === ich}
+      />
       <div class="feldzeile">
         <span>Zugangsschlüssel</span>
         {#each bearbeiten?.zugaenge ?? [] as z (z.bezeichnung)}
           <div class="zeile z">
             <span class="z-name">{z.bezeichnung}</span>
-            <button class="symbolknopf" type="button" aria-label="{z.bezeichnung} entfernen" onclick={() => zugangEntfernen(z.bezeichnung)}>✕</button>
+            <button
+              class="symbolknopf"
+              type="button"
+              aria-label="{z.bezeichnung} entfernen"
+              onclick={() => zugangEntfernen(z.bezeichnung)}
+            >
+              ✕
+            </button>
           </div>
         {/each}
         <form class="zeile" onsubmit={zugangAnlegen}>
-          <input class="feld" placeholder="Bezeichnung" aria-label="Bezeichnung" maxlength="60" bind:value={bezeichnung} />
+          <input
+            class="feld"
+            placeholder="Bezeichnung"
+            aria-label="Bezeichnung"
+            maxlength="60"
+            bind:value={bezeichnung}
+          />
           <button class="knopf" type="submit" disabled={!bezeichnung.trim()}>+&nbsp; Neu</button>
         </form>
       </div>

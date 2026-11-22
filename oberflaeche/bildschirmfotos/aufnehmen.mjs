@@ -51,7 +51,11 @@ const AUFNAHMEN = [
   { name: '05-besprechungen', szenario: 'reihe', pfad: '/besprechungen' },
   { name: '06-besprechung-transkript', szenario: 'reihe', pfad: '/besprechungen?id=b1' },
   { name: '07-besprechung-sprecher', szenario: 'reihe', pfad: '/besprechungen?id=b1&reiter=sprecher' },
-  { name: '08-besprechung-zusammenfassung', szenario: 'reihe', pfad: '/besprechungen?id=b1&reiter=zusammenfassung' },
+  {
+    name: '08-besprechung-zusammenfassung',
+    szenario: 'reihe',
+    pfad: '/besprechungen?id=b1&reiter=zusammenfassung'
+  },
   {
     name: '09-zusammenfassung-bearbeiten',
     szenario: 'reihe',
@@ -91,7 +95,12 @@ const AUFNAHMEN = [
   },
   { name: '18-anmeldung', szenario: 'anmelden', pfad: '/', browser: true },
   { name: '19-nutzer-besprechungen', szenario: 'nutzer', pfad: '/besprechungen', browser: true },
-  { name: '20-nutzer-geteilt', szenario: 'nutzer', pfad: '/besprechungen?id=jonas~b1&reiter=zusammenfassung', browser: true },
+  {
+    name: '20-nutzer-geteilt',
+    szenario: 'nutzer',
+    pfad: '/besprechungen?id=jonas~b1&reiter=zusammenfassung',
+    browser: true
+  },
   { name: '21-nutzer-einstellungen', szenario: 'nutzer', pfad: '/einstellungen', browser: true },
   { name: '22-admin-nutzer', szenario: 'admin', pfad: '/einstellungen#nutzer', browser: true },
   {
@@ -100,6 +109,38 @@ const AUFNAHMEN = [
     pfad: '/besprechungen?id=b4',
     browser: true,
     tun: async (s) => s.getByRole('button', { name: /Geteilt|Teilen/ }).click()
+  },
+  {
+    name: '24-usb-anschliessen',
+    szenario: 'reihe',
+    pfad: '/raum',
+    tun: async (s) => s.getByRole('button', { name: /per USB verbinden/ }).click()
+  },
+  {
+    name: '25-usb-name-wlan',
+    szenario: 'reihe',
+    pfad: '/raum',
+    tun: async (s) => {
+      await s.getByRole('button', { name: /per USB verbinden/ }).click();
+      await s.waitForTimeout(400);
+      await s.getByRole('button', { name: 'Weiter' }).click();
+      await s.waitForTimeout(300);
+      await s.getByLabel('Name des Geräts').fill('Raum-4');
+    }
+  },
+  {
+    name: '26-usb-wird-eingerichtet',
+    szenario: 'reihe',
+    pfad: '/raum',
+    tun: async (s) => {
+      await s.getByRole('button', { name: /per USB verbinden/ }).click();
+      await s.waitForTimeout(400);
+      await s.getByRole('button', { name: 'Weiter' }).click();
+      await s.waitForTimeout(300);
+      await s.getByLabel('Name des Geräts').fill('Raum-4');
+      await s.getByLabel('WLAN-Passwort').fill('geheim123');
+      await s.getByRole('button', { name: 'Einrichten' }).click();
+    }
   }
 ];
 

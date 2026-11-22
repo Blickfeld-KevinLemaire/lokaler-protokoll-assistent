@@ -86,7 +86,7 @@
             <span class="text">{b.titel}</span>
             {#if b.eigen === false}
               <span class="geteilt">geteilt von {personen.anzeigename(b.besitzer)}</span>
-            {:else if b.geteilt_mit?.length}
+            {:else if verbindung.mehrbenutzer && b.geteilt_mit?.length}
               <span class="geteilt leise" title="Geteilt">👥</span>
             {/if}
           </span>

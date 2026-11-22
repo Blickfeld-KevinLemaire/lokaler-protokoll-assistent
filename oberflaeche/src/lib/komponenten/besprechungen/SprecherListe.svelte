@@ -1,7 +1,7 @@
 <script lang="ts">
   import { api } from '$lib/api/client';
   import type { Sprecher } from '$lib/api/typen';
-  import { dauerText } from '$lib/logik/format';
+  import { dauerText, sprecherName } from '$lib/logik/format';
   import { dialog, meldungen } from '$lib/stores/oberflaeche.svelte';
 
   let {
@@ -11,6 +11,8 @@
     gespeichert
   }: { id: string; sprecher: Sprecher[]; nurLesen?: boolean; gespeichert: () => void } = $props();
 
+  // Tief reaktiv (bind:value auf einzelne Einträge); neu gesetzt, sobald die Besprechung neu geladen wird.
+  // eslint-disable-next-line svelte/prefer-writable-derived -- $derived wäre nicht tief reaktiv
   let namen = $state<Record<string, string>>({});
   let speichert = $state(false);
 
@@ -49,9 +51,14 @@
         <div class="zeile-sp">
           <span class="punkt" style:background="var(--sp{i % 6})" aria-hidden="true"></span>
           {#if nurLesen}
-            <span class="name">{s.name || s.id}</span>
+            <span class="name">{sprecherName(s.name, s.id)}</span>
           {:else}
-            <input class="feld" aria-label="Name für {s.id}" placeholder={s.id} bind:value={namen[s.id]} />
+            <input
+              class="feld"
+              aria-label="Name für {sprecherName(null, s.id)}"
+              placeholder={sprecherName(null, s.id)}
+              bind:value={namen[s.id]}
+            />
           {/if}
           <span class="leise klein">{dauerText(s.sekunden)}</span>
         </div>

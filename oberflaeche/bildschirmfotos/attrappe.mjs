@@ -153,10 +153,42 @@ function auftraege() {
 }
 
 const NUTZER = [
-  { name: 'jonas', anzeigename: 'Jonas Weber', admin: true, aktiv: true, hat_passwort: true, zugaenge: [{ bezeichnung: 'Laptop', angelegt: '2026-11-02' }], angelegt: '2026-10-01' },
-  { name: 'anna', anzeigename: 'Anna Schmidt', admin: false, aktiv: true, hat_passwort: true, zugaenge: [{ bezeichnung: 'Büro-PC', angelegt: '2026-11-10' }], angelegt: '2026-10-03' },
-  { name: 'mehmet', anzeigename: 'Mehmet Kaya', admin: false, aktiv: true, hat_passwort: true, zugaenge: [], angelegt: '2026-10-20' },
-  { name: 'lisa', anzeigename: 'Lisa Braun', admin: false, aktiv: false, hat_passwort: false, zugaenge: [], angelegt: '2026-11-05' }
+  {
+    name: 'jonas',
+    anzeigename: 'Jonas Weber',
+    admin: true,
+    aktiv: true,
+    hat_passwort: true,
+    zugaenge: [{ bezeichnung: 'Laptop', angelegt: '2026-11-02' }],
+    angelegt: '2026-10-01'
+  },
+  {
+    name: 'anna',
+    anzeigename: 'Anna Schmidt',
+    admin: false,
+    aktiv: true,
+    hat_passwort: true,
+    zugaenge: [{ bezeichnung: 'Büro-PC', angelegt: '2026-11-10' }],
+    angelegt: '2026-10-03'
+  },
+  {
+    name: 'mehmet',
+    anzeigename: 'Mehmet Kaya',
+    admin: false,
+    aktiv: true,
+    hat_passwort: true,
+    zugaenge: [],
+    angelegt: '2026-10-20'
+  },
+  {
+    name: 'lisa',
+    anzeigename: 'Lisa Braun',
+    admin: false,
+    aktiv: false,
+    hat_passwort: false,
+    zugaenge: [],
+    angelegt: '2026-11-05'
+  }
 ];
 
 const BESPRECHUNGEN = [
@@ -184,7 +216,9 @@ const BESPRECHUNGEN = [
 function besprechungen() {
   if (szenario !== 'nutzer') return BESPRECHUNGEN;
   return BESPRECHUNGEN.map((b) =>
-    b.id === 'b1' ? { ...b, id: 'jonas~b1', besitzer: 'jonas', eigen: false, geteilt_mit: ['anna'] } : { ...b, besitzer: 'anna' }
+    b.id === 'b1'
+      ? { ...b, id: 'jonas~b1', besitzer: 'jonas', eigen: false, geteilt_mit: ['anna'] }
+      : { ...b, besitzer: 'anna' }
   );
 }
 
@@ -381,7 +415,13 @@ async function api(anfrage, antwort, url) {
       version: '0.6.0-alpha.1',
       rolle: mitSchluessel ? 'desktop' : 'server',
       angemeldet_als: mehr ? (szenario === 'admin' ? 'jonas' : 'anna') : mitSchluessel ? 'desktop' : 'büro',
-      anzeigename: mehr ? (szenario === 'admin' ? 'Jonas Weber' : 'Anna Schmidt') : mitSchluessel ? 'desktop' : 'büro',
+      anzeigename: mehr
+        ? szenario === 'admin'
+          ? 'Jonas Weber'
+          : 'Anna Schmidt'
+        : mitSchluessel
+          ? 'desktop'
+          : 'büro',
       admin: szenario !== 'nutzer',
       mehrbenutzer: mehr,
       faehigkeiten: {
@@ -395,14 +435,27 @@ async function api(anfrage, antwort, url) {
       ausgabeordner: einstellungen.ausgabeordner
     });
   }
-  if (p === '/api/nutzer/namen') return senden(antwort, 200, NUTZER.map(({ name, anzeigename }) => ({ name, anzeigename })));
+  if (p === '/api/nutzer/namen')
+    return senden(
+      antwort,
+      200,
+      NUTZER.map(({ name, anzeigename }) => ({ name, anzeigename }))
+    );
   if (p === '/api/nutzer') return senden(antwort, 200, NUTZER);
-  if (p === '/api/ich') return senden(antwort, 200, NUTZER.find((n) => n.name === (szenario === 'admin' ? 'jonas' : 'anna')));
+  if (p === '/api/ich')
+    return senden(
+      antwort,
+      200,
+      NUTZER.find((n) => n.name === (szenario === 'admin' ? 'jonas' : 'anna'))
+    );
   if (p === '/api/zustand')
     return senden(antwort, 200, {
       letzte_nummer: nummer,
       auftraege: auftraege(),
-      empfang: szenario === 'nutzer' ? null : { aktiv: true, port: 8765, geraete: 2, live: true, fehler: null, zuletzt: null },
+      empfang:
+        szenario === 'nutzer'
+          ? null
+          : { aktiv: true, port: 8765, geraete: 2, live: true, fehler: null, zuletzt: null },
       freigaben: szenario === 'reihe' ? [{ geraet: 'Flur-EG', datei: 'rec_0007.wav', pfad: '' }] : []
     });
   if (p === '/api/ereignisse') {
@@ -509,6 +562,31 @@ async function api(anfrage, antwort, url) {
         }
       ]
     });
+  if (p === '/api/geraete/usb/anschluesse')
+    return senden(antwort, 200, [
+      { port: 'COM5', beschreibung: 'USB-JTAG/serial debug unit', vermerk: true },
+      { port: 'COM3', beschreibung: 'Standardmäßige Seriell-über-Bluetooth-Verbindung', vermerk: false }
+    ]);
+  if (p === '/api/geraete/usb/erkennen')
+    return senden(antwort, 200, {
+      geraete_id: 'a1b2c3',
+      board: 'S3',
+      firmware: '1.4.0',
+      eingerichtet: false,
+      wlan: 'Büro-WLAN',
+      fuer_pc: false,
+      fuer_server: false,
+      bekannt_als: null
+    });
+  if (p === '/api/geraete/usb/einrichten') {
+    await new Promise((r) => setTimeout(r, 20000));
+    return senden(antwort, 200, {
+      name: 'Raum-4',
+      info: {},
+      pc_url: 'http://192.168.1.20:8765',
+      inventar: ''
+    });
+  }
   if (p === '/api/geraete')
     return senden(antwort, 200, {
       empfang: { aktiv: true, port: 8765, geraete: 2, live: true, fehler: null, zuletzt: null },

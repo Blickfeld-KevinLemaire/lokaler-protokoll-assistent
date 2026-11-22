@@ -24,6 +24,9 @@ import type {
   GeraeteStand,
   Info,
   ModellStand,
+  UsbAnschluss,
+  UsbEinrichtung,
+  UsbGeraet,
   NeuerZugang,
   Nutzer,
   NutzerName,
@@ -133,7 +136,7 @@ function istFehlerantwort(wert: unknown): wert is Fehlerantwort {
 
 /** Macht aus einer Fehlerantwort einen `ApiFehler` (422 mit Titel/Text/Code oder `detail`). */
 export async function fehlerAusAntwort(antwort: Response): Promise<ApiFehler> {
-  let koerper: unknown = null;
+  let koerper: unknown;
   try {
     koerper = await antwort.json();
   } catch {
@@ -318,6 +321,14 @@ export const api = {
   geraete: () => json<GeraeteStand>('GET', '/api/geraete'),
   geraetAnlegen: (name: string, besitzer: string | null = null) =>
     json<GeraetAngelegt>('POST', '/api/geraete', { json: besitzer ? { name, besitzer } : { name } }),
+  usbAnschluesse: () => json<UsbAnschluss[]>('GET', '/api/geraete/usb/anschluesse'),
+  usbErkennen: (port: string) => json<UsbGeraet>('POST', '/api/geraete/usb/erkennen', { json: { port } }),
+  usbEinrichten: (daten: UsbEinrichtung) =>
+    json<{ name: string; info: UsbGeraet; pc_url: string; inventar: string }>(
+      'POST',
+      '/api/geraete/usb/einrichten',
+      { json: daten }
+    ),
   geraetEntfernen: (name: string) => json<{ entfernt: boolean }>('DELETE', `/api/geraete/${pfadteil(name)}`),
 
   chat: (frage: string, besprechungen: string[], verlaufId: string | null, signal?: AbortSignal) =>
@@ -340,7 +351,8 @@ export const api = {
   ich: () => json<Nutzer>('GET', '/api/ich'),
   passwortAendern: (bisher: string, neu: string) =>
     json<{ gespeichert: boolean }>('PUT', '/api/ich/passwort', { json: { bisher, neu } }),
-  eigenerZugang: (bezeichnung: string) => json<NeuerZugang>('POST', '/api/ich/zugaenge', { json: { bezeichnung } }),
+  eigenerZugang: (bezeichnung: string) =>
+    json<NeuerZugang>('POST', '/api/ich/zugaenge', { json: { bezeichnung } }),
   eigenenZugangEntfernen: (bezeichnung: string) =>
     json<{ entfernt: boolean }>('DELETE', `/api/ich/zugaenge/${pfadteil(bezeichnung)}`),
   nutzer: () => json<Nutzer[]>('GET', '/api/nutzer'),
@@ -355,10 +367,7 @@ export const api = {
   nutzerZugang: (name: string, bezeichnung: string) =>
     json<NeuerZugang>('POST', `/api/nutzer/${pfadteil(name)}/zugaenge`, { json: { bezeichnung } }),
   nutzerZugangEntfernen: (name: string, bezeichnung: string) =>
-    json<{ entfernt: boolean }>(
-      'DELETE',
-      `/api/nutzer/${pfadteil(name)}/zugaenge/${pfadteil(bezeichnung)}`
-    ),
+    json<{ entfernt: boolean }>('DELETE', `/api/nutzer/${pfadteil(name)}/zugaenge/${pfadteil(bezeichnung)}`),
 
   diagnose: () => json<DiagnosePunkt[]>('GET', '/api/system/diagnose'),
   ordnerOeffnen: (pfad: string) =>

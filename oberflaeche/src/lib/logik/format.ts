@@ -62,3 +62,11 @@ export function ordnerVon(pfad: string): string {
   const i = Math.max(pfad.lastIndexOf('\\'), pfad.lastIndexOf('/'));
   return i > 0 ? pfad.slice(0, i) : pfad;
 }
+
+/** Anzeigename eines Sprechers: vergebener Name, sonst „Sprecher 3“ statt der Kennung `SPEAKER_02`. */
+export function sprecherName(name: string | null | undefined, kennung: string | null | undefined): string {
+  const roh = (name ?? '').trim();
+  const m = /^SPEAKER_(\d+)$/i.exec(roh || (kennung ?? ''));
+  if (m) return `Sprecher ${Number(m[1]) + 1}`;
+  return roh || kennung || '';
+}

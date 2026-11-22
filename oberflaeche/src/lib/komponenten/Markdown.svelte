@@ -41,6 +41,10 @@
     margin: 0 0 10px;
   }
 
+  .md > :global(:last-child) {
+    margin-bottom: 0;
+  }
+
   .md :global(ul),
   .md :global(ol) {
     margin: 0 0 10px;

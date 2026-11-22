@@ -10,6 +10,13 @@
   let offen = $state(false);
   let fest = $state(false);
   let wurzel: HTMLSpanElement | undefined = $state();
+  let nachLinks = $state(false);
+
+  // Nahe am rechten Rand öffnet die Blase nach links, damit nichts abgeschnitten wird.
+  $effect(() => {
+    if (!offen || !wurzel) return;
+    nachLinks = wurzel.getBoundingClientRect().left + 280 > window.innerWidth - 16;
+  });
 
   function umschalten() {
     fest = !fest;
@@ -51,7 +58,7 @@
     i
   </button>
   {#if offen}
-    <span class="blase" class:oben={richtung === 'oben'} role="tooltip" {id}>
+    <span class="blase" class:oben={richtung === 'oben'} class:links={nachLinks} role="tooltip" {id}>
       <strong>{frage}</strong>
       <span>{text}</span>
     </span>
@@ -109,6 +116,11 @@
     gap: 4px;
     text-align: left;
     white-space: normal;
+  }
+
+  .blase.links {
+    left: auto;
+    right: -12px;
   }
 
   .blase.oben {

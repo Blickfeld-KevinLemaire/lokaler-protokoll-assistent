@@ -547,6 +547,57 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/geraete/usb/anschluesse': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Anschluesse */
+    get: operations['anschluesse_api_geraete_usb_anschluesse_get'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/geraete/usb/erkennen': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Erkennen */
+    post: operations['erkennen_api_geraete_usb_erkennen_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/geraete/usb/einrichten': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Einrichten */
+    post: operations['einrichten_api_geraete_usb_einrichten_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/geraete': {
     parameters: {
       query?: never;
@@ -1251,6 +1302,42 @@ export interface components {
       mit_auswertung: boolean;
       /** Systemprompt */
       systemprompt?: string | null;
+    };
+    /** UsbEinrichten */
+    UsbEinrichten: {
+      /** Port */
+      port: string;
+      /** Name */
+      name: string;
+      /** Wlan Ssid */
+      wlan_ssid: string;
+      /**
+       * Wlan Passwort
+       * @default
+       */
+      wlan_passwort: string;
+      /**
+       * Pc Url
+       * @default
+       */
+      pc_url: string;
+      /**
+       * Server Url
+       * @default
+       */
+      server_url: string;
+      /**
+       * Server Token
+       * @default
+       */
+      server_token: string;
+      /** Erste Nummer */
+      erste_nummer?: number | null;
+    };
+    /** UsbErkennen */
+    UsbErkennen: {
+      /** Port */
+      port: string;
     };
     /** ValidationError */
     ValidationError: {
@@ -2268,6 +2355,98 @@ export interface operations {
         content: {
           'application/json': {
             [key: string]: boolean;
+          };
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['HTTPValidationError'];
+        };
+      };
+    };
+  };
+  anschluesse_api_geraete_usb_anschluesse_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            [key: string]: unknown;
+          }[];
+        };
+      };
+    };
+  };
+  erkennen_api_geraete_usb_erkennen_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['UsbErkennen'];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            [key: string]: unknown;
+          };
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['HTTPValidationError'];
+        };
+      };
+    };
+  };
+  einrichten_api_geraete_usb_einrichten_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['UsbEinrichten'];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            [key: string]: unknown;
           };
         };
       };

@@ -64,8 +64,9 @@
     {#if verbindung.mehrbenutzer && verbindung.info}
       <li>
         <a href="/einstellungen#konto" title="Konto">
-          <span class="sym avatar" aria-hidden="true">{verbindung.info.anzeigename.slice(0, 1)}</span
-          >{verbindung.info.anzeigename}
+          <span class="sym avatar" aria-hidden="true">
+            {verbindung.info.anzeigename.slice(0, 1)}
+          </span>{verbindung.info.anzeigename}
         </a>
       </li>
     {/if}

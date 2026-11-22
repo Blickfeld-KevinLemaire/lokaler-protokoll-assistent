@@ -61,9 +61,4 @@
     background: var(--warn-weich);
     color: var(--warn);
   }
-
-  .abzeichen :global(.blase) {
-    left: auto;
-    right: -8px;
-  }
 </style>

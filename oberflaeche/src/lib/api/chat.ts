@@ -40,7 +40,7 @@ export async function fragen(
   await stromLesen(
     antwort.body,
     (n) => {
-      let daten: Record<string, unknown> = {};
+      let daten: Record<string, unknown>;
       try {
         daten = JSON.parse(n.data) as Record<string, unknown>;
       } catch {

@@ -64,10 +64,14 @@
 
 <div class="konto">
   <div class="wer">
-    <span class="avatar" aria-hidden="true">{(ich?.anzeigename ?? verbindung.info?.anzeigename ?? '?').slice(0, 1)}</span>
+    <span class="avatar" aria-hidden="true">
+      {(ich?.anzeigename ?? verbindung.info?.anzeigename ?? '?').slice(0, 1)}
+    </span>
     <div>
       <div class="name">{ich?.anzeigename ?? verbindung.info?.anzeigename}</div>
-      <div class="leise klein">{ich?.name ?? verbindung.info?.angemeldet_als}{ich?.admin ? ' · Verwaltung' : ''}</div>
+      <div class="leise klein">
+        {ich?.name ?? verbindung.info?.angemeldet_als}{ich?.admin ? ' · Verwaltung' : ''}
+      </div>
     </div>
     <span class="raum"></span>
     <button class="knopf" type="button" onclick={() => verbindung.abmelden()}>Abmelden</button>
@@ -77,9 +81,23 @@
     <span class="beschriftung">Passwort ändern</span>
     <div class="zeile">
       {#if ich?.hat_passwort}
-        <input class="feld" type="password" autocomplete="current-password" placeholder="Bisher" aria-label="Bisheriges Passwort" bind:value={bisher} />
+        <input
+          class="feld"
+          type="password"
+          autocomplete="current-password"
+          placeholder="Bisher"
+          aria-label="Bisheriges Passwort"
+          bind:value={bisher}
+        />
       {/if}
-      <input class="feld" type="password" autocomplete="new-password" placeholder="Neu" aria-label="Neues Passwort" bind:value={neu} />
+      <input
+        class="feld"
+        type="password"
+        autocomplete="new-password"
+        placeholder="Neu"
+        aria-label="Neues Passwort"
+        bind:value={neu}
+      />
       <button class="knopf" type="submit" disabled={!neu || (ich?.hat_passwort && !bisher)}>Ändern</button>
     </div>
   </form>
@@ -98,13 +116,26 @@
           <li>
             <span class="z-name">{z.bezeichnung}</span>
             <span class="leise klein">{datumText(z.angelegt)}</span>
-            <button class="symbolknopf" type="button" aria-label="{z.bezeichnung} entfernen" onclick={() => zugangEntfernen(z.bezeichnung)}>✕</button>
+            <button
+              class="symbolknopf"
+              type="button"
+              aria-label="{z.bezeichnung} entfernen"
+              onclick={() => zugangEntfernen(z.bezeichnung)}
+            >
+              ✕
+            </button>
           </li>
         {/each}
       </ul>
     {/if}
     <form class="zeile" onsubmit={zugangAnlegen}>
-      <input class="feld" placeholder="Bezeichnung, z. B. Laptop" aria-label="Bezeichnung" maxlength="60" bind:value={bezeichnung} />
+      <input
+        class="feld"
+        placeholder="Bezeichnung, z. B. Laptop"
+        aria-label="Bezeichnung"
+        maxlength="60"
+        bind:value={bezeichnung}
+      />
       <button class="knopf" type="submit" disabled={!bezeichnung.trim()}>+&nbsp; Neuer Schlüssel</button>
     </form>
   </div>

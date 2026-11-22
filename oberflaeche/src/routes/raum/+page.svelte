@@ -5,6 +5,7 @@
   import Erweitert from '$lib/komponenten/Erweitert.svelte';
   import Info from '$lib/komponenten/Info.svelte';
   import Kopf from '$lib/komponenten/Kopf.svelte';
+  import UsbEinrichtung from '$lib/komponenten/raum/UsbEinrichtung.svelte';
   import Schalter from '$lib/komponenten/Schalter.svelte';
   import { uhrzeit } from '$lib/logik/format';
   import { GERAETE_ZUSTAENDE } from '$lib/logik/stufen';
@@ -18,12 +19,17 @@
   let nichtVerfuegbar = $state(false);
   let vorlagen = $state<Vorlage[]>([]);
   let neuerName = $state('');
+  let usbOffen = $state(false);
   let besitzer = $state('');
   let anlegenOffen = $state(false);
   let angelegt = $state<GeraetAngelegt | null>(null);
   let port = $state<number | null>(null);
 
   const w = $derived(einstellungen.werte);
+  // Per Kabel nur im Fenster auf diesem Computer (der Dienst spricht mit dem USB-Anschluss).
+  const usbMoeglich = $derived(
+    verbindung.tauri && !!verbindung.info?.faehigkeiten.dateipfade && verbindung.verwalten
+  );
 
   async function laden() {
     try {
@@ -116,91 +122,102 @@
 {:else}
   <div class="raster" class:einzeln={!verbindung.verwalten}>
     {#if verbindung.verwalten}
-    <section class="karte block" aria-labelledby="empfang-titel">
-      <h2 id="empfang-titel">Empfang</h2>
-      <div class="zeile zwischen">
-        <Schalter
-          an={!!w?.geraete_empfang_aktiv}
-          beschriftung="Aufnahmen von Geräten annehmen"
-          deaktiviert={!w}
-          aendern={(an) => setzen({ geraete_empfang_aktiv: an })}
-        />
-        {#if empfang}
-          <span class="marke" class:an={empfang.aktiv}>{empfang.aktiv ? 'Empfang an' : 'Aus'}</span>
-        {/if}
-      </div>
-      {#if empfang?.fehler}<p class="warn">⚠ {portBelegt ? 'Port belegt' : 'Empfang gestört'}</p>{/if}
-      <Schalter
-        an={!!w?.geraete_live_aktiv}
-        beschriftung="Live mitschreiben"
-        deaktiviert={!w}
-        aendern={(an) => setzen({ geraete_live_aktiv: an })}
-      >
-        {#snippet info()}
-          <Info
-            frage="Was bedeutet Live mitschreiben?"
-            text="Schon während der Aufnahme erscheint hier der Text. Das Ergebnis ist so früher fertig."
+      <section class="karte block" aria-labelledby="empfang-titel">
+        <h2 id="empfang-titel">Empfang</h2>
+        <div class="zeile zwischen">
+          <Schalter
+            an={!!w?.geraete_empfang_aktiv}
+            beschriftung="Aufnahmen von Geräten annehmen"
+            deaktiviert={!w}
+            aendern={(an) => setzen({ geraete_empfang_aktiv: an })}
           />
-        {/snippet}
-      </Schalter>
-      <Schalter
-        an={!!w?.geraete_live_auswertung_vorab}
-        beschriftung="Zusammenfassung vorbereiten"
-        deaktiviert={!w || !w.geraete_live_aktiv}
-        aendern={(an) => setzen({ geraete_live_auswertung_vorab: an })}
-      >
-        {#snippet info()}
-          <Info
-            frage="Was bedeutet Zusammenfassung vorbereiten?"
-            text="Die Zusammenfassung entsteht schon während der Besprechung. Nach dem Ende ist sie schneller da."
-          />
-        {/snippet}
-      </Schalter>
-      <label class="feldzeile">
-        <span>Vorlage für Zusammenfassungen</span>
-        <select
-          class="feld"
-          value={w?.geraete_live_auftrag ?? ''}
-          onchange={(e) => setzen({ geraete_live_auftrag: (e.currentTarget as HTMLSelectElement).value })}
-        >
-          <option value="">Automatisch</option>
-          {#each vorlagen as v (v.name)}<option value={v.name}>{v.name}</option>{/each}
-        </select>
-      </label>
-      <Erweitert>
-        {#snippet kinder()}
-          <label class="feldzeile">
-            <span>Port</span>
-            <div class="zeile">
-              <input class="feld kurz" type="number" min="1024" max="65535" bind:value={port} />
-              <button
-                class="knopf"
-                type="button"
-                disabled={!port || port === w?.geraete_empfang_port}
-                onclick={() => setzen({ geraete_empfang_port: port })}
-              >
-                Übernehmen
-              </button>
-            </div>
-          </label>
-          {#if stand?.adressen.length}
-            <div class="feldzeile">
-              <span>Adresse dieses Computers</span>
-              {#each stand.adressen as a (a)}<code>{a}</code>{/each}
-            </div>
+          {#if empfang}
+            <span class="marke" class:an={empfang.aktiv}>{empfang.aktiv ? 'Empfang an' : 'Aus'}</span>
           {/if}
-        {/snippet}
-      </Erweitert>
-    </section>
+        </div>
+        {#if empfang?.fehler}<p class="warn">⚠ {portBelegt ? 'Port belegt' : 'Empfang gestört'}</p>{/if}
+        <Schalter
+          an={!!w?.geraete_live_aktiv}
+          beschriftung="Live mitschreiben"
+          deaktiviert={!w}
+          aendern={(an) => setzen({ geraete_live_aktiv: an })}
+        >
+          {#snippet info()}
+            <Info
+              frage="Was bedeutet Live mitschreiben?"
+              text="Schon während der Aufnahme erscheint hier der Text. Das Ergebnis ist so früher fertig."
+            />
+          {/snippet}
+        </Schalter>
+        <Schalter
+          an={!!w?.geraete_live_auswertung_vorab}
+          beschriftung="Zusammenfassung vorbereiten"
+          deaktiviert={!w || !w.geraete_live_aktiv}
+          aendern={(an) => setzen({ geraete_live_auswertung_vorab: an })}
+        >
+          {#snippet info()}
+            <Info
+              frage="Was bedeutet Zusammenfassung vorbereiten?"
+              text="Die Zusammenfassung entsteht schon während der Besprechung. Nach dem Ende ist sie schneller da."
+            />
+          {/snippet}
+        </Schalter>
+        <label class="feldzeile">
+          <span>Vorlage für Zusammenfassungen</span>
+          <select
+            class="feld"
+            value={w?.geraete_live_auftrag ?? ''}
+            onchange={(e) => setzen({ geraete_live_auftrag: (e.currentTarget as HTMLSelectElement).value })}
+          >
+            <option value="">Automatisch</option>
+            {#each vorlagen as v (v.name)}<option value={v.name}>{v.name}</option>{/each}
+          </select>
+        </label>
+        <Erweitert>
+          {#snippet kinder()}
+            <label class="feldzeile">
+              <span>Port</span>
+              <div class="zeile">
+                <input class="feld kurz" type="number" min="1024" max="65535" bind:value={port} />
+                <button
+                  class="knopf"
+                  type="button"
+                  disabled={!port || port === w?.geraete_empfang_port}
+                  onclick={() => setzen({ geraete_empfang_port: port })}
+                >
+                  Übernehmen
+                </button>
+              </div>
+            </label>
+            {#if stand?.adressen.length}
+              <div class="feldzeile">
+                <span>Adresse dieses Computers</span>
+                {#each stand.adressen as a (a)}<code>{a}</code>{/each}
+              </div>
+            {/if}
+          {/snippet}
+        </Erweitert>
+      </section>
     {/if}
 
     <section class="karte block" aria-labelledby="geraete-titel">
       <div class="zeile zwischen">
         <h2 id="geraete-titel">Geräte</h2>
         {#if verbindung.verwalten}
-          <button class="knopf" type="button" onclick={() => (anlegenOffen = true)}>
-            +&nbsp; Gerät hinzufügen
-          </button>
+          <div class="zeile">
+            {#if usbMoeglich}
+              <button class="knopf leise" type="button" onclick={() => (anlegenOffen = true)}>
+                Ohne Kabel
+              </button>
+              <button class="knopf primaer" type="button" onclick={() => (usbOffen = true)}>
+                🔌&nbsp; Gerät per USB verbinden
+              </button>
+            {:else}
+              <button class="knopf" type="button" onclick={() => (anlegenOffen = true)}>
+                +&nbsp; Gerät hinzufügen
+              </button>
+            {/if}
+          </div>
         {/if}
       </div>
       {#if !stand || stand.geraete.length === 0}
@@ -215,7 +232,9 @@
                 <div class="g-name">
                   {g.name}
                   {#if verbindung.mehrbenutzer && verbindung.verwalten}
-                    <span class="besitzer">{g.besitzer ? personen.anzeigename(g.besitzer) : 'Allgemein'}</span>
+                    <span class="besitzer">
+                      {g.besitzer ? personen.anzeigename(g.besitzer) : 'Allgemein'}
+                    </span>
                   {/if}
                 </div>
                 <div class="leise klein">
@@ -266,6 +285,8 @@
     </section>
   {/each}
 {/if}
+
+<UsbEinrichtung offen={usbOffen} schliessen={() => (usbOffen = false)} fertig={() => void laden()} />
 
 <Dialog offen={anlegenOffen} titel="Gerät hinzufügen" schliessen={() => (anlegenOffen = false)}>
   {#snippet kinder()}
@@ -383,6 +404,8 @@
   }
 
   .marke {
+    flex: none;
+    white-space: nowrap;
     font-size: 12px;
     font-weight: 600;
     padding: 3px 10px;

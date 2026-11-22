@@ -246,3 +246,32 @@ export interface NeuerZugang {
   bezeichnung: string;
   schluessel: string;
 }
+
+export interface UsbAnschluss {
+  port: string;
+  beschreibung: string;
+  /** Ein VERMERK-Aufnahmegerät (am Chip erkannt). */
+  vermerk: boolean;
+}
+
+export interface UsbGeraet {
+  geraete_id: string;
+  board: string;
+  firmware: string;
+  eingerichtet: boolean;
+  wlan: string;
+  fuer_pc: boolean;
+  fuer_server: boolean;
+  bekannt_als?: string | null;
+}
+
+export interface UsbEinrichtung {
+  port: string;
+  name: string;
+  wlan_ssid: string;
+  wlan_passwort: string;
+  pc_url?: string;
+  server_url?: string;
+  server_token?: string;
+  erste_nummer?: number | null;
+}

@@ -12,7 +12,8 @@
     details,
     schliessen,
     gespeichert
-  }: { offen: boolean; details: BesprechungDetails; schliessen: () => void; gespeichert: () => void } = $props();
+  }: { offen: boolean; details: BesprechungDetails; schliessen: () => void; gespeichert: () => void } =
+    $props();
 
   let alle = $state(false);
   let gewaehlt = $state<string[]>([]);
@@ -27,7 +28,9 @@
   });
 
   const andere = $derived(
-    personen.liste.filter((p) => p.name.toLowerCase() !== (verbindung.info?.angemeldet_als ?? '').toLowerCase())
+    personen.liste.filter(
+      (p) => p.name.toLowerCase() !== (verbindung.info?.angemeldet_als ?? '').toLowerCase()
+    )
   );
 
   function umschalten(name: string) {

@@ -72,42 +72,42 @@
 </script>
 
 {#if !nurLesen}
-<div class="leiste">
-  {#if vorlagen.length > 1}
-    <select class="feld vorlage" aria-label="Vorlage" bind:value={vorlageName}>
-      {#each vorlagen as v (v.name)}<option value={v.name}>{v.name}</option>{/each}
-    </select>
-  {/if}
-  <button
-    class="knopf"
-    class:primaer={!details.protokoll}
-    type="button"
-    disabled={auftrag?.status === 'wartet' || auftrag?.status === 'laeuft'}
-    onclick={erstellen}
-  >
-    {details.protokoll ? 'Neu erstellen' : 'Erstellen'}
-  </button>
-  <span class="raum"></span>
-  {#if details.protokoll}
-    {#if bearbeiten}
-      <button
-        class="knopf leise"
-        type="button"
-        onclick={() => {
-          text = original;
-          bearbeiten = false;
-        }}
-      >
-        Verwerfen
-      </button>
-      <button class="knopf primaer" type="button" disabled={!geaendert || speichert} onclick={speichern}>
-        Speichern
-      </button>
-    {:else}
-      <button class="knopf" type="button" onclick={() => (bearbeiten = true)}>✎&nbsp; Bearbeiten</button>
+  <div class="leiste">
+    {#if vorlagen.length > 1}
+      <select class="feld vorlage" aria-label="Vorlage" bind:value={vorlageName}>
+        {#each vorlagen as v (v.name)}<option value={v.name}>{v.name}</option>{/each}
+      </select>
     {/if}
-  {/if}
-</div>{/if}
+    <button
+      class="knopf"
+      class:primaer={!details.protokoll}
+      type="button"
+      disabled={auftrag?.status === 'wartet' || auftrag?.status === 'laeuft'}
+      onclick={erstellen}
+    >
+      {details.protokoll ? 'Neu erstellen' : 'Erstellen'}
+    </button>
+    <span class="raum"></span>
+    {#if details.protokoll}
+      {#if bearbeiten}
+        <button
+          class="knopf leise"
+          type="button"
+          onclick={() => {
+            text = original;
+            bearbeiten = false;
+          }}
+        >
+          Verwerfen
+        </button>
+        <button class="knopf primaer" type="button" disabled={!geaendert || speichert} onclick={speichern}>
+          Speichern
+        </button>
+      {:else}
+        <button class="knopf" type="button" onclick={() => (bearbeiten = true)}>✎&nbsp; Bearbeiten</button>
+      {/if}
+    {/if}
+  </div>{/if}
 
 {#if auftrag}
   <div class="auftrag"><AuftragKarte {auftrag} /></div>
