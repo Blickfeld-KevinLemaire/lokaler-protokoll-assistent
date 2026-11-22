@@ -100,7 +100,8 @@ def besprechungen(ordner: Path) -> list[Besprechung]:
         return []
     transkripte: list[Besprechung] = []
     protokolle: list[tuple[Protokoll, str, str]] = []  # (Protokoll, Quellstamm, Transkriptdatei)
-    for pfad in ordner.glob("*.json"):
+    # Flach (Windows-Anwendung) und eine Ebene tiefer (Servermodus legt je Aufnahme einen Ordner an).
+    for pfad in [*ordner.glob("*.json"), *ordner.glob("*/*.json")]:
         if treffer := TRANSKRIPT_MUSTER.match(pfad.stem):
             daten = _json_lesen(pfad)
             if not daten.get("segmente"):
@@ -117,11 +118,16 @@ def besprechungen(ordner: Path) -> list[Besprechung]:
                     str(daten.get("transkript_datei") or ""),
                 )
             )
-    nach_datei = {b.transkript.name: b for b in transkripte}
+    nach_datei = {(b.transkript.parent, b.transkript.name): b for b in transkripte}
     for protokoll, stamm, transkript_datei in protokolle:
-        ziel = nach_datei.get(transkript_datei) if transkript_datei else None
+        ordner_des_protokolls = protokoll.json.parent
+        ziel = nach_datei.get((ordner_des_protokolls, transkript_datei)) if transkript_datei else None
         if ziel is None:
-            kandidaten = [b for b in transkripte if b.titel == stamm and b.zeit <= protokoll.zeit]
+            kandidaten = [
+                b
+                for b in transkripte
+                if b.titel == stamm and b.zeit <= protokoll.zeit and b.transkript.parent == ordner_des_protokolls
+            ]
             ziel = max(kandidaten, key=lambda b: b.zeit) if kandidaten else None
         if ziel is not None:
             ziel.protokolle.append(protokoll)
