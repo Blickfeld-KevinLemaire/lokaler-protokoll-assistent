@@ -13,9 +13,9 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 
-from protokoll_assistent.ablauf import bibliothek
 from protokoll_assistent.api import modelle
-from protokoll_assistent.api.kontext import Dienste, dienste
+from protokoll_assistent.api.kontext import Angemeldet, Dienste, angemeldet, dienste
+from protokoll_assistent.api.routen_besprechungen import unterlagen_fuer
 from protokoll_assistent.services import api_chat_service, chat_service, chat_verlauf_service, ollama_service
 from protokoll_assistent.utils.paths import get_chatverlaeufe_dir, get_work_dir
 
@@ -45,17 +45,10 @@ def chat_einstellungen(d: Dienste) -> chat_service.ChatEinstellungen:
     )
 
 
-def unterlagen(d: Dienste, kennungen: list[str]) -> list[Path]:
-    """Transkript und neuestes Protokoll je gewaehlter Besprechung (ohne Auswahl: alle)."""
-    alle = bibliothek.besprechungen(d.ausgabeordner())
-    gewaehlt = [b for b in alle if b.id in set(kennungen)] if kennungen else alle
-    pfade: list[Path] = []
-    for besprechung in gewaehlt:
-        pfade.append(besprechung.transkript)
-        neuestes = besprechung.neuestes_protokoll
-        if neuestes is not None and neuestes.md is not None:
-            pfade.append(neuestes.md)
-    return pfade
+def verlaeufe_ordner(wer: Angemeldet) -> Path:
+    """Chatverlaeufe: in der Windows-Anwendung wie bisher, im Servermodus je Nutzer."""
+    basis = get_chatverlaeufe_dir()
+    return basis / "nutzer" / wer.besitzer if wer.besitzer else basis
 
 
 def _sse(art: str, daten: dict[str, Any]) -> str:
@@ -63,14 +56,16 @@ def _sse(art: str, daten: dict[str, Any]) -> str:
 
 
 @router.post("")
-async def fragen(daten: modelle.ChatAnfrage, request: Request, d: Dienste = Depends(dienste)) -> StreamingResponse:
+async def fragen(
+    daten: modelle.ChatAnfrage, request: Request, d: Dienste = Depends(dienste), wer: Angemeldet = Depends(angemeldet)
+) -> StreamingResponse:
     """Antwortet als Server-Sent Events: ``status``, ``token`` (Stueck fuer Stueck), dann ``fertig`` mit Antwort,
     Quellen und Verlaufskennung -- oder ``fehler``."""
-    ordner = get_chatverlaeufe_dir()
+    ordner = verlaeufe_ordner(wer)
     verlauf = chat_verlauf_service.lade(ordner, daten.verlauf_id) if daten.verlauf_id else None
     if daten.verlauf_id and verlauf is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Diesen Chat gibt es nicht (mehr).")
-    pfade = await asyncio.to_thread(unterlagen, d, daten.besprechungen)
+    pfade = await asyncio.to_thread(unterlagen_fuer, d, wer, daten.besprechungen)
     einstellungen = chat_einstellungen(d)
     schlange: asyncio.Queue[Any] = asyncio.Queue()
     schleife = asyncio.get_running_loop()
@@ -130,21 +125,21 @@ async def fragen(daten: modelle.ChatAnfrage, request: Request, d: Dienste = Depe
 
 
 @router.get("/verlaeufe")
-def verlaeufe() -> list[dict[str, Any]]:
+def verlaeufe(wer: Angemeldet = Depends(angemeldet)) -> list[dict[str, Any]]:
     return [
         {"id": v.id, "titel": v.titel, "erstellt": v.erstellt, "aktualisiert": v.aktualisiert, "fragen": len(v.nachrichten) // 2}
-        for v in chat_verlauf_service.lade_alle(get_chatverlaeufe_dir())
+        for v in chat_verlauf_service.lade_alle(verlaeufe_ordner(wer))
     ]
 
 
 @router.get("/verlaeufe/{kennung}")
-def verlauf_lesen(kennung: str) -> dict[str, Any]:
-    verlauf = chat_verlauf_service.lade(get_chatverlaeufe_dir(), kennung)
+def verlauf_lesen(kennung: str, wer: Angemeldet = Depends(angemeldet)) -> dict[str, Any]:
+    verlauf = chat_verlauf_service.lade(verlaeufe_ordner(wer), kennung)
     if verlauf is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Diesen Chat gibt es nicht (mehr).")
     return {"id": verlauf.id, "titel": verlauf.titel, "nachrichten": verlauf.nachrichten, "dokumente": verlauf.dokumente}
 
 
 @router.delete("/verlaeufe/{kennung}")
-def verlauf_loeschen(kennung: str) -> dict[str, bool]:
-    return {"geloescht": chat_verlauf_service.loesche(get_chatverlaeufe_dir(), kennung)}
+def verlauf_loeschen(kennung: str, wer: Angemeldet = Depends(angemeldet)) -> dict[str, bool]:
+    return {"geloescht": chat_verlauf_service.loesche(verlaeufe_ordner(wer), kennung)}

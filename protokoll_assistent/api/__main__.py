@@ -16,8 +16,9 @@ selbst und schreibt danach ``{"port", "pid", "netz_port", "version"}`` atomar in
 erst daraus erfaehrt das Fenster den Port. Ob dort wirklich *sein* Dienst antwortet, prueft das Fenster
 mit ``/api/info`` und seinem Schluessel (ein fremder Prozess antwortet mit 401 oder gar nicht).
 
-``VERMERK_ELTERN_PID``: Prozess des Desktop-Fensters. Endet er, beendet sich
-auch dieser Dienst -- sonst blieben nach einem Absturz des Fensters verwaiste
+``VERMERK_ELTERN_PID``: Prozess des Desktop-Fensters (bzw. durch Komma getrennt
+mehrere, wenn sich der Dienst fuer den lokalen Modus selbst neu gestartet hat).
+Endet einer davon, beendet sich auch dieser Dienst -- sonst blieben nach einem Absturz des Fensters verwaiste
 Dienste zurueck, die den Port und die Grafikkarte belegen.
 """
 
@@ -36,6 +37,7 @@ from pathlib import Path
 from typing import Any
 
 from protokoll_assistent.ablauf.geraete_automatik import GeraeteAutomatik
+from protokoll_assistent.ablauf.nutzer import NutzerFehler, Nutzerverwaltung
 from protokoll_assistent.ablauf.steuerung import Steuerung
 from protokoll_assistent.api.app import TAURI_URSPRUENGE, app_erstellen
 from protokoll_assistent.api.kontext import Dienste
@@ -50,8 +52,8 @@ from protokoll_assistent.api.sicherheit import (
 )
 from protokoll_assistent.services import geraete_empfang_service
 from protokoll_assistent.services.manifest_service import _ersetzen_mit_wiederholung
-from protokoll_assistent.utils import app_config
-from protokoll_assistent.utils.paths import ensure_system_prompt_file_exists, get_paket_dir, get_settings_dir
+from protokoll_assistent.utils import app_config, paths
+from protokoll_assistent.utils.paths import ensure_system_prompt_file_exists, get_paket_dir
 from protokoll_assistent.version import VERSION
 
 STANDARD_SERVER_PORT = 8780
@@ -69,7 +71,7 @@ def oberflaeche_ordner() -> Path | None:
 
 
 def zugang_datei() -> Path:
-    return get_settings_dir() / "api_zugang.json"
+    return paths.get_settings_dir() / "api_zugang.json"
 
 
 def desktop_schluessel(entwicklung: bool, port: int, umgebung: dict[str, str] | None = None) -> str:
@@ -91,8 +93,18 @@ def desktop_schluessel(entwicklung: bool, port: int, umgebung: dict[str, str] | 
     return schluessel
 
 
-def dienste_erstellen(rolle: str, schluessel: str | None, steuerung: Steuerung | None = None) -> Dienste:
+def nutzer_datei() -> Path:
+    return paths.get_settings_dir() / "nutzer.json"
+
+
+def dienste_erstellen(
+    rolle: str, schluessel: str | None, steuerung: Steuerung | None = None, *, mehrbenutzer: bool = False
+) -> Dienste:
+    """``mehrbenutzer``: der Servermodus mit Nutzerverwaltung. Die Netzfreigabe der Windows-Anwendung ist
+    Rolle server, aber ein Mensch -- dort bleibt es bei den festen Zugangsschluesseln."""
     steuerung = steuerung or Steuerung()
+    if mehrbenutzer:
+        steuerung.mehrbenutzer = True
     automatik = GeraeteAutomatik(steuerung)
 
     def zugaenge() -> dict[str, str]:
@@ -100,7 +112,12 @@ def dienste_erstellen(rolle: str, schluessel: str | None, steuerung: Steuerung |
             steuerung.konfiguration().get("server_zugaenge") or [], os.environ.get("VERMERK_ZUGANG") or None
         )
 
-    zugang = Zugang(rolle, start_schluessel=schluessel if rolle == ROLLE_DESKTOP else None, zugaenge=zugaenge)
+    zugang = Zugang(
+        rolle,
+        start_schluessel=schluessel if rolle == ROLLE_DESKTOP else None,
+        zugaenge=zugaenge,
+        nutzer=Nutzerverwaltung(nutzer_datei()) if mehrbenutzer else None,
+    )
     dienste = Dienste(steuerung=steuerung, automatik=automatik, zugang=zugang)
     dienste.nach_einstellungen.append(automatik.anwenden)
     return dienste
@@ -172,8 +189,26 @@ async def _laufen(server: list[tuple[Any, socket.socket]]) -> None:
     await asyncio.gather(*(s.serve(sockets=[sock]) for s, sock in server))
 
 
-def starten(argumente: argparse.Namespace) -> int:
+def rechenumgebung_vorbereiten(rolle: str, argv: Sequence[str]) -> None:
+    """Wie ``app.py``: Steht die Transkription auf "lokal" und ist zugestimmt, wechselt der Dienst vor dem
+    Start in die Rechenumgebung mit Torch & Co. (und richtet sie beim ersten Mal ein). Der Servermodus
+    (Container) bringt seine Pakete selbst mit; dort und wenn die Pakete schon da sind, geschieht nichts."""
+    from protokoll_assistent import bootstrap
+    from protokoll_assistent.ablauf.verarbeitungswege import lokale_laufzeit_verfuegbar
+
+    if rolle != ROLLE_DESKTOP or lokale_laufzeit_verfuegbar() or bootstrap.is_running_in_managed_venv():
+        return
+    if bootstrap.laufzeit_beim_start_einrichten(
+        app_config.load_config(), fenster_moeglich=True, laufzeit_vorhanden=bootstrap.laufzeit_eingerichtet()
+    ):
+        bootstrap.als_dienst(list(argv))
+        bootstrap.ensure_runtime_and_relaunch()
+
+
+def starten(argumente: argparse.Namespace, argv: Sequence[str] = ()) -> int:
     from protokoll_assistent.utils.logging_setup import setup_logging
+
+    rechenumgebung_vorbereiten(argumente.rolle, argv)
 
     setup_logging()
     ensure_system_prompt_file_exists()
@@ -187,7 +222,14 @@ def starten(argumente: argparse.Namespace) -> int:
         return 3
     port = int(haupt_socket.getsockname()[1])
     schluessel = desktop_schluessel(argumente.entwicklung, port) if rolle == ROLLE_DESKTOP else None
-    dienste = dienste_erstellen(rolle, schluessel)
+    dienste = dienste_erstellen(rolle, schluessel, mehrbenutzer=rolle == ROLLE_SERVER)
+    if rolle == ROLLE_SERVER and dienste.nutzer is not None and dienste.nutzer.leer() and not os.environ.get("VERMERK_ZUGANG"):
+        print(
+            "Hinweis: Es gibt noch keinen Nutzer. Ersten Admin anlegen mit\n"
+            "  python -m protokoll_assistent.api nutzer-anlegen <Name> --admin\n"
+            "oder VERMERK_ZUGANG für die Ersteinrichtung setzen.",
+            file=sys.stderr,
+        )
     oberflaeche = oberflaeche_ordner()
     urspruenge = [*TAURI_URSPRUENGE, *(ENTWICKLUNG_URSPRUENGE if argumente.entwicklung else ())]
     if rolle == ROLLE_DESKTOP:
@@ -224,9 +266,9 @@ def starten(argumente: argparse.Namespace) -> int:
         for s, _sock in server:
             s.should_exit = True
 
-    eltern = os.environ.get("VERMERK_ELTERN_PID", "")
-    if eltern.isdigit():
-        eltern_wache(int(eltern), beenden)
+    for eltern in os.environ.get("VERMERK_ELTERN_PID", "").split(","):
+        if eltern.strip().isdigit():
+            eltern_wache(int(eltern), beenden)
 
     dienste.steuerung.starten()
     if dienste.automatik is not None:
@@ -265,6 +307,26 @@ def zugang_anlegen(name: str) -> int:
     return 0
 
 
+def nutzer_anlegen(argumente: Sequence[str]) -> int:
+    """Legt einen Nutzer an (Servermodus) und gibt einen ersten Zugangsschluessel genau einmal aus. Ein Passwort
+    kann der Nutzer danach im Browser setzen (oder ein Admin in der Nutzerverwaltung)."""
+    parser = argparse.ArgumentParser(prog="python -m protokoll_assistent.api nutzer-anlegen")
+    parser.add_argument("name")
+    parser.add_argument("--admin", action="store_true")
+    parser.add_argument("--anzeigename", default="")
+    werte = parser.parse_args(list(argumente))
+    verwaltung = Nutzerverwaltung(nutzer_datei())
+    try:
+        verwaltung.anlegen(werte.name, anzeigename=werte.anzeigename, admin=werte.admin)
+        schluessel = verwaltung.zugang_anlegen(werte.name, "Erster Zugang")
+    except NutzerFehler as fehler:
+        print(str(fehler), file=sys.stderr)
+        return 2
+    print(f"Nutzer {werte.name} angelegt{' (Admin)' if werte.admin else ''}. Zugangsschlüssel (wird nur jetzt angezeigt):")
+    print(schluessel)
+    return 0
+
+
 def openapi_ausgeben() -> int:
     dienste = dienste_erstellen(ROLLE_DESKTOP, "nur-fuer-die-beschreibung")
     app = app_erstellen(dienste)
@@ -281,6 +343,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv[:1] == ["zugang-anlegen"] and len(argv) == 2:
         return zugang_anlegen(argv[1])
+    if argv[:1] == ["nutzer-anlegen"]:
+        return nutzer_anlegen(argv[1:])
     if argv[:1] == ["openapi"]:
         return openapi_ausgeben()
     parser = argparse.ArgumentParser(prog="python -m protokoll_assistent.api")
@@ -289,7 +353,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--port", type=int, default=None)
     parser.add_argument("--port-datei", default="")
     parser.add_argument("--entwicklung", action="store_true")
-    return starten(parser.parse_args(argv))
+    return starten(parser.parse_args(argv), argv)
 
 
 if __name__ == "__main__":

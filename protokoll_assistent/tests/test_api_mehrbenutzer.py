@@ -1,0 +1,238 @@
+"""Servermodus mit mehreren Nutzern: Anmeldung (Passwort und Schluessel), eigene Ordner, Teilen, fremde Auftraege."""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+import pytest
+from fastapi.testclient import TestClient
+
+from protokoll_assistent.ablauf.nutzer import NutzerFehler, Nutzerverwaltung, passwort_hash, passwort_passt
+from protokoll_assistent.api.sicherheit import ROLLE_SERVER
+from protokoll_assistent.tests.api_hilfen import Umgebung, app_bauen, eigene_konfiguration
+
+PASSWORT = "ein-sicheres-passwort"
+
+
+@pytest.fixture
+def server(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Umgebung:
+    eigene_konfiguration(monkeypatch, tmp_path)
+    u = app_bauen(tmp_path, rolle=ROLLE_SERVER, mehrbenutzer=True)
+    assert u.dienste.nutzer is not None
+    u.dienste.nutzer.anlegen("chef", anzeigename="Chefin", admin=True, passwort=PASSWORT)
+    u.dienste.nutzer.anlegen("anna", passwort=PASSWORT)
+    u.dienste.nutzer.anlegen("ben")
+    return u
+
+
+def _client(u: Umgebung, name: str) -> TestClient:
+    client = TestClient(u.client.app)
+    client.headers["X-Vermerk-Anfrage"] = "1"
+    if name == "ben":
+        assert u.dienste.nutzer is not None
+        client.headers["Authorization"] = f"Bearer {u.dienste.nutzer.zugang_anlegen('ben', 'Skript')}"
+    else:
+        antwort = client.post("/api/anmelden", json={"name": name, "passwort": PASSWORT})
+        assert antwort.status_code == 200, antwort.text
+    return client
+
+
+def _audio(u: Umgebung, besitzer: str, name: str = "sitzung.wav") -> Path:
+    datei = u.tmp / "aufnahmen" / "nutzer" / besitzer / name
+    datei.parent.mkdir(parents=True, exist_ok=True)
+    datei.write_bytes(b"RIFF")
+    return datei
+
+
+def test_anmelden_mit_passwort_und_schluessel(server: Umgebung) -> None:
+    chef = _client(server, "chef")
+    info = chef.get("/api/info").json()
+    assert info["angemeldet_als"] == "chef" and info["admin"] and info["mehrbenutzer"] and info["anzeigename"] == "Chefin"
+    ben = _client(server, "ben")
+    assert ben.get("/api/info").json()["admin"] is False
+    fremd = TestClient(server.client.app)
+    assert fremd.post("/api/anmelden", json={"name": "anna", "passwort": "falsch-falsch"}).status_code == 401
+    assert fremd.post("/api/anmelden", json={"name": "ben", "passwort": PASSWORT}).status_code == 401  # ohne Passwort
+    assert fremd.post("/api/anmelden", json={"name": "gibtsnicht", "passwort": PASSWORT}).status_code == 401
+
+
+def test_gesperrter_nutzer_verliert_die_sitzung(server: Umgebung) -> None:
+    anna = _client(server, "anna")
+    assert anna.get("/api/info").status_code == 200
+    assert server.dienste.nutzer is not None
+    server.dienste.nutzer.aendern("anna", aktiv=False)
+    assert anna.get("/api/info").status_code == 401
+
+
+def test_jeder_hat_eigene_besprechungen_und_teilt_gezielt(server: Umgebung) -> None:
+    anna, ben = _client(server, "anna"), _client(server, "ben")
+    antwort = anna.post("/api/auftraege/transkription", json={"quelle": str(_audio(server, "anna")), "mit_auswertung": True})
+    assert antwort.status_code == 201, antwort.text
+    assert antwort.json()["besitzer"] == "anna" and antwort.json()["platz"] == 0
+    server.auftraege_ausfuehren()
+    eigene = anna.get("/api/besprechungen").json()
+    assert len(eigene) == 1 and eigene[0]["id"].startswith("anna~") and eigene[0]["eigen"]
+    assert (server.tmp / "aus" / "nutzer" / "anna").is_dir()
+    kennung = eigene[0]["id"]
+    assert ben.get("/api/besprechungen").json() == []
+    assert ben.get(f"/api/besprechungen/{kennung}").status_code == 404
+    # Fremde Datei ueber den Pfad starten: verboten.
+    assert ben.post("/api/auftraege/transkription", json={"quelle": str(_audio(server, "anna", "x.wav"))}).status_code == 403
+
+    assert anna.put(f"/api/besprechungen/{kennung}/freigabe", json={"mit": ["ben"]}).json() == {"geteilt_mit": ["ben"]}
+    geteilt = ben.get("/api/besprechungen").json()
+    assert [b["id"] for b in geteilt] == [kennung] and geteilt[0]["eigen"] is False
+    assert ben.get(f"/api/besprechungen/{kennung}").json()["protokoll"]["text"].startswith("# Protokoll")
+    # Lesen ja, aendern nein.
+    assert ben.put(f"/api/besprechungen/{kennung}/protokoll", json={"text": "x"}).status_code == 403
+    assert ben.put(f"/api/besprechungen/{kennung}/freigabe", json={"mit": []}).status_code == 403
+    assert anna.put(f"/api/besprechungen/{kennung}/freigabe", json={"mit": ["gibtsnicht"]}).status_code == 400
+    assert anna.put(f"/api/besprechungen/{kennung}/freigabe", json={"mit": ["alle", "ben"]}).json() == {"geteilt_mit": ["alle"]}
+    assert anna.put(f"/api/besprechungen/{kennung}/freigabe", json={"mit": []}).json() == {"geteilt_mit": []}
+    assert ben.get("/api/besprechungen").json() == []
+
+
+def test_fremde_auftraege_ohne_inhalt(server: Umgebung) -> None:
+    anna, ben, chef = _client(server, "anna"), _client(server, "ben"), _client(server, "chef")
+    anna.post("/api/auftraege/transkription", json={"quelle": str(_audio(server, "anna", "geheim-anna.wav"))})
+    antwort = ben.post("/api/auftraege/transkription", json={"quelle": str(_audio(server, "ben"))})
+    assert antwort.json()["platz"] == 1  # Annas Auftrag kommt zuerst
+    fuer_ben = ben.get("/api/auftraege").json()
+    annas = next(a for a in fuer_ben if a.get("fremd"))
+    assert annas["titel"] == "Andere Verarbeitung" and "geheim" not in str(annas) and annas["besitzer"] is None
+    assert ben.delete(f"/api/auftraege/{annas['id']}").status_code == 404
+    assert ben.get(f"/api/auftraege/{annas['id']}").json()["fremd"] is True
+    # Der Admin sieht die Titel (er verwaltet den Server) und darf abbrechen.
+    fuer_chef = chef.get("/api/auftraege").json()
+    assert any(a["titel"] == "geheim-anna.wav" for a in fuer_chef)
+    assert chef.delete(f"/api/auftraege/{annas['id']}").json() == {"abgebrochen": True}
+    zustand = ben.get("/api/zustand").json()
+    assert zustand["empfang"] is None
+
+
+def test_hochladen_in_den_eigenen_ordner(server: Umgebung) -> None:
+    anna = _client(server, "anna")
+    antwort = anna.post("/api/dateien/hochladen", files={"datei": ("a.wav", b"RIFF", "audio/wav")})
+    assert Path(antwort.json()["pfad"]).parent == server.tmp / "aufnahmen" / "nutzer" / "anna"
+    assert [d["name"] for d in anna.get("/api/dateien/eingang").json()] == ["a.wav"]
+    assert _client(server, "ben").get("/api/dateien/eingang").json() == []
+
+
+def test_nur_admins_aendern_einstellungen_und_geraete(server: Umgebung) -> None:
+    anna, chef = _client(server, "anna"), _client(server, "chef")
+    assert anna.patch("/api/einstellungen", json={"sprache": "en"}).status_code == 403
+    assert chef.patch("/api/einstellungen", json={"sprache": "en"}).status_code == 200
+    assert anna.post("/api/geraete", json={"name": "Raum-1"}).status_code == 403
+    assert chef.post("/api/geraete", json={"name": "Raum-1", "besitzer": "gibtsnicht"}).status_code == 400
+    neu = chef.post("/api/geraete", json={"name": "Raum-1", "besitzer": "anna"}).json()
+    assert neu["token"]
+    chef.post("/api/geraete", json={"name": "Raum-2", "besitzer": "ben"})
+    assert [g["name"] for g in anna.get("/api/geraete").json()["geraete"]] == ["Raum-1"]
+    assert {g["name"] for g in chef.get("/api/geraete").json()["geraete"]} == {"Raum-1", "Raum-2"}
+    assert anna.get("/api/system/diagnose").status_code == 403
+
+
+def test_geraeteaufnahme_landet_beim_besitzer(server: Umgebung) -> None:
+    from protokoll_assistent.utils import app_config
+
+    app_config.update_config(geraete_empfang_geraete=[{"name": "Raum-1", "token_sha256": "a" * 64, "besitzer": "anna"}])
+    automatik = server.dienste.automatik
+    assert automatik is not None and automatik.besitzer_von("Raum-1") == "anna" and automatik.besitzer_von("x") is None
+    datei = _audio(server, "anna", "Raum-1_H5.opus")
+    auftrag = automatik.aufnahme_bereit(datei, "Raum-1", "H5.opus")
+    assert auftrag is not None and auftrag.besitzer == "anna"
+    server.auftraege_ausfuehren()
+    assert [b["id"].split("~")[0] for b in _client(server, "anna").get("/api/besprechungen").json()] == ["anna"]
+    assert _client(server, "ben").get("/api/besprechungen").json() == []
+
+
+def test_nutzerverwaltung_ueber_die_schnittstelle(server: Umgebung) -> None:
+    chef, anna = _client(server, "chef"), _client(server, "anna")
+    assert anna.get("/api/nutzer").status_code == 403
+    assert {n["name"] for n in anna.get("/api/nutzer/namen").json()} == {"chef", "anna", "ben"}
+    neu = chef.post("/api/nutzer", json={"name": "carla", "passwort": "kurz"})
+    assert neu.status_code == 400
+    assert chef.post("/api/nutzer", json={"name": "carla", "anzeigename": "Carla C."}).json()["hat_passwort"] is False
+    assert chef.post("/api/nutzer", json={"name": "Carla"}).status_code == 400  # schon vorhanden
+    schluessel = chef.post("/api/nutzer/carla/zugaenge", json={"bezeichnung": "Laptop"}).json()["schluessel"]
+    assert TestClient(server.client.app).get("/api/info", headers={"Authorization": f"Bearer {schluessel}"}).status_code == 200
+    assert chef.patch("/api/nutzer/carla", json={"passwort": PASSWORT, "admin": True}).json()["admin"] is True
+    assert chef.delete("/api/nutzer/carla/zugaenge/Laptop").json() == {"entfernt": True}
+    assert chef.delete("/api/nutzer/carla/zugaenge/Laptop").status_code == 400
+    assert chef.delete("/api/nutzer/chef").status_code == 400  # sich selbst nicht
+    assert chef.delete("/api/nutzer/carla").json() == {"entfernt": True}
+    assert chef.patch("/api/nutzer/gibtsnicht", json={"admin": True}).status_code == 400
+
+
+def test_selbstverwaltung(server: Umgebung) -> None:
+    anna = _client(server, "anna")
+    ich = anna.get("/api/ich").json()
+    assert ich["name"] == "anna" and ich["hat_passwort"]
+    assert anna.put("/api/ich/passwort", json={"bisher": "falsch", "neu": "noch-ein-passwort"}).status_code == 403
+    assert anna.put("/api/ich/passwort", json={"bisher": PASSWORT, "neu": "kurz"}).status_code == 400
+    assert anna.put("/api/ich/passwort", json={"bisher": PASSWORT, "neu": "noch-ein-passwort"}).json() == {"gespeichert": True}
+    zugang = anna.post("/api/ich/zugaenge", json={"bezeichnung": "Handy"}).json()
+    assert len(zugang["schluessel"]) > 30
+    assert anna.post("/api/ich/zugaenge", json={"bezeichnung": "Handy"}).status_code == 400
+    assert anna.delete("/api/ich/zugaenge/Handy").json() == {"entfernt": True}
+    assert anna.delete("/api/ich/zugaenge/Handy").status_code == 400
+
+
+def test_desktop_kennt_keine_nutzer(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    eigene_konfiguration(monkeypatch, tmp_path)
+    u = app_bauen(tmp_path)
+    assert u.client.get("/api/nutzer").status_code == 404
+    assert u.client.get("/api/ich").json()["name"] == "desktop"
+    assert u.client.put("/api/besprechungen/x/freigabe", json={"mit": []}).status_code == 404
+
+
+def test_ereignisse_fuer_andere_nutzer(server: Umgebung) -> None:
+    from protokoll_assistent.api.kontext import Angemeldet
+    from protokoll_assistent.api.sichtbarkeit import ereignis_fuer
+    from protokoll_assistent.utils import app_config
+
+    app_config.update_config(geraete_empfang_geraete=[{"name": "Raum-1", "token_sha256": "a" * 64, "besitzer": "anna"}])
+    d = server.dienste
+    anna, ben, chef = Angemeldet("anna", False, "anna"), Angemeldet("ben", False, "ben"), Angemeldet("chef", True, "chef")
+    live: dict[str, Any] = {"geraet": "Raum-1", "text": "vertraulich"}
+    assert ereignis_fuer(d, anna, "live", live) == live
+    assert ereignis_fuer(d, ben, "live", live) is None
+    assert ereignis_fuer(d, chef, "live", live) is None  # Inhalte auch nicht fuer Admins
+    assert ereignis_fuer(d, chef, "geraet_status", {"geraet": "Raum-1"}) is not None
+    assert ereignis_fuer(d, ben, "geraet_status", {"geraet": "Raum-1"}) is None
+    assert ereignis_fuer(d, ben, "empfang", {}) is None and ereignis_fuer(d, chef, "empfang", {}) == {}
+    assert ereignis_fuer(d, ben, "hinweis", {"quelle": "ollama", "text": "x"}) is None
+    assert ereignis_fuer(d, ben, "hinweis", {"quelle": "Raum-1", "text": "x"}) is None
+    assert ereignis_fuer(d, anna, "hinweis", {"quelle": "Raum-1", "text": "x"}) is not None
+    assert ereignis_fuer(d, ben, "hinweis", {"quelle": "", "text": "allgemein"}) is not None
+    eigene_datei = str(server.tmp / "aufnahmen" / "nutzer" / "ben" / "a.wav")
+    assert ereignis_fuer(d, ben, "dateien", {"pfad": eigene_datei}) is not None
+    assert ereignis_fuer(d, anna, "dateien", {"pfad": eigene_datei}) is None
+    auftrag = d.steuerung.auftraege.einreihen("t", "geheim", lambda f: {}, besitzer="anna")
+    assert ereignis_fuer(d, ben, "auftrag_meldung", {"id": auftrag.id}) is None
+    assert ereignis_fuer(d, anna, "auftrag_meldung", {"id": auftrag.id}) is not None
+    assert ereignis_fuer(d, anna, "auftrag_meldung", {"id": "weg"}) is None
+    assert ereignis_fuer(d, ben, "einstellungen", {"geaendert": []}) is not None
+
+
+def test_nutzerverwaltung_regeln(tmp_path: Path) -> None:
+    v = Nutzerverwaltung(tmp_path / "nutzer.json")
+    assert v.leer()
+    with pytest.raises(NutzerFehler, match="Anmeldename"):
+        v.anlegen("mit leerzeichen")
+    v.anlegen("admin", admin=True, passwort=PASSWORT)
+    with pytest.raises(NutzerFehler, match="mindestens einen aktiven Admin"):
+        v.aendern("admin", admin=False)
+    with pytest.raises(NutzerFehler, match="mindestens einen aktiven Admin"):
+        v.entfernen("admin")
+    with pytest.raises(NutzerFehler):
+        v.passwort_setzen("gibtsnicht", PASSWORT)
+    v.passwort_setzen("admin", None)
+    assert v.passwort_pruefen("admin", PASSWORT) is None
+    (tmp_path / "kaputt.json").write_text("{", encoding="utf-8")
+    with pytest.raises(NutzerFehler, match="nicht lesbar"):
+        Nutzerverwaltung(tmp_path / "kaputt.json").liste()
+    assert not passwort_passt("x", "md5$abc")
+    assert not passwort_passt("x", "unsinn")
+    assert passwort_passt("geheim", passwort_hash("geheim"))

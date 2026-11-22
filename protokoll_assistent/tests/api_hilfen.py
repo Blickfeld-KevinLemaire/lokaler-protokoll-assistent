@@ -9,8 +9,10 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
+from protokoll_assistent.ablauf import steuerung as steuerung_modul
 from protokoll_assistent.ablauf.geraete_automatik import Abhaengigkeiten as GeraeteAbh
 from protokoll_assistent.ablauf.geraete_automatik import GeraeteAutomatik
+from protokoll_assistent.ablauf.nutzer import Nutzerverwaltung
 from protokoll_assistent.ablauf.steuerung import Abhaengigkeiten, Steuerung
 from protokoll_assistent.ablauf.verarbeitungswege import Schluesselablage
 from protokoll_assistent.api import routen_chat, routen_einstellungen
@@ -70,6 +72,7 @@ def eigene_konfiguration(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, **wert
     monkeypatch.setattr(routen_einstellungen, "get_system_prompt_file", lambda: einstellungen / "systemprompt.txt")
     monkeypatch.setattr(routen_chat, "get_chatverlaeufe_dir", lambda: tmp_path / "chats")
     monkeypatch.setattr(routen_chat, "get_work_dir", lambda: tmp_path / "arbeit")
+    monkeypatch.setattr(steuerung_modul, "get_recordings_dir", lambda: tmp_path / "aufnahmen")
 
     def kein_speicher(*_a: Any, **_k: Any) -> None:
         raise secret_store.SecretStoreUnavailableError("kein keyring im Test")
@@ -80,7 +83,9 @@ def eigene_konfiguration(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, **wert
     app_config.save_config({**app_config.DEFAULTS, "ausgabeordner": str(tmp_path / "aus"), **werte})
 
 
-def app_bauen(tmp_path: Path, *, rolle: str = ROLLE_DESKTOP, oberflaeche: Path | None = None) -> Umgebung:
+def app_bauen(
+    tmp_path: Path, *, rolle: str = ROLLE_DESKTOP, oberflaeche: Path | None = None, mehrbenutzer: bool = False
+) -> Umgebung:
     pipeline = FalschePipeline()
     steuerung = Steuerung(
         schluessel=Schluesselablage(umgebung={}),
@@ -92,6 +97,7 @@ def app_bauen(tmp_path: Path, *, rolle: str = ROLLE_DESKTOP, oberflaeche: Path |
             modell_fehlt=lambda modell: False,
         ),
     )
+    steuerung.mehrbenutzer = mehrbenutzer
     automatik = GeraeteAutomatik(
         steuerung,
         GeraeteAbh(
@@ -106,8 +112,14 @@ def app_bauen(tmp_path: Path, *, rolle: str = ROLLE_DESKTOP, oberflaeche: Path |
         rolle,
         start_schluessel=SCHLUESSEL if rolle == ROLLE_DESKTOP else None,
         zugaenge=lambda: zugaenge_aus_konfiguration([{"name": "browser", "token_sha256": schluessel_hash(ZUGANG)}]),
+        nutzer=Nutzerverwaltung(tmp_path / "einstellungen" / "nutzer.json") if mehrbenutzer else None,
     )
-    dienste = Dienste(steuerung=steuerung, automatik=automatik, zugang=zugang, hochlade_ordner=lambda: tmp_path / "aufnahmen")
+    dienste = Dienste(
+        steuerung=steuerung,
+        automatik=automatik,
+        zugang=zugang,
+        hochlade_ordner=None if mehrbenutzer else (lambda: tmp_path / "aufnahmen"),
+    )
     dienste.nach_einstellungen.append(automatik.anwenden)
     app = app_erstellen(dienste, erlaubte_hosts=["testserver", "127.0.0.1"], oberflaeche=oberflaeche)
     client = TestClient(app)

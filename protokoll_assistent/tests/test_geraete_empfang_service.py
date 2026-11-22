@@ -1220,3 +1220,42 @@ def test_gescheiterte_buchfuehrung_laesst_die_aufnahme_nicht_unbearbeitet(tmp_pa
     antwort = hochladen(ablage, "S3", "H5_011.opus", daten)
     assert antwort.status == 200 and antwort.daten["fertig"] is True
     assert gemeldet == [antwort.daten["datei"]]
+
+
+# --------------------------------------------------------------------------
+# Windows-Anwendung und Servermodus: fuer das Geraet dasselbe
+# --------------------------------------------------------------------------
+@pytest.mark.parametrize("je_besitzer", [False, True], ids=["desktop", "server-mit-besitzern"])
+def test_geraet_merkt_keinen_unterschied_zwischen_desktop_und_server(tmp_path, je_besitzer):
+    """Die Firmware spricht mit beiden Varianten genau gleich (GERAETE-SCHNITTSTELLE.md). Im Servermodus landet
+    die fertige Datei nur im Ordner des Nutzers, dem das Geraet gehoert -- Antworten und Ablauf bleiben gleich."""
+    besitzer = {"S3-Audio": "anna", "C6": "ben"}
+    ziel_fn = (lambda geraet: tmp_path / "nutzer" / besitzer[geraet]) if je_besitzer else None
+    geraete = (Geraet("S3-Audio", empfang.token_hash(TOKEN)), Geraet("C6", empfang.token_hash(TOKEN_ZWEI)))
+    laufend = GeraeteEmpfang(tmp_path / "eingang", geraete, port=0, adresse="127.0.0.1", ziel_fuer_geraet=ziel_fn)
+    laufend.ablage._freier_platz = lambda _p: 10**12
+    laufend.starten()
+    try:
+        antworten = []
+        for token, inhalt in ((TOKEN, b"anna-daten"), (TOKEN_ZWEI, b"ben-daten")):
+            pfad = "/api/v1/aufnahmen/H5_001.opus"
+            antworten.append(anfrage(laufend, "GET", "/api/v1/hallo", token=token)[:2])
+            antworten.append(anfrage(laufend, "PUT", pfad, inhalt, token=token, X_Offset="0")[:2])
+            antworten.append(
+                anfrage(
+                    laufend, "PUT", pfad, b"", token=token, X_Offset=str(len(inhalt)),
+                    X_Gesamtgroesse=str(len(inhalt)), X_SHA256=sha(inhalt),
+                )[:2]
+            )
+    finally:
+        laufend.stoppen()
+    assert [status for status, _ in antworten] == [200] * 6
+    assert antworten[2][1] == {"naechstes_byte": 10, "fertig": True, "datei": "S3-Audio_H5_001.opus"}
+    assert antworten[5][1] == {"naechstes_byte": 9, "fertig": True, "datei": "C6_H5_001.opus"}
+    if je_besitzer:
+        assert (tmp_path / "nutzer" / "anna" / "S3-Audio_H5_001.opus").read_bytes() == b"anna-daten"
+        assert (tmp_path / "nutzer" / "ben" / "C6_H5_001.opus").read_bytes() == b"ben-daten"
+        assert not (tmp_path / "eingang" / "S3-Audio_H5_001.opus").exists()
+    else:
+        assert (tmp_path / "eingang" / "S3-Audio_H5_001.opus").read_bytes() == b"anna-daten"
+        assert (tmp_path / "eingang" / "C6_H5_001.opus").read_bytes() == b"ben-daten"

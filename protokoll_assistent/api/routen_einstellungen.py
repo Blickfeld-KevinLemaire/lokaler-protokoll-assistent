@@ -7,7 +7,7 @@ from typing import Any
 from fastapi import APIRouter, Body, Depends, HTTPException, status
 
 from protokoll_assistent.api import modelle
-from protokoll_assistent.api.kontext import Dienste, dienste
+from protokoll_assistent.api.kontext import Angemeldet, Dienste, dienste, nur_admin
 from protokoll_assistent.services import api_anbieter, secret_store
 from protokoll_assistent.utils import app_config
 from protokoll_assistent.utils.paths import get_system_prompt_file
@@ -35,7 +35,9 @@ def lesen(d: Dienste = Depends(dienste)) -> dict[str, Any]:
 
 
 @router.patch("")
-def aendern(aenderungen: dict[str, Any] = Body(...), d: Dienste = Depends(dienste)) -> dict[str, Any]:
+def aendern(
+    aenderungen: dict[str, Any] = Body(...), d: Dienste = Depends(dienste), _a: Angemeldet = Depends(nur_admin)
+) -> dict[str, Any]:
     """Nur bekannte Felder; alles andere ist ein Fehler (statt still verworfen zu werden)."""
     unbekannt = sorted(set(aenderungen) - set(app_config.DEFAULTS))
     geschuetzt = sorted(set(aenderungen) & GESCHUETZTE_FELDER)
@@ -81,7 +83,9 @@ def schluessel_stand(d: Dienste = Depends(dienste)) -> dict[str, bool]:
 
 
 @router.put("/schluessel/{name}")
-def schluessel_setzen(name: str, daten: modelle.Schluesselsatz, d: Dienste = Depends(dienste)) -> dict[str, bool]:
+def schluessel_setzen(
+    name: str, daten: modelle.Schluesselsatz, d: Dienste = Depends(dienste), _a: Angemeldet = Depends(nur_admin)
+) -> dict[str, bool]:
     if name not in SCHLUESSEL_NAMEN:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Unbekannter Schlüssel.")
     gemerkt = False
@@ -97,7 +101,7 @@ def schluessel_setzen(name: str, daten: modelle.Schluesselsatz, d: Dienste = Dep
 
 
 @router.delete("/schluessel/{name}")
-def schluessel_loeschen(name: str, d: Dienste = Depends(dienste)) -> dict[str, bool]:
+def schluessel_loeschen(name: str, d: Dienste = Depends(dienste), _a: Angemeldet = Depends(nur_admin)) -> dict[str, bool]:
     if name not in SCHLUESSEL_NAMEN:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Unbekannter Schlüssel.")
     d.steuerung.schluessel.fuer_sitzung(name, "")
@@ -115,7 +119,7 @@ def vorlagen() -> list[dict[str, Any]]:
 
 
 @router.put("/vorlagen/{name}")
-def vorlage_ablegen(name: str, daten: modelle.VorlageSpeichern) -> dict[str, bool]:
+def vorlage_ablegen(name: str, daten: modelle.VorlageSpeichern, _a: Angemeldet = Depends(nur_admin)) -> dict[str, bool]:
     try:
         name_pruefen(name)
         vorlage_speichern(name, daten.text)
@@ -133,7 +137,7 @@ def systemprompt() -> dict[str, str]:
 
 
 @router.put("/systemprompt")
-def systemprompt_speichern(daten: modelle.VorlageSpeichern) -> dict[str, bool]:
+def systemprompt_speichern(daten: modelle.VorlageSpeichern, _a: Angemeldet = Depends(nur_admin)) -> dict[str, bool]:
     datei = get_system_prompt_file()
     datei.parent.mkdir(parents=True, exist_ok=True)
     datei.write_text(daten.text, encoding="utf-8")

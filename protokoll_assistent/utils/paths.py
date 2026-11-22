@@ -34,11 +34,14 @@ def get_app_dir() -> Path:
     Modus aus dem Quelltext startet (``ANWENDUNGSORDNER_VARIABLE``). Im
     Quellcode-Betrieb ist es der Ordner, der ``app.py`` enthaelt.
     """
-    if getattr(sys, "frozen", False):
-        return Path(sys.executable).resolve().parent
     vorgabe = os.environ.get(ANWENDUNGSORDNER_VARIABLE, "").strip()
     if vorgabe:
+        # Auch fuer die gebaute Fassung: Der Dienst der neuen Oberflaeche liegt in '<app>\dienst\',
+        # Einstellungen, Daten und das mitgelieferte Python aber wie bisher in '<app>\'. Das Fenster gibt
+        # den Ordner deshalb vor.
         return Path(vorgabe)
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
     return get_paket_dir()
 
 
