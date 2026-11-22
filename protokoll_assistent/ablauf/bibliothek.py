@@ -60,8 +60,16 @@ class Besprechung:
         ordner = self.transkript.parent
         gefunden = [ordner / f"{stamm}{endung}" for stamm in sorted(staemme) for endung in DATEI_ARTEN]
         export = re.compile(rf"^{re.escape(self.titel)}_(transkript|protokoll|gesamt)(_\d+)?$")
+        # Sprecher-Exporte ('<quellname>_<Sprechername>[_n].wav/.txt', siehe sprecher_export_service).
+        sprecher = re.compile(rf"^{re.escape(self.titel)}_(?!lokal_transkript_|protokoll_).+$")
         exporte = sorted(
-            p for p in ordner.iterdir() if p.is_file() and p.suffix.lower() in DATEI_ARTEN and export.match(p.stem)
+            p
+            for p in ordner.iterdir()
+            if p.is_file()
+            and (
+                (p.suffix.lower() in DATEI_ARTEN and export.match(p.stem))
+                or (p.suffix.lower() in (".wav", ".txt") and sprecher.match(p.stem))
+            )
         ) if ordner.is_dir() else []
         return [p for p in gefunden if p.is_file()] + [p for p in exporte if p not in gefunden]
 

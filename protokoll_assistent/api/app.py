@@ -23,6 +23,7 @@ from protokoll_assistent.api import (
     routen_geraete_usb,
     routen_nutzer,
     routen_ollama,
+    routen_sprecher,
     routen_system,
 )
 from protokoll_assistent.api.kontext import Dienste
@@ -78,6 +79,7 @@ def app_erstellen(
         routen_system.geschuetzt,
         routen_auftraege.router,
         routen_besprechungen.router,
+        routen_sprecher.router,
         routen_dateien.router,
         routen_einstellungen.router,
         routen_einrichtung.router,

@@ -908,6 +908,345 @@
         }
       }
     },
+    "/api/besprechungen/{kennung}/sprecher/vorschlaege": {
+      "get": {
+        "tags": [
+          "sprecher"
+        ],
+        "summary": "Vorschlaege",
+        "description": "Bekannte Stimmen: je Sprecher ein Namensvorschlag aus den eigenen Profilen (``sicher``: deutlich erkannt).",
+        "operationId": "vorschlaege_api_besprechungen__kennung__sprecher_vorschlaege_get",
+        "parameters": [
+          {
+            "name": "kennung",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Kennung"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Vorschlaege Api Besprechungen  Kennung  Sprecher Vorschlaege Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/besprechungen/{kennung}/sprecher/{sprecher_id}/hoerprobe": {
+      "get": {
+        "tags": [
+          "sprecher"
+        ],
+        "summary": "Hoerprobe",
+        "operationId": "hoerprobe_api_besprechungen__kennung__sprecher__sprecher_id__hoerprobe_get",
+        "parameters": [
+          {
+            "name": "kennung",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Kennung"
+            }
+          },
+          {
+            "name": "sprecher_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Sprecher Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/besprechungen/{kennung}/sprecher/{sprecher_id}/profil": {
+      "post": {
+        "tags": [
+          "sprecher"
+        ],
+        "summary": "Als Profil Merken",
+        "description": "Die Stimme dieses Sprechers merken, damit er in spaeteren Aufnahmen erkannt wird.",
+        "operationId": "als_profil_merken_api_besprechungen__kennung__sprecher__sprecher_id__profil_post",
+        "parameters": [
+          {
+            "name": "kennung",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Kennung"
+            }
+          },
+          {
+            "name": "sprecher_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Sprecher Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProfilName"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Als Profil Merken Api Besprechungen  Kennung  Sprecher  Sprecher Id  Profil Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/besprechungen/{kennung}/sprecher/{sprecher_id}/export": {
+      "post": {
+        "tags": [
+          "sprecher"
+        ],
+        "summary": "Sprecher Exportieren",
+        "description": "Audio (WAV) und Text (TXT) eines Sprechers in den Ordner der Besprechung schreiben.",
+        "operationId": "sprecher_exportieren_api_besprechungen__kennung__sprecher__sprecher_id__export_post",
+        "parameters": [
+          {
+            "name": "kennung",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Kennung"
+            }
+          },
+          {
+            "name": "sprecher_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Sprecher Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Sprecher Exportieren Api Besprechungen  Kennung  Sprecher  Sprecher Id  Export Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sprecherprofile": {
+      "get": {
+        "tags": [
+          "sprecher"
+        ],
+        "summary": "Profile",
+        "description": "Gemerkte Stimmen -- ohne die Stimmabdruecke selbst.",
+        "operationId": "profile_api_sprecherprofile_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  "type": "array",
+                  "title": "Response Profile Api Sprecherprofile Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sprecherprofile/{profil_id}": {
+      "patch": {
+        "tags": [
+          "sprecher"
+        ],
+        "summary": "Profil Umbenennen",
+        "operationId": "profil_umbenennen_api_sprecherprofile__profil_id__patch",
+        "parameters": [
+          {
+            "name": "profil_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Profil Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProfilName"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "boolean"
+                  },
+                  "title": "Response Profil Umbenennen Api Sprecherprofile  Profil Id  Patch"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "sprecher"
+        ],
+        "summary": "Profil Loeschen",
+        "operationId": "profil_loeschen_api_sprecherprofile__profil_id__delete",
+        "parameters": [
+          {
+            "name": "profil_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Profil Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "boolean"
+                  },
+                  "title": "Response Profil Loeschen Api Sprecherprofile  Profil Id  Delete"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/dateien/eingang": {
       "get": {
         "tags": [
@@ -4394,6 +4733,21 @@
           "neu"
         ],
         "title": "PasswortAendern"
+      },
+      "ProfilName": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "ProfilName"
       },
       "ProtokollSpeichern": {
         "properties": {

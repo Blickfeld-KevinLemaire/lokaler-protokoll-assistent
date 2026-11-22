@@ -31,6 +31,7 @@ MEDIENTYPEN = {
     ".pdf": "application/pdf",
     ".odt": "application/vnd.oasis.opendocument.text",
     ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".wav": "audio/wav",
 }
 
 
@@ -66,7 +67,7 @@ def _alle(d: Dienste, wer: Angemeldet) -> list[Gefunden]:
     return sorted(eigene + geteilte, key=lambda g: (g.besprechung.zeit, g.besprechung.id), reverse=True)
 
 
-def _finden(d: Dienste, wer: Angemeldet, kennung: str, *, aendern: bool = False) -> Gefunden:
+def besprechung_finden(d: Dienste, wer: Angemeldet, kennung: str, *, aendern: bool = False) -> Gefunden:
     if d.mehrbenutzer and wer.besitzer is not None:
         teile = freigaben.zerlegen(kennung)
         besitzer, stamm = teile if teile is not None else (wer.besitzer, kennung)
@@ -121,7 +122,7 @@ def liste(d: Dienste = Depends(dienste), wer: Angemeldet = Depends(angemeldet)) 
 
 @router.get("/{kennung}", response_model=modelle.BesprechungDetails)
 def details(kennung: str, d: Dienste = Depends(dienste), wer: Angemeldet = Depends(angemeldet)) -> dict[str, Any]:
-    g = _finden(d, wer, kennung)
+    g = besprechung_finden(d, wer, kennung)
     return {**bibliothek.details(g.besprechung), **_als_dict(d, g)}
 
 
@@ -129,7 +130,7 @@ def details(kennung: str, d: Dienste = Depends(dienste), wer: Angemeldet = Depen
 def protokoll_speichern(
     kennung: str, daten: modelle.ProtokollSpeichern, d: Dienste = Depends(dienste), wer: Angemeldet = Depends(angemeldet)
 ) -> dict[str, Any]:
-    besprechung = _finden(d, wer, kennung, aendern=True).besprechung
+    besprechung = besprechung_finden(d, wer, kennung, aendern=True).besprechung
     neuestes = besprechung.neuestes_protokoll
     if neuestes is None:
         raise HTTPException(status.HTTP_409_CONFLICT, "Zu dieser Besprechung gibt es noch kein Protokoll.")
@@ -145,7 +146,7 @@ def protokoll_speichern(
 def sprecher_umbenennen(
     kennung: str, daten: modelle.SprecherNamen, d: Dienste = Depends(dienste), wer: Angemeldet = Depends(angemeldet)
 ) -> dict[str, Any]:
-    besprechung = _finden(d, wer, kennung, aendern=True).besprechung
+    besprechung = besprechung_finden(d, wer, kennung, aendern=True).besprechung
     namen = {k: v.strip() for k, v in daten.namen.items() if v.strip()}
     try:
         export_service.reexport_with_new_names(besprechung.transkript, namen)
@@ -161,7 +162,7 @@ def teilen(
     """Mit wem die Besprechung geteilt ist (``["alle"]``, einzelne Anmeldenamen oder leer)."""
     if not d.mehrbenutzer or wer.besitzer is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Teilen gibt es nur auf dem Server mit mehreren Nutzern.")
-    g = _finden(d, wer, kennung, aendern=True)
+    g = besprechung_finden(d, wer, kennung, aendern=True)
     bekannt = {n.name.lower() for n in d.nutzer.liste()} if d.nutzer is not None else set()
     unbekannt = [m for m in daten.mit if m != freigaben.ALLE and m.lower() not in bekannt]
     if unbekannt:
@@ -172,7 +173,7 @@ def teilen(
 
 @router.get("/{kennung}/dateien/{name}")
 def datei(kennung: str, name: str, d: Dienste = Depends(dienste), wer: Angemeldet = Depends(angemeldet)) -> FileResponse:
-    besprechung = _finden(d, wer, kennung).besprechung
+    besprechung = besprechung_finden(d, wer, kennung).besprechung
     # Nur Dateien, die zur Besprechung gehoeren -- nachgeschlagen, nie aus dem Namen gebaut.
     treffer = next((p for p in besprechung.dateien() if p.name == name), None)
     if treffer is None:
@@ -184,7 +185,7 @@ def datei(kennung: str, name: str, d: Dienste = Depends(dienste), wer: Angemelde
 def exportieren(
     kennung: str, daten: modelle.ExportAnfrage, d: Dienste = Depends(dienste), wer: Angemeldet = Depends(angemeldet)
 ) -> dict[str, Any]:
-    besprechung = _finden(d, wer, kennung, aendern=True).besprechung
+    besprechung = besprechung_finden(d, wer, kennung, aendern=True).besprechung
     neuestes = besprechung.neuestes_protokoll
     if daten.inhalt != dokument_export_service.INHALT_TRANSKRIPT and neuestes is None:
         raise HTTPException(status.HTTP_409_CONFLICT, "Für diesen Inhalt fehlt das Protokoll.")
