@@ -9,6 +9,10 @@
   --sb-ok: #4cc38a;
   --sb-warn: #f2b45a;
   --sb-fehler: #ff8a80;
+  --sb-link: #9cc0ff;
+  /* Grenze zum Inhalt: im hellen Modus trägt der Kontrast, im dunklen eine feine Linie. */
+  --sb-rand: transparent;
+  --sb-fokus: #9cc0ff;
 
   --akzent: #2563eb;
   --akzent-hover: #1d4fc4;
@@ -34,6 +38,7 @@
   --schatten: 0 1px 2px rgba(16, 24, 40, 0.04), 0 1px 3px rgba(16, 24, 40, 0.06);
   --schatten-hoch: 0 12px 32px rgba(16, 24, 40, 0.16);
   --fokus: 0 0 0 3px rgba(37, 99, 235, 0.35);
+  --fokus-farbe: #2563eb;
   --radius: 10px;
   --radius-klein: 7px;
   --sp0: #2563eb;
@@ -53,13 +58,17 @@
     sans-serif;
   font-size: 14px;
   line-height: 1.45;
+  /* Zahlen (Zeiten, Prozent, Größen) gleich breit: nichts springt beim Hochzählen. */
+  font-variant-numeric: tabular-nums;
   color: var(--text);
   background: var(--bg);
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='hell']) {
-    --sb-bg: #0b2140;
+    --sb-bg: #10294a;
+    --sb-rand: rgba(255, 255, 255, 0.1);
+    --fokus-farbe: #7ea6ff;
     --akzent-weich: rgba(59, 130, 246, 0.16);
     --link: #7ea6ff;
     --bg: #0f172a;
@@ -91,7 +100,9 @@
 }
 
 :root[data-theme='dunkel'] {
-  --sb-bg: #0b2140;
+  --sb-bg: #10294a;
+  --sb-rand: rgba(255, 255, 255, 0.1);
+  --fokus-farbe: #7ea6ff;
   --akzent-weich: rgba(59, 130, 246, 0.16);
   --link: #7ea6ff;
   --bg: #0f172a;
@@ -169,9 +180,33 @@ textarea {
   color: inherit;
 }
 
+/* Sichtbarer Fokus überall, aber nur bei Tastaturbedienung: 2 px, mit Abstand. */
 :focus-visible {
-  outline: none;
-  box-shadow: var(--fokus);
+  outline: 2px solid var(--fokus-farbe);
+  outline-offset: 2px;
+}
+
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline-offset: 0;
+}
+
+/* Symbole (lucide): Linien in Textfarbe, nie gestaucht. */
+.lucide-icon {
+  flex: none;
+  display: block;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 /* Schaltflächen */
@@ -241,8 +276,9 @@ textarea {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  flex: none;
+  width: 32px;
+  height: 32px;
   border-radius: 6px;
   border: none;
   background: transparent;
@@ -313,4 +349,8 @@ textarea.feld {
   padding: 40px 0;
   text-align: center;
   color: var(--text-3);
+}
+
+.knopf .lucide-icon {
+  margin-left: -2px;
 }

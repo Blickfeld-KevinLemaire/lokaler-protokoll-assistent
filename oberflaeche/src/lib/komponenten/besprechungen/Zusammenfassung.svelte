@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Pencil from '@lucide/svelte/icons/pencil';
   import { api } from '$lib/api/client';
   import type { BesprechungDetails, Vorlage } from '$lib/api/typen';
   import { startMeldung } from '$lib/logik/warteschlange';
@@ -6,6 +7,7 @@
   import { dialog, meldungen } from '$lib/stores/oberflaeche.svelte';
   import { zustand } from '$lib/stores/zustand.svelte';
   import AuftragKarte from '../AuftragKarte.svelte';
+  import Bestaetigen from '../Bestaetigen.svelte';
   import Markdown from '../Markdown.svelte';
 
   let {
@@ -19,6 +21,7 @@
   let speichert = $state(false);
   let vorlagen = $state<Vorlage[]>([]);
   let vorlageName = $state('');
+  let rueckfrage = $state(false);
 
   const original = $derived(details.protokoll?.text ?? '');
   const geaendert = $derived(text !== original);
@@ -56,8 +59,25 @@
     }
   }
 
-  async function erstellen() {
-    if (geaendert && !confirm('Ungespeicherte Änderungen gehen verloren. Trotzdem neu erstellen?')) return;
+  function verwerfen() {
+    const entwurf = text;
+    text = original;
+    bearbeiten = false;
+    meldungen.zeigen('Änderungen verworfen', 'info', 6000, {
+      text: 'Rückgängig',
+      tun: () => {
+        text = entwurf;
+        bearbeiten = true;
+      }
+    });
+  }
+
+  function erstellen() {
+    if (geaendert) rueckfrage = true;
+    else void neuErstellen();
+  }
+
+  async function neuErstellen() {
     try {
       const vorlage = vorlagen.find((v) => v.name === vorlageName);
       const neu = await api.auswertungStarten(details.transkript, vorlage?.text ?? null);
@@ -90,24 +110,26 @@
     <span class="raum"></span>
     {#if details.protokoll}
       {#if bearbeiten}
-        <button
-          class="knopf leise"
-          type="button"
-          onclick={() => {
-            text = original;
-            bearbeiten = false;
-          }}
-        >
-          Verwerfen
-        </button>
+        <button class="knopf leise" type="button" onclick={verwerfen}>Verwerfen</button>
         <button class="knopf primaer" type="button" disabled={!geaendert || speichert} onclick={speichern}>
           Speichern
         </button>
       {:else}
-        <button class="knopf" type="button" onclick={() => (bearbeiten = true)}>✎&nbsp; Bearbeiten</button>
+        <button class="knopf" type="button" onclick={() => (bearbeiten = true)}>
+          <Pencil size={16} /> Bearbeiten
+        </button>
       {/if}
     {/if}
   </div>{/if}
+
+<Bestaetigen
+  offen={rueckfrage}
+  titel="Änderungen verwerfen?"
+  text="Die Zusammenfassung wird neu erstellt. Ihre ungespeicherten Änderungen gehen dabei verloren."
+  verb="Neu erstellen"
+  bestaetigen={neuErstellen}
+  schliessen={() => (rueckfrage = false)}
+/>
 
 {#if auftrag}
   <div class="auftrag"><AuftragKarte {auftrag} /></div>

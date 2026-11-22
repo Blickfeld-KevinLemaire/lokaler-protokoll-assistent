@@ -4,7 +4,8 @@
  *
  *   node bildschirmfotos/attrappe.mjs [port]
  *
- * Szenario wechseln: GET /__szenario?name=leer|laufend|reihe|fehler|anmelden
+ * Szenario wechseln: GET /__szenario?name=leer|laufend|reihe|fehler|anmelden|anmelden-mehr|nutzer|admin|
+ *   einrichtung|einrichtung-nichts|neustart|mitschrift|fehler-einrichtung|aufnahme
  */
 import { createReadStream, existsSync, statSync } from 'node:fs';
 import { createServer } from 'node:http';
@@ -53,6 +54,160 @@ const einstellungen = {
   netz_freigabe_port: 8780,
   einrichtung_abgeschlossen: true
 };
+
+const EINRICHTUNG = ['einrichtung', 'einrichtung-nichts', 'neustart', 'mitschrift'];
+const einrichtungOffen = () => EINRICHTUNG.includes(szenario);
+/** Gestartete Einrichtungsaufträge (für die Seitenleiste und den Schritt „Einrichten“). */
+let einrichtungsAuftraege = [];
+
+const RECHNER = {
+  profil: {
+    arbeitsspeicher_gb: 32,
+    prozessorkerne: 12,
+    grafikkarte: 'NVIDIA RTX 4060',
+    grafikspeicher_gb: 8,
+    freier_platz_gb: 211
+  },
+  schritte: [
+    {
+      kennung: 'mitschrift',
+      name: 'Mitschrift',
+      stufe: 'gut',
+      text: '',
+      dauer_von: 3,
+      dauer_bis: 5,
+      einheit: 'minuten_je_stunde_aufnahme',
+      ort: 'Grafikkarte'
+    },
+    {
+      kennung: 'sprecher',
+      name: 'Sprechererkennung',
+      stufe: 'gut',
+      text: '',
+      dauer_von: 1,
+      dauer_bis: 2,
+      einheit: 'minuten_je_stunde_aufnahme',
+      ort: 'Grafikkarte'
+    },
+    {
+      kennung: 'protokoll',
+      name: 'Protokoll',
+      stufe: 'gut',
+      text: '',
+      dauer_von: 4,
+      dauer_bis: 8,
+      einheit: 'minuten_je_stunde_aufnahme',
+      ort: 'Grafikkarte'
+    },
+    {
+      kennung: 'chat',
+      name: 'Frag mein Meeting',
+      stufe: 'maessig',
+      text: '',
+      dauer_von: 15,
+      dauer_bis: 40,
+      einheit: 'sekunden_je_frage',
+      ort: 'Prozessor'
+    }
+  ],
+  empfehlung: 'lokal',
+  begruendung:
+    'Dieser Computer schafft alles selbst. Empfehlung: alles auf diesem Computer – nichts verlässt ihn.',
+  hinweise: [],
+  empfohlene_modelle: { transkription: 'large-v3-turbo', nachbearbeitung: 'qwen3.5:4b', suche: 'bge-m3' },
+  whisper_modelle: [],
+  sprachmodelle: [],
+  einbettungsmodelle: []
+};
+
+function kosten(url) {
+  const nichts = szenario === 'einrichtung-nichts';
+  const wahl = {
+    transkription: url.searchParams.get('transkription') ?? 'lokal',
+    nachbearbeitung: url.searchParams.get('nachbearbeitung') ?? 'lokal',
+    chatbot: url.searchParams.get('chatbot') ?? 'lokal'
+  };
+  const b = (kennung, gb) => ({
+    kennung,
+    name: kennung,
+    download_gb: gb,
+    platz_gb: gb * 1.4,
+    hinweis: '',
+    vorhanden: nichts
+  });
+  const teile = [b('ffmpeg', 0.1)];
+  if (wahl.nachbearbeitung === 'lokal' || wahl.chatbot === 'lokal')
+    teile.push(b('ollama', 1.8), b('sprachmodell', 3.3));
+  if (wahl.chatbot === 'lokal') teile.push(b('einbettung', 1.2));
+  if (wahl.transkription === 'lokal') teile.push(b('laufzeit', 4.4), b('whisper', 1.6), b('pyannote', 0.1));
+  const offen = teile.filter((t) => !t.vorhanden);
+  const download = offen.reduce((s, t) => s + t.download_gb, 0);
+  return {
+    arbeitsweise: wahl,
+    bausteine: teile,
+    download_gb: Math.round(download * 100) / 100,
+    platz_gb: Math.round(download * 140) / 100,
+    download_minuten_von: Math.round(download * 2.7),
+    download_minuten_bis: Math.round(download * 3.5),
+    annahme_mbit: 50,
+    freier_platz_gb: 211,
+    platz_knapp: false,
+    zustimmung_noetig: download > 0,
+    neustart_noetig: !nichts && wahl.transkription === 'lokal',
+    ollama_lizenz: offen.some((t) => t.kennung === 'ollama')
+      ? {
+          lizenz_url: 'https://github.com/ollama/ollama/blob/main/LICENSE',
+          bedingungen_url: 'https://ollama.com/terms'
+        }
+      : null
+  };
+}
+
+function einrichtungStand() {
+  const nachNeustart = szenario === 'mitschrift';
+  return {
+    einrichtung_abgeschlossen: !einrichtungOffen(),
+    naechster_schritt:
+      szenario === 'neustart'
+        ? 'neustart'
+        : nachNeustart
+          ? 'mitschrift'
+          : einrichtungOffen()
+            ? 'willkommen'
+            : 'fertig',
+    einrichtung_fortsetzen: szenario === 'neustart' || nachNeustart ? 'transkription' : '',
+    lokale_einrichtung_zurueckgestellt: false,
+    arbeitsweise: { transkription: 'lokal', nachbearbeitung: 'lokal', chatbot: 'lokal' },
+    modelle: {
+      whisper: 'large-v3-turbo',
+      sprachmodell: 'qwen3.5:4b',
+      chat_sprachmodell: 'qwen3.5:4b',
+      einbettung: 'bge-m3'
+    },
+    vorhanden: {
+      ffmpeg: szenario !== 'einrichtung',
+      ollama: nachNeustart,
+      ollama_laeuft: nachNeustart,
+      ollama_version: null,
+      ollama_modelle: nachNeustart ? ['qwen3.5:4b', 'bge-m3:latest'] : [],
+      laufzeit: nachNeustart,
+      laufzeit_aktiv: nachNeustart,
+      sprachmodell: nachNeustart,
+      einbettung: nachNeustart,
+      whisper: false,
+      pyannote: false,
+      hf_token: false
+    },
+    offen: [],
+    rechenumgebung_fehlt: szenario === 'einrichtung',
+    neustart_noetig:
+      szenario === 'neustart' || (szenario === 'einrichtung' && einrichtungsAuftraege.length > 0),
+    online_ohne_anbieter: [],
+    geraete: 0,
+    geraete_empfang_aktiv: true,
+    auftraege: einrichtungsAuftraege
+  };
+}
 
 function auftrag(teil) {
   return {
@@ -135,6 +290,7 @@ function auftraege() {
     gestartet: jetzt() - 420,
     fortschritt: 0.62
   });
+  if (einrichtungOffen()) return einrichtungsAuftraege;
   switch (szenario) {
     case 'nutzer':
       return [fremd, { ...wartend[0], besitzer: 'anna', titel: 'Kundentermin Müller.mp3' }];
@@ -142,6 +298,9 @@ function auftraege() {
       return [{ ...laufend, besitzer: 'anna' }];
     case 'leer':
     case 'anmelden':
+    case 'anmelden-mehr':
+    case 'aufnahme':
+    case 'fehler-einrichtung':
       return [];
     case 'laufend':
       return [laufend];
@@ -150,6 +309,11 @@ function auftraege() {
     default:
       return [fertig, laufend, ...wartend];
   }
+}
+
+function aufnahmeStand() {
+  if (szenario !== 'aufnahme') return { laeuft: false, pausiert: false, dauer: 0, pegel: 0, geraet: null };
+  return { laeuft: true, pausiert: false, dauer: 754.2, pegel: 0.46, geraet: 'Mikrofon (Jabra Speak 510)' };
 }
 
 const NUTZER = [
@@ -365,6 +529,7 @@ const ANBIETER = [
     hat_platzhalter: false,
     chat: { url: 'https://openrouter.ai/api/v1/chat/completions', modell: 'mistralai/mistral-small' },
     embedding: null,
+    diarisierung_anbieter: '',
     transkription: { url: 'https://openrouter.ai/api/v1/audio/transcriptions', modell: 'openai/whisper-1' }
   }
 ];
@@ -406,7 +571,8 @@ async function api(anfrage, antwort, url) {
     return senden(antwort, 200, { angemeldet_als: 'büro' });
   }
   if (p === '/api/gesundheit') return senden(antwort, 200, { status: 'ok', version: '0.6.0-alpha.1' });
-  if (szenario === 'anmelden' && !angemeldet && !mitSchluessel)
+  if (p === '/api/anmeldung') return senden(antwort, 200, { mehrbenutzer: szenario === 'anmelden-mehr' });
+  if (szenario.startsWith('anmelden') && !angemeldet && !mitSchluessel)
     return senden(antwort, 401, { detail: 'Nicht angemeldet.' });
 
   if (p === '/api/info') {
@@ -431,7 +597,7 @@ async function api(anfrage, antwort, url) {
         ordner_oeffnen: mitSchluessel,
         geraete_empfang: true
       },
-      einrichtung_abgeschlossen: true,
+      einrichtung_abgeschlossen: !(mitSchluessel && einrichtungOffen()),
       ausgabeordner: einstellungen.ausgabeordner
     });
   }
@@ -451,6 +617,7 @@ async function api(anfrage, antwort, url) {
   if (p === '/api/zustand')
     return senden(antwort, 200, {
       letzte_nummer: nummer,
+      jetzt: jetzt(),
       auftraege: auftraege(),
       empfang:
         szenario === 'nutzer'
@@ -463,9 +630,10 @@ async function api(anfrage, antwort, url) {
     antwort.write(': verbunden\n\n');
     if (szenario === 'reihe' || szenario === 'fehler') {
       sse(antwort, 'hinweis', {
-        text: 'Das Sprachmodell qwen3.5:4b fehlt bei Ollama – Zusammenfassungen von VERMERK Raum gehen erst, wenn es geladen ist.',
+        text: 'Das Sprachmodell für Zusammenfassungen fehlt noch.',
         stufe: 'fehler',
-        quelle: 'ollama'
+        quelle: 'ollama',
+        code: 'modell_fehlt'
       });
     }
     sse(antwort, 'live', {
@@ -519,14 +687,139 @@ async function api(anfrage, antwort, url) {
       { id: 'srt', name: 'Untertitel', inhalte: ['transkript'] }
     ]);
   if (p === '/api/besprechungen') return senden(antwort, 200, besprechungen());
+  if (/^\/api\/besprechungen\/[^/]+\/sprecher\/vorschlaege$/.test(p))
+    return senden(antwort, 200, {
+      vorschlaege: { SPEAKER_03: { name: 'Frau Petrov', sicher: false } },
+      stimmen_vorhanden: true
+    });
+  if (/^\/api\/besprechungen\/[^/]+\/export$/.test(p) && m === 'POST') {
+    const b = details(decodeURIComponent(p.split('/')[3]));
+    return senden(antwort, 200, {
+      dateien: [
+        { name: `${b.titel}.docx`, pfad: `C:\\VERMERK\\Ergebnisse\\${b.titel}.docx` },
+        { name: `${b.titel}.pdf`, pfad: `C:\\VERMERK\\Ergebnisse\\${b.titel}.pdf` }
+      ],
+      fehler: []
+    });
+  }
+  if (p === '/api/sprecherprofile')
+    return senden(antwort, 200, [
+      {
+        id: 'p1',
+        name: 'Frau Keller',
+        erstellt: '2026-10-12T09:00:00+02:00',
+        aktualisiert: '2026-11-21T15:00:00+01:00'
+      },
+      {
+        id: 'p2',
+        name: 'Herr Brandt',
+        erstellt: '2026-10-12T09:05:00+02:00',
+        aktualisiert: '2026-10-12T09:05:00+02:00'
+      },
+      {
+        id: 'p3',
+        name: 'Jonas Weber',
+        erstellt: '2026-11-02T11:00:00+01:00',
+        aktualisiert: '2026-11-02T11:00:00+01:00'
+      }
+    ]);
+  if (p === '/api/aufnahme') return senden(antwort, 200, aufnahmeStand());
+  if (p === '/api/aufnahme/geraete')
+    return senden(antwort, 200, [
+      { name: 'Mikrofon (Jabra Speak 510)', standard: false, gewaehlt: true },
+      { name: 'Mikrofonarray (Realtek Audio)', standard: true, gewaehlt: false }
+    ]);
+  if (p === '/api/system/neustart' && m === 'POST') return senden(antwort, 200, { neustart: true });
+  if (p === '/api/einrichtung/stand') return senden(antwort, 200, einrichtungStand());
+  if (p === '/api/einrichtung/rechner') {
+    await new Promise((r) => setTimeout(r, 150));
+    return senden(antwort, 200, RECHNER);
+  }
+  if (p === '/api/einrichtung/kosten') return senden(antwort, 200, kosten(url));
+  if (p === '/api/einrichtung/entscheidung' && m === 'POST') {
+    const wahl = await koerper(anfrage);
+    const stand = einrichtungStand();
+    stand.arbeitsweise = {
+      transkription: wahl.transkription,
+      nachbearbeitung: wahl.nachbearbeitung,
+      chatbot: wahl.chatbot
+    };
+    return senden(antwort, 200, stand);
+  }
+  const einrichtungsAuftrag = (art, titel, teil) => {
+    const a = auftrag({ id: art, art, titel, vorrang: -5, ...teil });
+    einrichtungsAuftraege = [...einrichtungsAuftraege.filter((x) => x.art !== art), a];
+    return a;
+  };
+  if (p === '/api/einrichtung/ffmpeg' && m === 'POST')
+    return senden(
+      antwort,
+      201,
+      einrichtungsAuftrag('einrichtung_ffmpeg', 'FFmpeg einrichten', {
+        status: 'fertig',
+        gestartet: jetzt() - 40,
+        beendet: jetzt() - 25,
+        fortschritt: 1
+      })
+    );
+  if (p === '/api/einrichtung/ollama' && m === 'POST')
+    return senden(
+      antwort,
+      201,
+      einrichtungsAuftrag('einrichtung_ollama', 'Ollama einrichten', {
+        status: 'laeuft',
+        stufe: 'ollama',
+        gestartet: jetzt() - 160,
+        fortschritt: 0.42
+      })
+    );
+  if (p === '/api/einrichtung/modelle' && m === 'POST') {
+    const lauf = szenario === 'mitschrift';
+    return senden(
+      antwort,
+      201,
+      einrichtungsAuftrag('einrichtung_modelle', 'Modelle laden', {
+        status: lauf ? 'laeuft' : 'wartet',
+        stufe: lauf ? 'whisper' : '',
+        gestartet: lauf ? jetzt() - 50 : null,
+        fortschritt: lauf ? 0.28 : null
+      })
+    );
+  }
+  if (p === '/api/einrichtung/anbieter' && m === 'POST') {
+    const d = await koerper(anfrage);
+    return senden(antwort, 200, {
+      bereich: d.bereich,
+      anbieter: d.anbieter,
+      endpunkt: '',
+      modell: '',
+      adresse_vollstaendig: true,
+      schluessel_vorhanden: !!d.schluessel,
+      gemerkt: true
+    });
+  }
+  if (p === '/api/einrichtung/spaeter' || p === '/api/einrichtung/abschliessen')
+    return senden(antwort, 200, {
+      ...einrichtungStand(),
+      einrichtung_abgeschlossen: true,
+      neustart_noetig: false
+    });
   if (p.startsWith('/api/besprechungen/'))
     return senden(antwort, 200, details(decodeURIComponent(p.split('/')[3])));
   if (p === '/api/auftraege/transkription' && m === 'POST') {
     if (szenario === 'fehler')
       return senden(antwort, 422, {
-        titel: 'Ollama-Modell fehlt',
-        text: "Das Modell 'qwen3.5:4b' ist bei Ollama nicht installiert.",
-        code: 'modell_fehlt'
+        titel: 'Sprachmodell fehlt',
+        text: 'Das Sprachmodell für Zusammenfassungen ist noch nicht geladen. Bitte in den Einstellungen unter „Zusammenfassung“ herunterladen.',
+        code: 'modell_fehlt',
+        bereich: 'zusammenfassung'
+      });
+    if (szenario === 'fehler-einrichtung')
+      return senden(antwort, 422, {
+        titel: 'Noch nicht bereit',
+        text: 'Für das Umwandeln in Text auf diesem Computer fehlt noch ein Teil. Er wird eingerichtet, wenn Sie zustimmen – oder Sie wählen in den Einstellungen einen Online-Dienst.',
+        code: 'lokale_einrichtung',
+        bereich: 'transkription'
       });
     return senden(antwort, 201, auftrag({ id: 'neu1', titel: 'Teamrunde.webm' }));
   }
@@ -677,6 +970,7 @@ export function starten(port = 4319) {
     if (url.pathname === '/__szenario') {
       szenario = url.searchParams.get('name') ?? 'reihe';
       angemeldet = false;
+      einrichtungsAuftraege = [];
       return senden(antwort, 200, { szenario });
     }
     if (url.pathname.startsWith('/api/')) {

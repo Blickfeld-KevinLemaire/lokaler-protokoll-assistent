@@ -1,55 +1,54 @@
 /**
- * Fehler für den Dialog aufbereiten. 422 aus /api/auftraege trägt {titel, text, code}; je Code gibt es
- * einen Knopf zum passenden Abschnitt der Einstellungen. Wo der Dienst Fachbegriffe benutzt, stehen hier
- * schlichte Sätze (siehe Bericht: Wunsch an den Dienst, die Texte selbst so zu formulieren).
+ * Fehler für den Dialog aufbereiten. 422 aus /api/auftraege trägt {titel, text, code, bereich}: Titel und
+ * Text formuliert der Dienst schon für Menschen; `bereich` sagt, welcher Abschnitt der Einstellungen hilft.
  */
 import { ApiFehler, Verbindungsfehler } from '../api/client';
 
-export type Abschnitt = 'transkription' | 'zusammenfassung' | 'chat' | 'darstellung';
+export type Abschnitt = 'transkription' | 'zusammenfassung' | 'chat' | 'darstellung' | 'netz';
 
 export interface DialogFehler {
   titel: string;
   text: string;
   abschnitt: Abschnitt | null;
+  /** Die Einrichtung auf diesem Computer fehlt noch: Die Oberfläche kann die Ersteinrichtung anbieten. */
+  einrichten?: boolean;
   details?: string;
 }
 
-const UMSCHREIBUNG: Record<string, { titel: string; text: string }> = {
-  schluessel: {
-    titel: 'Zugangsschlüssel fehlt',
-    text: 'Für den Online-Dienst ist noch kein Zugangsschlüssel hinterlegt.'
-  },
-  einstellungen: {
-    titel: 'Online-Dienst nicht eingerichtet',
-    text: 'Bitte zuerst einen Online-Dienst auswählen.'
-  },
-  lokale_einrichtung: {
-    titel: 'Noch nicht eingerichtet',
-    text: 'Die Spracherkennung auf diesem Computer ist noch nicht bereit. Alternativ geht es über einen Online-Dienst.'
-  },
-  modell_fehlt: {
-    titel: 'Sprachmodell fehlt',
-    text: 'Das gewählte Sprachmodell ist noch nicht auf diesem Computer. Es lässt sich in den Einstellungen herunterladen.'
+/** `bereich` des Dienstes → Abschnitt der Einstellungen. */
+export function abschnittAusBereich(bereich: string | null | undefined): Abschnitt | null {
+  switch (bereich) {
+    case 'transkription':
+      return 'transkription';
+    case 'zusammenfassung':
+    case 'nachbearbeitung':
+      return 'zusammenfassung';
+    case 'chat':
+    case 'chatbot':
+      return 'chat';
+    default:
+      return null;
   }
+}
+
+/** Codes, die auch ohne `bereich` eindeutig sind. */
+const CODE_ABSCHNITT: Record<string, Abschnitt> = {
+  modell_fehlt: 'zusammenfassung',
+  lokale_einrichtung: 'transkription'
 };
 
-function abschnittFuer(code: string, text: string): Abschnitt | null {
-  if (code === 'modell_fehlt') return 'zusammenfassung';
-  if (code === 'lokale_einrichtung') return 'transkription';
-  if (code === 'schluessel' || code === 'einstellungen') {
-    return /nachbearbeitung|protokoll|zusammenfassung/i.test(text) ? 'zusammenfassung' : 'transkription';
-  }
-  return null;
+export function abschnittFuer(code: string, bereich?: string | null): Abschnitt | null {
+  return abschnittAusBereich(bereich) ?? CODE_ABSCHNITT[code] ?? null;
 }
 
 export function fehlerFuerDialog(fehler: unknown, titel = 'Das hat nicht geklappt'): DialogFehler {
   if (fehler instanceof ApiFehler && fehler.fehler) {
-    const { code, text } = fehler.fehler;
-    const ersatz = UMSCHREIBUNG[code];
+    const { code, bereich } = fehler.fehler;
     return {
-      titel: ersatz?.titel ?? fehler.fehler.titel,
-      text: ersatz?.text ?? text,
-      abschnitt: abschnittFuer(code, text)
+      titel: fehler.fehler.titel || titel,
+      text: fehler.fehler.text,
+      abschnitt: abschnittFuer(code, bereich),
+      einrichten: code === 'lokale_einrichtung'
     };
   }
   if (fehler instanceof Verbindungsfehler) {

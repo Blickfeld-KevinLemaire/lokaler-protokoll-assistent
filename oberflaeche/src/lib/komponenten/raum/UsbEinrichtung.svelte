@@ -1,5 +1,6 @@
 <script lang="ts">
   /** Aufnahmegerät per USB-Kabel einrichten: anschließen → Name und WLAN → fertig. */
+  import Check from '@lucide/svelte/icons/check';
   import { api, ApiFehler } from '$lib/api/client';
   import type { UsbAnschluss, UsbGeraet } from '$lib/api/typen';
   import Dialog from '../Dialog.svelte';
@@ -119,7 +120,9 @@
           class:aktiv={i === aktuellerIndex}
           aria-current={i === aktuellerIndex ? 'step' : undefined}
         >
-          <span class="nr">{i < aktuellerIndex ? '✓' : i + 1}</span>{s.text}
+          <span class="nr">
+            {#if i < aktuellerIndex}<Check size={12} strokeWidth={2.5} />{:else}{i + 1}{/if}
+          </span>{s.text}
         </li>
       {/each}
     </ol>
@@ -217,7 +220,7 @@
       {/if}
     {:else}
       <div class="fertig">
-        <span class="haken" aria-hidden="true">✓</span>
+        <span class="haken"><Check size={20} strokeWidth={2.25} /></span>
         <p><strong>„{eingerichtetAls}“</strong> ist eingerichtet. Das Kabel kann jetzt ab.</p>
       </div>
     {/if}

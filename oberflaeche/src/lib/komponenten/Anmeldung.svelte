@@ -1,6 +1,10 @@
 <script lang="ts">
-  /** Anmeldung im Browser: Name und Passwort oder Zugangsschlüssel. */
-  import { ApiFehler } from '$lib/api/client';
+  /**
+   * Anmeldung im Browser. Name und Passwort gibt es nur mit mehreren Nutzern (`GET /api/anmeldung`);
+   * sonst genügt der Zugangsschlüssel.
+   */
+  import { onMount } from 'svelte';
+  import { api, ApiFehler } from '$lib/api/client';
   import { verbindung } from '$lib/stores/verbindung.svelte';
 
   type Art = 'passwort' | 'schluessel';
@@ -14,7 +18,18 @@
     }
   }
 
+  let mehrbenutzer = $state<boolean | null>(null);
   let art = $state<Art>(gemerkt());
+
+  onMount(() => {
+    api
+      .anmeldung()
+      .then((a) => {
+        mehrbenutzer = a.mehrbenutzer;
+        if (!a.mehrbenutzer) art = 'schluessel';
+      })
+      .catch(() => (mehrbenutzer = true));
+  });
   let name = $state('');
   let passwort = $state('');
   let schluessel = $state('');
@@ -58,7 +73,9 @@
   <form class="karte" onsubmit={absenden}>
     <div class="logo"><img src="/vermerk_logo_hell.png" alt="VERMERK" width="180" height="40" /></div>
 
-    {#if art === 'passwort'}
+    {#if mehrbenutzer === null}
+      <div class="platzhalter" aria-hidden="true"></div>
+    {:else if art === 'passwort'}
       <label for="name">Name</label>
       <!-- svelte-ignore a11y_autofocus -->
       <input id="name" class="feld" autocomplete="username" autofocus bind:value={name} />
@@ -88,13 +105,15 @@
     {/if}
     {#if fehler}<p id="anmeldefehler" class="fehler" role="alert">{fehler}</p>{/if}
     <button class="knopf primaer gross" type="submit" disabled={laeuft || !vollstaendig}>Anmelden</button>
-    <button
-      class="wechsel"
-      type="button"
-      onclick={() => wechseln(art === 'passwort' ? 'schluessel' : 'passwort')}
-    >
-      {art === 'passwort' ? 'Mit Zugangsschlüssel anmelden' : 'Mit Name und Passwort anmelden'}
-    </button>
+    {#if mehrbenutzer}
+      <button
+        class="wechsel"
+        type="button"
+        onclick={() => wechseln(art === 'passwort' ? 'schluessel' : 'passwort')}
+      >
+        {art === 'passwort' ? 'Mit Zugangsschlüssel anmelden' : 'Mit Name und Passwort anmelden'}
+      </button>
+    {/if}
   </form>
 </main>
 
@@ -126,6 +145,10 @@
     font-weight: 600;
     font-size: 13px;
     margin-top: 4px;
+  }
+
+  .platzhalter {
+    height: 62px;
   }
 
   .fehler {

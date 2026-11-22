@@ -29,7 +29,18 @@ npm run dev
 
 `npm run build`, einmalig `npx playwright install chromium`, dann `npm run bildschirmfotos`. Ein
 nachgebauter Dienst (`bildschirmfotos/attrappe.mjs`) liefert erfundene Daten; die Bilder (hell und
-dunkel, 1360×860) landen in `screenshots/` (nicht eingecheckt).
+dunkel, 1360×860, einige zusätzlich 1100 px breit als `schmal-*`) landen in `screenshots/` (nicht
+eingecheckt). `npm run bildschirmfotos einricht` nimmt nur die Bilder auf, deren Name „einricht“ enthält.
+
+Szenarien der Attrappe (`/__szenario?name=…`): `reihe`, `leer`, `laufend`, `fehler`, `anmelden`,
+`anmelden-mehr`, `nutzer`, `admin`, `aufnahme` und für die Ersteinrichtung `einrichtung`,
+`einrichtung-nichts`, `neustart`, `mitschrift`, `fehler-einrichtung`.
+
+## Symbole und Kürzel
+
+Ein Symbolsatz: `@lucide/svelte` (ISC), je Symbol einzeln importiert; Größe und Linienstärke setzt
+`+layout.svelte` für alle (`setLucideProps`). Tastenkürzel stehen in `src/lib/logik/tasten.ts`
+(Strg+N, Strg+„,“, „/“; Esc schließt Dialoge und Blasen).
 
 ## Regeln
 

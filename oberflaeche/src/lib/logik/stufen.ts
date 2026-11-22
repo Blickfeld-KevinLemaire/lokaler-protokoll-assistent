@@ -19,7 +19,12 @@ export const STUFEN: Record<string, string> = {
   export_protokoll: 'Wird gespeichert',
   protokoll_fehlgeschlagen: 'Zusammenfassung hat nicht geklappt',
   abgeschlossen: 'Gleich fertig',
-  laden: 'Wird heruntergeladen'
+  laden: 'Wird heruntergeladen',
+  // Ersteinrichtung (api/routen_einrichtung.py)
+  ffmpeg: 'Wird eingerichtet',
+  ollama: 'Wird eingerichtet',
+  whisper: 'Wird heruntergeladen',
+  pyannote: 'Wird heruntergeladen'
 };
 
 export const UNBEKANNT = 'Wird verarbeitet';
@@ -27,6 +32,7 @@ export const UNBEKANNT = 'Wird verarbeitet';
 export function stufenText(stufe: string | null | undefined, status?: string): string {
   if (status === 'wartet') return 'Wartet';
   if (!stufe) return status === 'laeuft' ? 'Wird vorbereitet' : UNBEKANNT;
+  if (stufe.startsWith('modell:')) return 'Wird heruntergeladen';
   return STUFEN[stufe] ?? UNBEKANNT;
 }
 

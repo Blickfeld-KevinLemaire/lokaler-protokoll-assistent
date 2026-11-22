@@ -1,5 +1,6 @@
 <script lang="ts">
   /** Online-Dienst wählen: fertige Anbieter, Zugangsschlüssel; Adresse und Modell unter „Erweitert“. */
+  import Check from '@lucide/svelte/icons/check';
   import { api } from '$lib/api/client';
   import type { Anbieter, Einstellungen, SchluesselStand } from '$lib/api/typen';
   import { einstellungen } from '$lib/stores/einstellungen.svelte';
@@ -73,6 +74,8 @@
       aenderung[f.endpunkt] = ziel.url;
       aenderung[f.modell] = ziel.modell;
     }
+    // Wie die alte Anwendung: Bei der Transkription auch die Sprechertrennung des Anbieters übernehmen.
+    if (bereich === 'transkription') aenderung.api_transkription_anbieter = a?.diarisierung_anbieter ?? '';
     if (bereich === 'chat' && a?.embedding) {
       aenderung.chatbot_api_embedding_endpunkt = a.embedding.url;
       aenderung.chatbot_api_embedding_modell = a.embedding.modell;
@@ -128,7 +131,9 @@
   <form class="feldzeile" onsubmit={schluesselSpeichern}>
     <span>
       Zugangsschlüssel
-      {#if vorhanden}<em class="ok">✓ Hinterlegt</em>{:else}<em class="fehlt">Fehlt</em>{/if}
+      {#if vorhanden}<em class="ok"><Check size={14} /> Hinterlegt</em>{:else}<em class="fehlt">
+          Fehlt
+        </em>{/if}
     </span>
     <div class="zeile">
       <input
@@ -193,6 +198,9 @@
   }
 
   em {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
     font-style: normal;
     font-weight: 500;
   }

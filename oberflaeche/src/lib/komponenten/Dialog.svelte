@@ -8,7 +8,8 @@
     schliessen,
     kinder,
     knoepfe,
-    breite = 440
+    breite = 440,
+    warnung = false
   }: {
     offen: boolean;
     titel: string;
@@ -16,6 +17,8 @@
     kinder: Snippet;
     knoepfe?: Snippet;
     breite?: number;
+    /** Warnung oder Rückfrage: `alertdialog` (Bildschirmleser lesen den Inhalt sofort vor). */
+    warnung?: boolean;
   } = $props();
 
   let element: HTMLDialogElement | undefined = $state();
@@ -31,6 +34,7 @@
 <dialog
   bind:this={element}
   aria-labelledby={id}
+  role={warnung ? 'alertdialog' : undefined}
   style:width="{breite}px"
   oncancel={(e) => {
     e.preventDefault();

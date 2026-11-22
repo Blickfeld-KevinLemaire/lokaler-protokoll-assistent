@@ -1,8 +1,10 @@
 <script lang="ts">
   /** Nutzer anlegen, bearbeiten, entfernen (nur Verwaltung, Servermodus). */
+  import Plus from '@lucide/svelte/icons/plus';
+  import X from '@lucide/svelte/icons/x';
   import { api } from '$lib/api/client';
   import type { NeuerZugang, Nutzer } from '$lib/api/typen';
-  import { dialog, meldungen } from '$lib/stores/oberflaeche.svelte';
+  import { dialog, meldungen, rueckfrage } from '$lib/stores/oberflaeche.svelte';
   import { personen } from '$lib/stores/personen.svelte';
   import { verbindung } from '$lib/stores/verbindung.svelte';
   import Dialog from '../Dialog.svelte';
@@ -75,7 +77,12 @@
   }
 
   async function entfernen(n: Nutzer) {
-    if (!confirm(`„${n.anzeigename}“ entfernen? Die Besprechungen bleiben auf dem Server erhalten.`)) return;
+    const ja = await rueckfrage.fragen({
+      titel: `„${n.anzeigename}“ entfernen?`,
+      text: 'Die Besprechungen bleiben auf dem Server erhalten.',
+      verb: 'Entfernen'
+    });
+    if (!ja) return;
     try {
       await api.nutzerEntfernen(n.name);
       await laden();
@@ -97,7 +104,9 @@
   }
 
   async function zugangEntfernen(name: string) {
-    if (!bearbeiten || !confirm(`Zugangsschlüssel „${name}“ entfernen?`)) return;
+    if (!bearbeiten) return;
+    const ja = await rueckfrage.fragen({ titel: `Zugangsschlüssel „${name}“ entfernen?`, verb: 'Entfernen' });
+    if (!ja) return;
     try {
       await api.nutzerZugangEntfernen(bearbeiten.name, name);
       await laden();
@@ -131,13 +140,15 @@
           disabled={n.name.toLowerCase() === ich}
           onclick={() => entfernen(n)}
         >
-          ✕
+          <X size={16} />
         </button>
       </li>
     {/each}
   </ul>
   <div>
-    <button class="knopf" type="button" onclick={() => (neuOffen = true)}>+&nbsp; Nutzer anlegen</button>
+    <button class="knopf" type="button" onclick={() => (neuOffen = true)}>
+      <Plus size={16} /> Nutzer anlegen
+    </button>
   </div>
 </div>
 
@@ -215,7 +226,7 @@
               aria-label="{z.bezeichnung} entfernen"
               onclick={() => zugangEntfernen(z.bezeichnung)}
             >
-              ✕
+              <X size={16} />
             </button>
           </div>
         {/each}

@@ -1,12 +1,18 @@
 <script lang="ts">
   import '../app.css';
-  import { onMount, type Snippet } from 'svelte';
+  import { setLucideProps } from '@lucide/svelte';
+  import { onMount, untrack, type Snippet } from 'svelte';
+  import { goto } from '$app/navigation';
   import Anmeldung from '$lib/komponenten/Anmeldung.svelte';
+  import Einrichtung from '$lib/komponenten/einrichtung/Einrichtung.svelte';
   import FehlerDialog from '$lib/komponenten/FehlerDialog.svelte';
   import Meldungen from '$lib/komponenten/Meldungen.svelte';
+  import Rueckfrage from '$lib/komponenten/Rueckfrage.svelte';
   import Seitenleiste from '$lib/komponenten/Seitenleiste.svelte';
   import StartBildschirm from '$lib/komponenten/StartBildschirm.svelte';
+  import { tastenkuerzel } from '$lib/logik/tasten';
   import { protokollEinrichten } from '$lib/protokoll';
+  import { einrichtung } from '$lib/stores/einrichtung.svelte';
   import { meldungen, uhr } from '$lib/stores/oberflaeche.svelte';
   import { thema } from '$lib/stores/thema.svelte';
   import { verbindung } from '$lib/stores/verbindung.svelte';
@@ -15,10 +21,10 @@
 
   let { children }: { children: Snippet } = $props();
 
-  let schonBereit = $state(false);
-  let einrichtungAus = $state(false);
+  // Ein Symbolsatz, überall gleich: 18 px, feine Linie, Textfarbe.
+  setLucideProps({ size: 18, strokeWidth: 1.75 });
 
-  const EINRICHTUNG_SCHLUESSEL = 'vermerk.einrichtungshinweis';
+  let schonBereit = $state(false);
 
   onMount(() => {
     thema.laden();
@@ -27,17 +33,21 @@
         void befehl('protokoll_schreiben', { stufe, text }).catch(() => undefined);
       });
     }
-    try {
-      einrichtungAus = sessionStorage.getItem(EINRICHTUNG_SCHLUESSEL) === 'aus';
-    } catch {
-      einrichtungAus = false;
-    }
     uhr.starten();
     void verbindung.starten();
   });
 
   $effect(() => {
     if (verbindung.bereit) schonBereit = true;
+  });
+
+  // Nach jedem Öffnen des Startgatters (auch nach einem Neustart): Ist die Einrichtung offen?
+  $effect(() => {
+    void verbindung.runde;
+    if (!verbindung.bereit) return;
+    const info = verbindung.info;
+    // Nur bei neuem Gatter prüfen – nicht jedes Mal, wenn sich in der Einrichtung etwas ändert.
+    untrack(() => void einrichtung.pruefen(info));
   });
 
   $effect(() => {
@@ -48,13 +58,18 @@
     }
   });
 
-  function einrichtungAusblenden() {
-    einrichtungAus = true;
-    try {
-      sessionStorage.setItem(EINRICHTUNG_SCHLUESSEL, 'aus');
-    } catch {
-      // egal
+  function taste(e: KeyboardEvent) {
+    if (!verbindung.bereit || einrichtung.aktiv) return;
+    const ziel = tastenkuerzel(e);
+    if (!ziel) return;
+    e.preventDefault();
+    if (ziel === 'suche') {
+      const feld = document.getElementById('besprechungen-suche');
+      if (feld) feld.focus();
+      else void goto('/besprechungen?suche=1');
+      return;
     }
+    void goto(ziel === 'neu' ? '/?neu=1' : '/einstellungen');
   }
 
   const phase = $derived(verbindung.phase);
@@ -64,6 +79,8 @@
       (!schonBereit && (phase === 'startet' || phase === 'getrennt'))
   );
 </script>
+
+<svelte:window onkeydown={taste} />
 
 {#if phase === 'anmelden'}
   <Anmeldung />
@@ -75,25 +92,16 @@
 {:else}
   <Seitenleiste />
   <main class="inhalt">
-    {#if verbindung.info && !verbindung.info.einrichtung_abgeschlossen && !einrichtungAus}
-      <div class="einrichtung">
-        <span>Einrichtung noch nicht abgeschlossen</span>
-        <a href="/einstellungen">Zu den Einstellungen</a>
-        <button
-          class="symbolknopf"
-          type="button"
-          aria-label="Hinweis schließen"
-          onclick={einrichtungAusblenden}
-        >
-          ✕
-        </button>
-      </div>
+    {#if einrichtung.aktiv}
+      <Einrichtung />
+    {:else}
+      {@render children()}
     {/if}
-    {@render children()}
   </main>
 {/if}
 
 <FehlerDialog />
+<Rueckfrage />
 <Meldungen />
 
 <style>
@@ -101,23 +109,7 @@
     margin-left: 250px;
     min-height: 100vh;
     min-width: 850px;
-    padding: 26px 36px 48px;
+    padding: 24px 36px 48px;
     max-width: 1320px;
-  }
-
-  .einrichtung {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    margin: -6px 0 18px;
-    padding: 6px 6px 6px 14px;
-    border-radius: 8px;
-    background: var(--akzent-weich);
-    color: var(--text);
-    font-size: 13px;
-  }
-
-  .einrichtung span {
-    flex: 1;
   }
 </style>

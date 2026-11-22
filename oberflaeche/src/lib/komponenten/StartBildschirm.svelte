@@ -12,7 +12,7 @@
     <p class="tipp">Bitte VERMERK schließen und neu starten.</p>
   {:else}
     <div class="punkte" aria-hidden="true"><span></span><span></span><span></span></div>
-    <p class="meldung">{zustand === 'neustart' ? 'Wird neu gestartet …' : 'Wird gestartet …'}</p>
+    <p class="meldung">{zustand === 'neustart' ? 'Die App startet kurz neu …' : 'Wird gestartet …'}</p>
   {/if}
 </main>
 

@@ -74,6 +74,9 @@ class Verbindung {
     this.abo?.beenden();
     const stand = await api.zustand();
     zustand.uebernehmen(stand);
+    if (this.info?.faehigkeiten.mikrofon && this.info.rolle === 'desktop') {
+      zustand.aufnahme = await api.aufnahme().catch(() => null);
+    }
     this.abo = ereignisseAbonnieren({
       seit: stand.letzte_nummer,
       beiEreignis: (e) => {

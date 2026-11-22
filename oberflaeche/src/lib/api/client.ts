@@ -9,6 +9,8 @@
 import type {
   Anmeldedaten,
   Anbieter,
+  AufnahmeGeraet,
+  AufnahmeStand,
   Auftrag,
   Besprechung,
   BesprechungDetails,
@@ -16,6 +18,13 @@ import type {
   ChatVerlaufKurz,
   DiagnosePunkt,
   EingangsDatei,
+  EinrichtungAnbieter,
+  EinrichtungAnbieterErgebnis,
+  EinrichtungEntscheidung,
+  EinrichtungKosten,
+  EinrichtungModelle,
+  EinrichtungRechner,
+  EinrichtungStand,
   Einstellungen,
   ExportErgebnis,
   ExportFormat,
@@ -31,6 +40,8 @@ import type {
   Nutzer,
   NutzerName,
   SchluesselStand,
+  SprecherProfil,
+  SprecherVorschlaege,
   TranskriptionAnfrage,
   Vorlage,
   Zustand
@@ -242,10 +253,15 @@ function hochladen(datei: File, fortschritt?: (anteil: number) => void): Promise
   });
 }
 
+/** Lädt eine Datei mit Anmeldung (Schlüssel oder Cookie) als Blob – z. B. für eine Hörprobe. */
+async function blobLaden(pfad: string, signal?: AbortSignal): Promise<Blob> {
+  const antwort = await anfrage('GET', pfad, { kopf: { Accept: '*/*' }, signal });
+  return antwort.blob();
+}
+
 /** Lädt eine Datei der Besprechung und bietet sie zum Speichern an (funktioniert mit Schlüssel und Cookie). */
 async function speichernUnter(pfad: string, name: string): Promise<void> {
-  const antwort = await anfrage('GET', pfad, { kopf: { Accept: '*/*' } });
-  const blob = await antwort.blob();
+  const blob = await blobLaden(pfad);
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -260,6 +276,8 @@ export const api = {
   anmelden: (daten: Anmeldedaten) =>
     json<{ angemeldet_als: string }>('POST', '/api/anmelden', { json: daten }),
   abmelden: () => json<{ abgemeldet: boolean }>('POST', '/api/abmelden'),
+  /** Öffentlich: Gibt es hier Name + Passwort (mehrere Nutzer) oder nur Zugangsschlüssel? */
+  anmeldung: () => json<{ mehrbenutzer: boolean }>('GET', '/api/anmeldung'),
   info: () => json<Info>('GET', '/api/info'),
   zustand: () => json<Zustand>('GET', '/api/zustand'),
   ereignisse: (seit: number | null, letzteId: string | null, signal?: AbortSignal) =>
@@ -295,7 +313,36 @@ export const api = {
   dateiSpeichern: (id: string, name: string) =>
     speichernUnter(`/api/besprechungen/${pfadteil(id)}/dateien/${pfadteil(name)}`, name),
 
+  sprecherVorschlaege: (id: string) =>
+    json<SprecherVorschlaege>('GET', `/api/besprechungen/${pfadteil(id)}/sprecher/vorschlaege`),
+  hoerprobe: (id: string, sprecher: string, signal?: AbortSignal) =>
+    blobLaden(`/api/besprechungen/${pfadteil(id)}/sprecher/${pfadteil(sprecher)}/hoerprobe`, signal),
+  stimmeMerken: (id: string, sprecher: string, name: string) =>
+    json<{ id: string; name: string }>(
+      'POST',
+      `/api/besprechungen/${pfadteil(id)}/sprecher/${pfadteil(sprecher)}/profil`,
+      { json: { name } }
+    ),
+  sprecherExportieren: (id: string, sprecher: string) =>
+    json<{ dateien: { name: string; pfad: string }[] }>(
+      'POST',
+      `/api/besprechungen/${pfadteil(id)}/sprecher/${pfadteil(sprecher)}/export`
+    ),
+  sprecherprofile: () => json<SprecherProfil[]>('GET', '/api/sprecherprofile'),
+  sprecherprofilUmbenennen: (profil: string, name: string) =>
+    json<{ gespeichert: boolean }>('PATCH', `/api/sprecherprofile/${pfadteil(profil)}`, { json: { name } }),
+  sprecherprofilLoeschen: (profil: string) =>
+    json<{ geloescht: boolean }>('DELETE', `/api/sprecherprofile/${pfadteil(profil)}`),
+
   eingang: () => json<EingangsDatei[]>('GET', '/api/dateien/eingang'),
+
+  aufnahme: () => json<AufnahmeStand>('GET', '/api/aufnahme'),
+  aufnahmeGeraete: () => json<AufnahmeGeraet[]>('GET', '/api/aufnahme/geraete'),
+  aufnahmeStarten: (geraet: string | null) =>
+    json<AufnahmeStand>('POST', '/api/aufnahme/start', { json: geraet ? { geraet } : {} }),
+  aufnahmePause: () => json<AufnahmeStand>('POST', '/api/aufnahme/pause'),
+  aufnahmeFortsetzen: () => json<AufnahmeStand>('POST', '/api/aufnahme/fortsetzen'),
+  aufnahmeStoppen: () => json<{ pfad: string; name: string; dauer: number }>('POST', '/api/aufnahme/stopp'),
   hochladen,
 
   einstellungen: () => json<Einstellungen>('GET', '/api/einstellungen'),
@@ -370,6 +417,32 @@ export const api = {
     json<{ entfernt: boolean }>('DELETE', `/api/nutzer/${pfadteil(name)}/zugaenge/${pfadteil(bezeichnung)}`),
 
   diagnose: () => json<DiagnosePunkt[]>('GET', '/api/system/diagnose'),
+  /** Fenster (Rolle desktop): Der Dienst beendet sich, das Fenster startet ihn sofort neu. */
+  neustart: () => json<{ neustart: boolean }>('POST', '/api/system/neustart'),
+
+  einrichtungStand: () => json<EinrichtungStand>('GET', '/api/einrichtung/stand'),
+  einrichtungRechner: (neu = false) =>
+    json<EinrichtungRechner>('GET', `/api/einrichtung/rechner${neu ? '?neu=true' : ''}`),
+  einrichtungKosten: (
+    wahl?: Pick<EinrichtungEntscheidung, 'transkription' | 'nachbearbeitung' | 'chatbot'>
+  ) =>
+    json<EinrichtungKosten>(
+      'GET',
+      `/api/einrichtung/kosten${wahl ? `?${new URLSearchParams(wahl).toString()}` : ''}`
+    ),
+  einrichtungEntscheidung: (daten: EinrichtungEntscheidung) =>
+    json<EinrichtungStand>('POST', '/api/einrichtung/entscheidung', { json: daten }),
+  einrichtungFfmpeg: () => json<Auftrag>('POST', '/api/einrichtung/ffmpeg', { json: { zustimmung: true } }),
+  einrichtungOllama: () => json<Auftrag>('POST', '/api/einrichtung/ollama', { json: { zustimmung: true } }),
+  einrichtungModelle: (daten: EinrichtungModelle) =>
+    json<Auftrag>('POST', '/api/einrichtung/modelle', { json: daten }),
+  einrichtungAnbieter: (daten: EinrichtungAnbieter) =>
+    json<EinrichtungAnbieterErgebnis>('POST', '/api/einrichtung/anbieter', { json: daten }),
+  einrichtungSpaeter: (nichtMehrFragen = false) =>
+    json<EinrichtungStand>('POST', '/api/einrichtung/spaeter', {
+      json: { nicht_mehr_fragen: nichtMehrFragen }
+    }),
+  einrichtungAbschliessen: () => json<EinrichtungStand>('POST', '/api/einrichtung/abschliessen'),
   ordnerOeffnen: (pfad: string) =>
     json<{ geoeffnet: boolean }>('POST', '/api/system/ordner-oeffnen', { json: { pfad } })
 };

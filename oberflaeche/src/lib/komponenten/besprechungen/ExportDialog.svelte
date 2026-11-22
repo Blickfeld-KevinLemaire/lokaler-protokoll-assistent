@@ -1,4 +1,9 @@
 <script lang="ts">
+  /** Exportieren: Inhalt und Formate wählen; danach die Dateien im Ordner zeigen oder (im Browser) laden. */
+  import Check from '@lucide/svelte/icons/check';
+  import Download from '@lucide/svelte/icons/download';
+  import FolderOpen from '@lucide/svelte/icons/folder-open';
+  import { untrack } from 'svelte';
   import { api } from '$lib/api/client';
   import type { BesprechungDetails, ExportErgebnis, ExportFormat } from '$lib/api/typen';
   import { einstellungen } from '$lib/stores/einstellungen.svelte';
@@ -9,8 +14,15 @@
   let {
     offen,
     details,
-    schliessen
-  }: { offen: boolean; details: BesprechungDetails; schliessen: () => void } = $props();
+    schliessen,
+    exportiert
+  }: {
+    offen: boolean;
+    details: BesprechungDetails;
+    schliessen: () => void;
+    /** Die Dateien gehören jetzt zur Besprechung: Details neu laden. */
+    exportiert?: () => void;
+  } = $props();
 
   let formate = $state<ExportFormat[]>([]);
   let inhalt = $state<'transkript' | 'protokoll' | 'beides'>('beides');
@@ -20,8 +32,11 @@
 
   $effect(() => {
     if (!offen) return;
-    ergebnis = null;
-    inhalt = details.protokoll ? 'beides' : 'transkript';
+    // Nur beim Öffnen zurücksetzen: Nach dem Export lädt die Besprechung neu, das Ergebnis bleibt stehen.
+    untrack(() => {
+      ergebnis = null;
+      inhalt = details.protokoll ? 'beides' : 'transkript';
+    });
     api
       .exportFormate()
       .then((f) => {
@@ -43,11 +58,22 @@
     laeuft = true;
     try {
       ergebnis = await api.exportieren(details.id, inhalt, auswahl);
+      exportiert?.();
     } catch (e) {
       schliessen();
       dialog.zeigen(e, 'Export hat nicht geklappt');
     } finally {
       laeuft = false;
+    }
+  }
+
+  const imOrdner = $derived(!!verbindung.info?.faehigkeiten.ordner_oeffnen);
+
+  async function laden(name: string) {
+    try {
+      await api.dateiSpeichern(details.id, name);
+    } catch (e) {
+      dialog.zeigen(e, 'Herunterladen hat nicht geklappt');
     }
   }
 
@@ -66,10 +92,14 @@
       <ul class="ergebnis">
         {#each ergebnis.dateien as d (d.pfad)}
           <li>
-            <span>✓ {d.name}</span>
-            {#if verbindung.info?.faehigkeiten.ordner_oeffnen}
+            <span class="datei"><Check size={16} /> <span class="name">{d.name}</span></span>
+            {#if imOrdner}
               <button class="knopf leise" type="button" onclick={() => zeigen(d.pfad)}>
-                Im Ordner zeigen
+                <FolderOpen size={16} /> Im Ordner zeigen
+              </button>
+            {:else}
+              <button class="knopf" type="button" onclick={() => laden(d.name)}>
+                <Download size={16} /> Herunterladen
               </button>
             {/if}
           </li>
@@ -175,6 +205,21 @@
     align-items: center;
     justify-content: space-between;
     gap: 10px;
+  }
+
+  .datei {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    color: var(--ok);
+  }
+
+  .datei .name {
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .fehler {

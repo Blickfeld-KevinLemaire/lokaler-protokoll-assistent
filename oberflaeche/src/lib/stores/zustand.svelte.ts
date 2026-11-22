@@ -1,5 +1,6 @@
 /** Laufender Stand aus `/api/zustand` plus den Ereignissen danach. */
 import type {
+  AufnahmeStand,
   Auftrag,
   Empfang,
   Ereignis,
@@ -10,6 +11,7 @@ import type {
   Zustand
 } from '../api/typen';
 import { hinweisKurz, type KurzHinweis } from '../logik/hinweise';
+import { uhrVersatz } from '../logik/restzeit';
 import { lageErmitteln } from '../logik/warteschlange';
 
 const INFO_HINWEIS_MS = 15_000;
@@ -28,6 +30,8 @@ class ZustandSpeicher {
   dateienStand = $state(0);
   einstellungenStand = $state(0);
   besprechungenStand = $state(0);
+  /** Laufende Mikrofonaufnahme im Dienst (Windows-Anwendung) oder `null`. */
+  aufnahme = $state<AufnahmeStand | null>(null);
   /** Letzte Fehlermeldung ohne Auftrag (Ereignis `fehler`). */
   fehlermeldung = $state<string | null>(null);
   /** Uhr des Dienstes minus eigene Uhr, in Sekunden (der Browser kann auf einem anderen Rechner laufen). */
@@ -42,9 +46,12 @@ class ZustandSpeicher {
     this.hinweise = [];
     this.geraeteStatus = {};
     this.live = {};
+    this.aufnahme = null;
   }
 
-  uebernehmen(z: Zustand): void {
+  uebernehmen(z: Zustand, jetztLokalMs = Date.now()): void {
+    // Nur aus /api/zustand: Ereignisse können nachgeliefert sein (Wiederverbinden) und tragen dann alte Zeiten.
+    this.uhrVersatz = uhrVersatz(z.jetzt, jetztLokalMs);
     this.auftraege = z.auftraege;
     this.empfang = z.empfang;
     this.freigaben = z.freigaben;
@@ -88,7 +95,6 @@ class ZustandSpeicher {
   }
 
   ereignis(e: Ereignis): void {
-    if (e.zeit) this.uhrVersatz = e.zeit - Date.now() / 1000;
     const d = e.daten as Record<string, unknown>;
     switch (e.art) {
       case 'auftrag':
@@ -103,7 +109,9 @@ class ZustandSpeicher {
         this.hinweisSetzen({
           text: String(d.text ?? ''),
           stufe: String(d.stufe ?? 'info'),
-          quelle: String(d.quelle ?? '')
+          quelle: String(d.quelle ?? ''),
+          code: d.code ? String(d.code) : undefined,
+          bereich: d.bereich ? String(d.bereich) : undefined
         });
         break;
       case 'empfang':
@@ -119,6 +127,9 @@ class ZustandSpeicher {
         this.live = { ...this.live, [l.geraet]: l };
         break;
       }
+      case 'aufnahme':
+        this.aufnahme = d as unknown as AufnahmeStand;
+        break;
       case 'dateien':
         this.dateienStand++;
         break;

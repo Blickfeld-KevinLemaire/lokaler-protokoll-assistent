@@ -1,9 +1,10 @@
 <script lang="ts">
   /** Eigenes Konto (Servermodus): Passwort, eigene Zugangsschlüssel, Abmelden. */
+  import X from '@lucide/svelte/icons/x';
   import { api } from '$lib/api/client';
   import type { NeuerZugang, Nutzer } from '$lib/api/typen';
   import { datumText } from '$lib/logik/format';
-  import { dialog, meldungen } from '$lib/stores/oberflaeche.svelte';
+  import { dialog, meldungen, rueckfrage } from '$lib/stores/oberflaeche.svelte';
   import { verbindung } from '$lib/stores/verbindung.svelte';
   import Info from '../Info.svelte';
   import SchluesselEinmal from './SchluesselEinmal.svelte';
@@ -52,7 +53,12 @@
   }
 
   async function zugangEntfernen(name: string) {
-    if (!confirm(`Zugangsschlüssel „${name}“ entfernen?`)) return;
+    const ja = await rueckfrage.fragen({
+      titel: `Zugangsschlüssel „${name}“ entfernen?`,
+      text: 'Wer sich damit anmeldet, kommt danach nicht mehr hinein.',
+      verb: 'Entfernen'
+    });
+    if (!ja) return;
     try {
       await api.eigenenZugangEntfernen(name);
       void laden();
@@ -122,7 +128,7 @@
               aria-label="{z.bezeichnung} entfernen"
               onclick={() => zugangEntfernen(z.bezeichnung)}
             >
-              ✕
+              <X size={16} />
             </button>
           </li>
         {/each}
