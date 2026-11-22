@@ -520,9 +520,15 @@ def _schreibe_format(
         ziel.write_text(als_html(dokument), encoding="utf-8")
     elif format_id in QT_FORMATE:
         funktion = schreiber.get(format_id)
-        if funktion is None:
-            raise ExportFehler("Dieses Format steht in dieser Umgebung nicht zur Verfuegung.")
-        funktion(als_html(dokument), ziel)
+        if funktion is not None:
+            funktion(als_html(dokument), ziel)
+        else:
+            # Ohne Qt (Programmschnittstelle, Servermodus): eigene Schreiber fuer PDF und OpenDocument.
+            try:
+                from protokoll_assistent.services.dokument_schreiber import schreibe as schreibe_ohne_qt
+            except ImportError as fehler:
+                raise ExportFehler("Dieses Format steht in dieser Umgebung nicht zur Verfuegung.") from fehler
+            schreibe_ohne_qt(format_id, dokument, ziel)
     elif format_id in ("srt", "vtt"):
         if transkript is None:
             raise ExportFehler("Untertitel brauchen ein Transkript.")

@@ -22,6 +22,13 @@ def transkript_json_schreiben(pfad: Path, text: str = "Hallo zusammen.") -> Path
                 "sprecher_zuordnung": [{"sprecher_id": "SPEAKER_00", "anzeigename": "Sprecher 1"}],
                 "sprechertrennung_aktiv": True,
                 "quelldatei_stamm": pfad.stem.split("_lokal_transkript_")[0],
+                "lauf_zeitstempel": pfad.stem.rsplit("_lokal_transkript_", 1)[-1],
+                "quelldatei": "besprechung.wav",
+                "erstellt": "2026-01-01T12:00:00+01:00",
+                "modell": "test",
+                "sprache": "de",
+                "verarbeitungsdauer_sekunden": 1.0,
+                "verarbeitungsgeraet": "cpu",
             }
         ),
         encoding="utf-8",

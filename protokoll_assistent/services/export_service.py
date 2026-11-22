@@ -437,6 +437,7 @@ def write_protocol_exports(
     source_stem: str,
     run_timestamp: str,
     systemprompt: str = "",
+    transkript_datei: str = "",
 ) -> tuple[Path, Path]:
     """Schreibt das Ergebnis der Nachbearbeitung.
 
@@ -455,6 +456,10 @@ def write_protocol_exports(
         "ohne_systemprompt": not systemprompt.strip(),
         "ergebnis": protocol,
     }
+    if transkript_datei:
+        # Aus welchem Transkript das Ergebnis entstand (Dateiname im selben Ordner) -- daran ordnet die
+        # Besprechungsliste ('ablauf/bibliothek.py') es eindeutig zu.
+        daten["transkript_datei"] = transkript_datei
     json_path.write_text(json.dumps(daten, ensure_ascii=False, indent=2), encoding="utf-8")
     md_path.write_text(protocol.rstrip("\n") + "\n", encoding="utf-8")
     return json_path, md_path

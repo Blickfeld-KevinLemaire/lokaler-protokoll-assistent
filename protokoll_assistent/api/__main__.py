@@ -1,0 +1,235 @@
+"""Startet die Programmschnittstelle.
+
+    python -m protokoll_assistent.api --rolle desktop --port 51234
+    python -m protokoll_assistent.api --rolle server --host 0.0.0.0 --port 8780
+    python -m protokoll_assistent.api zugang-anlegen <Name>      (Zugangsschluessel fuer den Servermodus)
+    python -m protokoll_assistent.api openapi                    (Schnittstellenbeschreibung ausgeben)
+
+Rolle ``desktop``: Den Schluessel uebergibt das Desktop-Fenster in der Umgebung
+(``VERMERK_API_SCHLUESSEL``). Fehlt er, startet der Dienst nur mit
+``--entwicklung`` -- dann erzeugt er einen und legt ihn (mit Port) in
+``api_zugang.json`` im Einstellungsordner ab, wo der Entwicklungsserver der
+Oberflaeche ihn findet. Ohne Schluessel gibt es keinen Betrieb.
+
+``VERMERK_ELTERN_PID``: Prozess des Desktop-Fensters. Endet er, beendet sich
+auch dieser Dienst -- sonst blieben nach einem Absturz des Fensters verwaiste
+Dienste zurueck, die den Port und die Grafikkarte belegen.
+"""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import contextlib
+import json
+import os
+import sys
+import threading
+from collections.abc import Callable, Sequence
+from pathlib import Path
+from typing import Any
+
+from protokoll_assistent.ablauf.geraete_automatik import GeraeteAutomatik
+from protokoll_assistent.ablauf.steuerung import Steuerung
+from protokoll_assistent.api.app import TAURI_URSPRUENGE, app_erstellen
+from protokoll_assistent.api.kontext import Dienste
+from protokoll_assistent.api.sicherheit import (
+    ROLLE_DESKTOP,
+    ROLLE_SERVER,
+    UMGEBUNG_SCHLUESSEL,
+    Zugang,
+    schluessel_erzeugen,
+    schluessel_hash,
+    zugaenge_aus_konfiguration,
+)
+from protokoll_assistent.services import geraete_empfang_service
+from protokoll_assistent.utils import app_config
+from protokoll_assistent.utils.paths import ensure_system_prompt_file_exists, get_paket_dir, get_settings_dir
+
+STANDARD_SERVER_PORT = 8780
+ENTWICKLUNG_URSPRUENGE = ("http://localhost:5173", "http://127.0.0.1:5173")
+
+
+def oberflaeche_ordner() -> Path | None:
+    """Die gebaute Oberflaeche: neben der EXE (``oberflaeche``) oder im Projekt (``oberflaeche/build``)."""
+    kandidaten = [
+        Path(os.environ["VERMERK_OBERFLAECHE"]) if os.environ.get("VERMERK_OBERFLAECHE") else None,
+        get_paket_dir().parent / "oberflaeche" / "build",
+        Path(getattr(sys, "_MEIPASS", "")) / "oberflaeche" if getattr(sys, "frozen", False) else None,
+    ]
+    return next((k for k in kandidaten if k is not None and (k / "index.html").is_file()), None)
+
+
+def zugang_datei() -> Path:
+    return get_settings_dir() / "api_zugang.json"
+
+
+def desktop_schluessel(entwicklung: bool, port: int, umgebung: dict[str, str] | None = None) -> str:
+    umgebung = umgebung if umgebung is not None else dict(os.environ)
+    schluessel = umgebung.get(UMGEBUNG_SCHLUESSEL, "").strip()
+    if schluessel:
+        return schluessel
+    if not entwicklung:
+        raise SystemExit(
+            f"{UMGEBUNG_SCHLUESSEL} fehlt. Die Rolle 'desktop' startet nur mit Schlüssel "
+            "(oder zum Entwickeln mit --entwicklung)."
+        )
+    schluessel = schluessel_erzeugen()
+    datei = zugang_datei()
+    datei.parent.mkdir(parents=True, exist_ok=True)
+    datei.write_text(json.dumps({"port": port, "schluessel": schluessel}), encoding="utf-8")
+    with contextlib.suppress(OSError):
+        datei.chmod(0o600)
+    return schluessel
+
+
+def dienste_erstellen(rolle: str, schluessel: str | None, steuerung: Steuerung | None = None) -> Dienste:
+    steuerung = steuerung or Steuerung()
+    automatik = GeraeteAutomatik(steuerung)
+
+    def zugaenge() -> dict[str, str]:
+        return zugaenge_aus_konfiguration(
+            steuerung.konfiguration().get("server_zugaenge") or [], os.environ.get("VERMERK_ZUGANG") or None
+        )
+
+    zugang = Zugang(rolle, start_schluessel=schluessel if rolle == ROLLE_DESKTOP else None, zugaenge=zugaenge)
+    dienste = Dienste(steuerung=steuerung, automatik=automatik, zugang=zugang)
+    dienste.nach_einstellungen.append(automatik.anwenden)
+    return dienste
+
+
+def eltern_wache(pid: int, beenden: Callable[[], None]) -> threading.Thread:
+    """Wartet im Hintergrund auf das Ende des Elternprozesses und ruft dann ``beenden`` auf."""
+
+    def warten() -> None:
+        if os.name == "nt":  # pragma: no cover - nur Windows
+            import ctypes
+
+            synchronize = 0x00100000
+            kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+            griff = kernel32.OpenProcess(synchronize, False, pid)
+            if griff:
+                kernel32.WaitForSingleObject(griff, 0xFFFFFFFF)
+                kernel32.CloseHandle(griff)
+        else:
+            # Nie 'os.kill(pid, 0)' verwenden: Unter Windows beendet das den Prozess.
+            while os.getppid() == pid:
+                threading.Event().wait(1.0)
+        beenden()
+
+    faden = threading.Thread(target=warten, name="eltern-wache", daemon=True)
+    faden.start()
+    return faden
+
+
+def _uvicorn_server(app: Any, host: str, port: int) -> Any:
+    import uvicorn
+
+    config = uvicorn.Config(app, host=host, port=port, log_level="warning", access_log=False, lifespan="off")
+    return uvicorn.Server(config)
+
+
+async def _laufen(server: list[Any]) -> None:
+    await asyncio.gather(*(s.serve() for s in server))
+
+
+def starten(argumente: argparse.Namespace) -> int:
+    from protokoll_assistent.utils.logging_setup import setup_logging
+
+    setup_logging()
+    ensure_system_prompt_file_exists()
+    rolle = argumente.rolle
+    host = argumente.host or ("127.0.0.1" if rolle == ROLLE_DESKTOP else "0.0.0.0")  # noqa: S104 -- Servermodus lauscht im Netz
+    port = argumente.port or (0 if rolle == ROLLE_DESKTOP else STANDARD_SERVER_PORT)
+    if rolle == ROLLE_DESKTOP and not port:
+        raise SystemExit("Die Rolle 'desktop' braucht --port (das Desktop-Fenster wählt einen freien).")
+    schluessel = desktop_schluessel(argumente.entwicklung, port) if rolle == ROLLE_DESKTOP else None
+    dienste = dienste_erstellen(rolle, schluessel)
+    oberflaeche = oberflaeche_ordner()
+    urspruenge = [*TAURI_URSPRUENGE, *(ENTWICKLUNG_URSPRUENGE if argumente.entwicklung else ())]
+    if rolle == ROLLE_DESKTOP:
+        hosts = ["127.0.0.1", "localhost"]
+        app = app_erstellen(dienste, erlaubte_hosts=hosts, cors_urspruenge=urspruenge, oberflaeche=oberflaeche)
+    else:
+        erlaubt = [h.strip() for h in os.environ.get("VERMERK_ERLAUBTE_HOSTS", "*").split(",") if h.strip()]
+        app = app_erstellen(dienste, erlaubte_hosts=erlaubt, cors_urspruenge=(), oberflaeche=oberflaeche)
+    server = [_uvicorn_server(app, host, port)]
+
+    konfig = dienste.steuerung.konfiguration()
+    if rolle == ROLLE_DESKTOP and konfig.get("netz_freigabe_aktiv"):
+        # Dieselbe Steuerung zusaetzlich im Netz, aber mit eigener Zugangspruefung (Zugangsschluessel).
+        netz = dienste_erstellen(ROLLE_SERVER, None, steuerung=dienste.steuerung)
+        netz.automatik = dienste.automatik
+        netz_app = app_erstellen(netz, erlaubte_hosts=["*"], cors_urspruenge=(), oberflaeche=oberflaeche)
+        netz_port = int(konfig.get("netz_freigabe_port") or STANDARD_SERVER_PORT)
+        server.append(_uvicorn_server(netz_app, "0.0.0.0", netz_port))  # noqa: S104 -- ausdruecklich eingeschaltet
+
+    def beenden() -> None:
+        for s in server:
+            s.should_exit = True
+
+    eltern = os.environ.get("VERMERK_ELTERN_PID", "")
+    if eltern.isdigit():
+        eltern_wache(int(eltern), beenden)
+
+    dienste.steuerung.starten()
+    if dienste.automatik is not None:
+        dienste.automatik.anwenden()
+        dienste.automatik.wache_starten()
+    if argumente.port_datei:
+        Path(argumente.port_datei).write_text(json.dumps({"port": port, "pid": os.getpid()}), encoding="utf-8")
+    try:
+        asyncio.run(_laufen(server))
+    finally:
+        if dienste.automatik is not None:
+            dienste.automatik.stoppen()
+        dienste.steuerung.beenden()
+    return 0
+
+
+def zugang_anlegen(name: str) -> int:
+    """Legt einen Zugangsschluessel an. Er wird genau einmal ausgegeben; gespeichert wird nur sein Hash."""
+    import datetime as dt
+
+    name = name.strip()
+    if not geraete_empfang_service.geraetename_gueltig(name):
+        print("Name: Buchstaben, Ziffern, _ und -, höchstens 32 Zeichen.", file=sys.stderr)
+        return 2
+    konfig = app_config.load_config()
+    zugaenge = [dict(z) for z in konfig.get("server_zugaenge") or [] if isinstance(z, dict) and z.get("name") != name]
+    schluessel = schluessel_erzeugen()
+    zugaenge.append({"name": name, "token_sha256": schluessel_hash(schluessel), "angelegt": dt.date.today().isoformat()})
+    app_config.update_config(server_zugaenge=zugaenge)
+    print(f"Zugangsschlüssel für {name} (wird nur jetzt angezeigt):\n{schluessel}")
+    return 0
+
+
+def openapi_ausgeben() -> int:
+    dienste = dienste_erstellen(ROLLE_DESKTOP, "nur-fuer-die-beschreibung")
+    app = app_erstellen(dienste)
+    # Immer UTF-8 (unter Windows schriebe 'print' in der Codepage der Konsole) und immer LF.
+    sys.stdout.buffer.write(openapi_text(app.openapi()).encode("utf-8"))
+    return 0
+
+
+def openapi_text(beschreibung: dict[str, Any]) -> str:
+    return json.dumps(beschreibung, ensure_ascii=False, indent=2) + "\n"
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv[:1] == ["zugang-anlegen"] and len(argv) == 2:
+        return zugang_anlegen(argv[1])
+    if argv[:1] == ["openapi"]:
+        return openapi_ausgeben()
+    parser = argparse.ArgumentParser(prog="python -m protokoll_assistent.api")
+    parser.add_argument("--rolle", choices=(ROLLE_DESKTOP, ROLLE_SERVER), default=ROLLE_DESKTOP)
+    parser.add_argument("--host", default="")
+    parser.add_argument("--port", type=int, default=0)
+    parser.add_argument("--port-datei", default="")
+    parser.add_argument("--entwicklung", action="store_true")
+    return starten(parser.parse_args(argv))
+
+
+if __name__ == "__main__":
+    sys.exit(main())

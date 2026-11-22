@@ -93,6 +93,15 @@ DEFAULTS: dict[str, Any] = {
     # Laenge der Abschnitte (Sekunden), die das Sprachmodell einzeln auswertet. Kuerzere Abschnitte
     # verkuerzen die Wartezeit nach dem Ende: Es bleibt hoechstens der letzte offen.
     "geraete_live_abschnitt_sekunden": 180,
+    # Vorgaben fuer neue Transkriptionen (Oberflaeche und automatische Verarbeitung von Geraeteaufnahmen).
+    "sprache": "de",
+    "offline": False,
+    # Die Windows-Anwendung zusaetzlich im Netz anbieten (Browser auf anderen Rechnern). Aus, bis jemand
+    # es einschaltet; angemeldet wird mit Zugangsschluesseln, von denen hier nur der SHA-256 steht
+    # (Liste von {"name", "token_sha256", "angelegt"}).
+    "netz_freigabe_aktiv": False,
+    "netz_freigabe_port": 8780,
+    "server_zugaenge": [],
 }
 
 

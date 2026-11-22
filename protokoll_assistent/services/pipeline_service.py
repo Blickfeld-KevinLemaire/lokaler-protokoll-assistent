@@ -926,7 +926,12 @@ def run_protocol(
         protokoll_status = manifest_service.STATUS_ABGESCHLOSSEN
         callbacks.on_stage("export_protokoll", STAGE_LABELS["export_protokoll"])
         protocol_paths = export_service.write_protocol_exports(
-            settings.output_dir, protocol, source_stem, run_timestamp, system_prompt
+            settings.output_dir,
+            protocol,
+            source_stem,
+            run_timestamp,
+            system_prompt,
+            transkript_datei=settings.transcript_json_path.name,
         )
     except (protocol_service.ProtocolValidationError, ollama_service.OllamaError) as error:
         # Das Transkript bleibt in jedem Fall erhalten -- nur die
@@ -1022,7 +1027,12 @@ def run_pipeline(
             manifest["protokoll_status"] = manifest_service.STATUS_ABGESCHLOSSEN
             callbacks.on_stage("export_protokoll", STAGE_LABELS["export_protokoll"])
             protocol_paths = export_service.write_protocol_exports(
-                settings.output_dir, protocol, settings.source_path.stem, run_timestamp, system_prompt
+                settings.output_dir,
+                protocol,
+                settings.source_path.stem,
+                run_timestamp,
+                system_prompt,
+                transkript_datei=export_paths.json.name,
             )
         except (protocol_service.ProtocolValidationError, ollama_service.OllamaError) as error:
             # Das Transkript ist fertig und bleibt erhalten -- nur die

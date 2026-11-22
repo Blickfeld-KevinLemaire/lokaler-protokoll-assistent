@@ -40,7 +40,7 @@ class Ereignis:
         return {"nummer": self.nummer, "art": self.art, "daten": self.daten, "zeit": self.zeit}
 
 
-Zustellung = Callable[[Ereignis], None]
+Zustellung = Callable[[Ereignis], object]
 
 
 class Abo:
