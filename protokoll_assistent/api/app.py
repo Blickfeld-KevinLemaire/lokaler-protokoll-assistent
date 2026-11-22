@@ -19,6 +19,7 @@ from protokoll_assistent.api import (
     routen_dateien,
     routen_einstellungen,
     routen_geraete,
+    routen_geraete_usb,
     routen_nutzer,
     routen_ollama,
     routen_system,
@@ -78,6 +79,8 @@ def app_erstellen(
         routen_besprechungen.router,
         routen_dateien.router,
         routen_einstellungen.router,
+        # Literale Pfade (/api/geraete/usb/...) vor denen mit Platzhalter (/api/geraete/{name}).
+        routen_geraete_usb.router,
         routen_geraete.router,
         routen_chat.router,
         routen_ollama.router,

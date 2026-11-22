@@ -1292,6 +1292,118 @@
         }
       }
     },
+    "/api/geraete/usb/anschluesse": {
+      "get": {
+        "tags": [
+          "geraete"
+        ],
+        "summary": "Anschluesse",
+        "operationId": "anschluesse_api_geraete_usb_anschluesse_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  "type": "array",
+                  "title": "Response Anschluesse Api Geraete Usb Anschluesse Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/geraete/usb/erkennen": {
+      "post": {
+        "tags": [
+          "geraete"
+        ],
+        "summary": "Erkennen",
+        "operationId": "erkennen_api_geraete_usb_erkennen_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UsbErkennen"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Erkennen Api Geraete Usb Erkennen Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/geraete/usb/einrichten": {
+      "post": {
+        "tags": [
+          "geraete"
+        ],
+        "summary": "Einrichten",
+        "operationId": "einrichten_api_geraete_usb_einrichten_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UsbEinrichten"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Einrichten Api Geraete Usb Einrichten Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/geraete": {
       "get": {
         "tags": [
@@ -3259,6 +3371,87 @@
           "quelle"
         ],
         "title": "TranskriptionAnfrage"
+      },
+      "UsbEinrichten": {
+        "properties": {
+          "port": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Port"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 32,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "wlan_ssid": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Wlan Ssid"
+          },
+          "wlan_passwort": {
+            "type": "string",
+            "maxLength": 64,
+            "title": "Wlan Passwort",
+            "default": ""
+          },
+          "pc_url": {
+            "type": "string",
+            "maxLength": 200,
+            "title": "Pc Url",
+            "default": ""
+          },
+          "server_url": {
+            "type": "string",
+            "maxLength": 200,
+            "title": "Server Url",
+            "default": ""
+          },
+          "server_token": {
+            "type": "string",
+            "maxLength": 128,
+            "title": "Server Token",
+            "default": ""
+          },
+          "erste_nummer": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 99999.0,
+                "minimum": 2.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Erste Nummer"
+          }
+        },
+        "type": "object",
+        "required": [
+          "port",
+          "name",
+          "wlan_ssid"
+        ],
+        "title": "UsbEinrichten"
+      },
+      "UsbErkennen": {
+        "properties": {
+          "port": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Port"
+          }
+        },
+        "type": "object",
+        "required": [
+          "port"
+        ],
+        "title": "UsbErkennen"
       },
       "ValidationError": {
         "properties": {
