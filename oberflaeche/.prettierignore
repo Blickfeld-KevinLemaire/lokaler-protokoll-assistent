@@ -1,0 +1,7 @@
+node_modules/
+build/
+.svelte-kit/
+screenshots/
+package-lock.json
+openapi.json
+static/
