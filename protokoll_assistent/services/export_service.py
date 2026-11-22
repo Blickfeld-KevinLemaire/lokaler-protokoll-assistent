@@ -303,7 +303,11 @@ def write_transcript_exports(
     diarization_enabled: bool = True,
     diarization_turns: list[dict[str, Any]] | None = None,
     audio_pfad: Path | None = None,
+    begleitdateien: bool = True,
 ) -> ExportPaths:
+    """Schreibt das Transkript. Die JSON-Datei entsteht immer (aus ihr liest die Anwendung alles);
+    TXT/SRT/VTT nur mit ``begleitdateien`` -- die neue Oberflaeche erzeugt sie erst beim Exportieren.
+    Die Pfade in ``ExportPaths`` sind dann trotzdem gesetzt, die Dateien gibt es nur nicht."""
     output_dir.mkdir(parents=True, exist_ok=True)
     enriched = attach_speaker_names(segments_raw, speaker_names)
     stats = compute_speaker_stats(segments_raw)
@@ -326,15 +330,16 @@ def write_transcript_exports(
         str(audio_pfad) if audio_pfad else None,
     )
 
-    paths.txt.write_text(
-        build_txt_content(
-            source_name, created_iso, model_name, language, len(speaker_names), enriched, diarization_enabled
-        ),
-        encoding="utf-8",
-    )
     paths.json.write_text(json.dumps(json_result, ensure_ascii=False, indent=2), encoding="utf-8")
-    paths.srt.write_text(build_srt_content(enriched, diarization_enabled), encoding="utf-8")
-    paths.vtt.write_text(build_vtt_content(enriched, diarization_enabled), encoding="utf-8")
+    if begleitdateien:
+        paths.txt.write_text(
+            build_txt_content(
+                source_name, created_iso, model_name, language, len(speaker_names), enriched, diarization_enabled
+            ),
+            encoding="utf-8",
+        )
+        paths.srt.write_text(build_srt_content(enriched, diarization_enabled), encoding="utf-8")
+        paths.vtt.write_text(build_vtt_content(enriched, diarization_enabled), encoding="utf-8")
     return paths
 
 
@@ -358,7 +363,9 @@ def reexport_with_new_names(json_path: Path, name_overrides: dict[str, str]) -> 
     """Erzeugt TXT/JSON/SRT/VTT aus einem bereits vorhandenen JSON-Export neu,
     unter Verwendung neuer Sprechernamen -- ohne erneute Transkription.
     Ueberschreibt bewusst dieselben (bereits vorhandenen) Dateien desselben
-    Laufs, da dies eine explizite, vom Benutzer ausgeloeste Aktion ist."""
+    Laufs, da dies eine explizite, vom Benutzer ausgeloeste Aktion ist.
+    TXT/SRT/VTT werden nur neu geschrieben, wenn es sie schon gibt (siehe
+    ``begleitdateien`` in ``write_transcript_exports``)."""
     data = json.loads(json_path.read_text(encoding="utf-8"))
     diarization_enabled = data.get("sprechertrennung_aktiv", True)
     segments = rebuild_segments_from_json(data)
@@ -395,21 +402,24 @@ def reexport_with_new_names(json_path: Path, name_overrides: dict[str, str]) -> 
         srt=output_dir / f"{base}.srt",
         vtt=output_dir / f"{base}.vtt",
     )
-    paths.txt.write_text(
-        build_txt_content(
-            data["quelldatei"],
-            data["erstellt"],
-            data["modell"],
-            data["sprache"],
-            len(speaker_names),
-            enriched,
-            diarization_enabled,
-        ),
-        encoding="utf-8",
-    )
     paths.json.write_text(json.dumps(json_result, ensure_ascii=False, indent=2), encoding="utf-8")
-    paths.srt.write_text(build_srt_content(enriched, diarization_enabled), encoding="utf-8")
-    paths.vtt.write_text(build_vtt_content(enriched, diarization_enabled), encoding="utf-8")
+    if paths.txt.is_file():
+        paths.txt.write_text(
+            build_txt_content(
+                data["quelldatei"],
+                data["erstellt"],
+                data["modell"],
+                data["sprache"],
+                len(speaker_names),
+                enriched,
+                diarization_enabled,
+            ),
+            encoding="utf-8",
+        )
+    if paths.srt.is_file():
+        paths.srt.write_text(build_srt_content(enriched, diarization_enabled), encoding="utf-8")
+    if paths.vtt.is_file():
+        paths.vtt.write_text(build_vtt_content(enriched, diarization_enabled), encoding="utf-8")
     return paths
 
 

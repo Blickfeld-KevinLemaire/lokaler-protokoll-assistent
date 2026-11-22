@@ -112,6 +112,10 @@ class PipelineSettings:
     # gilt als sicher und wird nicht noch einmal transkribiert; ein Chunk, der nur zum Teil
     # abgedeckt ist, bekommt nur noch seinen Rest transkribiert. 'None' = nichts vorab.
     vorab_live: dict[str, Any] | None = None
+    # TXT/SRT/VTT neben die Transkript-JSON legen. Die neue Oberflaeche schaltet das ab: Sie zeigt nur das
+    # Word-Dokument und erzeugt alle anderen Formate erst beim Exportieren. Servermodus und Qt-Oberflaeche
+    # behalten die Dateien.
+    begleitdateien: bool = True
 
 
 @dataclass
@@ -738,6 +742,7 @@ def _run_transcription_stage(
         sprecher_aktiv,
         diarization_turns,
         normalized_path,
+        begleitdateien=settings.begleitdateien,
     )
     manifest["protokoll_status"] = manifest_service.STATUS_AUSSTEHEND
     manifest_service.save_manifest(work_dir, manifest)

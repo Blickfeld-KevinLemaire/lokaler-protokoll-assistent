@@ -43,7 +43,7 @@
     api
       .besprechungen()
       .then((l) => (besprechungen = l))
-      .catch((e) => console.warn('Besprechungen nicht geladen', e));
+      .catch((e) => console.warn('Transkripte nicht geladen', e));
   });
 
   async function verlaeufeLaden() {
@@ -171,10 +171,10 @@
 
   const auswahlText = $derived(
     gewaehlt.length === 0
-      ? 'Alle Besprechungen'
+      ? 'Alle Transkripte'
       : gewaehlt.length === 1
-        ? (besprechungen?.find((b) => b.id === gewaehlt[0])?.titel ?? '1 Besprechung')
-        : `${gewaehlt.length} Besprechungen`
+        ? (besprechungen?.find((b) => b.id === gewaehlt[0])?.titel ?? '1 Transkript')
+        : `${gewaehlt.length} Transkripte`
   );
 
   function verlaufDatum(text: string): string {
@@ -207,10 +207,10 @@
         <ChevronDown size={16} />
       </button>
       {#if auswahlOffen}
-        <div class="liste karte" role="group" aria-label="Besprechungen auswählen">
+        <div class="liste karte" role="group" aria-label="Transkripte auswählen">
           <label class="option">
             <input type="checkbox" checked={gewaehlt.length === 0} onchange={() => (gewaehlt = [])} />
-            Alle Besprechungen
+            Alle Transkripte
           </label>
           {#each besprechungen ?? [] as b (b.id)}
             <label class="option">
@@ -253,7 +253,7 @@
       {#if nachrichten.length === 0}
         <div class="leer-chat">
           {#if besprechungen && besprechungen.length === 0}
-            <LeerZustand symbol={Files} titel="Noch keine Besprechungen">
+            <LeerZustand symbol={Files} titel="Noch keine Transkripte">
               {#snippet aktion()}
                 <a class="knopf primaer" href="/?neu=1"><Plus size={16} /> Neue Transkription</a>
               {/snippet}

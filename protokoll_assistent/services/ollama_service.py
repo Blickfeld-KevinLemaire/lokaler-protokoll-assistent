@@ -101,7 +101,7 @@ OLLAMA_MODELLE: list[OllamaModellOption] = [
     ),
     OllamaModellOption(
         id="hf.co/LiquidAI/LFM2.5-2.6B-GGUF:Q4_K_M",
-        label="LFM2.5 2.6B (schneller, auch fuer Rechner ohne Grafikkarte)",
+        label="LFM2.5 2.6B (schneller, auch für Rechner ohne Grafikkarte)",
         groesse_gb=1.6,
         chat_endpunkt=True,
         hinweis=(

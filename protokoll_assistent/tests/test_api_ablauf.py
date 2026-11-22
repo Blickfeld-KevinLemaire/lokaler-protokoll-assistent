@@ -81,7 +81,8 @@ def test_transkription_und_auswertung_ueber_die_schnittstelle(umgebung: Umgebung
     details = umgebung.client.get(f"/api/besprechungen/{kennung}").json()
     assert details["hat_protokoll"] and details["protokoll"]["text"].startswith("# Protokoll")
     assert details["sprecher"][0]["name"] == "Sprecher 1" and details["segmente"][0]["text"] == "Hallo zusammen."
-    assert {d["art"] for d in details["dateien"]} >= {"json", "txt", "md"}
+    # Die Daten (JSON, Markdown) und Begleitdateien bleiben unter „Dateien“ verborgen.
+    assert not {d["art"] for d in details["dateien"]} & {"json", "txt", "md", "srt", "vtt"}
 
 
 def test_auswertung_einzeln_und_abbrechen(umgebung: Umgebung) -> None:
@@ -167,7 +168,8 @@ def test_dateien_herunterladen_nur_aus_der_besprechung(umgebung: Umgebung) -> No
     kennung = _verarbeitet(umgebung)
     client = umgebung.client
     details = client.get(f"/api/besprechungen/{kennung}").json()
-    md = next(d["name"] for d in details["dateien"] if d["art"] == "md")
+    assert details["dateien"] == []  # verborgen, aber herunterladbar
+    md = next(p.name for p in (umgebung.tmp / "aus").glob("*_protokoll_*.md"))
     antwort = client.get(f"/api/besprechungen/{kennung}/dateien/{md}")
     assert antwort.status_code == 200 and antwort.headers["content-type"].startswith("text/markdown")
     (umgebung.tmp / "aus" / "fremd.txt").write_text("geheim", encoding="utf-8")

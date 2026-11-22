@@ -98,7 +98,10 @@ const AUFNAHMEN = [
     szenario: 'fehler',
     pfad: '/',
     tun: async (s) => {
-      await s.getByRole('button', { name: /Teamrunde/ }).click();
+      await s
+        .locator('.zuletzt')
+        .getByRole('button', { name: /Teamrunde/ })
+        .click();
       await s.getByRole('button', { name: 'Transkription starten' }).click();
     }
   },
@@ -222,7 +225,10 @@ const AUFNAHMEN = [
     szenario: 'fehler-einrichtung',
     pfad: '/',
     tun: async (s) => {
-      await s.getByRole('button', { name: /Teamrunde/ }).click();
+      await s
+        .locator('.zuletzt')
+        .getByRole('button', { name: /Teamrunde/ })
+        .click();
       await s.getByRole('button', { name: 'Transkription starten' }).click();
     }
   },
@@ -262,7 +268,7 @@ const AUFNAHMEN = [
     name: '48-leer-besprechungen',
     szenario: 'leer',
     pfad: '/besprechungen',
-    tun: async (s) => s.getByLabel('Besprechungen suchen').fill('Gibt es nicht')
+    tun: async (s) => s.getByLabel('Transkripte suchen').fill('Gibt es nicht')
   },
   {
     name: '49-entfernen-rueckfrage',
@@ -300,7 +306,7 @@ async function aufnehmen(a, modus, breite, hoehe, datei) {
   });
   if (!a.browser) await kontext.addInitScript(TAURI_NACHBAU);
   const seite = await kontext.newPage();
-  seite.on('pageerror', (e) => console.error(`[${a.name}] Seitenfehler:`, e.message));
+  seite.on('pageerror', (e) => console.error(`[${a.name}] Seitenfehler:`, e.stack ?? e.message));
   await seite.goto(BASIS + a.pfad);
   // Der Ereignisstrom bleibt offen – auf „networkidle“ zu warten hieße ewig warten.
   await seite.waitForTimeout(1200);

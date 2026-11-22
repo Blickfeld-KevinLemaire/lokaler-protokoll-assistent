@@ -34,7 +34,7 @@
     api
       .besprechungen()
       .then((l) => (liste = l))
-      .catch((e) => dialog.zeigen(e, 'Besprechungen nicht geladen'));
+      .catch((e) => dialog.zeigen(e, 'Transkripte nicht geladen'));
   });
 
   $effect(() => {
@@ -72,7 +72,7 @@
 {#if id}
   <Details {id} />
 {:else}
-  <Kopf titel="Besprechungen">
+  <Kopf titel="Transkripte">
     {#snippet aktionen()}
       <label class="suche">
         <Search size={16} />
@@ -81,7 +81,7 @@
           class="feld"
           type="search"
           placeholder="Suchen"
-          aria-label="Besprechungen suchen"
+          aria-label="Transkripte suchen"
           title="Suchen ({KUERZEL_TEXT.suche})"
           bind:this={suchfeld}
           bind:value={suche}
@@ -96,14 +96,14 @@
     {#if suche}
       <LeerZustand symbol={SearchX} titel="Nichts gefunden" />
     {:else}
-      <LeerZustand symbol={Files} titel="Noch keine Besprechungen">
+      <LeerZustand symbol={Files} titel="Noch keine Transkripte">
         {#snippet aktion()}
           <a class="knopf primaer" href="/?neu=1"><Plus size={16} /> Neue Transkription</a>
         {/snippet}
       </LeerZustand>
     {/if}
   {:else}
-    <div class="karte tabelle" role="table" aria-label="Besprechungen">
+    <div class="karte tabelle" role="table" aria-label="Transkripte">
       <div class="zeile kopfzeile" role="row">
         <span role="columnheader">Titel</span>
         <span role="columnheader">Datum</span>

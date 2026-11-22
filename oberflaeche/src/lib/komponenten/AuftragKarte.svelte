@@ -61,7 +61,9 @@
       </span>
     </div>
     {#if auftrag.status === 'laeuft' || auftrag.status === 'wartet'}
-      <button class="knopf leise" type="button" onclick={abbrechen}>Abbrechen</button>
+      {#if !auftrag.fremd}
+        <button class="knopf leise" type="button" onclick={abbrechen}>Abbrechen</button>
+      {/if}
     {:else}
       {#if auftrag.status === 'fertig' && ergebnis}
         <a class="knopf primaer" href="/besprechungen?transkript={encodeURIComponent(ergebnis)}">Öffnen</a>

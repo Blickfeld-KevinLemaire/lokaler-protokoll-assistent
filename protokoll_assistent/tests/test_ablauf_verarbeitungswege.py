@@ -96,6 +96,7 @@ def test_api_mit_schluessel_aus_umgebung(tmp_path: Path) -> None:
     assert lauf.transcribe_fn is not None and lauf.diarize_fn is not None
     assert lauf.transcribe_fn.keywords["api_key"] == "geheim"  # type: ignore[attr-defined]
     assert lauf.einstellungen.vorab_live is None  # ueber die API nicht
+    assert lauf.einstellungen.begleitdateien is False  # Text/Untertitel erst beim Exportieren
 
 
 def test_schluesselablage(monkeypatch: pytest.MonkeyPatch) -> None:

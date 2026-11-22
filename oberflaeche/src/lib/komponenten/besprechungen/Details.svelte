@@ -60,7 +60,7 @@
         details = d;
         if (!warUngespeichert) text = d.protokoll?.text ?? '';
       })
-      .catch((e) => dialog.zeigen(e, 'Besprechung nicht geladen'));
+      .catch((e) => dialog.zeigen(e, 'Transkript nicht geladen'));
   });
 
   beforeNavigate((nav) => {
@@ -90,7 +90,7 @@
   }}
 />
 
-<svelte:head><title>{details?.titel ?? 'Besprechung'} · VERMERK</title></svelte:head>
+<svelte:head><title>{details?.titel ?? 'Transkript'} · VERMERK</title></svelte:head>
 
 <header class="kopf">
   <a class="zurueck symbolknopf" href="/besprechungen" aria-label="Zurück zur Liste" title="Zurück">

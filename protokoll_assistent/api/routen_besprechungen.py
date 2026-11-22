@@ -73,16 +73,16 @@ def besprechung_finden(d: Dienste, wer: Angemeldet, kennung: str, *, aendern: bo
         besitzer, stamm = teile if teile is not None else (wer.besitzer, kennung)
         eigen = besitzer.lower() == wer.besitzer.lower()
         if not eigen and not d.freigaben().darf_lesen(wer.besitzer, besitzer, stamm):
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "Diese Besprechung gibt es nicht (mehr).")
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Dieses Transkript gibt es nicht (mehr).")
         gefunden = bibliothek.finde(d.ausgabeordner_von(besitzer), stamm)
         ergebnis = Gefunden(gefunden, besitzer, eigen) if gefunden is not None else None
     else:
         gefunden = bibliothek.finde(d.ausgabeordner(wer), kennung)
         ergebnis = Gefunden(gefunden, None, True) if gefunden is not None else None
     if ergebnis is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Diese Besprechung gibt es nicht (mehr).")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Dieses Transkript gibt es nicht (mehr).")
     if aendern and not ergebnis.eigen:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Geteilte Besprechungen kann nur der Besitzer ändern.")
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Geteilte Transkripte kann nur der Besitzer ändern.")
     return ergebnis
 
 
@@ -133,7 +133,7 @@ def protokoll_speichern(
     besprechung = besprechung_finden(d, wer, kennung, aendern=True).besprechung
     neuestes = besprechung.neuestes_protokoll
     if neuestes is None:
-        raise HTTPException(status.HTTP_409_CONFLICT, "Zu dieser Besprechung gibt es noch kein Protokoll.")
+        raise HTTPException(status.HTTP_409_CONFLICT, "Zu diesem Transkript gibt es noch keine Zusammenfassung.")
     md = neuestes.md or neuestes.json.with_suffix(".md")
     try:
         export_service.update_protocol_exports(neuestes.json, md, daten.text)
@@ -177,7 +177,7 @@ def datei(kennung: str, name: str, d: Dienste = Depends(dienste), wer: Angemelde
     # Nur Dateien, die zur Besprechung gehoeren -- nachgeschlagen, nie aus dem Namen gebaut.
     treffer = next((p for p in besprechung.dateien() if p.name == name), None)
     if treffer is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Diese Datei gehört nicht zur Besprechung.")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Diese Datei gehört nicht zu diesem Transkript.")
     return FileResponse(treffer, media_type=MEDIENTYPEN.get(treffer.suffix.lower(), "application/octet-stream"), filename=treffer.name)
 
 

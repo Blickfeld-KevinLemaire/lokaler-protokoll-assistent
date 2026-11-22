@@ -51,7 +51,7 @@ def _transkript_daten(transkript: Path) -> dict[str, Any]:
 def _sprecher_pruefen(daten: dict[str, Any], sprecher_id: str) -> None:
     bekannt = {e.get("sprecher_id") for e in daten.get("sprecher_zuordnung") or [] if isinstance(e, dict)}
     if sprecher_id not in bekannt:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Diesen Sprecher gibt es in der Besprechung nicht.")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Diesen Sprecher gibt es in diesem Transkript nicht.")
 
 
 def arbeitsordner_der_aufnahme(daten: dict[str, Any]) -> Path | None:

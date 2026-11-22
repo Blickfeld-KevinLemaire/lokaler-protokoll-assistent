@@ -34,6 +34,10 @@ Neue Oberfläche (Branch `feature/neue-oberflaeche`, Version 0.6.0-alpha.1). Ein
   eigenen Dienst spricht. Ein zweiter Start holt nur das vorhandene Fenster nach vorn.
 - Der Container startet die Programmschnittstelle (`python3 -m protokoll_assistent.api --rolle server`) und
   liefert die Oberfläche auf Port 8780 aus.
+- **Weniger Dateien je Besprechung:** Nach der Verarbeitung entsteht nur noch ein Word-Dokument (mit Zusammenfassung
+  und Transkript in einem). Text, Untertitel, PDF und die anderen Formate entstehen erst beim Exportieren. Unter
+  „Dateien“ stehen nur dieses Dokument und die Exporte; die Daten, aus denen die Anwendung liest, bleiben verborgen.
+  Servermodus mit Eingangsordner und Qt-Oberfläche legen Text und Untertitel weiterhin mit ab.
 
 ## [0.5.0-rc3] - 2026-11-18
 

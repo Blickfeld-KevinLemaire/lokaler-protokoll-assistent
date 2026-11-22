@@ -235,6 +235,8 @@ def transkription_vorbereiten(
         enable_diarization=wunsch.sprechertrennung,
         # Live-Segmente nur lokal (ueber die API liefert der Endpunkt auch die Sprecher) und nicht bei "neu".
         vorab_live=wunsch.vorab_live if modus == "lokal" and wunsch.fortsetzen else None,
+        # Nur die Daten und das Word-Dokument; Text, Untertitel usw. entstehen erst beim Exportieren.
+        begleitdateien=False,
     )
     return TranskriptionsLauf(einstellungen, transcribe_fn, diarize_fn, modus)
 

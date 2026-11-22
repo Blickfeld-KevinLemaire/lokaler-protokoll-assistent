@@ -16,7 +16,7 @@
 
   const eintraege = [
     { href: '/', symbol: Mic, text: 'Transkription' },
-    { href: '/besprechungen', symbol: Files, text: 'Besprechungen' },
+    { href: '/besprechungen', symbol: Files, text: 'Transkripte' },
     { href: '/chat', symbol: MessagesSquare, text: 'Frag mein Meeting' },
     { href: '/raum', symbol: Radio, text: 'VERMERK Raum' }
   ];

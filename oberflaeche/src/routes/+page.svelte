@@ -3,12 +3,12 @@
   import { page } from '$app/state';
   import { api } from '$lib/api/client';
   import type { Vorlage } from '$lib/api/typen';
-  import AuftragKarte from '$lib/komponenten/AuftragKarte.svelte';
   import Erweitert from '$lib/komponenten/Erweitert.svelte';
   import Info from '$lib/komponenten/Info.svelte';
   import Kopf from '$lib/komponenten/Kopf.svelte';
   import Schalter from '$lib/komponenten/Schalter.svelte';
   import Quelle, { type Auswahl } from '$lib/komponenten/transkription/Quelle.svelte';
+  import Warteschlange from '$lib/komponenten/transkription/Warteschlange.svelte';
   import { startMeldung } from '$lib/logik/warteschlange';
   import { einstellungen } from '$lib/stores/einstellungen.svelte';
   import { dialog, meldungen } from '$lib/stores/oberflaeche.svelte';
@@ -207,11 +207,7 @@
   </aside>
 </div>
 
-{#if meinAuftrag}
-  <div class="mein">
-    <AuftragKarte auftrag={meinAuftrag} schliessen={() => merken(null)} />
-  </div>
-{/if}
+<Warteschlange {meinAuftrag} schliessen={() => merken(null)} />
 
 <style>
   .raster {
@@ -251,9 +247,5 @@
   .start {
     margin-top: 6px;
     width: 100%;
-  }
-
-  .mein {
-    margin-top: 24px;
   }
 </style>

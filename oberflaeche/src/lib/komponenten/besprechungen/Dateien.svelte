@@ -46,7 +46,7 @@
 </script>
 
 {#if details.dateien.length === 0}
-  <div class="leer">Keine Dateien</div>
+  <div class="leer">Noch nichts exportiert</div>
 {:else}
   <ul class="karte liste">
     {#each details.dateien as d (d.name)}

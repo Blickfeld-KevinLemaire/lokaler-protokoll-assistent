@@ -52,9 +52,6 @@ def transkriptions_ergebnis(ergebnis: pipeline_service.TranscriptionResult) -> d
     pfade = ergebnis.export_paths
     return {
         "transkript_json": str(pfade.json),
-        "transkript_txt": str(pfade.txt),
-        "untertitel_srt": str(pfade.srt),
-        "untertitel_vtt": str(pfade.vtt),
         "arbeitsordner": str(ergebnis.work_dir),
         "sprecher": dict(ergebnis.speaker_names),
         "dauer_sekunden": ergebnis.total_duration,

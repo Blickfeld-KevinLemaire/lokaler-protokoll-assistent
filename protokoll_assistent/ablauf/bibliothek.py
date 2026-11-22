@@ -59,6 +59,27 @@ class Besprechung:
         staemme = {self.transkript.stem, *(p.json.stem for p in self.protokolle)}
         ordner = self.transkript.parent
         gefunden = [ordner / f"{stamm}{endung}" for stamm in sorted(staemme) for endung in DATEI_ARTEN]
+        exporte = self._exporte()
+        return [p for p in gefunden if p.is_file()] + [p for p in exporte if p not in gefunden]
+
+    def dokument(self) -> Path | None:
+        """Das Word-Dokument der Besprechung (mit Protokoll: Zusammenfassung und Transkript in einem), das nach
+        jeder Verarbeitung von selbst entsteht -- siehe ``dokument_export_service.automatisches_word``."""
+        neuestes = self.neuestes_protokoll
+        kandidaten = ([neuestes.json.with_suffix(".docx")] if neuestes is not None else []) + [
+            self.transkript.with_suffix(".docx")
+        ]
+        return next((p for p in kandidaten if p.is_file()), None)
+
+    def sichtbare_dateien(self) -> list[Path]:
+        """Was die Oberflaeche unter „Dateien“ zeigt: das eine Dokument und alles, was jemand exportiert hat.
+        Die Daten, aus denen die Anwendung liest (JSON, Markdown), und die Begleitdateien aelterer Laeufe
+        (TXT/SRT/VTT) bleiben verborgen -- herunterladen lassen sie sich ueber ``dateien()`` trotzdem."""
+        dokument = self.dokument()
+        return ([dokument] if dokument is not None else []) + self._exporte()
+
+    def _exporte(self) -> list[Path]:
+        ordner = self.transkript.parent
         export = re.compile(rf"^{re.escape(self.titel)}_(transkript|protokoll|gesamt)(_\d+)?$")
         # Sprecher-Exporte ('<quellname>_<Sprechername>[_n].wav/.txt', siehe sprecher_export_service).
         sprecher = re.compile(rf"^{re.escape(self.titel)}_(?!lokal_transkript_|protokoll_).+$")
@@ -71,7 +92,7 @@ class Besprechung:
                 or (p.suffix.lower() in (".wav", ".txt") and sprecher.match(p.stem))
             )
         ) if ordner.is_dir() else []
-        return [p for p in gefunden if p.is_file()] + [p for p in exporte if p not in gefunden]
+        return exporte
 
     def als_dict(self) -> dict[str, Any]:
         neuestes = self.neuestes_protokoll
@@ -188,5 +209,5 @@ def details(besprechung: Besprechung) -> dict[str, Any]:
             if isinstance(s, dict)
         ],
         "protokoll": {"id": neuestes.id, "text": protokoll_text} if neuestes is not None else None,
-        "dateien": [{"name": p.name, "art": p.suffix.lstrip("."), "groesse": p.stat().st_size} for p in besprechung.dateien()],
+        "dateien": [{"name": p.name, "art": p.suffix.lstrip("."), "groesse": p.stat().st_size} for p in besprechung.sichtbare_dateien()],
     }

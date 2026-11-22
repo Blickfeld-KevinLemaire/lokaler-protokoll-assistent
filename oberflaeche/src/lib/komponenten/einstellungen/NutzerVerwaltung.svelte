@@ -79,7 +79,7 @@
   async function entfernen(n: Nutzer) {
     const ja = await rueckfrage.fragen({
       titel: `„${n.anzeigename}“ entfernen?`,
-      text: 'Die Besprechungen bleiben auf dem Server erhalten.',
+      text: 'Die Transkripte bleiben auf dem Server erhalten.',
       verb: 'Entfernen'
     });
     if (!ja) return;
@@ -173,7 +173,7 @@
         {#snippet info()}
           <Info
             frage="Was bedeutet verwalten?"
-            text="Ändert Einstellungen, legt Nutzer und Geräte an. Alle anderen sehen nur ihre eigenen Besprechungen."
+            text="Ändert Einstellungen, legt Nutzer und Geräte an. Alle anderen sehen nur ihre eigenen Transkripte."
           />
         {/snippet}
       </Schalter>
