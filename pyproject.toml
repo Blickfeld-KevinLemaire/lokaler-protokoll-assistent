@@ -38,13 +38,11 @@ dev = [
     "truststore>=0.10.0",
     # Wird fuer den Windows-Build und dessen Probelauf in der CI gebraucht.
     "pyinstaller>=6.22.3",
-
     # Testwerkzeuge
     "pytest>=8.0",
     "pytest-cov>=5.0",
     "pytest-qt>=4.4",
     "pytest-timeout>=2.3",
-
     # Qualitaet und Sicherheit
     "ruff>=0.6",
     "mypy>=1.11",
@@ -53,6 +51,10 @@ dev = [
     # filelock 4.1.0 nach, fuer das es keine bereinigte Fassung gibt (ab
     # 4.2.1 verlangt filelock 3.11) - Dependabot meldete das dauerhaft.
     "pip-audit>=2.7; python_version >= '3.11'",
+    "fastapi>=0.115",
+    "uvicorn>=0.32",
+    "python-multipart>=0.0.18",
+    "httpx>=0.28",
 ]
 
 [tool.uv]
