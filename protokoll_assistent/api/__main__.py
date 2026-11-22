@@ -1,6 +1,6 @@
 """Startet die Programmschnittstelle.
 
-    python -m protokoll_assistent.api --rolle desktop --port 51234
+    python -m protokoll_assistent.api --rolle desktop --port 0 --port-datei <pfad>
     python -m protokoll_assistent.api --rolle server --host 0.0.0.0 --port 8780
     python -m protokoll_assistent.api zugang-anlegen <Name>      (Zugangsschluessel fuer den Servermodus)
     python -m protokoll_assistent.api openapi                    (Schnittstellenbeschreibung ausgeben)
@@ -10,6 +10,11 @@ Rolle ``desktop``: Den Schluessel uebergibt das Desktop-Fenster in der Umgebung
 ``--entwicklung`` -- dann erzeugt er einen und legt ihn (mit Port) in
 ``api_zugang.json`` im Einstellungsordner ab, wo der Entwicklungsserver der
 Oberflaeche ihn findet. Ohne Schluessel gibt es keinen Betrieb.
+
+Port: Mit ``--port 0`` (Vorgabe der Rolle desktop) vergibt Windows einen freien Port. Der Dienst bindet ihn
+selbst und schreibt danach ``{"port", "pid", "netz_port", "version"}`` atomar in die ``--port-datei`` --
+erst daraus erfaehrt das Fenster den Port. Ob dort wirklich *sein* Dienst antwortet, prueft das Fenster
+mit ``/api/info`` und seinem Schluessel (ein fremder Prozess antwortet mit 401 oder gar nicht).
 
 ``VERMERK_ELTERN_PID``: Prozess des Desktop-Fensters. Endet er, beendet sich
 auch dieser Dienst -- sonst blieben nach einem Absturz des Fensters verwaiste
@@ -23,6 +28,7 @@ import asyncio
 import contextlib
 import json
 import os
+import socket
 import sys
 import threading
 from collections.abc import Callable, Sequence
@@ -43,8 +49,10 @@ from protokoll_assistent.api.sicherheit import (
     zugaenge_aus_konfiguration,
 )
 from protokoll_assistent.services import geraete_empfang_service
+from protokoll_assistent.services.manifest_service import _ersetzen_mit_wiederholung
 from protokoll_assistent.utils import app_config
 from protokoll_assistent.utils.paths import ensure_system_prompt_file_exists, get_paket_dir, get_settings_dir
+from protokoll_assistent.version import VERSION
 
 STANDARD_SERVER_PORT = 8780
 ENTWICKLUNG_URSPRUENGE = ("http://localhost:5173", "http://127.0.0.1:5173")
@@ -122,15 +130,46 @@ def eltern_wache(pid: int, beenden: Callable[[], None]) -> threading.Thread:
     return faden
 
 
-def _uvicorn_server(app: Any, host: str, port: int) -> Any:
+def socket_binden(host: str, port: int) -> socket.socket:
+    """Bindet den Port **selbst**, bevor der Server startet.
+
+    Port 0: Windows vergibt einen freien -- es gibt kein "erst pruefen, dann binden", zwischen dem ein anderes
+    Programm den Port wegschnappen koennte. Ist ein fester Port belegt, kommt hier ein ``OSError`` (und nicht
+    erst in uvicorn, das in dem Fall den ganzen Prozess beendet)."""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    if os.name == "nt":
+        # Kein zweiter Prozess darf denselben Port zusaetzlich binden (unter Windows sonst moeglich).
+        sock.setsockopt(socket.SOL_SOCKET, getattr(socket, "SO_EXCLUSIVEADDRUSE", -5), 1)
+    else:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        sock.bind((host, port))
+        sock.listen(128)
+    except OSError:
+        sock.close()
+        raise
+    sock.set_inheritable(False)
+    return sock
+
+
+def port_datei_schreiben(ziel: Path, daten: dict[str, Any]) -> None:
+    """Handschlag mit dem Desktop-Fenster: atomar (erst unter Arbeitsnamen, dann ersetzen), damit das Fenster
+    nie eine halb geschriebene Datei liest."""
+    ziel.parent.mkdir(parents=True, exist_ok=True)
+    temp = ziel.with_name(ziel.name + f".{os.getpid()}.tmp")
+    temp.write_text(json.dumps(daten), encoding="utf-8")
+    _ersetzen_mit_wiederholung(temp, ziel)
+
+
+def _uvicorn_server(app: Any) -> Any:
     import uvicorn
 
-    config = uvicorn.Config(app, host=host, port=port, log_level="warning", access_log=False, lifespan="off")
+    config = uvicorn.Config(app, log_level="warning", access_log=False, lifespan="off")
     return uvicorn.Server(config)
 
 
-async def _laufen(server: list[Any]) -> None:
-    await asyncio.gather(*(s.serve() for s in server))
+async def _laufen(server: list[tuple[Any, socket.socket]]) -> None:
+    await asyncio.gather(*(s.serve(sockets=[sock]) for s, sock in server))
 
 
 def starten(argumente: argparse.Namespace) -> int:
@@ -140,9 +179,13 @@ def starten(argumente: argparse.Namespace) -> int:
     ensure_system_prompt_file_exists()
     rolle = argumente.rolle
     host = argumente.host or ("127.0.0.1" if rolle == ROLLE_DESKTOP else "0.0.0.0")  # noqa: S104 -- Servermodus lauscht im Netz
-    port = argumente.port or (0 if rolle == ROLLE_DESKTOP else STANDARD_SERVER_PORT)
-    if rolle == ROLLE_DESKTOP and not port:
-        raise SystemExit("Die Rolle 'desktop' braucht --port (das Desktop-Fenster wählt einen freien).")
+    port = argumente.port if argumente.port is not None else (0 if rolle == ROLLE_DESKTOP else STANDARD_SERVER_PORT)
+    try:
+        haupt_socket = socket_binden(host, port)
+    except OSError as fehler:
+        print(f"Port {port} auf {host} ist nicht nutzbar: {fehler}", file=sys.stderr)
+        return 3
+    port = int(haupt_socket.getsockname()[1])
     schluessel = desktop_schluessel(argumente.entwicklung, port) if rolle == ROLLE_DESKTOP else None
     dienste = dienste_erstellen(rolle, schluessel)
     oberflaeche = oberflaeche_ordner()
@@ -153,19 +196,32 @@ def starten(argumente: argparse.Namespace) -> int:
     else:
         erlaubt = [h.strip() for h in os.environ.get("VERMERK_ERLAUBTE_HOSTS", "*").split(",") if h.strip()]
         app = app_erstellen(dienste, erlaubte_hosts=erlaubt, cors_urspruenge=(), oberflaeche=oberflaeche)
-    server = [_uvicorn_server(app, host, port)]
+    server: list[tuple[Any, socket.socket]] = [(_uvicorn_server(app), haupt_socket)]
 
     konfig = dienste.steuerung.konfiguration()
+    netz_port: int | None = None
     if rolle == ROLLE_DESKTOP and konfig.get("netz_freigabe_aktiv"):
-        # Dieselbe Steuerung zusaetzlich im Netz, aber mit eigener Zugangspruefung (Zugangsschluessel).
-        netz = dienste_erstellen(ROLLE_SERVER, None, steuerung=dienste.steuerung)
-        netz.automatik = dienste.automatik
-        netz_app = app_erstellen(netz, erlaubte_hosts=["*"], cors_urspruenge=(), oberflaeche=oberflaeche)
-        netz_port = int(konfig.get("netz_freigabe_port") or STANDARD_SERVER_PORT)
-        server.append(_uvicorn_server(netz_app, "0.0.0.0", netz_port))  # noqa: S104 -- ausdruecklich eingeschaltet
+        # Dieselbe Steuerung zusaetzlich im Netz, aber mit eigener Zugangspruefung (Zugangsschluessel). Ist der
+        # Port belegt, laeuft die Anwendung trotzdem -- nur ohne Freigabe, und die Oberflaeche sagt es.
+        gewuenscht = int(konfig.get("netz_freigabe_port") or STANDARD_SERVER_PORT)
+        try:
+            netz_socket = socket_binden("0.0.0.0", gewuenscht)  # noqa: S104 -- ausdruecklich eingeschaltet
+        except OSError:
+            dienste.steuerung.hinweis(
+                f"Im Netz anbieten ist eingeschaltet, aber Port {gewuenscht} wird schon benutzt. "
+                "Bitte in den Einstellungen einen anderen Port wählen.",
+                stufe="fehler",
+                quelle="netz",
+            )
+        else:
+            netz = dienste_erstellen(ROLLE_SERVER, None, steuerung=dienste.steuerung)
+            netz.automatik = dienste.automatik
+            netz_app = app_erstellen(netz, erlaubte_hosts=["*"], cors_urspruenge=(), oberflaeche=oberflaeche)
+            server.append((_uvicorn_server(netz_app), netz_socket))
+            netz_port = gewuenscht
 
     def beenden() -> None:
-        for s in server:
+        for s, _sock in server:
             s.should_exit = True
 
     eltern = os.environ.get("VERMERK_ELTERN_PID", "")
@@ -177,7 +233,12 @@ def starten(argumente: argparse.Namespace) -> int:
         dienste.automatik.anwenden()
         dienste.automatik.wache_starten()
     if argumente.port_datei:
-        Path(argumente.port_datei).write_text(json.dumps({"port": port, "pid": os.getpid()}), encoding="utf-8")
+        # Erst jetzt: Der Port ist gebunden, Verbindungen warten in der Warteschlange des Sockets, bis uvicorn
+        # sie annimmt -- das Fenster kann sich also sofort melden.
+        port_datei_schreiben(
+            Path(argumente.port_datei),
+            {"port": port, "pid": os.getpid(), "netz_port": netz_port, "version": VERSION},
+        )
     try:
         asyncio.run(_laufen(server))
     finally:
@@ -225,7 +286,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m protokoll_assistent.api")
     parser.add_argument("--rolle", choices=(ROLLE_DESKTOP, ROLLE_SERVER), default=ROLLE_DESKTOP)
     parser.add_argument("--host", default="")
-    parser.add_argument("--port", type=int, default=0)
+    parser.add_argument("--port", type=int, default=None)
     parser.add_argument("--port-datei", default="")
     parser.add_argument("--entwicklung", action="store_true")
     return starten(parser.parse_args(argv))
