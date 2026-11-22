@@ -1,6 +1,6 @@
 <script lang="ts">
   import Check from '@lucide/svelte/icons/check';
-  import Library from '@lucide/svelte/icons/library';
+  import Files from '@lucide/svelte/icons/files';
   import Plus from '@lucide/svelte/icons/plus';
   import Search from '@lucide/svelte/icons/search';
   import SearchX from '@lucide/svelte/icons/search-x';
@@ -96,7 +96,7 @@
     {#if suche}
       <LeerZustand symbol={SearchX} titel="Nichts gefunden" />
     {:else}
-      <LeerZustand symbol={Library} titel="Noch keine Besprechungen">
+      <LeerZustand symbol={Files} titel="Noch keine Besprechungen">
         {#snippet aktion()}
           <a class="knopf primaer" href="/?neu=1"><Plus size={16} /> Neue Transkription</a>
         {/snippet}

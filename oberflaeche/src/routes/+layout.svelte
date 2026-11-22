@@ -1,7 +1,7 @@
 <script lang="ts">
   import '../app.css';
   import { setLucideProps } from '@lucide/svelte';
-  import { onMount, type Snippet } from 'svelte';
+  import { onMount, untrack, type Snippet } from 'svelte';
   import { goto } from '$app/navigation';
   import Anmeldung from '$lib/komponenten/Anmeldung.svelte';
   import Einrichtung from '$lib/komponenten/einrichtung/Einrichtung.svelte';
@@ -45,7 +45,9 @@
   $effect(() => {
     void verbindung.runde;
     if (!verbindung.bereit) return;
-    void einrichtung.pruefen(verbindung.info);
+    const info = verbindung.info;
+    // Nur bei neuem Gatter prüfen – nicht jedes Mal, wenn sich in der Einrichtung etwas ändert.
+    untrack(() => void einrichtung.pruefen(info));
   });
 
   $effect(() => {

@@ -95,9 +95,11 @@
           <span class="name">{bausteinText(b.kennung)}</span>
           <span class="groesse">{gbText(b.download_gb)}</span>
         </label>
-        {#if ERKLAERUNG[b.kennung]}
-          <span class="i"><Info frage={bausteinText(b.kennung)} text={ERKLAERUNG[b.kennung]!} /></span>
-        {/if}
+        <span class="i">
+          {#if ERKLAERUNG[b.kennung]}
+            <Info frage={bausteinText(b.kennung)} text={ERKLAERUNG[b.kennung]!} />
+          {/if}
+        </span>
         {#if b.kennung === 'ollama' && k.ollama_lizenz}
           <div class="lizenz">
             {#if k.ollama_lizenz.lizenz_url}

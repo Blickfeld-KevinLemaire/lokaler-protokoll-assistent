@@ -201,7 +201,7 @@
                 <Plus size={16} /> Ohne USB hinzufügen
               </button>
               <button class="knopf primaer" type="button" onclick={() => (usbOffen = true)}>
-                <Usb size={16} /> Gerät per USB verbinden
+                <Usb size={16} /> Per USB verbinden
               </button>
             {:else}
               <button class="knopf" type="button" onclick={() => (anlegenOffen = true)}>
@@ -315,6 +315,8 @@
 
   .zwischen {
     justify-content: space-between;
+    flex-wrap: wrap;
+    row-gap: 8px;
   }
 
   .feldzeile {

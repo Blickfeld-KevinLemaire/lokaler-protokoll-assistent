@@ -1,6 +1,6 @@
 <script lang="ts">
   import ChevronDown from '@lucide/svelte/icons/chevron-down';
-  import Library from '@lucide/svelte/icons/library';
+  import Files from '@lucide/svelte/icons/files';
   import MessagesSquare from '@lucide/svelte/icons/messages-square';
   import Plus from '@lucide/svelte/icons/plus';
   import Send from '@lucide/svelte/icons/send';
@@ -253,7 +253,7 @@
       {#if nachrichten.length === 0}
         <div class="leer-chat">
           {#if besprechungen && besprechungen.length === 0}
-            <LeerZustand symbol={Library} titel="Noch keine Besprechungen">
+            <LeerZustand symbol={Files} titel="Noch keine Besprechungen">
               {#snippet aktion()}
                 <a class="knopf primaer" href="/?neu=1"><Plus size={16} /> Neue Transkription</a>
               {/snippet}

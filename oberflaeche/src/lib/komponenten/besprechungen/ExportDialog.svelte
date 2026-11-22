@@ -3,6 +3,7 @@
   import Check from '@lucide/svelte/icons/check';
   import Download from '@lucide/svelte/icons/download';
   import FolderOpen from '@lucide/svelte/icons/folder-open';
+  import { untrack } from 'svelte';
   import { api } from '$lib/api/client';
   import type { BesprechungDetails, ExportErgebnis, ExportFormat } from '$lib/api/typen';
   import { einstellungen } from '$lib/stores/einstellungen.svelte';
@@ -31,8 +32,11 @@
 
   $effect(() => {
     if (!offen) return;
-    ergebnis = null;
-    inhalt = details.protokoll ? 'beides' : 'transkript';
+    // Nur beim Öffnen zurücksetzen: Nach dem Export lädt die Besprechung neu, das Ergebnis bleibt stehen.
+    untrack(() => {
+      ergebnis = null;
+      inhalt = details.protokoll ? 'beides' : 'transkript';
+    });
     api
       .exportFormate()
       .then((f) => {

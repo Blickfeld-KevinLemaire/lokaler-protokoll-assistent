@@ -15,6 +15,7 @@
   import { einrichtung } from '$lib/stores/einrichtung.svelte';
   import { zustand } from '$lib/stores/zustand.svelte';
   import Fortschritt from '../Fortschritt.svelte';
+  import Info from '../Info.svelte';
   import SchrittArbeitsweise from './SchrittArbeitsweise.svelte';
   import SchrittBedarf from './SchrittBedarf.svelte';
   import SchrittComputer from './SchrittComputer.svelte';
@@ -107,14 +108,16 @@
         </li>
       {/each}
     </ol>
-    <button
-      class="knopf leise"
-      type="button"
-      title="Beim nächsten Start geht es hier weiter"
-      onclick={() => einrichtung.spaeter()}
-    >
-      Später
-    </button>
+    {#if einrichtung.neustart !== 'laeuft'}
+      <button
+        class="knopf leise"
+        type="button"
+        title="Beim nächsten Start geht es hier weiter"
+        onclick={() => einrichtung.spaeter()}
+      >
+        Später
+      </button>
+    {/if}
   </header>
 
   <div class="buehne" class:mitte={schritt === 'willkommen' || schritt === 'fertig'}>
@@ -124,7 +127,15 @@
       <span class="haken"><CircleCheck size={44} strokeWidth={1.5} /></span>
     {/if}
 
-    <h1 id="einrichtung-titel" bind:this={ueberschrift} tabindex="-1">{titel}</h1>
+    <div class="titelzeile">
+      <h1 id="einrichtung-titel" bind:this={ueberschrift} tabindex="-1">{titel}</h1>
+      {#if schritt === 'fertig' && neustartNoetig && einrichtung.neustart !== 'laeuft'}
+        <Info
+          frage="Warum neu starten?"
+          text="Für die Transkription auf diesem Computer startet die App einmal neu. Danach geht es hier weiter."
+        />
+      {/if}
+    </div>
 
     {#if schritt === 'willkommen'}
       <p class="satz">In wenigen Schritten ist alles bereit.</p>
@@ -228,6 +239,12 @@
     text-align: center;
     justify-content: center;
     padding-bottom: 48px;
+  }
+
+  .titelzeile {
+    display: flex;
+    align-items: center;
+    gap: 10px;
   }
 
   h1 {

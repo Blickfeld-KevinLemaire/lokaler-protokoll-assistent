@@ -1,6 +1,6 @@
 <script lang="ts">
   import FolderOpen from '@lucide/svelte/icons/folder-open';
-  import Library from '@lucide/svelte/icons/library';
+  import Files from '@lucide/svelte/icons/files';
   import MessagesSquare from '@lucide/svelte/icons/messages-square';
   import Mic from '@lucide/svelte/icons/mic';
   import Plus from '@lucide/svelte/icons/plus';
@@ -16,7 +16,7 @@
 
   const eintraege = [
     { href: '/', symbol: Mic, text: 'Transkription' },
-    { href: '/besprechungen', symbol: Library, text: 'Besprechungen' },
+    { href: '/besprechungen', symbol: Files, text: 'Besprechungen' },
     { href: '/chat', symbol: MessagesSquare, text: 'Frag mein Meeting' },
     { href: '/raum', symbol: Radio, text: 'VERMERK Raum' }
   ];

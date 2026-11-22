@@ -73,6 +73,8 @@
   }
 
   .fuss {
+    align-self: flex-end;
+    margin-top: -8px;
     display: inline-flex;
     align-items: center;
     gap: 8px;

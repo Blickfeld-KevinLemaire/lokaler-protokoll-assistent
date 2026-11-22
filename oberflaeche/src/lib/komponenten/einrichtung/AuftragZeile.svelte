@@ -21,7 +21,7 @@
   const prozent = $derived(auftrag.fortschritt != null ? Math.round(auftrag.fortschritt * 100) : null);
 </script>
 
-<li class="zeile" class:fertig={auftrag.status === 'fertig'} class:fehler={auftrag.status === 'fehler'}>
+<li class="auftrag" class:fertig={auftrag.status === 'fertig'} class:fehler={auftrag.status === 'fehler'}>
   <div class="kopf">
     <span class="titel">{auftragTitel(auftrag)}</span>
     <span class="zustand">
@@ -56,7 +56,7 @@
 </li>
 
 <style>
-  .zeile {
+  .auftrag {
     display: flex;
     flex-direction: column;
     gap: 8px;
@@ -64,7 +64,7 @@
     border-top: 1px solid var(--rand);
   }
 
-  .zeile:first-child {
+  .auftrag:first-child {
     border-top: none;
   }
 

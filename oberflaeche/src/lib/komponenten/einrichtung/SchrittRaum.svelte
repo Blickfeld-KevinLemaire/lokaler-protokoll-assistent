@@ -43,15 +43,15 @@
   <span class="kreis"><Radio size={26} strokeWidth={1.5} /></span>
   <div class="text">
     <span class="titel">
-      Aufnahmegerät im Besprechungsraum
+      Aufnahmegeräte
       <Info
         frage="Was ist VERMERK Raum?"
         text="Ein kleines Gerät nimmt Besprechungen auf und schickt sie an diesen Computer. Das geht auch später."
       />
     </span>
-    {#if geraete.length}
-      <span class="leise">{geraete.map((g) => g.name).join(', ')}</span>
-    {/if}
+    <span class="leise">
+      {geraete.length ? geraete.map((g) => g.name).join(', ') : 'Noch keines verbunden'}
+    </span>
   </div>
   <div class="knoepfe">
     <button class="knopf" type="button" onclick={() => (ohneUsbOffen = true)}>

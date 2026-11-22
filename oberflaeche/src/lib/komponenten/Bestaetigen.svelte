@@ -45,15 +45,15 @@
 </Dialog>
 
 <style>
+  /* In beiden Modi dasselbe kräftige Rot: weiße Schrift bleibt gut lesbar. */
   .gefahr-voll {
-    background: var(--fehler);
-    border-color: var(--fehler);
+    background: #c62f24;
+    border-color: #c62f24;
     color: #fff;
   }
 
   .gefahr-voll:hover:not(:disabled) {
-    background: var(--fehler);
-    border-color: var(--fehler);
-    filter: brightness(0.92);
+    background: #a8261d;
+    border-color: #a8261d;
   }
 </style>
