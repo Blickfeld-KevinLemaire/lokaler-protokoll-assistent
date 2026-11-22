@@ -5,7 +5,16 @@ import ts from 'typescript-eslint';
 import svelteConfig from './svelte.config.js';
 
 export default ts.config(
-  { ignores: ['build/', '.svelte-kit/', 'node_modules/', 'screenshots/', 'src/lib/api/schema.d.ts'] },
+  {
+    ignores: [
+      'build/',
+      '.svelte-kit/',
+      'node_modules/',
+      'screenshots/',
+      'src/lib/api/schema.d.ts',
+      'src-tauri/'
+    ]
+  },
   js.configs.recommended,
   ...ts.configs.recommended,
   ...svelte.configs.recommended,

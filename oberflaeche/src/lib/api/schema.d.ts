@@ -547,6 +547,220 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/einrichtung/stand': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Stand
+     * @description Wo die Einrichtung steht: abgeschlossen?, naechster Schritt, Arbeitsweise, was schon da ist und was fuer
+     *     die gewaehlte Arbeitsweise noch fehlt, laufende Einrichtungsauftraege. Laedt nichts.
+     */
+    get: operations['stand_api_einrichtung_stand_get'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/einrichtung/rechner': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Rechner
+     * @description Seite "Ihr Computer": Hardware, je Arbeitsschritt "gut / maessig / nicht" mit Dauer als Zahlen, die
+     *     Empfehlung (lokal / gemischt / online / keine) und die Modelle, die hier laufen. Laedt nichts.
+     */
+    get: operations['rechner_api_einrichtung_rechner_get'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/einrichtung/kosten': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Kosten
+     * @description Seite "Was noetig ist": Bausteine mit Download und Platz (GB), Summe, ungefaehre Downloaddauer. Ohne
+     *     Angaben fuer die gespeicherte Arbeitsweise; mit ``transkription``/``nachbearbeitung``/``chatbot`` als
+     *     Vorschau, ohne etwas zu speichern.
+     */
+    get: operations['kosten_api_einrichtung_kosten_get'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/einrichtung/entscheidung': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Entscheidung
+     * @description Seite "Arbeitsweise" (und die Zustimmung zur Rechenumgebung von "Was noetig ist"). Schreibt dieselben
+     *     Einstellungen wie der alte Assistent. Ein Online-Dienst wird nie von selbst gewaehlt -- das entscheidet der
+     *     Aufruf.
+     */
+    post: operations['entscheidung_api_einrichtung_entscheidung_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/einrichtung/ffmpeg': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Ffmpeg
+     * @description FFmpeg (liest Audio- und Videodateien) als portable Fassung laden -- nur, wenn es fehlt. Als Auftrag.
+     */
+    post: operations['ffmpeg_api_einrichtung_ffmpeg_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/einrichtung/ollama': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Ollama
+     * @description Ollama vom Hersteller laden, Signatur pruefen ("Ollama Inc."), still fuer das eigene Konto installieren und
+     *     den Dienst starten. Ist Ollama schon installiert, wird nur gestartet. Als Auftrag mit Fortschritt (Bytes).
+     */
+    post: operations['ollama_api_einrichtung_ollama_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/einrichtung/modelle': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Modelle Laden
+     * @description Seiten "Einrichtung" und "Mitschrift": Sprachmodelle (Ollama), Spracherkennung (Whisper) und
+     *     Sprechererkennung (pyannote) laden -- der Reihe nach, als ein Auftrag. Was einzeln gelang, steht waehrend
+     *     und nach dem Lauf in ``angaben.teile``; scheitert etwas, endet der Auftrag mit ``fehler``.
+     */
+    post: operations['modelle_laden_api_einrichtung_modelle_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/einrichtung/anbieter': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Anbieter
+     * @description Online-Dienst fuer einen Bereich: traegt Adresse und Modell des Anbieters ein (wie die Auswahl in den
+     *     Einstellungen) und legt auf Wunsch den Schluessel ab. Die Liste der Anbieter: ``GET /api/einstellungen/anbieter``.
+     */
+    post: operations['anbieter_api_einrichtung_anbieter_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/einrichtung/spaeter': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Spaeter
+     * @description "Spaeter einrichten": Ohne ``nicht_mehr_fragen`` aendert sich nichts (die Einrichtung erscheint beim
+     *     naechsten Start wieder). Mit: gilt als abgeschlossen -- und ohne Zustimmung wird die Rechenumgebung
+     *     zurueckgestellt, damit der naechste Start nichts ungefragt laedt.
+     */
+    post: operations['spaeter_api_einrichtung_spaeter_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/einrichtung/abschliessen': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Abschliessen
+     * @description Seite "Fertig": Einrichtung abgeschlossen. ``neustart_noetig`` in der Antwort sagt, ob der Dienst fuer die
+     *     lokale Mitschrift noch einmal starten muss ("Die App startet kurz neu"); ``online_ohne_anbieter``, wo noch
+     *     Anbieter und Schluessel fehlen.
+     */
+    post: operations['abschliessen_api_einrichtung_abschliessen_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/geraete/usb/anschluesse': {
     parameters: {
       query?: never;
@@ -1090,6 +1304,348 @@ export interface components {
       groesse: number;
       /** Geaendert */
       geaendert: number;
+    };
+    /** EinrichtungAnbieter */
+    EinrichtungAnbieter: {
+      /**
+       * Bereich
+       * @enum {string}
+       */
+      bereich: 'transkription' | 'nachbearbeitung' | 'chatbot';
+      /**
+       * Anbieter
+       * @description Kennung aus /api/einstellungen/anbieter oder "eigener"
+       */
+      anbieter: string;
+      /** Endpunkt */
+      endpunkt?: string | null;
+      /** Modell */
+      modell?: string | null;
+      /** Einbettung Endpunkt */
+      einbettung_endpunkt?: string | null;
+      /** Einbettung Modell */
+      einbettung_modell?: string | null;
+      /** Schluessel */
+      schluessel?: string | null;
+      /**
+       * Merken
+       * @default false
+       */
+      merken: boolean;
+    };
+    /** EinrichtungAnbieterErgebnis */
+    EinrichtungAnbieterErgebnis: {
+      /** Bereich */
+      bereich: string;
+      /** Anbieter */
+      anbieter: string;
+      /** Endpunkt */
+      endpunkt: string;
+      /** Modell */
+      modell: string;
+      /** Adresse Vollstaendig */
+      adresse_vollstaendig: boolean;
+      /** Schluessel Vorhanden */
+      schluessel_vorhanden: boolean;
+      /** Gemerkt */
+      gemerkt: boolean;
+    };
+    /** EinrichtungBaustein */
+    EinrichtungBaustein: {
+      /**
+       * Kennung
+       * @description "ffmpeg" | "ollama" | "sprachmodell" | "einbettung" | "laufzeit" | "whisper" | "pyannote"
+       */
+      kennung: string;
+      /** Name */
+      name: string;
+      /** Download Gb */
+      download_gb: number;
+      /** Platz Gb */
+      platz_gb: number;
+      /** Hinweis */
+      hinweis: string;
+      /** Vorhanden */
+      vorhanden: boolean;
+    };
+    /** EinrichtungEntscheidung */
+    EinrichtungEntscheidung: {
+      /**
+       * Transkription
+       * @enum {string}
+       */
+      transkription: 'lokal' | 'api';
+      /**
+       * Nachbearbeitung
+       * @enum {string}
+       */
+      nachbearbeitung: 'lokal' | 'api';
+      /**
+       * Chatbot
+       * @enum {string}
+       */
+      chatbot: 'lokal' | 'api';
+      /**
+       * Sprachmodell
+       * @description Ollama-Modell fuer das Protokoll (aus /rechner)
+       */
+      sprachmodell?: string | null;
+      /** Whisper Modell */
+      whisper_modell?: string | null;
+      /**
+       * Zustimmung Rechenumgebung
+       * @description Zustimmung, die Rechenumgebung fuer die lokale Mitschrift beim naechsten Start zu laden
+       * @default false
+       */
+      zustimmung_rechenumgebung: boolean;
+    };
+    /** EinrichtungKosten */
+    EinrichtungKosten: {
+      /** Arbeitsweise */
+      arbeitsweise: {
+        [key: string]: string;
+      };
+      /** Bausteine */
+      bausteine: components['schemas']['EinrichtungBaustein'][];
+      /** Download Gb */
+      download_gb: number;
+      /** Platz Gb */
+      platz_gb: number;
+      /** Download Minuten Von */
+      download_minuten_von: number;
+      /** Download Minuten Bis */
+      download_minuten_bis: number;
+      /** Annahme Mbit */
+      annahme_mbit: number;
+      /** Freier Platz Gb */
+      freier_platz_gb: number | null;
+      /** Platz Knapp */
+      platz_knapp: boolean;
+      /** Zustimmung Noetig */
+      zustimmung_noetig: boolean;
+      /** Neustart Noetig */
+      neustart_noetig: boolean;
+      /** Ollama Lizenz */
+      ollama_lizenz: {
+        [key: string]: string;
+      } | null;
+    };
+    /** EinrichtungModell */
+    EinrichtungModell: {
+      /** Id */
+      id: string;
+      /** Name */
+      name: string;
+      /** Groesse Gb */
+      groesse_gb?: number | null;
+      /** Stufe */
+      stufe: string;
+      /** Text */
+      text: string;
+      /** Auf Grafikkarte */
+      auf_grafikkarte: boolean;
+      /** Empfohlen */
+      empfohlen: boolean;
+    };
+    /** EinrichtungModelle */
+    EinrichtungModelle: {
+      /**
+       * Zustimmung
+       * @description Ausdrueckliche Zustimmung zum Herunterladen; ohne sie wird nichts geladen
+       */
+      zustimmung: boolean;
+      /**
+       * Sprachmodelle
+       * @description Ollama-Modelle; ohne Angabe: was die Arbeitsweise braucht und fehlt
+       */
+      sprachmodelle?: string[] | null;
+      /**
+       * Whisper
+       * @default false
+       */
+      whisper: boolean;
+      /**
+       * Whisper Modell
+       * @description ohne Angabe: das eingestellte
+       */
+      whisper_modell?: string | null;
+      /**
+       * Sprechertrennung
+       * @default false
+       */
+      sprechertrennung: boolean;
+      /**
+       * Hf Token
+       * @description Zugang zu Hugging Face (wird nie zurueckgegeben)
+       */
+      hf_token?: string | null;
+      /**
+       * Hf Token Merken
+       * @default true
+       */
+      hf_token_merken: boolean;
+    };
+    /** EinrichtungRechner */
+    EinrichtungRechner: {
+      /** Profil */
+      profil: {
+        [key: string]: unknown;
+      };
+      /** Schritte */
+      schritte: components['schemas']['EinrichtungSchritt'][];
+      /**
+       * Empfehlung
+       * @description "lokal" | "gemischt" | "api" | null (Anwender entscheidet)
+       */
+      empfehlung: string | null;
+      /** Begruendung */
+      begruendung: string;
+      /** Hinweise */
+      hinweise: string[];
+      /** Empfohlene Modelle */
+      empfohlene_modelle: {
+        [key: string]: string | null;
+      };
+      /** Whisper Modelle */
+      whisper_modelle: components['schemas']['EinrichtungModell'][];
+      /** Sprachmodelle */
+      sprachmodelle: components['schemas']['EinrichtungModell'][];
+      /** Einbettungsmodelle */
+      einbettungsmodelle: components['schemas']['EinrichtungModell'][];
+    };
+    /** EinrichtungSchritt */
+    EinrichtungSchritt: {
+      /**
+       * Kennung
+       * @description "mitschrift" | "sprecher" | "protokoll" | "chat"
+       */
+      kennung: string;
+      /** Name */
+      name: string;
+      /**
+       * Stufe
+       * @description "gut" | "maessig" | "nicht"
+       */
+      stufe: string;
+      /** Text */
+      text: string;
+      /** Dauer Von */
+      dauer_von?: number | null;
+      /** Dauer Bis */
+      dauer_bis?: number | null;
+      /**
+       * Einheit
+       * @description "minuten_je_stunde_aufnahme" | "sekunden_je_frage" | ""
+       * @default
+       */
+      einheit: string;
+      /**
+       * Ort
+       * @description "Grafikkarte" | "Prozessor" | ""
+       * @default
+       */
+      ort: string;
+    };
+    /** EinrichtungSpaeter */
+    EinrichtungSpaeter: {
+      /**
+       * Nicht Mehr Fragen
+       * @default false
+       */
+      nicht_mehr_fragen: boolean;
+    };
+    /** EinrichtungStand */
+    EinrichtungStand: {
+      /** Einrichtung Abgeschlossen */
+      einrichtung_abgeschlossen: boolean;
+      /**
+       * Naechster Schritt
+       * @description "willkommen" | "neustart" | "mitschrift" | "fertig"
+       */
+      naechster_schritt: string;
+      /** Einrichtung Fortsetzen */
+      einrichtung_fortsetzen: string;
+      /** Lokale Einrichtung Zurueckgestellt */
+      lokale_einrichtung_zurueckgestellt: boolean;
+      /**
+       * Arbeitsweise
+       * @description {"transkription", "nachbearbeitung", "chatbot"} -> "lokal" | "api"
+       */
+      arbeitsweise: {
+        [key: string]: string;
+      };
+      /** Modelle */
+      modelle: {
+        [key: string]: string;
+      };
+      vorhanden: components['schemas']['EinrichtungVorhanden'];
+      /**
+       * Offen
+       * @description Kennungen der Bausteine (wie in /kosten), die fuer die Arbeitsweise noch fehlen
+       */
+      offen: string[];
+      /** Rechenumgebung Fehlt */
+      rechenumgebung_fehlt: boolean;
+      /**
+       * Neustart Noetig
+       * @description Der Dienst muss einmal neu starten ("Die App startet kurz neu")
+       */
+      neustart_noetig: boolean;
+      /** Online Ohne Anbieter */
+      online_ohne_anbieter: string[];
+      /** Geraete */
+      geraete: number;
+      /** Geraete Empfang Aktiv */
+      geraete_empfang_aktiv: boolean;
+      /** Auftraege */
+      auftraege: components['schemas']['Auftrag'][];
+    };
+    /**
+     * EinrichtungVorhanden
+     * @description Was schon auf diesem Rechner ist (gefragt werden nur Platte, Registry und der lokale Ollama-Dienst).
+     */
+    EinrichtungVorhanden: {
+      /** Ffmpeg */
+      ffmpeg: boolean;
+      /** Ollama */
+      ollama: boolean;
+      /** Ollama Laeuft */
+      ollama_laeuft: boolean;
+      /** Ollama Version */
+      ollama_version?: string | null;
+      /**
+       * Ollama Modelle
+       * @default []
+       */
+      ollama_modelle: string[];
+      /**
+       * Laufzeit
+       * @description Rechenumgebung (PyTorch & Co.) liegt auf der Platte
+       */
+      laufzeit: boolean;
+      /**
+       * Laufzeit Aktiv
+       * @description Dieser Dienst laeuft schon in der Rechenumgebung
+       */
+      laufzeit_aktiv: boolean;
+      /** Sprachmodell */
+      sprachmodell: boolean;
+      /** Einbettung */
+      einbettung: boolean;
+      /** Whisper */
+      whisper: boolean;
+      /** Pyannote */
+      pyannote: boolean;
+      /** Hf Token */
+      hf_token: boolean;
+    };
+    /** EinrichtungZustimmung */
+    EinrichtungZustimmung: {
+      /**
+       * Zustimmung
+       * @description Ausdrueckliche Zustimmung zum Herunterladen; ohne sie wird nichts geladen
+       */
+      zustimmung: boolean;
     };
     /** ExportAnfrage */
     ExportAnfrage: {
@@ -2365,6 +2921,308 @@ export interface operations {
         };
         content: {
           'application/json': components['schemas']['HTTPValidationError'];
+        };
+      };
+    };
+  };
+  stand_api_einrichtung_stand_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['EinrichtungStand'];
+        };
+      };
+    };
+  };
+  rechner_api_einrichtung_rechner_get: {
+    parameters: {
+      query?: {
+        neu?: boolean;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['EinrichtungRechner'];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['HTTPValidationError'];
+        };
+      };
+    };
+  };
+  kosten_api_einrichtung_kosten_get: {
+    parameters: {
+      query?: {
+        transkription?: ('lokal' | 'api') | null;
+        nachbearbeitung?: ('lokal' | 'api') | null;
+        chatbot?: ('lokal' | 'api') | null;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['EinrichtungKosten'];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['HTTPValidationError'];
+        };
+      };
+    };
+  };
+  entscheidung_api_einrichtung_entscheidung_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['EinrichtungEntscheidung'];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['EinrichtungStand'];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['HTTPValidationError'];
+        };
+      };
+    };
+  };
+  ffmpeg_api_einrichtung_ffmpeg_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['EinrichtungZustimmung'];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Auftrag'];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['HTTPValidationError'];
+        };
+      };
+    };
+  };
+  ollama_api_einrichtung_ollama_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['EinrichtungZustimmung'];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Auftrag'];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['HTTPValidationError'];
+        };
+      };
+    };
+  };
+  modelle_laden_api_einrichtung_modelle_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['EinrichtungModelle'];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Auftrag'];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['HTTPValidationError'];
+        };
+      };
+    };
+  };
+  anbieter_api_einrichtung_anbieter_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['EinrichtungAnbieter'];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['EinrichtungAnbieterErgebnis'];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['HTTPValidationError'];
+        };
+      };
+    };
+  };
+  spaeter_api_einrichtung_spaeter_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['EinrichtungSpaeter'];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['EinrichtungStand'];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['HTTPValidationError'];
+        };
+      };
+    };
+  };
+  abschliessen_api_einrichtung_abschliessen_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['EinrichtungStand'];
         };
       };
     };
