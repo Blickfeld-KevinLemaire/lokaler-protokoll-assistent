@@ -1092,6 +1092,27 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/geraete/firewall': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Firewall Freigeben
+     * @description Den Empfangsport in der Windows-Firewall fuer private Netze freigeben (Windows fragt nach Administratorrechten).
+     *     Angeboten, wenn sich ein eingerichtetes Geraet nicht meldet -- siehe ``services/firewall_service.py``.
+     */
+    post: operations['firewall_freigeben_api_geraete_firewall_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/geraete/{name}': {
     parameters: {
       query?: never;
@@ -1933,6 +1954,11 @@ export interface components {
       ordner_oeffnen: boolean;
       /** Geraete Empfang */
       geraete_empfang: boolean;
+      /**
+       * Firewall Freigabe
+       * @default false
+       */
+      firewall_freigabe: boolean;
     };
     /** Fehler */
     Fehler: {
@@ -4073,6 +4099,28 @@ export interface operations {
         };
         content: {
           'application/json': components['schemas']['HTTPValidationError'];
+        };
+      };
+    };
+  };
+  firewall_freigeben_api_geraete_firewall_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            [key: string]: boolean;
+          };
         };
       };
     };

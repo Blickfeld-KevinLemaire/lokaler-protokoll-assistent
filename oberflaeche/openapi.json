@@ -2455,6 +2455,32 @@
         }
       }
     },
+    "/api/geraete/firewall": {
+      "post": {
+        "tags": [
+          "geraete"
+        ],
+        "summary": "Firewall Freigeben",
+        "description": "Den Empfangsport in der Windows-Firewall fuer private Netze freigeben (Windows fragt nach Administratorrechten).\nAngeboten, wenn sich ein eingerichtetes Geraet nicht meldet -- siehe ``services/firewall_service.py``.",
+        "operationId": "firewall_freigeben_api_geraete_firewall_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "boolean"
+                  },
+                  "type": "object",
+                  "title": "Response Firewall Freigeben Api Geraete Firewall Post"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/geraete/{name}": {
       "delete": {
         "tags": [
@@ -4627,6 +4653,11 @@
           "geraete_empfang": {
             "type": "boolean",
             "title": "Geraete Empfang"
+          },
+          "firewall_freigabe": {
+            "type": "boolean",
+            "title": "Firewall Freigabe",
+            "default": false
           }
         },
         "type": "object",

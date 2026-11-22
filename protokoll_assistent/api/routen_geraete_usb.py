@@ -14,6 +14,7 @@ Funktionen in einem Faden des Servers, nicht in der Ereignisschleife.
 from __future__ import annotations
 
 import datetime as dt
+import time
 from collections.abc import Callable
 from typing import Any
 
@@ -58,6 +59,31 @@ def _info_dict(info: usb.GeraeteInfo) -> dict[str, Any]:
         "fuer_pc": info.token_pc,
         "fuer_server": info.token_server,
     }
+
+
+# Nach dem Einrichten startet das Geraet neu, geht ins WLAN und meldet sich (GET /api/v1/hallo) -- meist nach
+# wenigen Sekunden. Bleibt es aus, blockiert fast immer die Firewall dieses Rechners den Empfang.
+MELDUNG_ABWARTEN_SEKUNDEN = 20.0
+MELDUNG_PRUEFABSTAND_SEKUNDEN = 0.5
+
+
+def auf_meldung_warten(
+    kontakte: Callable[[], dict[str, geraete_empfang_service.Kontakt]],
+    name: str,
+    seit: float,
+    sekunden: float,
+    schlafen: Callable[[float], object] = time.sleep,
+    uhr: Callable[[], float] = time.monotonic,
+) -> bool:
+    """``True``, sobald sich das Geraet ``name`` nach ``seit`` (Zeit wie ``Kontakt.zeit``) gemeldet hat."""
+    ende = uhr() + sekunden
+    while True:
+        kontakt = kontakte().get(name)
+        if kontakt is not None and kontakt.zeit >= seit:
+            return True
+        if uhr() >= ende:
+            return False
+        schlafen(MELDUNG_PRUEFABSTAND_SEKUNDEN)
 
 
 @router.get("/anschluesse")
@@ -147,5 +173,14 @@ def einrichten(daten: UsbEinrichten, d: Dienste = Depends(nur_desktop), _a: Ange
         }
     )
     # Sofort speichern: Das Geraet traegt das neue Token schon.
+    seit = time.time()
     a.anwenden(app_config.update_config(geraete_empfang_geraete=vorhandene, geraete_empfang_aktiv=True))
-    return {"name": name, "info": _info_dict(info), "pc_url": pc_url, "inventar": usb.inventarzeile(info, name, heute)}
+    # Meldet es sich? Nur wenn es an diesen Rechner sendet (eine eigene Adresse kann woanders hinzeigen).
+    erreicht = auf_meldung_warten(a.kontakte, name, seit, MELDUNG_ABWARTEN_SEKUNDEN)
+    return {
+        "name": name,
+        "info": _info_dict(info),
+        "pc_url": pc_url,
+        "inventar": usb.inventarzeile(info, name, heute),
+        "erreicht": erreicht,
+    }

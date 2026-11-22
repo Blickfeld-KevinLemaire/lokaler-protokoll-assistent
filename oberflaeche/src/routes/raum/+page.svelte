@@ -13,6 +13,7 @@
   import Kopf from '$lib/komponenten/Kopf.svelte';
   import LeerZustand from '$lib/komponenten/LeerZustand.svelte';
   import GeraetHinzufuegen from '$lib/komponenten/raum/GeraetHinzufuegen.svelte';
+  import FirewallFreigabe from '$lib/komponenten/raum/FirewallFreigabe.svelte';
   import UsbEinrichtung from '$lib/komponenten/raum/UsbEinrichtung.svelte';
   import Schalter from '$lib/komponenten/Schalter.svelte';
   import { uhrzeit } from '$lib/logik/format';
@@ -238,6 +239,7 @@
                   {/if}
                   {#if g.kontakt?.andere_id}<span class="warn"> · anderes Gerät meldet sich</span>{/if}
                 </div>
+                {#if !s && !g.kontakt && stand.empfang?.aktiv}<FirewallFreigabe kurz />{/if}
               </div>
               {#if verbindung.verwalten}
                 <button

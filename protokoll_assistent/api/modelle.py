@@ -28,6 +28,8 @@ class Faehigkeiten(BaseModel):
     dateipfade: bool
     ordner_oeffnen: bool
     geraete_empfang: bool
+    # Den Empfang in der Windows-Firewall freigeben (nur die Windows-Anwendung).
+    firewall_freigabe: bool = False
 
 
 class Info(BaseModel):

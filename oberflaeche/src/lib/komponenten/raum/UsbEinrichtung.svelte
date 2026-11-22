@@ -6,6 +6,7 @@
   import Dialog from '../Dialog.svelte';
   import Erweitert from '../Erweitert.svelte';
   import Fortschritt from '../Fortschritt.svelte';
+  import FirewallFreigabe from './FirewallFreigabe.svelte';
   import Info from '../Info.svelte';
 
   let { offen, schliessen, fertig }: { offen: boolean; schliessen: () => void; fertig: () => void } =
@@ -27,6 +28,7 @@
   let serverUrl = $state('');
   let serverSchluessel = $state('');
   let eingerichtetAls = $state('');
+  let erreicht = $state(true);
 
   $effect(() => {
     if (!offen) return;
@@ -89,6 +91,7 @@
         server_token: serverSchluessel.trim()
       });
       eingerichtetAls = ergebnis.name;
+      erreicht = ergebnis.erreicht;
       wlanPasswort = '';
       schritt = 'fertig';
       fertig();
@@ -223,6 +226,7 @@
         <span class="haken"><Check size={20} strokeWidth={2.25} /></span>
         <p><strong>„{eingerichtetAls}“</strong> ist eingerichtet. Das Kabel kann jetzt ab.</p>
       </div>
+      {#if !erreicht}<FirewallFreigabe />{/if}
     {/if}
 
     {#if fehler}<p class="fehler" role="alert">{fehler}</p>{/if}

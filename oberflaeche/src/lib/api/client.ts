@@ -371,11 +371,12 @@ export const api = {
   usbAnschluesse: () => json<UsbAnschluss[]>('GET', '/api/geraete/usb/anschluesse'),
   usbErkennen: (port: string) => json<UsbGeraet>('POST', '/api/geraete/usb/erkennen', { json: { port } }),
   usbEinrichten: (daten: UsbEinrichtung) =>
-    json<{ name: string; info: UsbGeraet; pc_url: string; inventar: string }>(
+    json<{ name: string; info: UsbGeraet; pc_url: string; inventar: string; erreicht: boolean }>(
       'POST',
       '/api/geraete/usb/einrichten',
       { json: daten }
     ),
+  firewallFreigeben: () => json<{ freigegeben: boolean }>('POST', '/api/geraete/firewall'),
   geraetEntfernen: (name: string) => json<{ entfernt: boolean }>('DELETE', `/api/geraete/${pfadteil(name)}`),
 
   chat: (frage: string, besprechungen: string[], verlaufId: string | null, signal?: AbortSignal) =>

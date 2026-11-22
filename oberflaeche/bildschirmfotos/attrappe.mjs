@@ -595,7 +595,8 @@ async function api(anfrage, antwort, url) {
         mikrofon: mitSchluessel,
         dateipfade: mitSchluessel,
         ordner_oeffnen: mitSchluessel,
-        geraete_empfang: true
+        geraete_empfang: true,
+        firewall_freigabe: mitSchluessel
       },
       einrichtung_abgeschlossen: !(mitSchluessel && einrichtungOffen()),
       ausgabeordner: einstellungen.ausgabeordner
@@ -877,9 +878,11 @@ async function api(anfrage, antwort, url) {
       name: 'Raum-4',
       info: {},
       pc_url: 'http://192.168.1.20:8765',
-      inventar: ''
+      inventar: '',
+      erreicht: false
     });
   }
+  if (p === '/api/geraete/firewall') return senden(antwort, 200, { freigegeben: true });
   if (p === '/api/geraete')
     return senden(antwort, 200, {
       empfang: { aktiv: true, port: 8765, geraete: 2, live: true, fehler: null, zuletzt: null },
@@ -907,7 +910,8 @@ async function api(anfrage, antwort, url) {
             firmware: '1.4.0',
             andere_id: false
           }
-        }
+        },
+        { name: 'Besprechungsraum 2', angelegt: '2026-11-22', geraete_id: '206ef116e73c', kontakt: null }
       ],
       adressen: ['http://192.168.1.20:8765'],
       freigaben: []

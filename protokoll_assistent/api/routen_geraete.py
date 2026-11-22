@@ -8,8 +8,16 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from protokoll_assistent.api import modelle
-from protokoll_assistent.api.kontext import Angemeldet, Dienste, angemeldet, automatik, dienste, nur_admin
-from protokoll_assistent.services import geraete_empfang_service
+from protokoll_assistent.api.kontext import (
+    Angemeldet,
+    Dienste,
+    angemeldet,
+    automatik,
+    dienste,
+    nur_admin,
+    nur_desktop,
+)
+from protokoll_assistent.services import firewall_service, geraete_empfang_service
 from protokoll_assistent.utils import app_config
 
 router = APIRouter(prefix="/api/geraete", tags=["geraete"])
@@ -90,6 +98,20 @@ def anlegen(daten: modelle.GeraetAnlegen, d: Dienste = Depends(dienste), _a: Ang
     basis = urls[0] if urls else f"http://<Adresse dieses Rechners>:{port}"
     # Nur in dieser Antwort: gespeichert wird allein der Hash.
     return {"name": name, "token": token, "basis_url": basis, "konfiguration": konfigurationszeilen(basis, token)}
+
+
+@router.post("/firewall")
+def firewall_freigeben(d: Dienste = Depends(nur_desktop), _a: Angemeldet = Depends(nur_admin)) -> dict[str, bool]:
+    """Den Empfangsport in der Windows-Firewall fuer private Netze freigeben (Windows fragt nach Administratorrechten).
+    Angeboten, wenn sich ein eingerichtetes Geraet nicht meldet -- siehe ``services/firewall_service.py``."""
+    if not d.plattform_windows:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Gibt es nur unter Windows.")
+    port = int(d.steuerung.konfiguration().get("geraete_empfang_port") or geraete_empfang_service.STANDARD_PORT)
+    try:
+        firewall_service.empfang_freigeben(port)
+    except firewall_service.FirewallFehler as fehler:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(fehler)) from fehler
+    return {"freigegeben": True}
 
 
 @router.delete("/{name}")

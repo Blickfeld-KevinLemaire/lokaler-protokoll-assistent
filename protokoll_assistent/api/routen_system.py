@@ -99,6 +99,7 @@ def info(d: Dienste = Depends(dienste), wer: Angemeldet = Depends(angemeldet)) -
             "dateipfade": d.ist_desktop,
             "ordner_oeffnen": d.ist_desktop and d.plattform_windows,
             "geraete_empfang": d.automatik is not None,
+            "firewall_freigabe": d.ist_desktop and d.plattform_windows and d.automatik is not None,
         },
         "einrichtung_abgeschlossen": bool(konfig.get("einrichtung_abgeschlossen")),
         "ausgabeordner": str(d.ausgabeordner(wer)),
