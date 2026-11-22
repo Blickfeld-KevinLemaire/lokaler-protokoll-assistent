@@ -195,7 +195,7 @@
       <div class="zeile zwischen">
         <h2 id="geraete-titel">Geräte</h2>
         {#if verbindung.verwalten}
-          <div class="zeile">
+          <div class="zeile kopfknoepfe">
             {#if usbMoeglich}
               <button class="knopf leise" type="button" onclick={() => (anlegenOffen = true)}>
                 <Plus size={16} /> Ohne USB hinzufügen
@@ -317,6 +317,13 @@
     justify-content: space-between;
     flex-wrap: wrap;
     row-gap: 8px;
+  }
+
+  .kopfknoepfe {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    row-gap: 8px;
+    margin-left: auto;
   }
 
   .feldzeile {

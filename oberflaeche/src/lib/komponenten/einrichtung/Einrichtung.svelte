@@ -199,6 +199,7 @@
     display: flex;
     align-items: center;
     gap: 16px;
+    min-height: 34px;
     margin-bottom: 32px;
   }
 

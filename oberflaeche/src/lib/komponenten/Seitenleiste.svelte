@@ -77,7 +77,7 @@
     {#if verbindung.mehrbenutzer && verbindung.info}
       <li>
         <a href="/einstellungen#konto" title="Konto">
-          <span class="sym avatar" aria-hidden="true">
+          <span class="avatar" aria-hidden="true">
             {verbindung.info.anzeigename.slice(0, 1)}
           </span>{verbindung.info.anzeigename}
         </a>
@@ -195,6 +195,10 @@
   }
 
   .avatar {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     width: 22px;
     height: 22px;
     border-radius: 50%;

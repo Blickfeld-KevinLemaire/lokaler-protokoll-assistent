@@ -154,6 +154,7 @@
 
   .suche input {
     padding-left: 32px;
+    color: var(--text);
   }
 
   .tabelle {
