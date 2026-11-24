@@ -73,6 +73,18 @@ def test_fehlgeschlagene_transkription_ohne_auswertung(tmp_path: Path) -> None:
     assert pipeline.auswertungen == []
 
 
+def test_keine_sprache_erkannt_endet_mit_verstaendlicher_meldung(tmp_path: Path) -> None:
+    # Falsches oder stummes Mikrofon: Ein leeres Transkript erscheint in keiner Besprechungsliste. Als "Fertig"
+    # fuehrte "Öffnen" ins Leere; die angeschlossene Auswertung scheiterte mit "enthaelt keine Segmente".
+    steuerung, pipeline = steuerung_fuer_test({})
+    pipeline.segmente = [{"start": 0.0, "end": 1.0, "text": "  "}]
+    auftrag = steuerung.transkription_starten(TranskriptionsWunsch(_audio(tmp_path), tmp_path / "aus", mit_auswertung=True))
+    alle_auftraege_ausfuehren(steuerung)
+    assert auftrag.status is Status.FEHLER
+    assert (auftrag.fehler or "").startswith("Keine Sprache erkannt") and "Mikrofon" in (auftrag.fehler or "")
+    assert pipeline.auswertungen == []
+
+
 def test_pruefung_vor_dem_einreihen(tmp_path: Path) -> None:
     steuerung, _pipeline = steuerung_fuer_test({})
     with pytest.raises(Ablauffehler):

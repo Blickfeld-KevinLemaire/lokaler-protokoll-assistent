@@ -44,6 +44,8 @@ class FalschePipeline:
         self.auswertungen: list[pipeline_service.ProtocolSettings] = []
         self.protokoll_fehler: str | None = None
         self.transkription_fehler: Exception | None = None
+        # Was die Transkription "erkannt" hat; leer: keine Sprache in der Aufnahme.
+        self.segmente: list[dict[str, Any]] = [{"start": 0.0, "end": 2.0, "text": "Hallo zusammen."}]
 
     def run_transcription(
         self,
@@ -71,7 +73,7 @@ class FalschePipeline:
             work_dir=settings.output_dir,
             export_paths=pfade,
             speaker_names={"SPEAKER_00": "Sprecher 1"},
-            segments=[],
+            segments=list(self.segmente),
             manifest={},
             total_duration=2.0,
             run_timestamp="20260101_120000",
