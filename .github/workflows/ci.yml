@@ -323,7 +323,13 @@ jobs:
           curl -sSfL -o gitleaks.tar.gz \
             "https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/gitleaks_${VERSION}_linux_x64.tar.gz"
           tar -xzf gitleaks.tar.gz gitleaks
-          ./gitleaks detect --source . --redact --verbose --exit-code 1
+          # Nur die Historie des geprueften Stands (HEAD), nicht die aller Branches:
+          # Ohne --log-opts nimmt gitleaks "git log --all", und fetch-depth 0 holt
+          # jeden Branch mit. Dann legte ein Fehlalarm auf einem fremden, noch nicht
+          # zusammengefuehrten Branch jeden Pull Request lahm (so geschehen im
+          # November 2026). Was ein Branch einschleppt, faellt in seinem eigenen
+          # Pull Request auf; Fehlalarme in der Historie stehen in .gitleaksignore.
+          ./gitleaks detect --source . --redact --verbose --exit-code 1 --log-opts="--full-history HEAD"
 
       - name: uv einrichten
         if: needs.aenderungen.outputs.code != 'false'
