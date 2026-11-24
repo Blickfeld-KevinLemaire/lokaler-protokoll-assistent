@@ -9,6 +9,7 @@
   import Schalter from '$lib/komponenten/Schalter.svelte';
   import Quelle, { type Auswahl } from '$lib/komponenten/transkription/Quelle.svelte';
   import Warteschlange from '$lib/komponenten/transkription/Warteschlange.svelte';
+  import { STANDARD_VORLAGE, systempromptFuer, vorlageVorwahl } from '$lib/logik/vorlagen';
   import { startMeldung } from '$lib/logik/warteschlange';
   import { einstellungen } from '$lib/stores/einstellungen.svelte';
   import { dialog, meldungen } from '$lib/stores/oberflaeche.svelte';
@@ -77,8 +78,7 @@
       .vorlagen()
       .then((liste) => {
         vorlagen = liste;
-        const aktiv = einstellungen.werte?.aktive_systemprompt_vorlage;
-        vorlageName = liste.find((v) => v.name === aktiv)?.name ?? liste[0]?.name ?? '';
+        vorlageName = vorlageVorwahl(liste, einstellungen.werte?.aktive_systemprompt_vorlage);
       })
       .catch((e) => console.warn('Vorlagen nicht geladen', e));
   });
@@ -96,7 +96,6 @@
     if (!auswahl) return;
     startet = true;
     try {
-      const vorlage = vorlagen.find((v) => v.name === vorlageName);
       const auftrag = await api.transkriptionStarten({
         quelle: auswahl.pfad,
         sprache: sprache || null,
@@ -106,7 +105,7 @@
         offline,
         fortsetzen: !neuBeginnen,
         mit_auswertung: zusammenfassung,
-        systemprompt: zusammenfassung && vorlage ? vorlage.text : null
+        systemprompt: zusammenfassung ? systempromptFuer(vorlagen, vorlageName) : null
       });
       zustand.auftragAktualisieren(auftrag);
       merken(auftrag.id);
@@ -145,10 +144,11 @@
     </Schalter>
 
     <Schalter bind:an={zusammenfassung} beschriftung="Danach Zusammenfassung erstellen" />
-    {#if zusammenfassung && vorlagen.length > 1}
+    {#if zusammenfassung && vorlagen.length}
       <label class="feldzeile eingerueckt">
         <span>Vorlage</span>
         <select class="feld" bind:value={vorlageName}>
+          <option value={STANDARD_VORLAGE}>Standard</option>
           {#each vorlagen as v (v.name)}<option value={v.name}>{v.name}</option>{/each}
         </select>
       </label>

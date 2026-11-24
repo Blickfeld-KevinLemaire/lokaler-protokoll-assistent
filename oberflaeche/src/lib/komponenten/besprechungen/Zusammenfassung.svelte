@@ -2,6 +2,7 @@
   import Pencil from '@lucide/svelte/icons/pencil';
   import { api } from '$lib/api/client';
   import type { BesprechungDetails, Vorlage } from '$lib/api/typen';
+  import { STANDARD_VORLAGE, systempromptFuer, vorlageVorwahl } from '$lib/logik/vorlagen';
   import { startMeldung } from '$lib/logik/warteschlange';
   import { einstellungen } from '$lib/stores/einstellungen.svelte';
   import { dialog, meldungen } from '$lib/stores/oberflaeche.svelte';
@@ -39,8 +40,7 @@
       .vorlagen()
       .then((liste) => {
         vorlagen = liste;
-        const aktiv = einstellungen.werte?.aktive_systemprompt_vorlage;
-        vorlageName = liste.find((v) => v.name === aktiv)?.name ?? liste[0]?.name ?? '';
+        vorlageName = vorlageVorwahl(liste, einstellungen.werte?.aktive_systemprompt_vorlage);
       })
       .catch((e) => console.warn('Vorlagen nicht geladen', e));
   });
@@ -79,8 +79,7 @@
 
   async function neuErstellen() {
     try {
-      const vorlage = vorlagen.find((v) => v.name === vorlageName);
-      const neu = await api.auswertungStarten(details.transkript, vorlage?.text ?? null);
+      const neu = await api.auswertungStarten(details.transkript, systempromptFuer(vorlagen, vorlageName));
       zustand.auftragAktualisieren(neu);
       text = original;
       bearbeiten = false;
@@ -93,8 +92,9 @@
 
 {#if !nurLesen}
   <div class="leiste">
-    {#if vorlagen.length > 1}
+    {#if vorlagen.length}
       <select class="feld vorlage" aria-label="Vorlage" bind:value={vorlageName}>
+        <option value={STANDARD_VORLAGE}>Standard</option>
         {#each vorlagen as v (v.name)}<option value={v.name}>{v.name}</option>{/each}
       </select>
     {/if}
