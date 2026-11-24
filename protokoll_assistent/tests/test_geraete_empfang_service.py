@@ -125,6 +125,7 @@ def test_geraet_zum_token():
         ("x" * 64 + ".opus", True),
         ("x" * 65 + ".opus", False),
         ("H5%2F.opus", False),
+        ("H5_007.opus\n", False),  # "$" bei re.match liesse den Zeilenumbruch durch
     ],
 )
 def test_dateiname_gueltig(name, gueltig):
@@ -446,6 +447,7 @@ def test_upload_ueber_http_mit_wiederaufnahme(dienst):
         ("Raum/3", False),
         ("Raum:3", False),
         ("", False),
+        ("Raum1\n", False),
     ],
 )
 def test_geraetename_gueltig(name, gueltig):

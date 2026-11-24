@@ -84,16 +84,63 @@ def test_fehler_landet_im_fehlerordner(tmp_path: Path) -> None:
     assert webhooks[0]["status"] == verarbeitung.STATUS_FEHLER
 
 
-def test_abgebrochen_bleibt_im_eingang(tmp_path: Path) -> None:
-    wache, _verarbeiten, _webhooks, steuerung = _wache(tmp_path, besitzer="anna")
-    datei = wache.einstellungen.eingang / "lang.wav"
+def _eingereihte_datei(wache: EingangsWache, name: str) -> tuple[Path, Any]:
+    datei = wache.einstellungen.eingang / name
     datei.write_bytes(b"RIFF")
     _alt_machen(datei)
-    wache.einmal()
-    auftrag = wache.einmal()[0]
+    wache.einmal()  # erste Abfrage: Groesse merken
+    return datei, wache.einmal()[0]
+
+
+def test_beim_herunterfahren_abgebrochen_bleibt_im_eingang(tmp_path: Path) -> None:
+    wache, _verarbeiten, webhooks, steuerung = _wache(tmp_path, besitzer="anna")
+    datei, auftrag = _eingereihte_datei(wache, "lang.wav")
     assert auftrag.besitzer == "anna"
+    wache.stoppen()  # so faehrt der Dienst herunter: erst die Wache, dann die Warteschlange
     steuerung.abbrechen(auftrag.id)
-    assert datei.is_file()
+    assert datei.is_file() and not (wache.einstellungen.eingang / "fehler").exists() and webhooks == []
+    assert len(wache.einmal()) == 1  # beim naechsten Start wieder dabei
+
+
+def test_von_hand_abgebrochen_wird_nicht_wieder_eingereiht(tmp_path: Path) -> None:
+    wache, _verarbeiten, webhooks, steuerung = _wache(tmp_path)
+    datei, auftrag = _eingereihte_datei(wache, "lang.wav")
+    steuerung.abbrechen(auftrag.id)
+    assert auftrag.status is Status.ABGEBROCHEN
+    assert not datei.exists() and (wache.einstellungen.eingang / "fehler" / "lang.wav").is_file()
+    assert wache.einmal() == [] and wache.einmal() == []
+    assert webhooks == [{"status": verarbeitung.STATUS_ABGEBROCHEN, "datei": "lang.wav", "fehler": None}]
+
+
+def test_laufend_abgebrochen_endet_als_abgebrochen(tmp_path: Path) -> None:
+    """Die Verarbeitung meldet einen Abbruch als Ergebnis -- der Auftrag darf dann nicht als "fertig" enden und die
+    Datei nicht unter "verarbeitet" landen."""
+    wache, verarbeiten, _webhooks, steuerung = _wache(tmp_path)
+    verarbeiten.status = verarbeitung.STATUS_ABGEBROCHEN
+    datei, auftrag = _eingereihte_datei(wache, "lang.wav")
+    alle_auftraege_ausfuehren(steuerung)
+    assert auftrag.status is Status.ABGEBROCHEN
+    assert (wache.einstellungen.eingang / "fehler" / "lang.wav").is_file() and not datei.exists()
+    assert wache.einmal() == []
+
+
+def test_waehrend_des_abschlusses_nicht_doppelt_eingereiht(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Zwischen dem Ende des Auftrags und dem Verschieben liegt die Datei noch im Eingang. Eine Abfrage in genau
+    diesem Moment (die Wache laeuft in ihrem eigenen Faden) darf sie nicht ein zweites Mal einreihen."""
+    wache, _verarbeiten, _webhooks, steuerung = _wache(tmp_path)
+    datei, auftrag = _eingereihte_datei(wache, "sitzung.wav")
+    zwischendurch: list[Any] = []
+    merken = wache._zustand.merke
+
+    def merke(schluessel: str, status: str, ausgabe: str | None = None) -> None:
+        zwischendurch.extend(wache.einmal())
+        merken(schluessel, status, ausgabe)
+
+    monkeypatch.setattr(wache._zustand, "merke", merke)
+    alle_auftraege_ausfuehren(steuerung)
+    assert auftrag.status is Status.FERTIG and zwischendurch == []
+    assert (wache.einstellungen.eingang / "verarbeitet" / "sitzung.wav").is_file() and not datei.exists()
+    assert wache._eingereiht == set()
 
 
 def test_wache_faden(tmp_path: Path) -> None:

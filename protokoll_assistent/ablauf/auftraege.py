@@ -194,6 +194,8 @@ class Auftragsverwaltung:
         self._laufend: str | None = None
         self._nachmelden: set[str] = set()
         self._faden: threading.Thread | None = None
+        self._nachmelder: threading.Thread | None = None
+        self._nachmelder_stopp = threading.Event()
         self._stopp = False
 
     # ------------------------------------------------------------------
@@ -206,6 +208,11 @@ class Auftragsverwaltung:
             self._stopp = False
             self._faden = threading.Thread(target=self._schleife, name="auftraege", daemon=True)
             self._faden.start()
+            self._nachmelder_stopp = threading.Event()
+            self._nachmelder = threading.Thread(
+                target=self._nachmelde_schleife, args=(self._nachmelder_stopp.wait,), name="auftraege-nachmelden", daemon=True
+            )
+            self._nachmelder.start()
 
     def beenden(self, warten: float | None = 5.0) -> None:
         """Bricht den laufenden Auftrag ab und beendet den Arbeitsfaden."""
@@ -215,8 +222,11 @@ class Auftragsverwaltung:
                 self._eintraege[self._laufend].abbruch.set()
             self._bedingung.notify_all()
             faden, self._faden = self._faden, None
-        if faden is not None and warten is not None:
-            faden.join(warten)
+            nachmelder, self._nachmelder = self._nachmelder, None
+            self._nachmelder_stopp.set()
+        for f in (faden, nachmelder):
+            if f is not None and warten is not None:
+                f.join(warten)
 
     # ------------------------------------------------------------------
     # Auftraege
@@ -419,7 +429,8 @@ class Auftragsverwaltung:
             self._nachmelden.add(auftrag_id)
 
     def _nachmelden_ausfuehren(self) -> None:
-        """Eine gedrosselte Meldung geht spaetestens mit der naechsten Runde des Arbeitsfadens raus."""
+        """Eine gedrosselte Meldung geht spaetestens mit der naechsten Runde des Zeitgebers (``_nachmelde_schleife``)
+        bzw. des Arbeitsfadens raus."""
         with self._sperre:
             offen = [self._eintraege[i].auftrag for i in self._nachmelden if i in self._eintraege]
             self._nachmelden.clear()
@@ -429,6 +440,14 @@ class Auftragsverwaltung:
     def nachmelden(self) -> None:
         """Von aussen (z. B. einem Zeitgeber der Programmschnittstelle) aufrufbar."""
         self._nachmelden_ausfuehren()
+
+    def _nachmelde_schleife(self, warten: Callable[[float], bool]) -> None:
+        """Der Zeitgeber (eigener Faden, laeuft mit ``starten``): Gedrosselte Meldungen eines *laufenden* Auftrags
+        gehen spaetestens nach ``MELDE_ABSTAND_SEKUNDEN`` hinaus. Der Arbeitsfaden rechnet in dieser Zeit und kommt
+        nicht dazu -- ohne Zeitgeber hinge die Anzeige auf dem Stand vor der letzten gedrosselten Meldung, bis der
+        Auftrag wieder etwas meldet (bei langen Schritten minutenlang). ``warten`` liefert True zum Beenden."""
+        while not warten(MELDE_ABSTAND_SEKUNDEN):
+            self._nachmelden_ausfuehren()
 
 
 # --------------------------------------------------------------------------
@@ -440,9 +459,13 @@ FREMD_FELDER = ("id", "art", "status", "vorrang", "erstellt", "gestartet", "been
 def fuer_betrachter(daten: dict[str, Any], betrachter: str | None, *, alles_sehen: bool) -> dict[str, Any]:
     """Was ein Nutzer von einem Auftrag sieht. Eigene (und in der Windows-Anwendung alle): vollstaendig.
     Fremde: nur so viel, dass die eigene Position in der Warteschlange und die Wartezeit verstaendlich sind --
-    kein Dateiname, keine Vorschau, kein Ergebnis."""
+    kein Dateiname, keine Vorschau, kein Ergebnis.
+
+    Ein Auftrag ohne Besitzer (Eingangsordner ohne ``PROTOKOLL_EINGANG_NUTZER``, Geraet ohne Besitzer, Modell-
+    Download eines Admins) gehoert im Servermodus niemandem -- fuer Nicht-Admins ist er deshalb fremd. In der
+    Windows-Anwendung gilt ``alles_sehen``."""
     besitzer = daten.get("besitzer")
-    if alles_sehen or besitzer is None or (betrachter is not None and str(besitzer).lower() == betrachter.lower()):
+    if alles_sehen or (besitzer is not None and betrachter is not None and str(besitzer).lower() == betrachter.lower()):
         return daten
     fremd = {k: daten.get(k) for k in FREMD_FELDER if k in daten}
     fremd.update({"titel": "Andere Verarbeitung", "herkunft": "andere", "besitzer": None, "fremd": True})

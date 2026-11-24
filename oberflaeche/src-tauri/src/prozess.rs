@@ -9,6 +9,12 @@
 //! Fenster ab, schliesst Windows den Job-Griff und beendet den Baum ebenfalls
 //! (zusaetzlich zur Elternwache des Dienstes, `VERMERK_ELTERN_PID`).
 //!
+//! Ausnahme: `JOB_OBJECT_LIMIT_BREAKAWAY_OK` erlaubt einem Prozess, den der
+//! Dienst ausdruecklich mit `CREATE_BREAKAWAY_FROM_JOB` startet, den Job zu
+//! verlassen. So starten Ollama (`ollama serve`) und sein Installer
+//! (`utils/prozess.py`, `ausserhalb_des_jobs_starten`): Sie sollen das Fenster
+//! und einen Neustart des Dienstes ueberleben. Alles andere bleibt im Job.
+//!
 //! Bekannte Luecke: Zwischen dem Start des Kindes und der Zuordnung zum Job
 //! liegen Mikrosekunden. Ein Enkel, der in dieser Zeit entstuende, waere nicht
 //! im Job – Python braucht aber weit laenger, bis es irgendetwas startet.
@@ -142,9 +148,13 @@ mod job {
         JobObjectBasicAccountingInformation, JobObjectExtendedLimitInformation,
         QueryInformationJobObject, SetInformationJobObject, TerminateJobObject,
         JOBOBJECT_BASIC_ACCOUNTING_INFORMATION, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
-        JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+        JOB_OBJECT_LIMIT_BREAKAWAY_OK, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
     };
     use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
+
+    /// Grenzen des Jobs: Mit dem Fenster endet der ganze Baum; nur wer
+    /// ausdruecklich `CREATE_BREAKAWAY_FROM_JOB` verlangt, darf hinaus.
+    pub const GRENZEN: u32 = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_BREAKAWAY_OK;
 
     pub struct Job(HANDLE);
 
@@ -163,7 +173,7 @@ mod job {
                 }
                 let job = Job(griff);
                 let mut grenzen: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
-                grenzen.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+                grenzen.BasicLimitInformation.LimitFlags = GRENZEN;
                 if SetInformationJobObject(
                     griff,
                     JobObjectExtendedLimitInformation,
@@ -199,6 +209,23 @@ mod job {
                     std::ptr::null_mut(),
                 );
                 (ok != FALSE).then_some(info.ActiveProcesses)
+            }
+        }
+
+        /// Die tatsaechlich gesetzten Grenzen des Jobs.
+        #[cfg(test)]
+        pub fn grenzen(&self) -> Option<u32> {
+            // SAFETY: Struktur passender Groesse, gueltiger Griff.
+            unsafe {
+                let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
+                let ok = QueryInformationJobObject(
+                    self.0,
+                    JobObjectExtendedLimitInformation,
+                    &mut info as *mut _ as *mut core::ffi::c_void,
+                    std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+                    std::ptr::null_mut(),
+                );
+                (ok != FALSE).then_some(info.BasicLimitInformation.LimitFlags)
             }
         }
 
@@ -290,5 +317,30 @@ mod tests {
         let tabelle = baum::eltern_tabelle().expect("Prozessliste");
         assert!(!tabelle.contains_key(&kind_pid), "Kind laeuft noch");
         assert!(!tabelle.contains_key(&enkel), "Enkel laeuft noch");
+    }
+
+    /// Der Job endet mit dem Fenster, laesst aber ausdruecklich losgeloeste
+    /// Prozesse hinaus (Ollama und sein Installer starten mit
+    /// `CREATE_BREAKAWAY_FROM_JOB`). Ohne `BREAKAWAY_OK` erbten sie den Job
+    /// und endeten mit dem Fenster – auch mitten in der Installation.
+    #[test]
+    fn job_erlaubt_ausdrueckliches_verlassen() {
+        use windows_sys::Win32::System::JobObjects::{
+            JOB_OBJECT_LIMIT_BREAKAWAY_OK, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+            JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK,
+        };
+        let mut befehl = Command::new("cmd");
+        befehl.args(["/d", "/c", "ping -n 30 127.0.0.1 >nul"]);
+        let mut kind = KindProzess::starten(&mut befehl).expect("cmd startet");
+        let grenzen = kind
+            .job
+            .as_ref()
+            .and_then(|job| job.grenzen())
+            .expect("Grenzen lesbar");
+        kind.beenden_und_warten(Duration::from_secs(10));
+        assert_ne!(grenzen & JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, 0);
+        assert_ne!(grenzen & JOB_OBJECT_LIMIT_BREAKAWAY_OK, 0);
+        // Nur auf Verlangen: Ohne das Flag bleibt jeder Enkel im Job.
+        assert_eq!(grenzen & JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK, 0);
     }
 }

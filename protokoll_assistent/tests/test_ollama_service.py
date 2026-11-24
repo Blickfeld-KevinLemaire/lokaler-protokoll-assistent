@@ -4,6 +4,7 @@ import urllib.error
 import pytest
 
 from protokoll_assistent.services import ollama_service
+from protokoll_assistent.utils import prozess
 
 
 class _FakeResponse:
@@ -553,7 +554,9 @@ def test_start_ist_in_tests_und_fuer_fremde_adressen_aus(monkeypatch):
     assert ollama_service.ist_lokale_adresse("http://127.0.0.1:11434") and ollama_service.ist_lokale_adresse("http://localhost:11434")
 
 
-def test_dienst_wird_unsichtbar_als_server_gestartet_und_abgewartet(start_erlaubt, tmp_path):
+def test_dienst_wird_unsichtbar_als_server_gestartet_und_abgewartet(start_erlaubt, tmp_path, monkeypatch):
+    # Wie unter Windows: Ollama verlaesst das Job-Objekt des Fensters (sonst endete es mit ihm).
+    monkeypatch.setattr(prozess, "AUS_DEM_JOB", 0x01000000)
     uhr = _Uhr()
     aufrufe = []
     antworten = iter([False, False, False, False, True])  # vor der Sperre, in der Sperre, dann nach 2 s
@@ -572,9 +575,30 @@ def test_dienst_wird_unsichtbar_als_server_gestartet_und_abgewartet(start_erlaub
     befehl, kwargs = aufrufe[0]
     assert befehl == [str(programm), "serve"]  # nur der Dienst, nicht die Oberflaeche
     assert kwargs["creationflags"] == (
-        ollama_service.LOSGELOEST | ollama_service.NEUE_PROZESSGRUPPE | ollama_service.KEIN_FENSTER
+        ollama_service.LOSGELOEST | ollama_service.NEUE_PROZESSGRUPPE | ollama_service.KEIN_FENSTER | 0x01000000
     )
     assert uhr.jetzt > 1000.0
+
+
+def test_dienst_startet_ohne_breakaway_wenn_ein_fremder_job_es_verbietet(start_erlaubt, tmp_path, monkeypatch):
+    monkeypatch.setattr(prozess, "AUS_DEM_JOB", 0x01000000)
+    flags = []
+
+    def starte(befehl, **kwargs):
+        flags.append(kwargs["creationflags"])
+        if kwargs["creationflags"] & 0x01000000:
+            raise PermissionError(13, "Zugriff verweigert")  # ERROR_ACCESS_DENIED: Job ohne BREAKAWAY_OK
+
+    uhr = _Uhr()
+    antworten = iter([False, False, True])  # vor der Sperre, in der Sperre, nach dem Start
+    assert ollama_service.dienst_starten(
+        ausfuehrbar_fn=lambda: tmp_path / "ollama.exe",
+        popen_fn=starte,
+        laeuft_fn=lambda *a: next(antworten),
+        schlafen_fn=uhr.schlafen,
+        uhr_fn=uhr,
+    )
+    assert len(flags) == 2 and not flags[1] & 0x01000000
 
 
 def test_antwortet_der_dienst_nie_wird_nach_der_wartezeit_aufgegeben(start_erlaubt, tmp_path):

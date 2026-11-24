@@ -38,7 +38,7 @@ from typing import Any
 
 from protokoll_assistent.ablauf.aufnahme import Aufnahmesteuerung
 from protokoll_assistent.ablauf.geraete_automatik import GeraeteAutomatik
-from protokoll_assistent.ablauf.nutzer import NutzerFehler, Nutzerverwaltung
+from protokoll_assistent.ablauf.nutzer import RESERVIERTE_NAMEN, NutzerFehler, Nutzerverwaltung
 from protokoll_assistent.ablauf.steuerung import Steuerung
 from protokoll_assistent.api.app import TAURI_URSPRUENGE, app_erstellen
 from protokoll_assistent.api.kontext import Dienste
@@ -102,14 +102,22 @@ def nutzer_datei() -> Path:
 
 
 def dienste_erstellen(
-    rolle: str, schluessel: str | None, steuerung: Steuerung | None = None, *, mehrbenutzer: bool = False
+    rolle: str,
+    schluessel: str | None,
+    steuerung: Steuerung | None = None,
+    *,
+    mehrbenutzer: bool = False,
+    automatik: GeraeteAutomatik | None = None,
 ) -> Dienste:
     """``mehrbenutzer``: der Servermodus mit Nutzerverwaltung. Die Netzfreigabe der Windows-Anwendung ist
-    Rolle server, aber ein Mensch -- dort bleibt es bei den festen Zugangsschluesseln."""
+    Rolle server, aber ein Mensch -- dort bleibt es bei den festen Zugangsschluesseln.
+
+    ``automatik``: eine schon vorhandene Geraeteautomatik (Netzfreigabe: die der Windows-Anwendung). Ohne sie
+    entsteht eine eigene -- zwei davon starteten beim Speichern der Einstellungen zwei Empfaenge."""
     steuerung = steuerung or Steuerung()
     if mehrbenutzer:
         steuerung.mehrbenutzer = True
-    automatik = GeraeteAutomatik(steuerung)
+    automatik = automatik or GeraeteAutomatik(steuerung)
 
     def zugaenge() -> dict[str, str]:
         return zugaenge_aus_konfiguration(
@@ -120,7 +128,7 @@ def dienste_erstellen(
         rolle,
         start_schluessel=schluessel if rolle == ROLLE_DESKTOP else None,
         zugaenge=zugaenge,
-        nutzer=Nutzerverwaltung(nutzer_datei()) if mehrbenutzer else None,
+        nutzer=Nutzerverwaltung(nutzer_datei(), vergebene_namen=lambda: zugaenge().keys()) if mehrbenutzer else None,
     )
     dienste = Dienste(steuerung=steuerung, automatik=automatik, zugang=zugang)
     dienste.nach_einstellungen.append(automatik.anwenden)
@@ -132,6 +140,12 @@ def dienste_erstellen(
             merken=lambda name: app_config.update_config(aufnahmegeraet=name),
         )
     return dienste
+
+
+def netz_dienste_erstellen(dienste: Dienste) -> Dienste:
+    """Fuer "Im Netz anbieten": dieselbe Steuerung und dieselbe Geraeteautomatik wie das Fenster, aber mit eigener
+    Zugangspruefung (Zugangsschluessel)."""
+    return dienste_erstellen(ROLLE_SERVER, None, steuerung=dienste.steuerung, automatik=dienste.automatik)
 
 
 def eltern_wache(pid: int, beenden: Callable[[], None]) -> threading.Thread:
@@ -296,8 +310,7 @@ def starten(argumente: argparse.Namespace, argv: Sequence[str] = ()) -> int:
                 code="port_belegt",
             )
         else:
-            netz = dienste_erstellen(ROLLE_SERVER, None, steuerung=dienste.steuerung)
-            netz.automatik = dienste.automatik
+            netz = netz_dienste_erstellen(dienste)
             netz_app = app_erstellen(netz, erlaubte_hosts=["*"], cors_urspruenge=(), oberflaeche=oberflaeche)
             server.append((_uvicorn_server(netz_app), netz_socket))
             netz_port = gewuenscht
@@ -353,6 +366,15 @@ def zugang_anlegen(name: str) -> int:
     if not geraete_empfang_service.geraetename_gueltig(name):
         print("Gerätename: Buchstaben, Ziffern, Leerzeichen, „_“ und „-“, höchstens 32 Zeichen.", file=sys.stderr)
         return 2
+    # Ein Zugang mit dem Namen eines Nutzers (oder einem reservierten) bekaeme dessen Rechte und Ordner.
+    try:
+        vergeben = name.lower() in RESERVIERTE_NAMEN or Nutzerverwaltung(nutzer_datei()).hole(name) is not None
+    except NutzerFehler as fehler:
+        print(str(fehler), file=sys.stderr)
+        return 2
+    if vergeben:
+        print(f"Den Namen „{name}“ trägt schon ein Nutzer oder das Programm selbst. Bitte einen anderen wählen.", file=sys.stderr)
+        return 2
     konfig = app_config.load_config()
     zugaenge = [dict(z) for z in konfig.get("server_zugaenge") or [] if isinstance(z, dict) and z.get("name") != name]
     schluessel = schluessel_erzeugen()
@@ -370,7 +392,10 @@ def nutzer_anlegen(argumente: Sequence[str]) -> int:
     parser.add_argument("--admin", action="store_true")
     parser.add_argument("--anzeigename", default="")
     werte = parser.parse_args(list(argumente))
-    verwaltung = Nutzerverwaltung(nutzer_datei())
+    verwaltung = Nutzerverwaltung(
+        nutzer_datei(),
+        vergebene_namen=lambda: zugaenge_aus_konfiguration(app_config.load_config().get("server_zugaenge") or []).keys(),
+    )
     try:
         verwaltung.anlegen(werte.name, anzeigename=werte.anzeigename, admin=werte.admin)
         schluessel = verwaltung.zugang_anlegen(werte.name, "Erster Zugang")

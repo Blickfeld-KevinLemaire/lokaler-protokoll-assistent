@@ -12,6 +12,7 @@ from typing import Any
 
 import pytest
 
+from protokoll_assistent.ablauf.nutzer import NutzerFehler
 from protokoll_assistent.api import __main__ as start
 from protokoll_assistent.api import routen_chat, routen_ollama
 from protokoll_assistent.api.sicherheit import ROLLE_DESKTOP, ROLLE_SERVER, UMGEBUNG_SCHLUESSEL
@@ -199,6 +200,42 @@ def test_zugang_und_nutzer_anlegen(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     assert "Admin" in capsys.readouterr().out
     assert start.main(["nutzer-anlegen", "chef"]) == 2
     assert start.dienste_erstellen(ROLLE_SERVER, None, mehrbenutzer=True).nutzer is not None
+
+
+def test_namen_von_zugaengen_und_nutzern_kollidieren_nicht(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Rechte und Ordner haengen am Namen: Ein Nutzer "laptop" neben dem Zugangsschluessel "Laptop" (oder
+    umgekehrt) teilte sich beides mit dem, der den Schluessel hat. "umgebung" waere Admin ohne eigenen Ordner."""
+    eigene_konfiguration(monkeypatch, tmp_path)
+    assert start.main(["zugang-anlegen", "Laptop"]) == 0
+    assert start.main(["nutzer-anlegen", "laptop"]) == 2  # gleich in welcher Schreibweise
+    assert start.main(["nutzer-anlegen", "Umgebung", "--admin"]) == 2
+    assert start.main(["nutzer-anlegen", "chef", "--admin"]) == 0
+    assert start.main(["zugang-anlegen", "Chef"]) == 2
+    assert start.main(["zugang-anlegen", "umgebung"]) == 2
+    capsys.readouterr()
+    dienste = start.dienste_erstellen(ROLLE_SERVER, None, mehrbenutzer=True)
+    assert dienste.nutzer is not None
+    with pytest.raises(NutzerFehler, match="Zugangsschlüssel"):
+        dienste.nutzer.anlegen("LAPTOP")
+    start.nutzer_datei().write_text("{", encoding="utf-8")  # unlesbar: lieber kein Zugang als ein falscher
+    assert start.main(["zugang-anlegen", "Tablet"]) == 2
+
+
+def test_netzfreigabe_benutzt_die_geraeteautomatik_des_fensters(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Speichert jemand ueber das Netz Einstellungen, wendet die *eine* Automatik sie an -- eine zweite, verwaiste
+    Automatik startete sonst einen zweiten Geraeteempfang auf demselben Port."""
+    eigene_konfiguration(monkeypatch, tmp_path)
+    fenster = start.dienste_erstellen(ROLLE_DESKTOP, "x")
+    assert fenster.automatik is not None
+    angewendet: list[Any] = []
+    monkeypatch.setattr(fenster.automatik, "anwenden", lambda konfiguration=None: angewendet.append(konfiguration))
+    netz = start.netz_dienste_erstellen(fenster)
+    assert netz.rolle == ROLLE_SERVER and netz.steuerung is fenster.steuerung and netz.automatik is fenster.automatik
+    for haken in netz.nach_einstellungen:
+        haken({"geraete_empfang_aktiv": True})
+    assert angewendet == [{"geraete_empfang_aktiv": True}]
 
 
 def test_openapi_ausgabe_ist_utf8(capfdbinary: pytest.CaptureFixture[bytes]) -> None:

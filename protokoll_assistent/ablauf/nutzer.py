@@ -23,13 +23,19 @@ import json
 import re
 import secrets
 import threading
+from collections.abc import Callable, Iterable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+from protokoll_assistent.ablauf.freigaben import ALLE
 from protokoll_assistent.services.manifest_service import _ersetzen_mit_wiederholung
 
-NAME_MUSTER = re.compile(r"^[A-Za-z0-9_-]{1,32}$")
+# Nur mit ``fullmatch`` pruefen: ``match`` liesse wegen "$" einen abschliessenden Zeilenumbruch durch ("anna\n").
+NAME_MUSTER = re.compile(r"[A-Za-z0-9_-]{1,32}")
+# Namen mit fester Bedeutung (gleich in welcher Schreibweise): "umgebung" ist der Notfallzugang aus VERMERK_ZUGANG
+# (Admin, ohne eigenen Ordner), "desktop" der Schluessel des Fensters, "alle" die Freigabe fuer alle.
+RESERVIERTE_NAMEN = frozenset({"umgebung", "desktop", ALLE})
 MIN_PASSWORT = 10
 # scrypt: ~16 MB Speicher je Pruefung -- teuer fuer Angreifer, unmerklich bei einer Anmeldung.
 SCRYPT_N, SCRYPT_R, SCRYPT_P, SCRYPT_LAENGE = 2**14, 8, 1, 32
@@ -90,8 +96,11 @@ class Nutzer:
 
 
 class Nutzerverwaltung:
-    def __init__(self, datei: Path):
+    def __init__(self, datei: Path, *, vergebene_namen: Callable[[], Iterable[str]] = tuple):
+        """``vergebene_namen``: Namen, die schon anderweitig fuer eine Anmeldung stehen (``server_zugaenge``). Ein
+        Nutzer gleichen Namens bekaeme sonst die Rechte und den Ordner dessen, der diesen Zugangsschluessel hat."""
         self.datei = datei
+        self._vergebene_namen = vergebene_namen
         self._sperre = threading.RLock()
 
     # ------------------------------------------------------------------
@@ -104,7 +113,7 @@ class Nutzerverwaltung:
             raise NutzerFehler(f"Die Nutzerliste ist nicht lesbar: {fehler}") from fehler
         nutzer: dict[str, Nutzer] = {}
         for eintrag in roh.get("nutzer", []) if isinstance(roh, dict) else []:
-            if isinstance(eintrag, dict) and NAME_MUSTER.match(str(eintrag.get("name", ""))):
+            if isinstance(eintrag, dict) and NAME_MUSTER.fullmatch(str(eintrag.get("name", ""))):
                 bekannt = {k: v for k, v in eintrag.items() if k in Nutzer.__dataclass_fields__}
                 nutzer[str(eintrag["name"]).lower()] = Nutzer(**bekannt)
         return nutzer
@@ -129,8 +138,12 @@ class Nutzerverwaltung:
         return not self.liste()
 
     def anlegen(self, name: str, *, anzeigename: str = "", admin: bool = False, passwort: str | None = None) -> Nutzer:
-        if not NAME_MUSTER.match(name):
+        if not NAME_MUSTER.fullmatch(name):
             raise NutzerFehler("Anmeldename: Buchstaben, Ziffern, _ und -, höchstens 32 Zeichen.")
+        if name.lower() in RESERVIERTE_NAMEN:
+            raise NutzerFehler(f"Den Namen „{name}“ verwendet das Programm selbst. Bitte einen anderen wählen.")
+        if name.lower() in {str(n).lower() for n in self._vergebene_namen()}:
+            raise NutzerFehler(f"„{name}“ ist schon der Name eines Zugangsschlüssels. Bitte einen anderen wählen.")
         if passwort is not None:
             _passwort_pruefen(passwort)
         with self._sperre:
@@ -189,7 +202,7 @@ class Nutzerverwaltung:
             self._schreiben(alle)
 
     def passwort_pruefen(self, name: str, passwort: str) -> Nutzer | None:
-        nutzer = self.hole(name) if NAME_MUSTER.match(name) else None
+        nutzer = self.hole(name) if NAME_MUSTER.fullmatch(name) else None
         gespeichert = nutzer.passwort if nutzer is not None and nutzer.passwort else _ATTRAPPE
         passt = passwort_passt(passwort, gespeichert)
         if nutzer is None or not nutzer.aktiv or not nutzer.passwort or not passt:
@@ -227,7 +240,11 @@ class Nutzerverwaltung:
 
     def zugang_pruefen(self, schluessel: str) -> Nutzer | None:
         """Zu welchem aktiven Nutzer gehoert dieser Schluessel? Vergleicht alle (konstante Zeit)."""
-        gesucht = schluessel_hash(schluessel)
+        return self.zugang_hash_pruefen(schluessel_hash(schluessel))
+
+    def zugang_hash_pruefen(self, gesucht: str) -> Nutzer | None:
+        """Wie ``zugang_pruefen``, aber mit dem SHA-256 des Schluessels -- so prueft eine Browser-Sitzung bei jeder
+        Anfrage nach, ob der Schluessel, mit dem sie angelegt wurde, noch gilt (ohne den Klartext aufzuheben)."""
         treffer: Nutzer | None = None
         for nutzer in self.liste():
             for zugang in nutzer.zugaenge:

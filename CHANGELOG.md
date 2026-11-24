@@ -23,6 +23,25 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 - Weil die Paketliste der Rechenumgebung kleiner geworden ist (ohne PySide6), gleicht der lokale Modus sie beim
   ersten Start nach dem Update einmal ab (braucht Internet; ohne Netz läuft die vorhandene Umgebung weiter).
 
+### Fixed
+
+- **Im Netz anbieten:** Einstellungen, die über das Netz gespeichert werden, starten keinen zweiten Empfang für
+  Aufnahmegeräte mehr (der Port war dann belegt).
+- **Server mit mehreren Nutzern:** Verarbeitungen ohne Besitzer (Eingangsordner ohne festgelegten Nutzer, Geräte ohne
+  Besitzer) sehen nur noch Admins; alle anderen sehen nur „Andere Verarbeitung“. Gleichzeitiges Teilen von
+  Besprechungen geht nicht mehr verloren.
+- **Abmelden wirkt sofort:** Wird ein Zugangsschlüssel entfernt oder das Passwort geändert, enden auch die damit
+  angemeldeten Browser-Sitzungen (beim eigenen Passwortwechsel bleibt die aktuelle Sitzung angemeldet). Nutzernamen,
+  die das Programm selbst verwendet („umgebung“, „desktop“, „alle“) oder die schon ein Zugangsschlüssel trägt,
+  lassen sich nicht mehr vergeben.
+- **Eingangsordner:** Eine abgebrochene Verarbeitung wird nicht mehr von selbst neu gestartet (die Datei kommt nach
+  `fehler/`); nur beim Herunterfahren bleibt sie für den nächsten Start liegen. Eine Datei wird nicht mehr doppelt
+  verarbeitet.
+- **Ollama** läuft weiter, wenn das Fenster geschlossen oder neu gestartet wird – auch eine laufende Installation.
+- **Einrichtung:** Ein abgebrochenes Laden der Modelle gilt als abgebrochen, nicht als fertig; die Mitschrift bleibt
+  dann zur Einrichtung offen.
+- Der Fortschritt einer laufenden Verarbeitung bleibt nicht mehr minutenlang auf einem alten Stand stehen.
+
 ## [0.6.0-alpha.1] - 2026-11-22
 
 Testrelease der neuen Oberfläche (Branch `feature/neue-oberflaeche`), nicht für den normalen Einsatz. Einzelheiten

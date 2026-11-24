@@ -8,6 +8,8 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
+from protokoll_assistent.ablauf import freigaben as freigaben_modul
+from protokoll_assistent.ablauf.freigaben import Freigaben
 from protokoll_assistent.ablauf.nutzer import NutzerFehler, Nutzerverwaltung, passwort_hash, passwort_passt
 from protokoll_assistent.api.sicherheit import ROLLE_SERVER
 from protokoll_assistent.tests.api_hilfen import Umgebung, app_bauen, eigene_konfiguration
@@ -65,6 +67,33 @@ def test_gesperrter_nutzer_verliert_die_sitzung(server: Umgebung) -> None:
     assert anna.get("/api/info").status_code == 401
 
 
+def test_widerrufener_schluessel_beendet_die_browser_sitzung(server: Umgebung) -> None:
+    anna = _client(server, "anna")
+    schluessel = anna.post("/api/ich/zugaenge", json={"bezeichnung": "Laptop"}).json()["schluessel"]
+    browser = TestClient(server.client.app)
+    assert browser.post("/api/anmelden", json={"schluessel": schluessel}).json() == {"angemeldet_als": "anna"}
+    assert browser.get("/api/info").json()["angemeldet_als"] == "anna"
+    assert anna.delete("/api/ich/zugaenge/Laptop").json() == {"entfernt": True}
+    assert browser.get("/api/info").status_code == 401
+    assert anna.get("/api/info").status_code == 200  # mit dem Passwort angemeldet: nicht betroffen
+
+
+def test_passwortwechsel_beendet_die_anderen_sitzungen(server: Umgebung) -> None:
+    """Die Sitzung, mit der das Passwort geaendert wird, bleibt (dort hat eben jemand das bisherige Passwort
+    genannt); eine andere -- etwa auf einem vergessenen Rechner -- endet. Ein neues Passwort durch einen Admin
+    beendet alle Passwort-Sitzungen des Nutzers."""
+    hier, dort = _client(server, "anna"), _client(server, "anna")
+    neu = "ein-ganz-neues-passwort"
+    antwort = hier.put("/api/ich/passwort", json={"bisher": PASSWORT, "neu": neu})
+    assert antwort.json() == {"gespeichert": True}
+    assert hier.get("/api/info").status_code == 200
+    assert dort.get("/api/info").status_code == 401
+    chef = _client(server, "chef")
+    assert chef.patch("/api/nutzer/anna", json={"passwort": "vom-admin-gesetzt"}).status_code == 200
+    assert hier.get("/api/info").status_code == 401
+    assert chef.get("/api/info").status_code == 200
+
+
 def test_jeder_hat_eigene_besprechungen_und_teilt_gezielt(server: Umgebung) -> None:
     anna, ben = _client(server, "anna"), _client(server, "ben")
     antwort = anna.post("/api/auftraege/transkription", json={"quelle": str(_audio(server, "anna")), "mit_auswertung": True})
@@ -109,6 +138,24 @@ def test_fremde_auftraege_ohne_inhalt(server: Umgebung) -> None:
     assert chef.delete(f"/api/auftraege/{annas['id']}").json() == {"abgebrochen": True}
     zustand = ben.get("/api/zustand").json()
     assert zustand["empfang"] is None
+
+
+def test_auftraege_ohne_besitzer_sehen_nur_admins(server: Umgebung) -> None:
+    """Eingangsordner ohne PROTOKOLL_EINGANG_NUTZER, Geraete ohne Besitzer: Die Ergebnisse gehoeren niemandem --
+    Titel, Quellpfad und Ergebnis sehen nur Admins, alle anderen nur "Andere Verarbeitung"."""
+    ben, chef = _client(server, "ben"), _client(server, "chef")
+    quelle = str(server.tmp / "eingang" / "vorstand-geheim.wav")
+    auftrag = server.steuerung.auftraege.einreihen(
+        "verarbeitung", "vorstand-geheim.wav", lambda f: {"ausgabe": "vertraulich"}, herkunft="ordner", angaben={"quelle": quelle}
+    )
+    server.auftraege_ausfuehren()
+    fuer_ben = next(a for a in ben.get("/api/auftraege").json() if a["id"] == auftrag.id)
+    assert fuer_ben["fremd"] is True and fuer_ben["titel"] == "Andere Verarbeitung"
+    assert "geheim" not in str(fuer_ben) and "vertraulich" not in str(fuer_ben)
+    assert "geheim" not in str(ben.get(f"/api/auftraege/{auftrag.id}").json())
+    assert ben.delete(f"/api/auftraege/{auftrag.id}").status_code == 404
+    fuer_chef = next(a for a in chef.get("/api/auftraege").json() if a["id"] == auftrag.id)
+    assert fuer_chef["titel"] == "vorstand-geheim.wav" and fuer_chef["ergebnis"] == {"ausgabe": "vertraulich"}
 
 
 def test_hochladen_in_den_eigenen_ordner(server: Umgebung) -> None:
@@ -216,11 +263,30 @@ def test_ereignisse_fuer_andere_nutzer(server: Umgebung) -> None:
     assert ereignis_fuer(d, ben, "einstellungen", {"geaendert": []}) is not None
 
 
+@pytest.mark.parametrize("name", ["umgebung", "Umgebung", "desktop", "DESKTOP", "alle", "Alle"])
+def test_reservierte_namen_werden_keine_nutzer(server: Umgebung, name: str) -> None:
+    """Ein Nutzer "umgebung" waere Admin ohne eigenen Ordner, "desktop" der Schluessel des Fensters, "alle" die Freigabe fuer
+    alle -- ein Nutzer dieses Namens bekaeme deren Bedeutung."""
+    chef = _client(server, "chef")
+    antwort = chef.post("/api/nutzer", json={"name": name, "passwort": PASSWORT})
+    assert antwort.status_code == 400 and "Programm selbst" in antwort.json()["detail"]
+    assert server.dienste.nutzer is not None and server.dienste.nutzer.hole(name) is None
+
+
+def test_nutzer_nicht_unter_dem_namen_eines_zugangsschluessels(tmp_path: Path) -> None:
+    v = Nutzerverwaltung(tmp_path / "nutzer.json", vergebene_namen=lambda: ["Laptop"])
+    with pytest.raises(NutzerFehler, match="Zugangsschlüssel"):
+        v.anlegen("laptop", admin=True)
+    assert v.anlegen("tablet").name == "tablet"
+
+
 def test_nutzerverwaltung_regeln(tmp_path: Path) -> None:
     v = Nutzerverwaltung(tmp_path / "nutzer.json")
     assert v.leer()
     with pytest.raises(NutzerFehler, match="Anmeldename"):
         v.anlegen("mit leerzeichen")
+    with pytest.raises(NutzerFehler, match="Anmeldename"):
+        v.anlegen("anna\n")  # "$" bei re.match liesse den Zeilenumbruch durch
     v.anlegen("admin", admin=True, passwort=PASSWORT)
     with pytest.raises(NutzerFehler, match="mindestens einen aktiven Admin"):
         v.aendern("admin", admin=False)
@@ -236,3 +302,39 @@ def test_nutzerverwaltung_regeln(tmp_path: Path) -> None:
     assert not passwort_passt("x", "md5$abc")
     assert not passwort_passt("x", "unsinn")
     assert passwort_passt("geheim", passwort_hash("geheim"))
+
+
+# ---------------------------------------------------------------- Freigaben (freigaben.json)
+def test_freigaben_teilen_sich_eine_sperre_je_datei(tmp_path: Path) -> None:
+    """Jede Anfrage baut ihr eigenes ``Freigaben`` (``Dienste.freigaben()``), und FastAPI fuehrt Anfragen parallel
+    aus. Geschuetzt ist das Lesen-Aendern-Schreiben nur, wenn alle Objekte derselben Datei dieselbe Sperre haben."""
+    datei = tmp_path / "freigaben.json"
+    assert Freigaben(datei)._sperre is Freigaben(tmp_path / "." / "freigaben.json")._sperre
+    assert Freigaben(datei)._sperre is not Freigaben(tmp_path / "andere.json")._sperre
+
+
+def test_freigaben_schreiben_unter_eindeutigem_arbeitsnamen(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    datei = tmp_path / "freigaben.json"
+    arbeitsnamen: list[Path] = []
+    echt = freigaben_modul._ersetzen_mit_wiederholung
+
+    def ersetzen(quelle: Path, ziel: Path) -> None:
+        arbeitsnamen.append(quelle)
+        echt(quelle, ziel)
+
+    monkeypatch.setattr(freigaben_modul, "_ersetzen_mit_wiederholung", ersetzen)
+    freigaben = Freigaben(datei)
+    freigaben.setzen("anna", "sitzung", ["ben"])
+    freigaben.setzen("anna", "andere", [freigaben_modul.ALLE])
+    assert len(set(arbeitsnamen)) == 2 and datei.with_name("freigaben.json.tmp") not in arbeitsnamen
+    assert freigaben.mit_wem("anna", "sitzung") == ["ben"] and freigaben.darf_lesen("ben", "anna", "andere")
+    assert list(tmp_path.glob("*.tmp")) == []
+
+    def scheitern(quelle: Path, ziel: Path) -> None:
+        raise PermissionError("gesperrt")
+
+    monkeypatch.setattr(freigaben_modul, "_ersetzen_mit_wiederholung", scheitern)
+    with pytest.raises(PermissionError):
+        freigaben.setzen("anna", "dritte", ["ben"])
+    assert list(tmp_path.glob("*.tmp")) == []  # kein liegengebliebener Arbeitsstand
+    assert freigaben.mit_wem("anna", "dritte") == []

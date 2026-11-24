@@ -192,6 +192,40 @@ def test_nachmelden_schickt_gedrosseltes(bus: Ereignisbus) -> None:
     assert any(e.art == "auftrag" and e.daten["fortschritt"] == 0.5 for e in empfangen)
 
 
+def test_zeitgeber_meldet_gedrosseltes_waehrend_der_auftrag_rechnet(bus: Ereignisbus) -> None:
+    """Die letzte gedrosselte Meldung vor einem langen, stillen Schritt darf nicht liegen bleiben: Der Zeitgeber
+    reicht sie nach, waehrend der Arbeitsfaden noch rechnet. Hier ohne Faden: Der Zeitgeber laeuft im Auftrag,
+    sein Warten ist ersetzt (eine Runde, dann Ende)."""
+    verwaltung = Auftragsverwaltung(bus, jetzt=Uhr())
+    empfangen: list[Ereignis] = []
+    runden = iter([False, True])
+
+    def arbeit(f: Fortschritt) -> dict[str, Any]:
+        f.stufe("a", "A")
+        bus.abonnieren(empfangen.append)
+        f.gesamt(0.5)  # gedrosselt -- danach kommt lange nichts
+        assert empfangen == []
+        verwaltung._nachmelde_schleife(lambda sekunden: next(runden))
+        assert [e.daten["fortschritt"] for e in empfangen if e.art == "auftrag"] == [0.5]
+        verwaltung._nachmelde_schleife(lambda sekunden: True)  # beendet: nichts mehr
+        return {}
+
+    verwaltung.einreihen("t", "a", arbeit)
+    verwaltung.ausfuehren_im_aufrufer()
+    assert next(runden, None) is None
+
+
+def test_zeitgeber_laeuft_mit_der_verwaltung() -> None:
+    verwaltung = Auftragsverwaltung(Ereignisbus())
+    verwaltung.starten()
+    zeitgeber = verwaltung._nachmelder
+    try:
+        assert zeitgeber is not None and zeitgeber.is_alive() and zeitgeber.name == "auftraege-nachmelden"
+    finally:
+        verwaltung.beenden()
+    assert verwaltung._nachmelder is None and not zeitgeber.is_alive()
+
+
 def test_erledigte_werden_begrenzt(verwaltung: Auftragsverwaltung, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(auftraege, "MAX_ERLEDIGTE", 2)
     for i in range(4):
