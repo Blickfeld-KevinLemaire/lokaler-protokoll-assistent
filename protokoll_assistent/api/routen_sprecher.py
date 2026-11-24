@@ -59,6 +59,10 @@ def arbeitsordner_der_aufnahme(daten: dict[str, Any]) -> Path | None:
     audio = Path(str(daten.get("audio_pfad") or ""))
     if not str(audio) or not audio.is_file():
         return None
+    if (audio.parent / manifest_service.MANIFEST_FILENAME).is_file():
+        # Die Pipeline traegt die normalisierte Fassung ein, die IM Arbeitsordner liegt. Deren Hash fuehrte in einen
+        # anderen (leeren) Ordner: "Stimme merken" fand nie eine Stimme, Vorschlaege gab es nie.
+        return audio.parent
     stat = audio.stat()
     schluessel = (str(audio.resolve()), stat.st_size, stat.st_mtime_ns)
     with _hash_sperre:
