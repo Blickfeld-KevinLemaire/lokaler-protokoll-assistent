@@ -24,6 +24,9 @@
 #include "esp_timer.h"
 #include "esp_system.h"
 #include "driver/gpio.h"
+#include "esp_pm.h"
+#include "esp_sleep.h"
+#include "esp_wifi.h"
 
 #include <stdint.h>
 #include <string.h>
@@ -67,6 +70,7 @@ static volatile TickType_t mic2_last_signal_tick = 0;
 static volatile uint32_t rec_percent = 0;
 static volatile uint32_t rec_elapsed_seconds = 0;
 static volatile rec_state_t rec_state = REC_IDLE;
+static volatile bool mic_pausiert = false;       /* Mikrofon im Leerlauf abgeschaltet (Strom sparen) */
 static volatile uint16_t wave_peak = 0;          /* Max. Pegel seit letzter Abholung durch die UI */
 static volatile uint32_t pending_uploads = 0;    /* Aufnahmen auf SD, die noch hochgeladen werden */
 static volatile bool upload_active = false;
@@ -90,6 +94,14 @@ static volatile bool storage_full_stop = false;   /* Aufnahme wegen vollem Speic
  * (POST .../zusammenfassung). Danach laesst sich mit der BOOT-Taste an der Seite (gedrueckt halten und sprechen)
  * eine Frage stellen; die Antwort erscheint als Text auf dem Display. */
 #define PTT_GPIO                 GPIO_NUM_0      /* BOOT-Taste an der Seite, gedrueckt = 0 */
+#define DISPLAY_DIMMEN_NACH_MS      60000u       /* ohne Bedienung so lange hell, dann gedimmt */
+#define DISPLAY_HELLIGKEIT_GEDIMMT  10           /* Prozent; normal ist LCD_Backlight (80). Nie ganz aus */
+#define LAUTSPRECHER_PA_GPIO        GPIO_NUM_15  /* Verstaerker-Freigabe (1 = an); nur waehrend einer Ansage an */
+#define DISPLAY_BL_GPIO             GPIO_NUM_5   /* Hintergrundlicht (EXAMPLE_LCD_PIN_NUM_BK_LIGHT) */
+#define AKKU_LEER_V                 3.30f        /* gefiltert, ohne Kabel: darunter Aufnahme sichern und schlafen */
+#define AKKU_LEER_BESTAETIGEN_MS    30000u       /* so lange muss die Spannung darunter bleiben */
+#define AKKU_WIEDER_START_V         3.75f        /* Weckprobe im Tiefschlaf: ab hier (es wird geladen) starten */
+#define AKKU_WECKPROBE_US           (15ull * 60ull * 1000000ull)   /* alle 15 min nachsehen, ob geladen wird */
 #define FRAGE_MAX_SEKUNDEN       25u
 #define FRAGE_PFAD               REC_DIR "/FRAGE." REC_EXT
 #define FRAGE_ANTWORT_TIMEOUT_MS (120u * 1000u)
@@ -152,8 +164,10 @@ static lv_obj_t *mic_status_label;
 static lv_obj_t *record_indicator;
 static lv_obj_t *record_button;
 static lv_obj_t *record_button_label;
-static lv_obj_t *battery_label;
+static lv_obj_t *battery_label;          /* Gehaeuse des Akku-Symbols */
 static lv_obj_t *battery_charge_icon;
+static void battery_ui_set(int balken, bool unbekannt);
+static int battery_balken(int prozent, int bisher);
 static lv_obj_t *connection_label;
 static lv_obj_t *fertig_vollbild;                /* "Transkription erfolgreich" ueber den ganzen Bildschirm */
 static uint32_t fertig_vollbild_start = 0;       /* lv_tick_get() beim Einblenden */
@@ -206,6 +220,15 @@ typedef enum {
 } transfer_mode_t;
 
 static volatile transfer_mode_t transfer_mode = TRANSFER_MODE_LOCAL;
+
+#define STATUS_KEY_HOCHLADEN 1000   /* Statustext "WIRD HOCHGELADEN" (neben den Schluesseln der Verarbeitung) */
+
+/* Eine Aufnahme liegt noch auf dem Geraet und das Ziel ist erreichbar: sie geht gerade raus (oder gleich) */
+static bool aufnahme_wird_gesendet(void)
+{
+    bool ziel = (transfer_mode == TRANSFER_MODE_PC || transfer_mode == TRANSFER_MODE_SERVER);
+    return ziel && (upload_active || pending_uploads > 0);
+}
 
 /* Modus automatisch aus der Verbindungslage ableiten.
  * usb_serial_jtag_is_connected() ist nur bei einem echten USB-Host (PC) true,
@@ -410,6 +433,125 @@ static esp_err_t finalize_recording(FILE *f)
     return ok ? ESP_OK : ESP_FAIL;
 }
 
+/* ---- Sprachausgabe: wenige kurze Saetze, fest in der App ----
+ * Erzeugt mit tools/ansagen_erzeugen.py (IMA-ADPCM, 16 kHz Mono, untere 4 Bit zuerst, Start mit Vorhersage 0 und
+ * Index 0). Die Oberflaeche fordert an (ansage_anfordern), die Audio-Task spielt ab: Nur sie darf das Mikrofon gegen
+ * den Lautsprecher tauschen (bsp_lautsprecher_an). Gesprochen wird nur in Ruhe, nie waehrend Aufnahme oder Frage;
+ * eine startende Aufnahme bricht die Ansage nach hoechstens einem Block (16 ms) ab. */
+#define ANSAGE_LAUTSTAERKE   70          /* ES8311, 0..100 = -50..0 dB; 70 = -15 dB (80 war dem Nutzer zu laut) */
+
+typedef enum {
+    ANSAGE_KEINE = -1,
+    ANSAGE_TRANSKRIPTION = 0,            /* "Transkription erfolgreich." */
+    ANSAGE_FRAGE_ZUSAMMENFASSUNG,        /* "Moechten Sie eine Zusammenfassung erstellen?" */
+    ANSAGE_PROTOKOLL,                    /* "Protokoll erfolgreich." */
+} ansage_t;
+
+extern const uint8_t ansage_transkription_start[] asm("_binary_transkription_erfolgreich_adpcm_start");
+extern const uint8_t ansage_transkription_end[] asm("_binary_transkription_erfolgreich_adpcm_end");
+extern const uint8_t ansage_frage_start[] asm("_binary_frage_zusammenfassung_adpcm_start");
+extern const uint8_t ansage_frage_end[] asm("_binary_frage_zusammenfassung_adpcm_end");
+extern const uint8_t ansage_protokoll_start[] asm("_binary_protokoll_erfolgreich_adpcm_start");
+extern const uint8_t ansage_protokoll_end[] asm("_binary_protokoll_erfolgreich_adpcm_end");
+
+static volatile int ansage_wunsch = ANSAGE_KEINE;
+static volatile bool ansage_abbrechen = false;
+
+static void ansage_anfordern(ansage_t a)
+{
+    ansage_abbrechen = false;
+    ansage_wunsch = (int)a;
+}
+
+static void ansage_stoppen(void)
+{
+    ansage_wunsch = ANSAGE_KEINE;
+    ansage_abbrechen = true;
+}
+
+static bool ansage_erlaubt(void)
+{
+    rec_state_t rs = rec_state;
+    return (rs == REC_IDLE || rs == REC_DONE) && frage_phase == FRAGE_AUS && !ansage_abbrechen;
+}
+
+static const int8_t adpcm_index_tab[16] = {-1, -1, -1, -1, 2, 4, 6, 8, -1, -1, -1, -1, 2, 4, 6, 8};
+static const int16_t adpcm_schritt_tab[89] = {
+    7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 19, 21, 23, 25, 28, 31, 34, 37, 41, 45, 50, 55, 60, 66, 73, 80, 88, 97,
+    107, 118, 130, 143, 157, 173, 190, 209, 230, 253, 279, 307, 337, 371, 408, 449, 494, 544, 598, 658, 724, 796,
+    876, 963, 1060, 1166, 1282, 1411, 1552, 1707, 1878, 2066, 2272, 2499, 2749, 3024, 3327, 3660, 4026, 4428, 4871,
+    5358, 5894, 6484, 7132, 7845, 8630, 9493, 10442, 11487, 12635, 13899, 15289, 16818, 18500, 20350, 22385, 24623,
+    27086, 29794, 32767};
+
+/* false: abgebrochen oder Fehler */
+static bool ansage_satz(const uint8_t *d, size_t len, int16_t *puffer, int puffer_len)
+{
+    int pred = 0, idx = 0, n = 0;
+    for (size_t i = 0; i < len * 2; i++) {
+        int code = (i & 1) ? (d[i >> 1] >> 4) : (d[i >> 1] & 0x0F);
+        int schritt = adpcm_schritt_tab[idx];
+        int diff = schritt >> 3;
+        if (code & 4) diff += schritt;
+        if (code & 2) diff += schritt >> 1;
+        if (code & 1) diff += schritt >> 2;
+        pred += (code & 8) ? -diff : diff;
+        if (pred > 32767) pred = 32767;
+        if (pred < -32768) pred = -32768;
+        idx += adpcm_index_tab[code];
+        if (idx < 0) idx = 0;
+        if (idx > 88) idx = 88;
+        puffer[n++] = (int16_t)pred;
+        if (n == puffer_len) {
+            if (!ansage_erlaubt() || bsp_lautsprecher_schreiben(puffer, n) != ESP_OK) {
+                return false;
+            }
+            n = 0;
+        }
+    }
+    return n == 0 || bsp_lautsprecher_schreiben(puffer, n) == ESP_OK;
+}
+
+/* Nur aus der Audio-Task. Spielt die gewuenschte Ansage und alle, die waehrenddessen dazukommen. */
+static void ansage_abspielen(int16_t *puffer, int puffer_len)
+{
+    /* Waehrenddessen gilt das Mikrofon als pausiert: Wellenform steht, keine Meldung "MIKROFON PRUEFEN" */
+    mic_pausiert = true;
+    mic1_peak = 0;
+    mic2_peak = 0;
+    audio_first_ok_tick = 0;
+
+    esp_err_t e = bsp_lautsprecher_an(ANSAGE_LAUTSTAERKE);
+    if (e == ESP_OK) {
+        bsp_lautsprecher_schreiben(NULL, RECORD_SAMPLE_RATE / 50);        /* 20 ms Stille: Codec laeuft an */
+        gpio_set_level(LAUTSPRECHER_PA_GPIO, 1);
+        bsp_lautsprecher_schreiben(NULL, RECORD_SAMPLE_RATE * 3 / 50);    /* 60 ms: Verstaerker schwingt ein */
+        while (ansage_wunsch != ANSAGE_KEINE && ansage_erlaubt()) {
+            int a = ansage_wunsch;
+            ansage_wunsch = ANSAGE_KEINE;
+            const uint8_t *von = NULL, *bis = NULL;
+            switch (a) {
+                case ANSAGE_TRANSKRIPTION: von = ansage_transkription_start; bis = ansage_transkription_end; break;
+                case ANSAGE_FRAGE_ZUSAMMENFASSUNG: von = ansage_frage_start; bis = ansage_frage_end; break;
+                case ANSAGE_PROTOKOLL: von = ansage_protokoll_start; bis = ansage_protokoll_end; break;
+                default: break;
+            }
+            if (von == NULL) {
+                continue;
+            }
+            printf("VERMERK Ansage %d\n", a);
+            if (!ansage_satz(von, (size_t)(bis - von), puffer, puffer_len)) {
+                break;
+            }
+            bsp_lautsprecher_schreiben(NULL, RECORD_SAMPLE_RATE / 5);   /* 200 ms: Rest aus dem DMA-Puffer, Pause */
+        }
+        gpio_set_level(LAUTSPRECHER_PA_GPIO, 0);
+    }
+    esp_err_t z = bsp_lautsprecher_aus();
+    printf("VERMERK Lautsprecher: %s, Mikrofon zurueck: %s, RAM frei %u Bytes\n", esp_err_to_name(e),
+           esp_err_to_name(z), (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+    mic_pausiert = false;   /* das Mikrofon ist wieder offen; im Leerlauf schaltet die Schleife es gleich wieder ab */
+}
+
 static void audio_task(void *arg)
 {
     static int16_t raw[AUDIO_FRAMES * AUDIO_RAW_CHANNELS];
@@ -421,6 +563,36 @@ static void audio_task(void *arg)
     bool paused_flushed = false;
 
     while (1) {
+        if (ansage_wunsch != ANSAGE_KEINE) {
+            if (ansage_erlaubt() && record_file == NULL) {
+                ansage_abspielen(mono, AUDIO_FRAMES);
+                continue;
+            }
+            ansage_wunsch = ANSAGE_KEINE;   /* Aufnahme oder Frage laeuft: nicht dazwischen sprechen */
+        }
+        /* Mikrofon nur, wenn es jemand braucht: Aufnahme oder Frage laeuft, oder das Display ist hell (die
+         * Wellenform zeigt dann den Pegel). Im gedimmten Leerlauf sind Mikrofon-Codec und I2S aus. */
+        rec_state_t mic_rs = rec_state;
+        bool mic_noetig = !vermerk_display_gedimmt || frage_phase != FRAGE_AUS ||
+                          !(mic_rs == REC_IDLE || mic_rs == REC_DONE || mic_rs == REC_ERROR);
+        if (!mic_noetig) {
+            if (!mic_pausiert) {
+                esp_err_t e = esp_mic_aktiv(false);
+                mic_pausiert = true;
+                mic1_peak = 0;
+                mic2_peak = 0;
+                audio_first_ok_tick = 0;   /* nach dem Wiederanlaufen gilt die Anlaufzeit der Mikrofonpruefung */
+                printf("VERMERK Mikrofon aus (Leerlauf): %s\n", esp_err_to_name(e));
+            }
+            vTaskDelay(pdMS_TO_TICKS(50));
+            continue;
+        }
+        if (mic_pausiert) {
+            esp_err_t e = esp_mic_aktiv(true);
+            mic_pausiert = false;
+            printf("VERMERK Mikrofon an: %s\n", esp_err_to_name(e));
+        }
+
         esp_err_t err = esp_get_feed_data(true, raw, sizeof(raw));
 
         if (err != ESP_OK) {
@@ -739,6 +911,7 @@ static void rueckfrage_ja_cb(lv_event_t *e)
     (void)e;
     rueckfrage_beantwortet = true;
     zusammenfassung_gewuenscht = true;
+    ansage_stoppen();   /* beantwortet: die Frage nicht zu Ende sprechen */
 }
 
 static void rueckfrage_nein_cb(lv_event_t *e)
@@ -747,6 +920,7 @@ static void rueckfrage_nein_cb(lv_event_t *e)
     zusammenfassung_abgelehnt = true;
     ablehnung_melden = true;
     rueckfrage_beantwortet = true;
+    ansage_stoppen();
 }
 
 static void antwort_schliessen_cb(lv_event_t *e)
@@ -783,13 +957,15 @@ static void bedienung_ui_erstellen(void)
     lv_label_set_text(auftrag_label, "Zusammenfassung:");
     lv_obj_set_style_text_font(auftrag_label, &lv_font_montserrat_16, 0);
     lv_obj_set_style_text_color(auftrag_label, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_align(auftrag_label, LV_ALIGN_TOP_MID, 0, 420);
+    /* Gleich unter dem unteren Bildschirmrand (360): kurzer Wisch genuegt. Ganz nach unten gewischt steht die
+     * Auswahl bei y 237-301 und damit noch im breiten Teil des runden Displays. */
+    lv_obj_align(auftrag_label, LV_ALIGN_TOP_MID, 0, 362);
 
-    /* Ende des Wischbereichs: der Inhalt endet 180 px unter dem Bildschirm */
+    /* Ende des Wischbereichs: der Inhalt endet 125 px unter dem Bildschirm (vorher 180) */
     lv_obj_t *ende = lv_obj_create(scr);
     lv_obj_remove_style_all(ende);
     lv_obj_set_size(ende, 1, 1);
-    lv_obj_align(ende, LV_ALIGN_TOP_MID, 0, 539);
+    lv_obj_align(ende, LV_ALIGN_TOP_MID, 0, 484);
     lv_obj_clear_flag(ende, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
 
     scroll_pfeil = lv_label_create(scr);
@@ -804,7 +980,7 @@ static void bedienung_ui_erstellen(void)
     lv_dropdown_set_dir(auftrag_dropdown, LV_DIR_TOP);
     lv_dropdown_set_symbol(auftrag_dropdown, LV_SYMBOL_UP);
     lv_obj_set_size(auftrag_dropdown, 220, 40);
-    lv_obj_align(auftrag_dropdown, LV_ALIGN_TOP_MID, 0, 446);
+    lv_obj_align(auftrag_dropdown, LV_ALIGN_TOP_MID, 0, 386);
     lv_obj_set_style_bg_color(auftrag_dropdown, lv_color_hex(0x1C1C1E), 0);
     lv_obj_set_style_text_color(auftrag_dropdown, lv_color_hex(0xFFFFFF), 0);
     lv_obj_set_style_text_font(auftrag_dropdown, &lv_font_montserrat_16, 0);
@@ -962,6 +1138,7 @@ static void bedienung_ui_update(rec_state_t state)
     if (frage_noetig == lv_obj_has_flag(rueckfrage_box, LV_OBJ_FLAG_HIDDEN)) {
         if (frage_noetig) {
             lv_obj_clear_flag(rueckfrage_box, LV_OBJ_FLAG_HIDDEN);
+            ansage_anfordern(ANSAGE_FRAGE_ZUSAMMENFASSUNG);
         } else {
             lv_obj_add_flag(rueckfrage_box, LV_OBJ_FLAG_HIDDEN);
         }
@@ -1018,6 +1195,75 @@ static void bedienung_ui_update(rec_state_t state)
     }
 }
 
+/* ---- Akku leer: Aufnahme sauber abschliessen, Hinweis zeigen, Tiefschlaf ----
+ * Ohne das laeuft das Geraet bis zur Abschaltung der Schutzschaltung (ca. 3,0 V) weiter, und die laufende
+ * Aufnahme endet ohne Abschluss. Wecken: BOOT-Taste an der Seite sofort, sonst alle 15 min eine kurze Probe,
+ * die nur bei Ladespannung (oder am PC) normal startet. */
+static volatile bool akku_leer = false;
+
+static void tiefschlaf_starten(void)
+{
+    /* Hintergrundlicht und Verstaerker im Schlaf fest aus halten (die Pins wuerden sonst frei schweben) */
+    gpio_set_level(DISPLAY_BL_GPIO, 0);
+    gpio_set_direction(DISPLAY_BL_GPIO, GPIO_MODE_OUTPUT);
+    gpio_set_level(LAUTSPRECHER_PA_GPIO, 0);
+    gpio_set_direction(LAUTSPRECHER_PA_GPIO, GPIO_MODE_OUTPUT);
+    gpio_hold_en(DISPLAY_BL_GPIO);
+    gpio_hold_en(LAUTSPRECHER_PA_GPIO);
+    gpio_deep_sleep_hold_en();
+
+    esp_sleep_enable_ext0_wakeup(PTT_GPIO, 0);
+    esp_sleep_enable_timer_wakeup(AKKU_WECKPROBE_US);
+    fflush(stdout);
+    esp_deep_sleep_start();
+}
+
+static void akku_leer_schritt(uint32_t now)
+{
+    static int phase = 0;
+    static uint32_t seit = 0;
+    static bool aufnahme_gesichert = false;
+    if (!akku_leer) {
+        return;
+    }
+    rec_state_t rs = rec_state;
+    if (rs == REC_RECORDING || rs == REC_PAUSED) {
+        rec_state = REC_STOP_REQUESTED;   /* sauber abschliessen, solange der Akku das noch kann */
+        aufnahme_gesichert = true;
+    }
+    if (phase == 0) {
+        phase = 1;
+        seit = now;
+        lv_obj_t *box = lv_obj_create(lv_layer_top());
+        lv_obj_remove_style_all(box);
+        lv_obj_set_size(box, LV_PCT(100), LV_PCT(100));
+        lv_obj_set_style_bg_color(box, lv_color_black(), 0);
+        lv_obj_set_style_bg_opa(box, LV_OPA_COVER, 0);
+        lv_obj_t *t = lv_label_create(box);
+        lv_obj_set_style_text_color(t, lv_color_hex(0xFF453A), 0);
+        lv_obj_set_style_text_font(t, &lv_font_montserrat_16, 0);
+        lv_obj_set_style_text_align(t, LV_TEXT_ALIGN_CENTER, 0);
+        lv_label_set_text(t, "AKKU LEER\n\nBitte laden.\nDas Geraet startet beim Laden\nvon selbst oder mit der\nTaste an der Seite.");
+        lv_obj_center(t);
+        Set_Backlight(LCD_Backlight);
+        printf("VERMERK Akku leer: Aufnahme wird gesichert, danach Tiefschlaf\n");
+        return;
+    }
+    if (phase == 1) {
+        bool rec_fertig = !(rs == REC_REQUESTED || rs == REC_RECORDING || rs == REC_PAUSED ||
+                            rs == REC_STOP_REQUESTED || rs == REC_SAVING);
+        uint32_t dauer = now - seit;
+        if ((rec_fertig && !upload_active && dauer >= 8000) || dauer >= 30000) {
+            phase = 2;
+            printf("VERMERK Akku leer: Tiefschlaf (Aufnahme %s)\n", aufnahme_gesichert ? "gesichert" : "keine");
+            Set_Backlight(0);
+            esp_lcd_panel_disp_on_off(panel_handle, false);
+            esp_wifi_stop();
+            tiefschlaf_starten();
+        }
+    }
+}
+
 static void update_ui(void)
 {
     static uint32_t last_update = 0;
@@ -1038,6 +1284,44 @@ static void update_ui(void)
     }
     last_update = now;
 
+    akku_leer_schritt(now);
+
+    /* Display dimmen (Strom sparen): nach 60 s ohne Bedienung auf 10 %. Beruehren, die BOOT-Taste und jeder
+     * Wechsel des Aufnahmezustands machen es wieder hell. Pegel, Akku und Status bleiben gedimmt lesbar. */
+    {
+        static uint32_t aktiv_tick = 0;
+        static uint32_t beruehrt_prev = 0;
+        static rec_state_t dimm_state_prev = REC_IDLE;
+        bool wach = false;
+        if (vermerk_beruehrt_tick != beruehrt_prev) {
+            beruehrt_prev = vermerk_beruehrt_tick;
+            wach = true;
+        }
+        if (gpio_get_level(PTT_GPIO) == 0) {
+            wach = true;
+        }
+        static frage_phase_t dimm_frage_prev = FRAGE_AUS;
+        if (rec_state != dimm_state_prev) {
+            dimm_state_prev = rec_state;
+            wach = true;
+        }
+        if (frage_phase != dimm_frage_prev) {
+            dimm_frage_prev = frage_phase;   /* z. B. die Antwort auf eine Frage ist da */
+            wach = true;
+        }
+        if (wach) {
+            aktiv_tick = now;
+            if (vermerk_display_gedimmt) {
+                Set_Backlight(LCD_Backlight);
+                vermerk_display_gedimmt = false;
+                Wireless_Bald_Pruefen();   /* wer das Geraet bedient, will den aktuellen Stand */
+            }
+        } else if (!vermerk_display_gedimmt && (now - aktiv_tick) >= DISPLAY_DIMMEN_NACH_MS) {
+            Set_Backlight(DISPLAY_HELLIGKEIT_GEDIMMT);
+            vermerk_display_gedimmt = true;
+        }
+    }
+
     if ((now - last_battery_update) >= 1000) {
         static float slow_voltage = 0.0f;   /* ~20 s Zeitkonstante, fuer die Prozentanzeige */
         static float fast_voltage = 0.0f;   /* ~3 s Zeitkonstante, fuer Neusynchronisation */
@@ -1054,7 +1338,27 @@ static void update_ui(void)
         static uint32_t power_change_tick = 0;
         static uint32_t last_percent_step = 0;
         static int shown_percent = -2;
+        static int shown_bars = -1;
         static bool shown_charging = false;
+        /* Gegen den falschen Blitz: Faellt die Last weg (Ende eines WLAN-Stosses, Aufnahme startet, Upload
+         * endet), steigt die Akkuspannung ebenfalls sprunghaft. Deshalb: Vergleich mit dem Hoechstwert der
+         * letzten 10 s (nicht mit dem letzten Wert), keine Erkennung kurz nach einem bekannten Lastwechsel,
+         * und eine Erkennung ueber den Sprung muss sich danach bestaetigen. */
+        static float recent_v[10];
+        static int recent_n = 0;
+        static int recent_i = 0;
+        static int load_key_prev = -1;
+        static uint32_t load_change_tick = 0;
+        static float ext_plug_ref = 0.0f;      /* Spannung vor dem Sprung */
+        static float ext_check_v = 0.0f;       /* Spannung beim letzten Trend-Pruefpunkt (0 = noch keiner) */
+        static uint32_t ext_check_tick = 0;
+
+        int load_key = ((rec_state != REC_IDLE && rec_state != REC_DONE && rec_state != REC_ERROR) ? 1 : 0) |
+                       (upload_active ? 2 : 0) | (WIFI_CONNECTED ? 4 : 0) | (vermerk_display_gedimmt ? 8 : 0);
+        if (load_key != load_key_prev) {
+            load_key_prev = load_key;
+            load_change_tick = now;
+        }
 
         float v = BAT_Get_Volts();
 
@@ -1066,21 +1370,30 @@ static void update_ui(void)
             slow_voltage += (v - slow_voltage) * 0.05f;
             fast_voltage += (v - fast_voltage) * 0.30f;
 
+            float recent_max = 0.0f;
+            for (int k = 0; k < recent_n; k++) {
+                if (recent_v[k] > recent_max) recent_max = recent_v[k];
+            }
+
             if (previous_raw_voltage > 0.0f) {
                 float raw_delta = v - previous_raw_voltage;
 
                 if (!external_power) {
-                    /* Schwelle 30 mV: am Geraet gemessen springt die Spannung beim Einstecken um ca. 40-55 mV
-                     * (Ladestrom), die Stoerspitzen alle ~12 s sind nur ca. 24 mV hoch und eine Messung lang. */
-                    if (power_up_hits == 0 && raw_delta >= 0.030f) {
-                        power_reference_voltage = previous_raw_voltage;
+                    /* Am Geraet gemessen hebt das Einstecken die Spannung um ca. 40-55 mV (Ladestrom) ueber den
+                     * Ruhewert. Nach einem WLAN-Stoss kehrt sie nur auf diesen Ruhewert zurueck: Massstab ist
+                     * deshalb der Hoechstwert der letzten 10 s. Drei Messungen in Folge, also ca. 2 s. */
+                    bool ruhig = (now - load_change_tick) >= 5000;
+                    if (power_up_hits == 0 && ruhig && recent_n >= 5 && v >= recent_max + 0.030f) {
+                        power_reference_voltage = recent_max;
                         power_up_hits = 1;
                     } else if (power_up_hits > 0) {
-                        if (v >= power_reference_voltage + 0.025f) {
+                        if (ruhig && v >= power_reference_voltage + 0.025f) {
                             power_up_hits++;
-                            if (power_up_hits >= 2) {
+                            if (power_up_hits >= 3) {
                                 external_power = true;
                                 power_change_tick = now;
+                                ext_plug_ref = power_reference_voltage;
+                                ext_check_v = 0.0f;
                                 power_up_hits = 0;
                                 power_down_hits = 0;
                                 printf("VERMERK USB/Power erkannt\n");
@@ -1107,10 +1420,39 @@ static void update_ui(void)
                             power_down_hits = 0;
                         }
                     }
+
+                    /* Bestaetigen: Ein Ladegeraet haelt die Spannung ueber dem Wert vor dem Einstecken und laesst
+                     * sie nicht sinken. Faellt sie auf Akkuniveau zurueck oder sinkt sie ueber Minuten, war der
+                     * Sprung ein Lastwechsel: Blitz weg, die Anzeige darf wieder fallen. */
+                    if (external_power && (now - power_change_tick) >= 60000) {
+                        const char *grund = NULL;
+                        if (slow_voltage < ext_plug_ref + 0.012f) {
+                            grund = "Spannung wieder auf Akkuniveau";
+                        } else if (ext_check_v <= 0.0f) {
+                            ext_check_v = slow_voltage;
+                            ext_check_tick = now;
+                        } else if ((now - ext_check_tick) >= 180000) {
+                            if (slow_voltage < ext_check_v - 0.010f) {
+                                grund = "Spannung sinkt";
+                            }
+                            ext_check_v = slow_voltage;
+                            ext_check_tick = now;
+                        }
+                        if (grund != NULL) {
+                            external_power = false;
+                            power_change_tick = now;
+                            power_down_hits = 0;
+                            power_up_hits = 0;
+                            printf("VERMERK USB/Power verworfen: %s\n", grund);
+                        }
+                    }
                 }
             }
 
             previous_raw_voltage = v;
+            recent_v[recent_i] = v;
+            recent_i = (recent_i + 1) % 10;
+            if (recent_n < 10) recent_n++;
 
             /* Kabel: PC (USB-Host, sicher) oder Netzteil/Powerbank (nur ueber den Spannungssprung). */
             bool host = usb_serial_jtag_is_connected();
@@ -1129,6 +1471,21 @@ static void update_ui(void)
                 power_change_tick = now;
             }
             usb_prev = usb_present;
+
+            /* Akku leer (gefiltert, ohne Kabel, 30 s lang): siehe akku_leer_schritt */
+            {
+                static uint32_t leer_seit = 0;
+                if (!usb_present && slow_voltage > 0.0f && slow_voltage < AKKU_LEER_V) {
+                    if (leer_seit == 0) {
+                        leer_seit = now | 1u;
+                    } else if (!akku_leer && (now - leer_seit) >= AKKU_LEER_BESTAETIGEN_MS) {
+                        akku_leer = true;
+                        printf("VERMERK Akku leer erkannt: %.3f V\n", slow_voltage);
+                    }
+                } else {
+                    leer_seit = 0;
+                }
+            }
 
             if (displayed_percent < 0) {
                 /* Am Kabel liegt die Spannung ca. 30-50 mV ueber dem Ruhewert (Ladestrom) */
@@ -1175,8 +1532,12 @@ static void update_ui(void)
             }
 
             if (displayed_percent != shown_percent) {
-                lv_label_set_text_fmt(battery_label, "AKKU %d%%", displayed_percent);
-                lv_obj_set_style_text_color(battery_label, lv_color_hex(0x4AB7F4), 0);   /* nach LEER/? zurueck */
+                /* shown_percent < 0: vorher LEER/? oder Start - dann ohne Hysterese neu bestimmen */
+                int balken = battery_balken(displayed_percent, shown_percent < 0 ? -1 : shown_bars);
+                if (balken != shown_bars || shown_percent < 0) {
+                    battery_ui_set(balken, false);
+                    shown_bars = balken;
+                }
                 shown_percent = displayed_percent;
             }
             if (usb_present != shown_charging) {
@@ -1187,22 +1548,15 @@ static void update_ui(void)
                 }
                 shown_charging = usb_present;
             }
-            lv_obj_align_to(battery_charge_icon, battery_label, LV_ALIGN_OUT_LEFT_MID, -4, 0);
         } else {
-            /* Kein plausibler Messwert: nicht "--" stehen lassen, sondern den Grund zeigen.
-             * 0,5..3,0 V: Zelle leer bzw. tiefentladen (die Schutzschaltung/der Regler schaltet bald ab).
-             * sonst (kein Wert, Wandlerfehler, Spannung zu hoch): "AKKU ?". */
+            /* Kein plausibler Messwert: nicht stehen lassen, sondern den Grund zeigen.
+             * 0,5..3,0 V: Zelle leer bzw. tiefentladen (die Schutzschaltung/der Regler schaltet bald ab):
+             * rotes Gehaeuse ohne Balken. Sonst (kein Wert, Wandlerfehler, Spannung zu hoch): grau mit "?". */
             int state = (v >= 0.5f && v < 3.0f) ? -3 : -4;
             if (state != shown_percent) {
-                if (state == -3) {
-                    lv_label_set_text(battery_label, "AKKU LEER");
-                    lv_obj_set_style_text_color(battery_label, lv_color_hex(0xFF453A), 0);
-                } else {
-                    lv_label_set_text(battery_label, "AKKU ?");
-                    lv_obj_set_style_text_color(battery_label, lv_color_hex(0x4AB7F4), 0);
-                }
+                battery_ui_set(0, state == -4);
+                shown_bars = 0;
                 lv_obj_add_flag(battery_charge_icon, LV_OBJ_FLAG_HIDDEN);
-                lv_obj_align_to(battery_charge_icon, battery_label, LV_ALIGN_OUT_LEFT_MID, -4, 0);
                 shown_percent = state;
                 shown_charging = false;   /* Symbol beim Rueckkehren in den Messbereich neu setzen */
             }
@@ -1210,6 +1564,7 @@ static void update_ui(void)
             slow_voltage = 0.0f;
             fast_voltage = 0.0f;
             previous_raw_voltage = 0.0f;
+            recent_n = 0;
             displayed_percent = -1;
         }
 
@@ -1268,18 +1623,24 @@ static void update_ui(void)
 
         static int shown_pending = -1;
         int pending = (int)pending_uploads;
-        if (pending != shown_pending) {
+        bool gesendet = aufnahme_wird_gesendet();
+        int pending_key = pending * 2 + (gesendet ? 1 : 0);
+        if (pending_key != shown_pending) {
             if (pending <= 0) {
                 lv_obj_add_flag(pending_label, LV_OBJ_FLAG_HIDDEN);
             } else {
+                /* Verbindung da: es wird gesendet (Pfeil, blau); sonst wartet die Aufnahme auf dem Geraet */
                 if (pending == 1) {
-                    lv_label_set_text(pending_label, "1 AUFNAHME OFFEN");
+                    lv_label_set_text(pending_label, gesendet ? LV_SYMBOL_UPLOAD " 1 AUFNAHME WIRD GESENDET"
+                                                              : "1 AUFNAHME OFFEN");
                 } else {
-                    lv_label_set_text_fmt(pending_label, "%d AUFNAHMEN OFFEN", pending);
+                    lv_label_set_text_fmt(pending_label, gesendet ? LV_SYMBOL_UPLOAD " %d AUFNAHMEN WERDEN GESENDET"
+                                                                  : "%d AUFNAHMEN OFFEN", pending);
                 }
+                lv_obj_set_style_text_color(pending_label, lv_color_hex(gesendet ? 0x4AB7F4 : 0xAAAAAA), 0);
                 lv_obj_clear_flag(pending_label, LV_OBJ_FLAG_HIDDEN);
             }
-            shown_pending = pending;
+            shown_pending = pending_key;
         }
 
         last_wifi_update = now;
@@ -1321,7 +1682,9 @@ static void update_ui(void)
     /* Wellenform: alle 50 ms einen neuen Balken rechts anhaengen, in der Pause einfrieren */
     uint16_t peak = wave_peak;
     wave_peak = 0;
-    if (state != REC_PAUSED) {
+    /* Mikrofon aus (gedimmter Leerlauf): Wellenform einfrieren, dann muss auch nichts neu gezeichnet werden */
+    bool wave_still = mic_pausiert;
+    if (state != REC_PAUSED && !wave_still) {
         memmove(wave_levels, wave_levels + 1, WAVE_BARS - 1);
         wave_levels[WAVE_BARS - 1] = peak_to_wave_level(peak);
     }
@@ -1332,7 +1695,14 @@ static void update_ui(void)
     } else {
         wave_color = lv_color_hex(0x3A7FA8);
     }
-    lv_obj_invalidate(waveform);
+    static bool wave_war_still = false;
+    if (wave_still && !wave_war_still) {
+        memset(wave_levels, 0, WAVE_BARS);   /* einmal flach zeichnen, dann ruht die Anzeige */
+        lv_obj_invalidate(waveform);
+    } else if (!wave_still) {
+        lv_obj_invalidate(waveform);
+    }
+    wave_war_still = wave_still;
 
     if (state == REC_RECORDING || state == REC_PAUSED) {
         uint32_t total = rec_elapsed_seconds;
@@ -1453,10 +1823,10 @@ static void update_ui(void)
             fertig_vollbild_zustand != z) {
             fertig_vollbild_zustand = z;
             fertig_vollbild_start = lv_tick_get();
-            lv_label_set_text(fertig_vollbild_text, (z == VERMERK_VERARB_FERTIG && rueckfrage_gesehen)
-                                                        ? "ZUSAMMENFASSUNG\nFERTIG"
-                                                        : "TRANSKRIPTION\nERFOLGREICH");
+            const bool protokoll = (z == VERMERK_VERARB_FERTIG && rueckfrage_gesehen);
+            lv_label_set_text(fertig_vollbild_text, protokoll ? "ZUSAMMENFASSUNG\nFERTIG" : "TRANSKRIPTION\nERFOLGREICH");
             lv_obj_clear_flag(fertig_vollbild, LV_OBJ_FLAG_HIDDEN);
+            ansage_anfordern(protokoll ? ANSAGE_PROTOKOLL : ANSAGE_TRANSKRIPTION);
         }
     }
     {
@@ -1470,6 +1840,10 @@ static void update_ui(void)
                 key = (int)z * 10 + (rueckfrage_gesehen ? 1 : 0);
             }
         }
+        /* Nach "GESPEICHERT" sieht man sonst nicht, dass die Aufnahme gerade zum PC/Server geht */
+        if (key < 0 && (state == REC_IDLE || state == REC_DONE) && aufnahme_wird_gesendet()) {
+            key = STATUS_KEY_HOCHLADEN;
+        }
         if (state != vz_shown_state) {
             vz_shown_state = state;
             vz_shown_key = -2;   /* der Statustext wurde oben neu gesetzt: noch einmal darueberschreiben */
@@ -1477,7 +1851,10 @@ static void update_ui(void)
         if (key != vz_shown_key) {
             int vorher = vz_shown_key;
             vz_shown_key = key;
-            if (key >= 0) {
+            if (key == STATUS_KEY_HOCHLADEN) {
+                lv_label_set_text(status_label, LV_SYMBOL_UPLOAD " WIRD HOCHGELADEN");
+                lv_obj_set_style_text_color(status_label, lv_color_hex(0x4AB7F4), 0);
+            } else if (key >= 0) {
                 switch (verarbeitung_zustand) {
                     case VERMERK_VERARB_TRANSKRIPT:
                         lv_label_set_text(status_label, LV_SYMBOL_OK " TRANSKRIPTION ERFOLGREICH");
@@ -1518,6 +1895,100 @@ static lv_obj_t *make_label(lv_obj_t *parent, const char *text, lv_color_t color
     lv_obj_set_style_text_color(label, color, 0);
     return label;
 }
+
+/* ---- Akku-Symbol: Gehaeuse mit 4 Balken zu je 25 % (statt einer Prozentzahl) ----
+ * Die Spannungsmessung ist nur auf einige Prozent genau; vier Stufen zeigen den Stand ehrlich an.
+ * battery_label ist das Gehaeuse (an ihm richten sich Blitz und Layout aus). */
+#define AKKU_FARBE_NORMAL  0x4AB7F4
+#define AKKU_FARBE_ROT     0xFF453A
+#define AKKU_FARBE_GRAU    0x8E8E93
+#define AKKU_BALKEN_B      10
+#define AKKU_BALKEN_H      16
+#define AKKU_BALKEN_ABSTAND 3
+static lv_obj_t *battery_bar[4];
+static lv_obj_t *battery_tip;
+static lv_obj_t *battery_unknown;
+
+static void battery_ui_create(lv_obj_t *scr)
+{
+    const int rand = 2, innen = 3;
+    const int breite = 2 * rand + 2 * innen + 4 * AKKU_BALKEN_B + 3 * AKKU_BALKEN_ABSTAND;   /* 59 */
+    const int hoehe = 2 * rand + 2 * innen + AKKU_BALKEN_H;                                /* 26 */
+
+    battery_label = lv_obj_create(scr);
+    lv_obj_remove_style_all(battery_label);
+    lv_obj_set_size(battery_label, breite, hoehe);
+    lv_obj_set_style_border_width(battery_label, rand, 0);
+    lv_obj_set_style_border_opa(battery_label, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(battery_label, 5, 0);
+    lv_obj_clear_flag(battery_label, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+    /* rechts buendig wie frueher der Text, mittig zur Verbindungsanzeige links (y 108, Hoehe 36) */
+    lv_obj_align(battery_label, LV_ALIGN_TOP_RIGHT, -48, 108 + (36 - hoehe) / 2);
+
+    battery_tip = lv_obj_create(scr);
+    lv_obj_remove_style_all(battery_tip);
+    lv_obj_set_size(battery_tip, 4, 10);
+    lv_obj_set_style_bg_opa(battery_tip, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(battery_tip, 2, 0);
+    lv_obj_clear_flag(battery_tip, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_align_to(battery_tip, battery_label, LV_ALIGN_OUT_RIGHT_MID, 1, 0);
+
+    for (int k = 0; k < 4; k++) {
+        battery_bar[k] = lv_obj_create(battery_label);
+        lv_obj_remove_style_all(battery_bar[k]);
+        lv_obj_set_size(battery_bar[k], AKKU_BALKEN_B, AKKU_BALKEN_H);
+        lv_obj_set_style_bg_opa(battery_bar[k], LV_OPA_COVER, 0);
+        lv_obj_set_style_radius(battery_bar[k], 2, 0);
+        lv_obj_clear_flag(battery_bar[k], LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_set_pos(battery_bar[k], innen + k * (AKKU_BALKEN_B + AKKU_BALKEN_ABSTAND), innen);
+        lv_obj_add_flag(battery_bar[k], LV_OBJ_FLAG_HIDDEN);
+    }
+
+    battery_unknown = lv_label_create(battery_label);
+    lv_label_set_text(battery_unknown, "?");
+    lv_obj_set_style_text_font(battery_unknown, &lv_font_montserrat_16, 0);
+    lv_obj_center(battery_unknown);
+
+    battery_ui_set(0, true);   /* bis zur ersten Messung (ca. 1 s) grau mit "?" */
+}
+
+/* balken 0..4; unbekannt: grau mit "?" (kein plausibler Messwert). Rot ab dem letzten Viertel. */
+static void battery_ui_set(int balken, bool unbekannt)
+{
+    uint32_t farbe = unbekannt ? AKKU_FARBE_GRAU : (balken <= 1 ? AKKU_FARBE_ROT : AKKU_FARBE_NORMAL);
+    lv_color_t c = lv_color_hex(farbe);
+    lv_obj_set_style_border_color(battery_label, c, 0);
+    lv_obj_set_style_bg_color(battery_tip, c, 0);
+    lv_obj_set_style_text_color(battery_unknown, c, 0);
+    for (int k = 0; k < 4; k++) {
+        lv_obj_set_style_bg_color(battery_bar[k], c, 0);
+        if (!unbekannt && k < balken) {
+            lv_obj_clear_flag(battery_bar[k], LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(battery_bar[k], LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+    if (unbekannt) {
+        lv_obj_clear_flag(battery_unknown, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(battery_unknown, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+/* Prozent -> Balken: 76-100 % = 4, 51-75 = 3, 26-50 = 2, 1-25 = 1 (rot), 0 = keiner (rot).
+ * Nach oben erst 3 Prozentpunkte ueber der Grenze, damit die Anzeige an einer Grenze nicht springt. */
+static int battery_balken(int prozent, int bisher)
+{
+    static const int ab[5] = {0, 1, 26, 51, 76};   /* ab wie viel Prozent n Balken */
+    int n = 0;
+    for (int k = 4; k >= 1; k--) {
+        if (prozent >= ab[k]) { n = k; break; }
+    }
+    if (bisher >= 0 && n > bisher && prozent < ab[n] + 3) {
+        n--;
+    }
+    return n;
+}
 static void vermerk_h3_ui_create(void)
 {
     lv_obj_t *scr = lv_scr_act();
@@ -1552,11 +2023,10 @@ static void vermerk_h3_ui_create(void)
     lv_obj_set_style_border_width(connection_label, 1, 0);
     lv_obj_set_style_radius(connection_label, 18, 0);
 
-    battery_label = make_label(scr, "AKKU --%", lv_color_hex(0x4AB7F4));
-    lv_obj_align(battery_label, LV_ALIGN_TOP_RIGHT, -42, 108);
+    battery_ui_create(scr);
 
     battery_charge_icon = make_label(scr, LV_SYMBOL_CHARGE, lv_color_hex(0xFFD60A));
-    lv_obj_align_to(battery_charge_icon, battery_label, LV_ALIGN_OUT_LEFT_MID, -4, 0);
+    lv_obj_align_to(battery_charge_icon, battery_label, LV_ALIGN_OUT_LEFT_MID, -6, 0);
     lv_obj_add_flag(battery_charge_icon, LV_OBJ_FLAG_HIDDEN);
 
     status_label = make_label(scr, "BEREIT", lv_color_hex(0xFFFFFF));
@@ -2290,10 +2760,46 @@ static void upload_manager_task(void *arg)
 
 void app_main(void)
 {
+    /* Haltepins aus dem Tiefschlaf freigeben (sonst bleibt das Hintergrundlicht aus) */
+    gpio_deep_sleep_hold_dis();
+    gpio_hold_dis(DISPLAY_BL_GPIO);
+    /* Lautsprecher-Verstaerker fest aus, bis eine Sprachausgabe ihn braucht (der Pin schwebte sonst) */
+    gpio_hold_dis(LAUTSPRECHER_PA_GPIO);
+    gpio_set_level(LAUTSPRECHER_PA_GPIO, 0);
+    gpio_set_direction(LAUTSPRECHER_PA_GPIO, GPIO_MODE_OUTPUT);
+    gpio_set_pull_mode(LAUTSPRECHER_PA_GPIO, GPIO_PULLDOWN_ONLY);
+
+    BAT_Init();
+    if (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_TIMER) {
+        /* Weckprobe nach "Akku leer": nur starten, wenn geladen wird (Spannung hoch) oder ein PC dran ist */
+        bool pc = false;
+        for (int i = 0; i < 15 && !pc; i++) {
+            vTaskDelay(pdMS_TO_TICKS(100));
+            pc = usb_serial_jtag_is_connected();
+        }
+        float v = BAT_Get_Volts();
+        if (!pc && v < AKKU_WIEDER_START_V) {
+            printf("VERMERK Weckprobe: %.3f V, kein Laden - weiter schlafen\n", v);
+            tiefschlaf_starten();
+        }
+        printf("VERMERK Weckprobe: %.3f V%s - Start\n", v, pc ? ", PC" : "");
+    }
+
+    /* Prozessortakt nach Bedarf: 240 MHz, solange eine Aufgabe rechnet, 80 MHz im Leerlauf. Kein Light Sleep
+     * (Display, Mikrofon und USB laufen durchgehend). Ohne CONFIG_PM_ENABLE bleibt es bei festen 240 MHz. */
+#if CONFIG_PM_ENABLE
+    esp_pm_config_t pm = {
+        .max_freq_mhz = CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ,
+        .min_freq_mhz = 80,
+        .light_sleep_enable = false,
+    };
+    esp_err_t pm_err = esp_pm_configure(&pm);
+    printf("VERMERK Takt: %d-%d MHz (%s)\n", pm.min_freq_mhz, pm.max_freq_mhz, esp_err_to_name(pm_err));
+#endif
+
     ESP_ERROR_CHECK(esp_board_init(16000, 2, 16));
     rec_enc_init();   /* Encoder frueh anlegen, solange noch ein grosser RAM-Block frei ist */
     opus_enc_seiten_haken(vermerk_live_seite);   /* jede Ogg-Seite auch fuer das Senden waehrend der Aufnahme */
-    BAT_Init();
     SD_Init();
 
     EXIO_Init();

@@ -2,6 +2,7 @@
 #include "vermerk_konfig.h"
 #include "esp_event.h"
 #include "esp_netif.h"
+#include "esp_timer.h"
 #include <stdlib.h>
 
 volatile bool WIFI_CONNECTED = false;
@@ -16,6 +17,19 @@ volatile bool PC_REACHABLE = false;
 /* Von /api/v1/hallo gemeldete Stueckgroesse je Ziel (0 = Standard) */
 static volatile uint32_t teil_max_bytes[2];
 
+/* Neu verbinden mit wachsender Pause (1, 2, 4 ... hoechstens 60 s). Sofort wieder zu verbinden hiesse
+ * ausserhalb des WLANs pausenlos suchen: Das Funkteil laeuft dann dauernd mit vollem Strom. */
+#define WLAN_PAUSE_MIN_MS   1000
+#define WLAN_PAUSE_MAX_MS  60000
+static esp_timer_handle_t wlan_wieder_timer;
+static uint32_t wlan_pause_ms = WLAN_PAUSE_MIN_MS;
+
+static void wlan_wieder_verbinden(void *arg)
+{
+    (void)arg;
+    esp_wifi_connect();
+}
+
 static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data)
 {
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
@@ -25,10 +39,16 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
         WIFI_CONNECTED = false;
         SERVER_REACHABLE = false;
         PC_REACHABLE = false;
-        esp_wifi_connect();
+        if (wlan_wieder_timer != NULL && !esp_timer_is_active(wlan_wieder_timer)) {
+            esp_timer_start_once(wlan_wieder_timer, (uint64_t)wlan_pause_ms * 1000u);
+            wlan_pause_ms = (wlan_pause_ms >= WLAN_PAUSE_MAX_MS / 2) ? WLAN_PAUSE_MAX_MS : wlan_pause_ms * 2;
+        } else if (wlan_wieder_timer == NULL) {
+            esp_wifi_connect();
+        }
     }
     else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
         WIFI_CONNECTED = true;
+        wlan_pause_ms = WLAN_PAUSE_MIN_MS;
     }
 }
 
@@ -62,10 +82,19 @@ static bool probe_target(vermerk_ziel_t ziel, int *letzter_zustand)
     return hallo.erreichbar;
 }
 
+/* Gesetzt von Wireless_Bald_Pruefen: naechste Erreichbarkeitspruefung sofort statt nach der Pause */
+static volatile bool s_bald_pruefen = false;
+
+void Wireless_Bald_Pruefen(void)
+{
+    s_bald_pruefen = true;
+}
+
 static void server_check_task(void *arg)
 {
     int zustand_server = -2;
     int zustand_pc = -2;
+    int pause_s = 10;
 
     while (1) {
         if (WIFI_CONNECTED) {
@@ -78,7 +107,23 @@ static void server_check_task(void *arg)
             zustand_pc = -2;
         }
 
-        vTaskDelay(pdMS_TO_TICKS(3000));
+        /* Alle 10 s nachfragen (jede Anfrage weckt das Funkteil). Antwortet weder Server noch PC, wird die
+         * Pause bis auf 60 s verlaengert: Eine Anfrage ins Leere haelt das Funkteil bis zur Zeitueberschreitung
+         * (5 s) wach. Sofort wieder nachfragen nach einem neuen Verbindungsaufbau und wenn jemand das Geraet
+         * bedient (Wireless_Bald_Pruefen), damit eine wartende Aufnahme nicht unnoetig liegen bleibt. */
+        if (SERVER_REACHABLE || PC_REACHABLE || !WIFI_CONNECTED) {
+            pause_s = 10;
+        } else if (pause_s < 60) {
+            pause_s = (pause_s * 2 > 60) ? 60 : pause_s * 2;
+        }
+        bool war_verbunden = WIFI_CONNECTED;
+        s_bald_pruefen = false;
+        for (int i = 0; i < pause_s && WIFI_CONNECTED == war_verbunden && !s_bald_pruefen; i++) {
+            vTaskDelay(pdMS_TO_TICKS(1000));
+        }
+        if (WIFI_CONNECTED != war_verbunden || s_bald_pruefen) {
+            pause_s = 10;
+        }
     }
 }
 
@@ -127,6 +172,14 @@ void WIFI_Init(void *arg)
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
 
+    const esp_timer_create_args_t wieder_args = {
+        .callback = wlan_wieder_verbinden,
+        .name = "wlan_wieder",
+    };
+    if (esp_timer_create(&wieder_args, &wlan_wieder_timer) != ESP_OK) {
+        wlan_wieder_timer = NULL;   /* dann wie bisher sofort neu verbinden */
+    }
+
     ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, NULL));
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &wifi_event_handler, NULL));
 
@@ -137,19 +190,22 @@ void WIFI_Init(void *arg)
     strncpy((char *)wifi_config.sta.password, vermerk_konfig_wlan_passwort(), sizeof(wifi_config.sta.password) - 1);
     wifi_config.sta.pmf_cfg.capable = true;
     wifi_config.sta.pmf_cfg.required = false;
+    /* Im Energiesparen nur jeden 10. Beacon (ca. 1 s) aufwachen statt jeden; Senden weckt sofort */
+    wifi_config.sta.listen_interval = WLAN_LISTEN_INTERVALL;
 
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
     ESP_ERROR_CHECK(esp_wifi_start());
+    esp_wifi_set_ps(WIFI_PS_MAX_MODEM);
 
     vTaskDelete(NULL);
 }
 
-/* WLAN-Energiesparen (Standard: MIN_MODEM) bremst den Durchsatz stark,
+/* WLAN-Energiesparen (MAX_MODEM: schlaeft WLAN_LISTEN_INTERVALL Beacons lang) bremst den Durchsatz stark,
  * weil das Funkmodul zwischen den Beacons schlaeft. Fuer Uploads abschalten. */
 void VERMERK_Wifi_Fast_Mode(bool on)
 {
-    esp_err_t ps_err = esp_wifi_set_ps(on ? WIFI_PS_NONE : WIFI_PS_MIN_MODEM);
+    esp_err_t ps_err = esp_wifi_set_ps(on ? WIFI_PS_NONE : WIFI_PS_MAX_MODEM);
     if (on) {
         wifi_ap_record_t ap = {0};
         int rssi = (esp_wifi_sta_get_ap_info(&ap) == ESP_OK) ? ap.rssi : 0;
