@@ -1168,6 +1168,15 @@ def test_ohne_fragendienst_gibt_es_keine_fragen(dienst):
 # --------------------------------------------------------------------------
 # Fremde im Netz koennen die Geraete nicht aussperren
 # --------------------------------------------------------------------------
+def _freie_plaetze(server, erwartet):
+    """Freie Plaetze, sobald es ``erwartet`` sind (hoechstens 5 s). Der Bearbeitungsfaden gibt seinen Platz erst
+    frei, nachdem die Antwort schon beim Client ist -- sofort nachgezaehlt, fehlte ab und zu einer."""
+    ende = time.monotonic() + 5
+    while server.plaetze._value != erwartet and time.monotonic() < ende:
+        time.sleep(0.01)
+    return server.plaetze._value
+
+
 def test_verbindungen_ohne_anmeldung_belegen_keinen_platz(tmp_path, monkeypatch):
     # Frueher nahm JEDE Verbindung sofort einen der Plaetze: Acht offene Verbindungen ohne Token, die nur ab
     # und zu ein Byte schickten, sperrten jedes Aufnahmegeraet mit 503 aus.
@@ -1186,7 +1195,7 @@ def test_verbindungen_ohne_anmeldung_belegen_keinen_platz(tmp_path, monkeypatch)
         status, _, _ = anfrage(laufend, "GET", "/api/v1/hallo", token="falsch")
         assert status == 401
         server = laufend._server
-        assert server is not None and server.plaetze._value == 1  # type: ignore[attr-defined]
+        assert server is not None and _freie_plaetze(server, 1) == 1
     finally:
         for fremd in fremde:
             fremd.close()
@@ -1216,7 +1225,7 @@ def test_platz_wird_nach_jeder_anfrage_wieder_frei(dienst):
         assert anfrage(dienst, "GET", "/api/v1/hallo")[0] == 200
         assert anfrage(dienst, "GET", "/api/v1/unbekannt")[0] == 404
     server = dienst._server
-    assert server is not None and server.plaetze._value == empfang.MAX_VERBINDUNGEN  # type: ignore[attr-defined]
+    assert server is not None and _freie_plaetze(server, empfang.MAX_VERBINDUNGEN) == empfang.MAX_VERBINDUNGEN
 
 
 def test_unerwarteter_fehler_wird_protokolliert_und_gibt_den_platz_frei(dienst, monkeypatch, caplog):
@@ -1230,7 +1239,7 @@ def test_unerwarteter_fehler_wird_protokolliert_und_gibt_den_platz_frei(dienst, 
     monkeypatch.undo()
     assert anfrage(dienst, "GET", "/api/v1/hallo")[0] == 200
     server = dienst._server
-    assert server is not None and server.plaetze._value == empfang.MAX_VERBINDUNGEN  # type: ignore[attr-defined]
+    assert server is not None and _freie_plaetze(server, empfang.MAX_VERBINDUNGEN) == empfang.MAX_VERBINDUNGEN
 
 
 # --------------------------------------------------------------------------
