@@ -121,9 +121,10 @@ def test_entfernter_zugangsschluessel_beendet_die_browser_sitzung() -> None:
     assert ergebnis is not None
 
     class Anfrage:
-        headers: dict[str, str] = {}
-        cookies = {sicherheit.COOKIE_NAME: ergebnis[0]}
-        method = "GET"
+        def __init__(self) -> None:
+            self.headers: dict[str, str] = {}
+            self.cookies = {sicherheit.COOKIE_NAME: ergebnis[0]} if ergebnis else {}
+            self.method = "GET"
 
     assert zugang.wer(Anfrage()) == "laptop"  # type: ignore[arg-type]
     zugaenge["laptop"] = sicherheit.schluessel_hash("neu")  # neu angelegt: der alte Schluessel gilt nicht mehr
