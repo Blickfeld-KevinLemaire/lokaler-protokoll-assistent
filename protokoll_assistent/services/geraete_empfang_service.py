@@ -75,6 +75,8 @@ MAX_FERTIG_EINTRAEGE = 2000
 EMPFANGSORDNER = ".empfang"
 ERLAUBTE_ENDUNGEN = (".opus", ".ogg", ".wav", ".mp3")
 
+# Alle Muster nur mit ``fullmatch`` pruefen: Bei ``match`` passt "$" auch vor einem abschliessenden Zeilenumbruch
+# ("Raum1\n", "H5_001.opus\n").
 _DATEINAME = re.compile(r"^[A-Za-z0-9_-]{1,64}\.(?:opus|ogg|wav|mp3)$", re.IGNORECASE)
 # Buchstaben (auch Umlaute), Ziffern, Leerzeichen, "_" und "-"; vorn und hinten ein Buchstabe oder eine Ziffer.
 _GERAETENAME = re.compile(r"^[^\W_](?:[\w \-]*[^\W_])?$")
@@ -111,11 +113,11 @@ def geraetename_gueltig(name: str) -> bool:
     steht spaeter vorn im Dateinamen jeder Aufnahme dieses Geraets -- deshalb keine Zeichen, die in Dateinamen
     stoeren (``/ \\ : * ? " < > |``), und kein Leerzeichen am Anfang oder Ende. Das Geraet selbst kennt den Namen
     nicht (er haengt am Token), die Firmware ist davon also nicht betroffen."""
-    return len(name) <= 32 and bool(_GERAETENAME.match(name))
+    return len(name) <= 32 and bool(_GERAETENAME.fullmatch(name))
 
 
 def dateiname_gueltig(name: str) -> bool:
-    return bool(_DATEINAME.match(name))
+    return bool(_DATEINAME.fullmatch(name))
 
 
 def geraete_aus_text(text: str) -> tuple[Geraet, ...]:
@@ -131,7 +133,7 @@ def geraete_aus_text(text: str) -> tuple[Geraet, ...]:
         name, hashwert = name.strip(), hashwert.strip().lower()
         if not trenner or not geraetename_gueltig(name):
             raise ValueError(f"'{eintrag[:40]}' ist kein Eintrag der Form Name:SHA256 mit gueltigem Geraetenamen.")
-        if not _SHA256.match(hashwert):
+        if not _SHA256.fullmatch(hashwert):
             raise ValueError(f"Zu '{name}' fehlt ein gueltiger SHA-256-Hash (64 Hex-Zeichen).")
         geraete.append(Geraet(name, hashwert))
     _doppelte_pruefen(geraete)
@@ -148,7 +150,7 @@ def geraete_aus_konfiguration(eintraege: Iterable[Any]) -> tuple[Geraet, ...]:
             continue
         name = str(eintrag.get("name", ""))
         hashwert = str(eintrag.get("token_sha256", "")).lower()
-        if geraetename_gueltig(name) and _SHA256.match(hashwert) and name.lower() not in namen:
+        if geraetename_gueltig(name) and _SHA256.fullmatch(hashwert) and name.lower() not in namen:
             namen.add(name.lower())
             geraete.append(Geraet(name, hashwert))
     return tuple(geraete)
@@ -187,7 +189,7 @@ class Kontakt:
 def geraete_id_lesen(wert: str | None) -> str | None:
     """``X-Geraete-Id``: Werks-MAC, 12 Hex-Zeichen. Anderes wird ignoriert."""
     text = (wert or "").strip().lower().replace(":", "").replace("-", "")
-    return text if _GERAETE_ID.match(text) else None
+    return text if _GERAETE_ID.fullmatch(text) else None
 
 
 def auftrag_lesen(wert: str | None) -> str | None:
@@ -206,7 +208,7 @@ def auftrag_lesen(wert: str | None) -> str | None:
 
 def firmware_lesen(wert: str | None) -> str | None:
     text = (wert or "").strip()
-    return text if _FIRMWARE.match(text) else None
+    return text if _FIRMWARE.fullmatch(text) else None
 
 
 def lokale_adressen() -> list[str]:
@@ -349,7 +351,7 @@ class Ablage:
             return _fehler(400, "X-Offset und Content-Length duerfen nicht negativ sein.")
         if (gesamt is None) != (sha256 is None):
             return _fehler(400, "X-Gesamtgroesse und X-SHA256 gehoeren zusammen.")
-        if sha256 is not None and not _SHA256.match(sha256):
+        if sha256 is not None and not _SHA256.fullmatch(sha256):
             return _fehler(400, "X-SHA256 muss aus 64 kleinen Hex-Zeichen bestehen.")
         if gesamt is not None and gesamt < 0:
             return _fehler(400, "X-Gesamtgroesse darf nicht negativ sein.")
@@ -1031,14 +1033,14 @@ class GeraeteEmpfang:
     def frage_stand(self, geraet: str, kennung: str) -> Antwort:
         """``GET /api/v1/fragen/<Kennung>``: ``zustand`` (verstehen, antworten, sprechen, fertig, fehler), dazu
         ``frage``, ``antwort``, ``meldung`` und bei ``fertig`` die Groesse des Tons (``ton_bytes``)."""
-        if self._fragen is None or not _FRAGE_KENNUNG.match(kennung):
+        if self._fragen is None or not _FRAGE_KENNUNG.fullmatch(kennung):
             return _fehler(404, "Unbekannte Frage.")
         stand = self._fragen.stand(geraet, kennung)
         return Antwort(200, stand) if stand is not None else _fehler(404, "Unbekannte Frage.")
 
     def frage_ton(self, geraet: str, kennung: str) -> Antwort:
         """``GET /api/v1/fragen/<Kennung>/ton``: die gesprochene Antwort als WAV (16 kHz, 16 Bit, mono)."""
-        if self._fragen is None or not _FRAGE_KENNUNG.match(kennung):
+        if self._fragen is None or not _FRAGE_KENNUNG.fullmatch(kennung):
             return _fehler(404, "Unbekannte Frage.")
         stand = self._fragen.stand(geraet, kennung)
         if stand is None:
