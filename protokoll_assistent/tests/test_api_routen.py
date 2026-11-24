@@ -201,6 +201,21 @@ def test_zugang_und_nutzer_anlegen(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     assert start.dienste_erstellen(ROLLE_SERVER, None, mehrbenutzer=True).nutzer is not None
 
 
+def test_netzfreigabe_benutzt_die_geraeteautomatik_des_fensters(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Speichert jemand ueber das Netz Einstellungen, wendet die *eine* Automatik sie an -- eine zweite, verwaiste
+    Automatik startete sonst einen zweiten Geraeteempfang auf demselben Port."""
+    eigene_konfiguration(monkeypatch, tmp_path)
+    fenster = start.dienste_erstellen(ROLLE_DESKTOP, "x")
+    assert fenster.automatik is not None
+    angewendet: list[Any] = []
+    monkeypatch.setattr(fenster.automatik, "anwenden", lambda konfiguration=None: angewendet.append(konfiguration))
+    netz = start.netz_dienste_erstellen(fenster)
+    assert netz.rolle == ROLLE_SERVER and netz.steuerung is fenster.steuerung and netz.automatik is fenster.automatik
+    for haken in netz.nach_einstellungen:
+        haken({"geraete_empfang_aktiv": True})
+    assert angewendet == [{"geraete_empfang_aktiv": True}]
+
+
 def test_openapi_ausgabe_ist_utf8(capfdbinary: pytest.CaptureFixture[bytes]) -> None:
     assert start.main(["openapi"]) == 0
     beschreibung = json.loads(capfdbinary.readouterr().out.decode("utf-8"))
