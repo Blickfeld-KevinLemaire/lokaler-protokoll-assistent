@@ -5,11 +5,11 @@
   import Pencil from '@lucide/svelte/icons/pencil';
   import Trash2 from '@lucide/svelte/icons/trash-2';
   import X from '@lucide/svelte/icons/x';
-  import { api } from '$lib/api/client';
-  import type { SprecherProfil } from '$lib/api/typen';
-  import { datumText } from '$lib/logik/format';
-  import { dialog, meldungen, rueckfrage } from '$lib/stores/oberflaeche.svelte';
-  import { verbindung } from '$lib/stores/verbindung.svelte';
+  import { api } from '#lib/api/client.ts';
+  import type { SprecherProfil } from '#lib/api/typen.ts';
+  import { datumText } from '#lib/logik/format.ts';
+  import { dialog, meldungen, rueckfrage } from '#lib/stores/oberflaeche.svelte.ts';
+  import { verbindung } from '#lib/stores/verbindung.svelte.ts';
   import LeerZustand from '../LeerZustand.svelte';
 
   let profile = $state<SprecherProfil[] | null>(null);

@@ -2,11 +2,11 @@
   /** Nutzer anlegen, bearbeiten, entfernen (nur Verwaltung, Servermodus). */
   import Plus from '@lucide/svelte/icons/plus';
   import X from '@lucide/svelte/icons/x';
-  import { api } from '$lib/api/client';
-  import type { NeuerZugang, Nutzer } from '$lib/api/typen';
-  import { dialog, meldungen, rueckfrage } from '$lib/stores/oberflaeche.svelte';
-  import { personen } from '$lib/stores/personen.svelte';
-  import { verbindung } from '$lib/stores/verbindung.svelte';
+  import { api } from '#lib/api/client.ts';
+  import type { NeuerZugang, Nutzer } from '#lib/api/typen.ts';
+  import { dialog, meldungen, rueckfrage } from '#lib/stores/oberflaeche.svelte.ts';
+  import { personen } from '#lib/stores/personen.svelte.ts';
+  import { verbindung } from '#lib/stores/verbindung.svelte.ts';
   import Dialog from '../Dialog.svelte';
   import Info from '../Info.svelte';
   import Schalter from '../Schalter.svelte';

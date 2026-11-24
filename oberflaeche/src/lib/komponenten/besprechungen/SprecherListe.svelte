@@ -8,11 +8,11 @@
   import Pause from '@lucide/svelte/icons/pause';
   import Play from '@lucide/svelte/icons/play';
   import { onDestroy, untrack } from 'svelte';
-  import { api } from '$lib/api/client';
-  import type { Sprecher, SprecherVorschlaege } from '$lib/api/typen';
-  import { dauerText, sprecherName } from '$lib/logik/format';
-  import { vorschlagFuer } from '$lib/logik/sprecher';
-  import { dialog, meldungen } from '$lib/stores/oberflaeche.svelte';
+  import { api } from '#lib/api/client.ts';
+  import type { Sprecher, SprecherVorschlaege } from '#lib/api/typen.ts';
+  import { dauerText, sprecherName } from '#lib/logik/format.ts';
+  import { vorschlagFuer } from '#lib/logik/sprecher.ts';
+  import { dialog, meldungen } from '#lib/stores/oberflaeche.svelte.ts';
 
   let {
     id,

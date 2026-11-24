@@ -4,8 +4,8 @@
    * Ein Klick legt die Freigabe an (Windows fragt nach Administratorrechten). Nur in der Windows-Anwendung.
    */
   import ShieldCheck from '@lucide/svelte/icons/shield-check';
-  import { api, ApiFehler } from '$lib/api/client';
-  import { verbindung } from '$lib/stores/verbindung.svelte';
+  import { api, ApiFehler } from '#lib/api/client.ts';
+  import { verbindung } from '#lib/stores/verbindung.svelte.ts';
   import Info from '../Info.svelte';
 
   let { kurz = false }: { kurz?: boolean } = $props();

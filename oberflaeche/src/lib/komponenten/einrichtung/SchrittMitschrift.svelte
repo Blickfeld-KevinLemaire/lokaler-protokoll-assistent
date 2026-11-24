@@ -4,10 +4,10 @@
    * läuft). Die Haken von „Was nötig ist“ gelten weiter; ohne Haken lädt nichts.
    */
   import { onMount } from 'svelte';
-  import { api } from '$lib/api/client';
-  import type { EinrichtungBaustein } from '$lib/api/typen';
-  import { bausteinText, gbText, hfSchluesselNoetig } from '$lib/logik/einrichtung';
-  import { einrichtung } from '$lib/stores/einrichtung.svelte';
+  import { api } from '#lib/api/client.ts';
+  import type { EinrichtungBaustein } from '#lib/api/typen.ts';
+  import { bausteinText, gbText, hfSchluesselNoetig } from '#lib/logik/einrichtung.ts';
+  import { einrichtung } from '#lib/stores/einrichtung.svelte.ts';
   import Info from '../Info.svelte';
   import SchrittEinrichten from './SchrittEinrichten.svelte';
 

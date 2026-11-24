@@ -5,11 +5,11 @@
    * bis er geschlossen wird (dort gibt es „Öffnen“).
    */
   import X from '@lucide/svelte/icons/x';
-  import { api } from '$lib/api/client';
-  import type { Auftrag } from '$lib/api/typen';
-  import { ERLEDIGT, auftragTitel, herkunftAnzeigen } from '$lib/logik/warteschlange';
-  import { dialog } from '$lib/stores/oberflaeche.svelte';
-  import { zustand } from '$lib/stores/zustand.svelte';
+  import { api } from '#lib/api/client.ts';
+  import type { Auftrag } from '#lib/api/typen.ts';
+  import { ERLEDIGT, auftragTitel, herkunftAnzeigen } from '#lib/logik/warteschlange.ts';
+  import { dialog } from '#lib/stores/oberflaeche.svelte.ts';
+  import { zustand } from '#lib/stores/zustand.svelte.ts';
   import AuftragKarte from '../AuftragKarte.svelte';
   import HerkunftSymbol from '../HerkunftSymbol.svelte';
 

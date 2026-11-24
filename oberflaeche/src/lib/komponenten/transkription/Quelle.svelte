@@ -19,13 +19,13 @@
   import Square from '@lucide/svelte/icons/square';
   import Upload from '@lucide/svelte/icons/upload';
   import { onMount } from 'svelte';
-  import { api } from '$lib/api/client';
-  import type { AufnahmeGeraet, EingangsDatei } from '$lib/api/typen';
-  import { datumText, dateiname, groesseText, zeitmarke } from '$lib/logik/format';
-  import { dialog, meldungen } from '$lib/stores/oberflaeche.svelte';
-  import { verbindung } from '$lib/stores/verbindung.svelte';
-  import { zustand } from '$lib/stores/zustand.svelte';
-  import { ablegenHoeren, AUDIO_ENDUNGEN, dateiWaehlen } from '$lib/tauri';
+  import { api } from '#lib/api/client.ts';
+  import type { AufnahmeGeraet, EingangsDatei } from '#lib/api/typen.ts';
+  import { datumText, dateiname, groesseText, zeitmarke } from '#lib/logik/format.ts';
+  import { dialog, meldungen } from '#lib/stores/oberflaeche.svelte.ts';
+  import { verbindung } from '#lib/stores/verbindung.svelte.ts';
+  import { zustand } from '#lib/stores/zustand.svelte.ts';
+  import { ablegenHoeren, AUDIO_ENDUNGEN, dateiWaehlen } from '#lib/tauri.ts';
   import Fortschritt from '../Fortschritt.svelte';
 
   let { auswahl = $bindable(null) }: { auswahl: Auswahl | null } = $props();

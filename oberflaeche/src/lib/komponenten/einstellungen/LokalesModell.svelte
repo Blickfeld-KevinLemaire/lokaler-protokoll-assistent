@@ -2,14 +2,14 @@
   /** Sprachmodell auf diesem Computer: empfohlene Auswahl, Herunterladen als Auftrag in der Warteschlange. */
   import Check from '@lucide/svelte/icons/check';
   import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
-  import { api } from '$lib/api/client';
-  import type { ModellStand } from '$lib/api/typen';
-  import { modellEinordnen } from '$lib/logik/modelle';
-  import { startMeldung } from '$lib/logik/warteschlange';
-  import { einstellungen } from '$lib/stores/einstellungen.svelte';
-  import { dialog, meldungen } from '$lib/stores/oberflaeche.svelte';
-  import { verbindung } from '$lib/stores/verbindung.svelte';
-  import { zustand } from '$lib/stores/zustand.svelte';
+  import { api } from '#lib/api/client.ts';
+  import type { ModellStand } from '#lib/api/typen.ts';
+  import { modellEinordnen } from '#lib/logik/modelle.ts';
+  import { startMeldung } from '#lib/logik/warteschlange.ts';
+  import { einstellungen } from '#lib/stores/einstellungen.svelte.ts';
+  import { dialog, meldungen } from '#lib/stores/oberflaeche.svelte.ts';
+  import { verbindung } from '#lib/stores/verbindung.svelte.ts';
+  import { zustand } from '#lib/stores/zustand.svelte.ts';
   import Fortschritt from '../Fortschritt.svelte';
 
   let { feld = 'ollama_modell' }: { feld?: 'ollama_modell' | 'chatbot_ollama_modell' } = $props();

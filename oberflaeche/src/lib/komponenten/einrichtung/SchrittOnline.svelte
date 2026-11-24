@@ -2,9 +2,9 @@
   /** „Online-Dienst“: je online gewähltem Bereich ein Anbieter und sein Zugangsschlüssel. */
   import ExternalLink from '@lucide/svelte/icons/external-link';
   import { onMount } from 'svelte';
-  import type { Anbieter } from '$lib/api/typen';
-  import { BEREICHE, type Bereich } from '$lib/logik/einrichtung';
-  import { einrichtung } from '$lib/stores/einrichtung.svelte';
+  import type { Anbieter } from '#lib/api/typen.ts';
+  import { BEREICHE, type Bereich } from '#lib/logik/einrichtung.ts';
+  import { einrichtung } from '#lib/stores/einrichtung.svelte.ts';
   import Info from '../Info.svelte';
 
   onMount(() => {

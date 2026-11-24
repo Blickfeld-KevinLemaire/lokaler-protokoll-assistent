@@ -3,21 +3,21 @@
   import { setLucideProps } from '@lucide/svelte';
   import { onMount, untrack, type Snippet } from 'svelte';
   import { goto } from '$app/navigation';
-  import Anmeldung from '$lib/komponenten/Anmeldung.svelte';
-  import Einrichtung from '$lib/komponenten/einrichtung/Einrichtung.svelte';
-  import FehlerDialog from '$lib/komponenten/FehlerDialog.svelte';
-  import Meldungen from '$lib/komponenten/Meldungen.svelte';
-  import Rueckfrage from '$lib/komponenten/Rueckfrage.svelte';
-  import Seitenleiste from '$lib/komponenten/Seitenleiste.svelte';
-  import StartBildschirm from '$lib/komponenten/StartBildschirm.svelte';
-  import { tastenkuerzel } from '$lib/logik/tasten';
-  import { protokollEinrichten } from '$lib/protokoll';
-  import { einrichtung } from '$lib/stores/einrichtung.svelte';
-  import { meldungen, uhr } from '$lib/stores/oberflaeche.svelte';
-  import { thema } from '$lib/stores/thema.svelte';
-  import { verbindung } from '$lib/stores/verbindung.svelte';
-  import { zustand } from '$lib/stores/zustand.svelte';
-  import { befehl, istTauri } from '$lib/tauri';
+  import Anmeldung from '#lib/komponenten/Anmeldung.svelte';
+  import Einrichtung from '#lib/komponenten/einrichtung/Einrichtung.svelte';
+  import FehlerDialog from '#lib/komponenten/FehlerDialog.svelte';
+  import Meldungen from '#lib/komponenten/Meldungen.svelte';
+  import Rueckfrage from '#lib/komponenten/Rueckfrage.svelte';
+  import Seitenleiste from '#lib/komponenten/Seitenleiste.svelte';
+  import StartBildschirm from '#lib/komponenten/StartBildschirm.svelte';
+  import { tastenkuerzel } from '#lib/logik/tasten.ts';
+  import { protokollEinrichten } from '#lib/protokoll.ts';
+  import { einrichtung } from '#lib/stores/einrichtung.svelte.ts';
+  import { meldungen, uhr } from '#lib/stores/oberflaeche.svelte.ts';
+  import { thema } from '#lib/stores/thema.svelte.ts';
+  import { verbindung } from '#lib/stores/verbindung.svelte.ts';
+  import { zustand } from '#lib/stores/zustand.svelte.ts';
+  import { befehl, istTauri } from '#lib/tauri.ts';
 
   let { children }: { children: Snippet } = $props();
 

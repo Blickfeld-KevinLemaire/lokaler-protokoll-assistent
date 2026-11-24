@@ -1,20 +1,20 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
-  import { api } from '$lib/api/client';
-  import type { Vorlage } from '$lib/api/typen';
-  import Erweitert from '$lib/komponenten/Erweitert.svelte';
-  import Info from '$lib/komponenten/Info.svelte';
-  import Kopf from '$lib/komponenten/Kopf.svelte';
-  import Schalter from '$lib/komponenten/Schalter.svelte';
-  import Quelle, { type Auswahl } from '$lib/komponenten/transkription/Quelle.svelte';
-  import Warteschlange from '$lib/komponenten/transkription/Warteschlange.svelte';
-  import { STANDARD_VORLAGE, systempromptFuer, vorlageVorwahl } from '$lib/logik/vorlagen';
-  import { startMeldung } from '$lib/logik/warteschlange';
-  import { einstellungen } from '$lib/stores/einstellungen.svelte';
-  import { dialog, meldungen } from '$lib/stores/oberflaeche.svelte';
-  import { verbindung } from '$lib/stores/verbindung.svelte';
-  import { zustand } from '$lib/stores/zustand.svelte';
+  import { api } from '#lib/api/client.ts';
+  import type { Vorlage } from '#lib/api/typen.ts';
+  import Erweitert from '#lib/komponenten/Erweitert.svelte';
+  import Info from '#lib/komponenten/Info.svelte';
+  import Kopf from '#lib/komponenten/Kopf.svelte';
+  import Schalter from '#lib/komponenten/Schalter.svelte';
+  import Quelle, { type Auswahl } from '#lib/komponenten/transkription/Quelle.svelte';
+  import Warteschlange from '#lib/komponenten/transkription/Warteschlange.svelte';
+  import { STANDARD_VORLAGE, systempromptFuer, vorlageVorwahl } from '#lib/logik/vorlagen.ts';
+  import { startMeldung } from '#lib/logik/warteschlange.ts';
+  import { einstellungen } from '#lib/stores/einstellungen.svelte.ts';
+  import { dialog, meldungen } from '#lib/stores/oberflaeche.svelte.ts';
+  import { verbindung } from '#lib/stores/verbindung.svelte.ts';
+  import { zustand } from '#lib/stores/zustand.svelte.ts';
 
   const SPRACHEN = [
     { wert: 'de', text: 'Deutsch' },
@@ -88,7 +88,7 @@
     if (page.url.searchParams.get('neu')) {
       auswahl = null;
       if (meinAuftrag && !['wartet', 'laeuft'].includes(meinAuftrag.status)) merken(null);
-      void goto('/', { replaceState: true, noScroll: true });
+      void goto('/', { replace: true, reset: false });
     }
   });
 

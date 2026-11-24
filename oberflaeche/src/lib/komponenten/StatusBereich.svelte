@@ -10,16 +10,16 @@
   import RefreshCw from '@lucide/svelte/icons/refresh-cw';
   import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
   import X from '@lucide/svelte/icons/x';
-  import { api } from '$lib/api/client';
-  import type { Auftrag } from '$lib/api/typen';
-  import { zeitmarke } from '$lib/logik/format';
-  import { empfangsFehlerText } from '$lib/logik/hinweise';
-  import { zeitenFuerAuftrag } from '$lib/logik/restzeit';
-  import { stufenText } from '$lib/logik/stufen';
-  import { auftragTitel, herkunftAnzeigen } from '$lib/logik/warteschlange';
-  import { dialog, uhr } from '$lib/stores/oberflaeche.svelte';
-  import { verbindung } from '$lib/stores/verbindung.svelte';
-  import { zustand } from '$lib/stores/zustand.svelte';
+  import { api } from '#lib/api/client.ts';
+  import type { Auftrag } from '#lib/api/typen.ts';
+  import { zeitmarke } from '#lib/logik/format.ts';
+  import { empfangsFehlerText } from '#lib/logik/hinweise.ts';
+  import { zeitenFuerAuftrag } from '#lib/logik/restzeit.ts';
+  import { stufenText } from '#lib/logik/stufen.ts';
+  import { auftragTitel, herkunftAnzeigen } from '#lib/logik/warteschlange.ts';
+  import { dialog, uhr } from '#lib/stores/oberflaeche.svelte.ts';
+  import { verbindung } from '#lib/stores/verbindung.svelte.ts';
+  import { zustand } from '#lib/stores/zustand.svelte.ts';
   import Fortschritt from './Fortschritt.svelte';
   import HerkunftSymbol from './HerkunftSymbol.svelte';
 

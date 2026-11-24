@@ -1,11 +1,11 @@
 <script lang="ts">
   import Download from '@lucide/svelte/icons/download';
   import FolderOpen from '@lucide/svelte/icons/folder-open';
-  import { api } from '$lib/api/client';
-  import type { BesprechungDetails } from '$lib/api/typen';
-  import { groesseText, ordnerVon } from '$lib/logik/format';
-  import { dialog } from '$lib/stores/oberflaeche.svelte';
-  import { verbindung } from '$lib/stores/verbindung.svelte';
+  import { api } from '#lib/api/client.ts';
+  import type { BesprechungDetails } from '#lib/api/typen.ts';
+  import { groesseText, ordnerVon } from '#lib/logik/format.ts';
+  import { dialog } from '#lib/stores/oberflaeche.svelte.ts';
+  import { verbindung } from '#lib/stores/verbindung.svelte.ts';
 
   let { details }: { details: BesprechungDetails } = $props();
 

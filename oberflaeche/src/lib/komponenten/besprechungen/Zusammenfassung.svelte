@@ -1,12 +1,12 @@
 <script lang="ts">
   import Pencil from '@lucide/svelte/icons/pencil';
-  import { api } from '$lib/api/client';
-  import type { BesprechungDetails, Vorlage } from '$lib/api/typen';
-  import { STANDARD_VORLAGE, systempromptFuer, vorlageVorwahl } from '$lib/logik/vorlagen';
-  import { startMeldung } from '$lib/logik/warteschlange';
-  import { einstellungen } from '$lib/stores/einstellungen.svelte';
-  import { dialog, meldungen } from '$lib/stores/oberflaeche.svelte';
-  import { zustand } from '$lib/stores/zustand.svelte';
+  import { api } from '#lib/api/client.ts';
+  import type { BesprechungDetails, Vorlage } from '#lib/api/typen.ts';
+  import { STANDARD_VORLAGE, systempromptFuer, vorlageVorwahl } from '#lib/logik/vorlagen.ts';
+  import { startMeldung } from '#lib/logik/warteschlange.ts';
+  import { einstellungen } from '#lib/stores/einstellungen.svelte.ts';
+  import { dialog, meldungen } from '#lib/stores/oberflaeche.svelte.ts';
+  import { zustand } from '#lib/stores/zustand.svelte.ts';
   import AuftragKarte from '../AuftragKarte.svelte';
   import Bestaetigen from '../Bestaetigen.svelte';
   import Markdown from '../Markdown.svelte';

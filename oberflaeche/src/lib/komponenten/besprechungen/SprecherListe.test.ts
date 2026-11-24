@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
-import { api } from '$lib/api/client';
-import type { Sprecher } from '$lib/api/typen';
+import { api } from '#lib/api/client.ts';
+import type { Sprecher } from '#lib/api/typen.ts';
 import SprecherListe from './SprecherListe.svelte';
 
 function sprecher(namen: [string, string][]): Sprecher[] {

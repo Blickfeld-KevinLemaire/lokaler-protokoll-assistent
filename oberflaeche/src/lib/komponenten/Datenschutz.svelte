@@ -2,7 +2,7 @@
   /** Kleines Abzeichen im Seitenkopf: alles auf diesem Computer oder (teilweise) über einen Online-Dienst. */
   import Cloud from '@lucide/svelte/icons/cloud';
   import Lock from '@lucide/svelte/icons/lock';
-  import { einstellungen } from '$lib/stores/einstellungen.svelte';
+  import { einstellungen } from '#lib/stores/einstellungen.svelte.ts';
   import Info from './Info.svelte';
 
   const w = $derived(einstellungen.werte);
