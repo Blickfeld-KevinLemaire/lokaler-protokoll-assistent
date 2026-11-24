@@ -1,0 +1,13 @@
+# Fehlalarme von gitleaks, die in der Versionsgeschichte stehen bleiben.
+#
+# Ein Eintrag gilt genau fuer einen Fund (Commit:Datei:Regel:Zeile) – neue Funde
+# in derselben Datei schlaegt gitleaks weiterhin an. Den Fingerabdruck druckt
+# gitleaks im CI-Protokoll unter "Fingerprint:". Nur echte Fehlalarme eintragen;
+# ein echtes Geheimnis wird widerrufen und ersetzt, nicht hier versteckt.
+
+# Probeschluessel fuer den Selbsttest des Containers (kein echter Zugang).
+# Steht inzwischen in einer Shell-Variablen.
+6402bce9ec2fa39724847714c22d2a97d283b50a:.github/workflows/container.yml:curl-auth-header:68
+
+# Ausgedachter Hugging-Face-Token in einem Test. Variable inzwischen umbenannt.
+a10d7749b6f9e310b20a47c0eae9af0cbbb47b9b:protokoll_assistent/tests/test_api_einrichtung.py:generic-api-key:444

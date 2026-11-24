@@ -78,6 +78,19 @@ def test_write_transcript_exports_creates_all_four_files_uniquely(tmp_path):
     assert data["verarbeitung"] == "vollständig lokal"
 
 
+def test_ohne_begleitdateien_nur_die_json_und_umbenennen_legt_keine_an(tmp_path):
+    namen = export_service.build_speaker_names(["SPEAKER_00", "SPEAKER_01"])
+    pfade = export_service.write_transcript_exports(
+        tmp_path, "a.mp3", "a", "20260101_100000", "2026-01-01T10:00:00+01:00", "m", "de", "cpu", 1.0,
+        _sample_segments(), namen, begleitdateien=False,
+    )
+    assert pfade.json.is_file()
+    assert not pfade.txt.exists() and not pfade.srt.exists() and not pfade.vtt.exists()
+    export_service.reexport_with_new_names(pfade.json, {"SPEAKER_00": "Anna"})
+    assert "Anna" in pfade.json.read_text(encoding="utf-8")
+    assert not pfade.txt.exists() and not pfade.srt.exists() and not pfade.vtt.exists()
+
+
 def test_write_transcript_exports_does_not_collide_with_existing_run(tmp_path):
     speaker_names = export_service.build_speaker_names(["SPEAKER_00"])
     first = export_service.write_transcript_exports(

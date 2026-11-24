@@ -8,6 +8,167 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.7.0-rc1] - 2026-11-24
+
+Release-Kandidat der neuen Oberfläche: Die alte Qt-Oberfläche ist entfernt, dazu zahlreiche Korrekturen aus einer
+Code-Review und einem Fehlersuchlauf über Einrichtung, tägliche Arbeit, Aufnahmegeräte und den Servermodus.
+
+### Removed
+
+- **Die alte Qt-Oberfläche ist entfernt.** VERMERK besteht nur noch aus dem neuen Fenster und dem Dienst dahinter;
+  PySide6 wird weder mitgeliefert noch in die Rechenumgebung des lokalen Modus installiert. Ein Update räumt den
+  Quelltext der alten Oberfläche und ihre Startskripte aus dem Programmordner. Einstellungen und Daten bleiben
+  erhalten.
+- Die PowerShell-Startskripte der alten Anwendung (`Start-Protokoll-Assistent.ps1`, `start_lokal.ps1`,
+  `Anwendung-starten.ps1`) und der alte EXE-Build (`build_windows.ps1`, `protokoll_assistent.spec`) entfallen.
+  Gestartet wird über das Startmenü bzw. `VERMERK.exe`; die manuelle Einrichtung mit `Einrichtung-Lokal.ps1` bleibt.
+
+### Changed
+
+- Weil die Paketliste der Rechenumgebung kleiner geworden ist (ohne PySide6), gleicht der lokale Modus sie beim
+  ersten Start nach dem Update einmal ab (braucht Internet; ohne Netz läuft die vorhandene Umgebung weiter).
+- **Aufnahmegeräte:** Bis zu 20 Aufträge stehen am Gerät zur Auswahl (bisher 12). Geräte mit älterer Firmware zeigen
+  weiterhin die ersten 12.
+- **Firmware VERMERK Raum (ESP32-S3 mit Display 1.85C):** Strom sparen (rund doppelte Laufzeit ohne Kabel), Akku als
+  Balken, sauberes Abschalten bei leerem Akku, Sprachausgabe („Transkription erfolgreich“, „Möchten Sie eine
+  Zusammenfassung erstellen?“, „Protokoll erfolgreich“), Anzeige „WIRD HOCHGELADEN“; eine Aufnahme bleibt nach dem
+  Senden während der Aufnahme nicht mehr dauerhaft „offen“.
+
+### Fixed
+
+- **VERMERK Raum nach einem Neustart:** Wurde die Software oder der PC (Laptop zugeklappt, heruntergefahren)
+  zwischen dem Ende des Uploads und dem Ende der Verarbeitung beendet, blieb die Aufnahme unbearbeitet liegen. Beim
+  nächsten Start wird sie jetzt von selbst weiterverarbeitet (ohne Rückfrage am Gerät, mit dem eingestellten
+  Auftrag); was schon fertig ist, entsteht nicht doppelt.
+- **Keine Sprache erkannt:** Fand die Transkription nichts Gesprochenes (falsches oder stummes Mikrofon), stand
+  sie auf „Fertig“, „Öffnen“ führte ins Leere. Jetzt endet sie mit dem Hinweis „Keine Sprache erkannt“ und der Bitte,
+  das Mikrofon zu prüfen; auch das Aufnahmegerät zeigt das an.
+- **Chat:** „Stopp“ hält die Antwort jetzt wirklich an. Vorher rechnete das Sprachmodell weiter, und in einem neuen
+  Chat legte die nächste Frage einen zweiten Verlauf an.
+- **Nutzerverwaltung:** Ändert ein Admin sein eigenes Passwort in der Nutzerliste, bleibt er angemeldet (wie unter
+  „Konto“); nur seine anderen Sitzungen enden.
+
+- **Firmware VERMERK Raum:** Nach „Nein“ auf die Frage nach der Zusammenfassung zeigt das Gerät nicht mehr
+  „Zusammenfassung fertig“ und sagt nicht „Protokoll erfolgreich“.
+
+- **Im Netz anbieten:** Einstellungen, die über das Netz gespeichert werden, starten keinen zweiten Empfang für
+  Aufnahmegeräte mehr (der Port war dann belegt).
+- **Server mit mehreren Nutzern:** Verarbeitungen ohne Besitzer (Eingangsordner ohne festgelegten Nutzer, Geräte ohne
+  Besitzer) sehen nur noch Admins; alle anderen sehen nur „Andere Verarbeitung“. Gleichzeitiges Teilen von
+  Besprechungen geht nicht mehr verloren.
+- **Abmelden wirkt sofort:** Wird ein Zugangsschlüssel entfernt oder das Passwort geändert, enden auch die damit
+  angemeldeten Browser-Sitzungen (beim eigenen Passwortwechsel bleibt die aktuelle Sitzung angemeldet). Nutzernamen,
+  die das Programm selbst verwendet („umgebung“, „desktop“, „alle“) oder die schon ein Zugangsschlüssel trägt,
+  lassen sich nicht mehr vergeben.
+- **Eingangsordner:** Eine abgebrochene Verarbeitung wird nicht mehr von selbst neu gestartet (die Datei kommt nach
+  `fehler/`); nur beim Herunterfahren bleibt sie für den nächsten Start liegen. Eine Datei wird nicht mehr doppelt
+  verarbeitet.
+- **Ollama** läuft weiter, wenn das Fenster geschlossen oder neu gestartet wird – auch eine laufende Installation.
+- **Einrichtung:** Ein abgebrochenes Laden der Modelle gilt als abgebrochen, nicht als fertig; die Mitschrift bleibt
+  dann zur Einrichtung offen.
+- Der Fortschritt einer laufenden Verarbeitung bleibt nicht mehr minutenlang auf einem alten Stand stehen.
+- **VERMERK Raum – Gerät ohne USB hinzufügen:** Namen mit Leerzeichen oder Umlauten („Besprechungsraum 3“,
+  „Küche“) werden angenommen; vorher tat der Knopf „Hinzufügen“ dabei nichts.
+- **VERMERK Raum – Anzeige:** „Wartet auf Freigabe am Gerät“ verschwindet nach „Ja“ oder „Nein“ am Gerät und
+  erscheint bei einer neuen Rückfrage sofort (vorher erst nach einem Neustart). Der Live-Text einer Aufnahme
+  verschwindet, sobald sie angekommen ist. Ein Gerät, das sich meldet, steht gleich als verbunden da – auch nach
+  einer Änderung der Einstellungen – statt als „Noch nicht verbunden“ mit dem Knopf „Empfang freigeben“.
+- **VERMERK Raum – Einrichtung per USB:** Der Schalter „Aufnahmen von Geräten annehmen“ zeigt danach „an“.
+- **VERMERK Raum:** Der Schalter „Live mitschreiben und auswerten“ sagt jetzt, dass ohne ihn Aufnahmen nur abgelegt
+  und nicht automatisch verarbeitet werden. Ist der Eingangsordner nicht erreichbar (Netzlaufwerk, USB-Stick), meldet
+  der Empfang das, statt „Anschluss belegt“.
+- **Server mit mehreren Nutzern:** Wird ein Nutzer entfernt, werden seine Aufnahmegeräte „Allgemein“; ihre
+  Aufnahmen landeten sonst in einem Ordner, den niemand mehr sieht.
+- **Server mit mehreren Nutzern:**
+  - Admins sehen jetzt die Transkripte ohne Besitzer (Eingangsordner ohne `PROTOKOLL_EINGANG_NUTZER`, Geräte ohne
+    Besitzer) in ihrer Liste, mit dem Vermerk „ohne Besitzer“ – bisher sah sie im Browser niemand.
+  - „Zusammenfassung erstellen“ bei Aufnahmen aus dem Eingangsordner zeigt das Ergebnis wieder an (es landete
+    bisher in einem anderen Ordner und blieb unsichtbar).
+  - `PROTOKOLL_EINGANG_NUTZER` wirkt auch, wenn der Nutzer erst nach dem Start des Containers angelegt wird, und
+    unabhängig von Groß- und Kleinschreibung.
+  - Teilen lässt sich wieder ändern, nachdem ein Kollege, mit dem geteilt war, entfernt wurde.
+  - Bei der Ersteinrichtung mit `VERMERK_ZUGANG` lassen sich Nutzer bearbeiten und entfernen, bevor es einen Admin
+    gibt.
+  - Den eigenen einzigen Zugangsschlüssel (ohne Passwort) kann man nicht mehr entfernen und sich so aussperren.
+- **Zusammenfassung:** Klappt sie nicht (Sprachmodell nicht erreichbar, falscher Zugangsschlüssel …), heißt es nicht
+  mehr „Fertig“ ohne Zusammenfassung, sondern „Hat nicht geklappt“ mit dem Grund.
+- **Vorlagen:** Die Vorlage „Standard“ aus den Einstellungen wird wieder benutzt und ist bei „Transkription“ und
+  „Zusammenfassung erstellen“ auswählbar. Bisher kam ohne andere Vorgabe stattdessen die eingebaute Vorlage
+  „Zusammenfassung“ – Änderungen am Standard wirkten nicht.
+- **Bekannte Stimmen:** „Stimme merken“ und die Namensvorschläge funktionieren wieder; bisher hieß es bei jeder
+  Aufnahme, es liege keine Stimme vor.
+- **Sprecher:** Konnten die Sprecher nicht getrennt werden, sagt das die fertige Transkription jetzt (vorher nur
+  „Fertig“ und ein Text ohne Sprecher). Eingetippte, noch nicht gespeicherte Namen gehen nicht mehr verloren, wenn
+  im Hintergrund eine andere Verarbeitung fertig wird.
+- **Update von 0.5:** Installationen, die ihre Einstellungen und Daten noch im Unterordner `protokoll_assistent`
+  führen (eingerichtet mit 0.5.0-beta oder älter), behalten sie im lokalen Modus auch mit dem neuen Fenster –
+  Einrichtung, Aufnahmegeräte und bisherige Ergebnisse sind nach dem Update nicht mehr „weg“.
+- **Update von 0.5 ohne Internet:** Lässt sich die Rechenumgebung beim ersten Start nach dem Update nicht
+  aktualisieren, startet VERMERK ohne sie, statt nach drei Versuchen mit „Der Dienst ließ sich nicht starten“
+  stehen zu bleiben. Beim nächsten Start mit Internet wird die Aktualisierung nachgeholt.
+- **Einrichtung:** Scheitert ein Download, steht der Grund jetzt dabei – etwa, dass die Nutzungsbedingungen der
+  Sprechererkennung bei Hugging Face noch zu akzeptieren sind, mit anklickbarer Adresse. Scheitert die
+  Sprechererkennung, lässt sich der Zugangsschlüssel neu eingeben; ein falscher blieb bisher gemerkt, und „Erneut
+  versuchen“ scheiterte immer wieder.
+- **Einrichtung:** Spracherkennung und Sprechererkennung lassen sich auch laden, nachdem in derselben Sitzung „Ohne
+  Internet“ transkribiert wurde.
+- **Einrichtung:** Wer die lokale Transkription aus den Einstellungen heraus einrichtet und die App schließt, statt
+  „Jetzt neu starten“ zu wählen, landet beim nächsten Start wieder bei der Spracherkennung.
+- **Einrichtung:** Ein abgebrochener Download von Ollama gilt als abgebrochen, nicht als fehlgeschlagen.
+- **Einrichtung:** „Was nötig ist“ rechnet mit dem Sprachmodell, das für diesen Computer empfohlen und danach
+  eingetragen wird. War das bisherige Standardmodell schon vorhanden, wurde das empfohlene bisher eingetragen, aber
+  nie geladen – Zusammenfassungen scheiterten dann an „Sprachmodell fehlt“.
+- **Einstellungen:** Wer anfangs online gearbeitet hat und die Transkription später auf „Auf diesem Computer“
+  stellt, bekommt beim nächsten Start nicht mehr ungefragt gut 5 GB geladen. Geladen wird erst nach der Zustimmung
+  in der Einrichtung („Einrichten“), die vorher zeigt, was nötig ist. Wer schon zugestimmt hat, wird nicht erneut
+  gefragt.
+- **Einrichtung:** „Jetzt neu starten“ wartet, bis laufende und wartende Verarbeitungen (auch von Aufnahmegeräten)
+  und eine laufende Aufnahme fertig sind, und sagt, wie viele noch laufen. Bisher brach der Neustart sie ab.
+- **Einrichtung:** Während die Rechenumgebung nach dem Neustart eingerichtet wird, sagt das Fenster, dass das dauern
+  kann und wo der Fortschritt steht; das Fortschrittsfenster „VERMERK Desktop – Einrichtung“ kommt nach vorn, statt
+  hinter dem Programm zu liegen.
+- **Deinstallation:** Die Protokolldateien des Fensters (unter `%LOCALAPPDATA%\de.vermerk.desktop`) werden jetzt
+  wie angekündigt mit entfernt.
+
+## [0.6.0-alpha.1] - 2026-11-22
+
+Testrelease der neuen Oberfläche (Branch `feature/neue-oberflaeche`), nicht für den normalen Einsatz. Einzelheiten
+zum Aufbau in `ARCHITEKTUR.md`.
+
+### Added
+
+- **Neue Oberfläche** im bekannten Look (dunkle Seitenleiste mit VERMERK), in hell und dunkel, ohne Erklärtexte und
+  ohne Fachbegriffe. Kurze Erklärungen stehen hinter (i)-Symbolen. Fortschritt zeigt, wie weit es ist und wann es
+  fertig ist.
+- **Statusbereich in der Seitenleiste:** was gerade läuft, was wartet (auch Aufträge von Aufnahmegeräten),
+  Freigaben am Gerät, Hinweise und der Zustand des Empfangs.
+- **Eine Warteschlange für alles.** Aufträge vom PC, von Aufnahmegeräten und aus dem Eingangsordner laufen
+  nacheinander, nie gleichzeitig (vorher konnte eine Geräteaufnahme zusammen mit einer Transkription vom PC den
+  Grafikspeicher sprengen). Freigaben am Gerät gehen vor.
+- **Servermodus mit Oberfläche im Browser und mehreren Nutzern:** Anmeldung mit Name und Passwort oder mit
+  persönlichem Zugangsschlüssel, eigene Besprechungen je Nutzer, Teilen mit Einzelnen oder allen, Admins verwalten
+  Nutzer, Geräte und Einstellungen. Aufnahmegeräte gehören jeweils einem Nutzer.
+- Die Windows-Anwendung lässt sich weiterhin zusätzlich im Netz anbieten (ein Nutzer, Zugangsschlüssel).
+- PDF- und OpenDocument-Export ohne Qt (auch im Servermodus).
+- **Meldet sich ein Aufnahmegerät nicht** (meist blockiert die Windows-Firewall den Empfang), bietet die Anwendung
+  „Empfang freigeben“ an: nach einer Rückfrage von Windows gilt die Freigabe für Heim- und Firmennetze. Nach dem
+  Einrichten per USB prüft sie das sofort.
+- Auf der Startseite steht die ganze Warteschlange: was läuft und alles, was danach drankommt.
+
+### Changed
+
+- Die Windows-Anwendung besteht aus einem Fenster (Tauri) und einem Dienst (Python). Der Dienst bekommt seinen Port
+  vom System, meldet ihn über eine Handschlag-Datei, und das Fenster prüft mit seinem Schlüssel, dass es mit dem
+  eigenen Dienst spricht. Ein zweiter Start holt nur das vorhandene Fenster nach vorn.
+- Der Container startet die Programmschnittstelle (`python3 -m protokoll_assistent.api --rolle server`) und
+  liefert die Oberfläche auf Port 8780 aus.
+- **Weniger Dateien je Besprechung:** Nach der Verarbeitung entsteht nur noch ein Word-Dokument (mit Zusammenfassung
+  und Transkript in einem). Text, Untertitel, PDF und die anderen Formate entstehen erst beim Exportieren. Unter
+  „Dateien“ stehen nur dieses Dokument und die Exporte; die Daten, aus denen die Anwendung liest, bleiben verborgen.
+  Servermodus mit Eingangsordner und Qt-Oberfläche legen Text und Untertitel weiterhin mit ab.
+- „Besprechungen“ heißen in der Oberfläche jetzt „Transkripte“.
+- Gerätenamen dürfen Leerzeichen und Umlaute enthalten (z. B. „Besprechungsraum 3“).
+
 ## [0.5.0-rc3] - 2026-11-18
 
 Dritter Kandidat für die Beta: AMD-Grafikkarten beschleunigen jetzt auch die Transkription, Ollama wird auf AMD,
@@ -798,7 +959,8 @@ Installation.
 - Installer für Windows (ohne Administratorrechte, mit mitgelieferter
   Python-Laufzeitumgebung)
 
-[Unreleased]: https://github.com/Blickfeld-KevinLemaire/lokaler-protokoll-assistent/compare/v0.5.0-rc2...HEAD
+[Unreleased]: https://github.com/Blickfeld-KevinLemaire/lokaler-protokoll-assistent/compare/v0.6.0-alpha.1...HEAD
+[0.6.0-alpha.1]: https://github.com/Blickfeld-KevinLemaire/lokaler-protokoll-assistent/compare/v0.5.0-rc3...v0.6.0-alpha.1
 [0.5.0-rc2]: https://github.com/Blickfeld-KevinLemaire/lokaler-protokoll-assistent/compare/v0.5.0-rc1...v0.5.0-rc2
 [0.5.0-rc1]: https://github.com/Blickfeld-KevinLemaire/lokaler-protokoll-assistent/compare/v0.5.0-beta...v0.5.0-rc1
 [0.5.0-beta]: https://github.com/Blickfeld-KevinLemaire/lokaler-protokoll-assistent/compare/v0.3.1...v0.5.0-beta

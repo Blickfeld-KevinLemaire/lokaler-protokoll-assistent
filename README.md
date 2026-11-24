@@ -35,30 +35,42 @@ Transkriptionsmodus gespeichert ist.
 > getrennte Programme (eine tkinter-„Cloud-Variante", eine lokale
 > PySide6-Anwendung und ein Auswahlfenster davor). Sie sind zu dieser einen
 > Anwendung zusammengefuehrt worden. Die tkinter-Variante ist entfallen; ihr
-> Weg ueber eine Schnittstelle lebt als Einstellung weiter.
+> Weg ueber eine Schnittstelle lebt als Einstellung weiter. Seit 0.6 ersetzt
+> ein Tauri-Fenster mit SvelteKit-Oberflaeche die PySide6-Oberflaeche; die
+> Qt-Fassung ist im November 2026 entfernt worden.
 
 ## Starten
 
+Installiert: ueber den Startmenue-Eintrag oder die Desktop-Verknuepfung
+(`VERMERK.exe`). Das Fenster startet den Dienst dahinter
+(`dienst\vermerk-dienst.exe`) selbst und beendet ihn wieder. Aufbau und
+Prozessmodell stehen in [`ARCHITEKTUR.md`](ARCHITEKTUR.md).
+
+Aus dem Quellcode (Entwicklung) startet das Fenster den Dienst als Modul
+(`python -m protokoll_assistent.api`) aus dem Projektordner:
+
 ```powershell
-python -m protokoll_assistent.app
+uv sync
+cd oberflaeche
+npm ci
+$env:VERMERK_PYTHON = (Resolve-Path ..\.venv\Scripts\python.exe).Path   # sonst 'python' aus dem PATH
+npm run tauri dev
 ```
 
-Oder bequemer ueber `protokoll_assistent\Start-Protokoll-Assistent.ps1`, den
-Startmenue-Eintrag des Installers oder die Desktop-Verknuepfung.
-
-Die Anwendung wird bewusst **als Modul** gestartet (`-m`), nicht ueber den
+Der Dienst wird bewusst **als Modul** gestartet (`-m`), nicht ueber den
 Dateipfad: Nur so findet Python das Paket.
 
 ## Ordnerstruktur
 
 ```
-protokoll_assistent.spec       PyInstaller-Spezifikation (baut die Anwendung)
+vermerk_dienst.spec            PyInstaller-Spezifikation des Dienstes
 installer/                     Inno-Setup-Installer
+oberflaeche/                   Oberflaeche (SvelteKit) und Fenster (src-tauri/, Tauri)
 
 protokoll_assistent/
-  app.py                       Einstiegspunkt
+  api/                         der Dienst (FastAPI): python -m protokoll_assistent.api
+  ablauf/                      Steuerung und Auftragswarteschlange
   bootstrap.py                 richtet bei Bedarf die lokale ML-Umgebung ein
-  gui/                         Oberflaeche (PySide6)
   services/                    Verarbeitungskette und API-Dienste
   utils/                       Pfade, Konfiguration, Diagnose, Logging
   tests/                       Testsuite
@@ -104,11 +116,12 @@ powershell -ExecutionPolicy Bypass -File protokoll_assistent\Einrichtung-Lokal.p
 ```
 
 Fuer den reinen API-Betrieb genuegen die Pakete aus
-`protokoll_assistent\requirements-anwendung.txt`:
+`protokoll_assistent\requirements-anwendung.txt`; gestartet wird dann wie
+unter [Starten](#starten) beschrieben (Fenster mit `VERMERK_PYTHON` auf dieses
+Python):
 
 ```powershell
 python -m pip install -r protokoll_assistent\requirements-anwendung.txt
-python -m protokoll_assistent.app
 ```
 
 ## Voraussetzungen
@@ -228,9 +241,8 @@ siehe [`LICENSE`](LICENSE). Hinweise zu fremder Software stehen in
 [`NOTICES.md`](NOTICES.md) und `lizenzen/`; beide werden mit dem Build
 ausgeliefert.
 
-PySide6 wird unter der **LGPL-3.0** verwendet. Der Build ist deshalb ein
-One-Directory-Build, bei dem die Qt-Bibliotheken als eigene Dateien neben der
-EXE liegen und sich austauschen lassen.
+Der Dienst ist ein One-Directory-Build (PyInstaller); Qt wird nicht mehr
+mitgeliefert.
 
 ## Fuer die Weiterentwicklung
 

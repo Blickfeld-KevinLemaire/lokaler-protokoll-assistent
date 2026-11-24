@@ -1,0 +1,13 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Hauptfenster: Zugang zum Dienst, Protokoll, Datei-Auswahl. Nichts darueber hinaus.",
+  "windows": ["main"],
+  "permissions": [
+    "core:window:default",
+    "core:event:default",
+    "dialog:allow-open",
+    "allow-zugang",
+    "allow-protokoll-schreiben"
+  ]
+}

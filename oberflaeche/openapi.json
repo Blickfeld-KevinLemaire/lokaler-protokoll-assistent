@@ -1,0 +1,5502 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "VERMERK",
+    "description": "Programmschnittstelle der Protokoll-Software (Windows-Anwendung und Servermodus).",
+    "version": "0.7.0-rc1"
+  },
+  "paths": {
+    "/api/gesundheit": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Gesundheit",
+        "description": "Ohne Anmeldung: Laeuft der Dienst? Verraet nichts ausser der Version.",
+        "operationId": "gesundheit_api_gesundheit_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "title": "Response Gesundheit Api Gesundheit Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/anmeldung": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Anmeldung",
+        "description": "Ohne Anmeldung: Welche Arten der Anmeldung gibt es hier? (Name + Passwort nur mit mehreren Nutzern.)",
+        "operationId": "anmeldung_api_anmeldung_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "boolean"
+                  },
+                  "type": "object",
+                  "title": "Response Anmeldung Api Anmeldung Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/anmelden": {
+      "post": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Anmelden",
+        "operationId": "anmelden_api_anmelden_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Anmeldung"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "title": "Response Anmelden Api Anmelden Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/abmelden": {
+      "post": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Abmelden",
+        "operationId": "abmelden_api_abmelden_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "boolean"
+                  },
+                  "type": "object",
+                  "title": "Response Abmelden Api Abmelden Post"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/info": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Info",
+        "operationId": "info_api_info_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Info"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/zustand": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Zustand",
+        "description": "Vollstaendiger Stand mit der Nummer des letzten Ereignisses. Danach ``/ereignisse?seit=<nummer>``\nabonnieren: So geht zwischen Laden und Abo nichts verloren.",
+        "operationId": "zustand_api_zustand_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Zustand"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ereignisse": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Ereignisse",
+        "description": "Strom aller Ereignisse ab ``seit`` (oder ``Last-Event-ID``). Der Client liest ihn mit ``fetch`` (die\nKopfzeile ``Authorization`` laesst sich mit ``EventSource`` nicht setzen).",
+        "operationId": "ereignisse_api_ereignisse_get",
+        "parameters": [
+          {
+            "name": "seit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Seit"
+            }
+          },
+          {
+            "name": "last-event-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Last-Event-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/system/diagnose": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Diagnose",
+        "operationId": "diagnose_api_system_diagnose_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  "type": "array",
+                  "title": "Response Diagnose Api System Diagnose Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/system/ordner-oeffnen": {
+      "post": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Ordner Oeffnen",
+        "description": "Ordner oder Datei im Explorer zeigen -- nur in der Windows-Anwendung (nie fuer Zugriffe aus dem Netz).",
+        "operationId": "ordner_oeffnen_api_system_ordner_oeffnen_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OrdnerOeffnen"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "boolean"
+                  },
+                  "type": "object",
+                  "title": "Response Ordner Oeffnen Api System Ordner Oeffnen Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/system/neustart": {
+      "post": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Neustart",
+        "description": "Den Dienst neu starten (z. B. nach der Ersteinrichtung, damit die Rechenumgebung geladen wird). Der Dienst\nbeendet sich mit einem eigenen Exit-Code, und das Fenster startet ihn sofort wieder -- die Prozesse steuert\nallein das Fenster.\n\nSolange etwas laeuft oder wartet (Verarbeitung, auch von einem Aufnahmegeraet, oder eine Aufnahme), lehnt der\nDienst mit 409 ab: Der Neustart braeche es ab, wartende Auftraege gingen verloren.",
+        "operationId": "neustart_api_system_neustart_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "boolean"
+                  },
+                  "type": "object",
+                  "title": "Response Neustart Api System Neustart Post"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/system/laufzeit": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Laufzeit",
+        "operationId": "laufzeit_api_system_laufzeit_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Laufzeit Api System Laufzeit Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auftraege": {
+      "get": {
+        "tags": [
+          "auftraege"
+        ],
+        "summary": "Liste",
+        "operationId": "liste_api_auftraege_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Auftrag"
+                  },
+                  "type": "array",
+                  "title": "Response Liste Api Auftraege Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auftraege/{auftrag_id}": {
+      "get": {
+        "tags": [
+          "auftraege"
+        ],
+        "summary": "Einer",
+        "operationId": "einer_api_auftraege__auftrag_id__get",
+        "parameters": [
+          {
+            "name": "auftrag_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Auftrag Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Auftrag"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "auftraege"
+        ],
+        "summary": "Abbrechen",
+        "operationId": "abbrechen_api_auftraege__auftrag_id__delete",
+        "parameters": [
+          {
+            "name": "auftrag_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Auftrag Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "boolean"
+                  },
+                  "title": "Response Abbrechen Api Auftraege  Auftrag Id  Delete"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auftraege/transkription": {
+      "post": {
+        "tags": [
+          "auftraege"
+        ],
+        "summary": "Transkription",
+        "operationId": "transkription_api_auftraege_transkription_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TranskriptionAnfrage"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Auftrag"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Prüfung vor dem Start gescheitert",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Fehler"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auftraege/auswertung": {
+      "post": {
+        "tags": [
+          "auftraege"
+        ],
+        "summary": "Auswertung",
+        "operationId": "auswertung_api_auftraege_auswertung_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuswertungAnfrage"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Auftrag"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Prüfung vor dem Start gescheitert",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Fehler"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/aufnahme": {
+      "get": {
+        "tags": [
+          "aufnahme"
+        ],
+        "summary": "Stand",
+        "operationId": "stand_api_aufnahme_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Stand Api Aufnahme Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/aufnahme/geraete": {
+      "get": {
+        "tags": [
+          "aufnahme"
+        ],
+        "summary": "Geraete",
+        "operationId": "geraete_api_aufnahme_geraete_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  "type": "array",
+                  "title": "Response Geraete Api Aufnahme Geraete Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/aufnahme/start": {
+      "post": {
+        "tags": [
+          "aufnahme"
+        ],
+        "summary": "Starten",
+        "operationId": "starten_api_aufnahme_start_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AufnahmeStart"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Starten Api Aufnahme Start Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/aufnahme/pause": {
+      "post": {
+        "tags": [
+          "aufnahme"
+        ],
+        "summary": "Pausieren",
+        "operationId": "pausieren_api_aufnahme_pause_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Pausieren Api Aufnahme Pause Post"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/aufnahme/fortsetzen": {
+      "post": {
+        "tags": [
+          "aufnahme"
+        ],
+        "summary": "Fortsetzen",
+        "operationId": "fortsetzen_api_aufnahme_fortsetzen_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Fortsetzen Api Aufnahme Fortsetzen Post"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/aufnahme/stopp": {
+      "post": {
+        "tags": [
+          "aufnahme"
+        ],
+        "summary": "Stoppen",
+        "description": "Beendet die Aufnahme; die WAV-Datei liegt danach im Aufnahmeordner (Antwort: Pfad, Name, Dauer).",
+        "operationId": "stoppen_api_aufnahme_stopp_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Stoppen Api Aufnahme Stopp Post"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/besprechungen/export/formate": {
+      "get": {
+        "tags": [
+          "besprechungen"
+        ],
+        "summary": "Formate",
+        "operationId": "formate_api_besprechungen_export_formate_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  "type": "array",
+                  "title": "Response Formate Api Besprechungen Export Formate Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/besprechungen": {
+      "get": {
+        "tags": [
+          "besprechungen"
+        ],
+        "summary": "Liste",
+        "operationId": "liste_api_besprechungen_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Besprechung"
+                  },
+                  "type": "array",
+                  "title": "Response Liste Api Besprechungen Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/besprechungen/{kennung}": {
+      "get": {
+        "tags": [
+          "besprechungen"
+        ],
+        "summary": "Details",
+        "operationId": "details_api_besprechungen__kennung__get",
+        "parameters": [
+          {
+            "name": "kennung",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Kennung"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BesprechungDetails"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/besprechungen/{kennung}/protokoll": {
+      "put": {
+        "tags": [
+          "besprechungen"
+        ],
+        "summary": "Protokoll Speichern",
+        "operationId": "protokoll_speichern_api_besprechungen__kennung__protokoll_put",
+        "parameters": [
+          {
+            "name": "kennung",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Kennung"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProtokollSpeichern"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Protokoll Speichern Api Besprechungen  Kennung  Protokoll Put"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/besprechungen/{kennung}/sprecher": {
+      "put": {
+        "tags": [
+          "besprechungen"
+        ],
+        "summary": "Sprecher Umbenennen",
+        "operationId": "sprecher_umbenennen_api_besprechungen__kennung__sprecher_put",
+        "parameters": [
+          {
+            "name": "kennung",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Kennung"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SprecherNamen"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Sprecher Umbenennen Api Besprechungen  Kennung  Sprecher Put"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/besprechungen/{kennung}/freigabe": {
+      "put": {
+        "tags": [
+          "besprechungen"
+        ],
+        "summary": "Teilen",
+        "description": "Mit wem die Besprechung geteilt ist (``[\"alle\"]``, einzelne Anmeldenamen oder leer).",
+        "operationId": "teilen_api_besprechungen__kennung__freigabe_put",
+        "parameters": [
+          {
+            "name": "kennung",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Kennung"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Freigabe"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Teilen Api Besprechungen  Kennung  Freigabe Put"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/besprechungen/{kennung}/dateien/{name}": {
+      "get": {
+        "tags": [
+          "besprechungen"
+        ],
+        "summary": "Datei",
+        "operationId": "datei_api_besprechungen__kennung__dateien__name__get",
+        "parameters": [
+          {
+            "name": "kennung",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Kennung"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Name"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/besprechungen/{kennung}/export": {
+      "post": {
+        "tags": [
+          "besprechungen"
+        ],
+        "summary": "Exportieren",
+        "operationId": "exportieren_api_besprechungen__kennung__export_post",
+        "parameters": [
+          {
+            "name": "kennung",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Kennung"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExportAnfrage"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Exportieren Api Besprechungen  Kennung  Export Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/besprechungen/{kennung}/sprecher/vorschlaege": {
+      "get": {
+        "tags": [
+          "sprecher"
+        ],
+        "summary": "Vorschlaege",
+        "description": "Bekannte Stimmen: je Sprecher ein Namensvorschlag aus den eigenen Profilen (``sicher``: deutlich erkannt).",
+        "operationId": "vorschlaege_api_besprechungen__kennung__sprecher_vorschlaege_get",
+        "parameters": [
+          {
+            "name": "kennung",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Kennung"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Vorschlaege Api Besprechungen  Kennung  Sprecher Vorschlaege Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/besprechungen/{kennung}/sprecher/{sprecher_id}/hoerprobe": {
+      "get": {
+        "tags": [
+          "sprecher"
+        ],
+        "summary": "Hoerprobe",
+        "operationId": "hoerprobe_api_besprechungen__kennung__sprecher__sprecher_id__hoerprobe_get",
+        "parameters": [
+          {
+            "name": "kennung",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Kennung"
+            }
+          },
+          {
+            "name": "sprecher_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Sprecher Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/besprechungen/{kennung}/sprecher/{sprecher_id}/profil": {
+      "post": {
+        "tags": [
+          "sprecher"
+        ],
+        "summary": "Als Profil Merken",
+        "description": "Die Stimme dieses Sprechers merken, damit er in spaeteren Aufnahmen erkannt wird.",
+        "operationId": "als_profil_merken_api_besprechungen__kennung__sprecher__sprecher_id__profil_post",
+        "parameters": [
+          {
+            "name": "kennung",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Kennung"
+            }
+          },
+          {
+            "name": "sprecher_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Sprecher Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProfilName"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Als Profil Merken Api Besprechungen  Kennung  Sprecher  Sprecher Id  Profil Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/besprechungen/{kennung}/sprecher/{sprecher_id}/export": {
+      "post": {
+        "tags": [
+          "sprecher"
+        ],
+        "summary": "Sprecher Exportieren",
+        "description": "Audio (WAV) und Text (TXT) eines Sprechers in den Ordner der Besprechung schreiben.",
+        "operationId": "sprecher_exportieren_api_besprechungen__kennung__sprecher__sprecher_id__export_post",
+        "parameters": [
+          {
+            "name": "kennung",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Kennung"
+            }
+          },
+          {
+            "name": "sprecher_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Sprecher Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Sprecher Exportieren Api Besprechungen  Kennung  Sprecher  Sprecher Id  Export Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sprecherprofile": {
+      "get": {
+        "tags": [
+          "sprecher"
+        ],
+        "summary": "Profile",
+        "description": "Gemerkte Stimmen -- ohne die Stimmabdruecke selbst.",
+        "operationId": "profile_api_sprecherprofile_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  "type": "array",
+                  "title": "Response Profile Api Sprecherprofile Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sprecherprofile/{profil_id}": {
+      "patch": {
+        "tags": [
+          "sprecher"
+        ],
+        "summary": "Profil Umbenennen",
+        "operationId": "profil_umbenennen_api_sprecherprofile__profil_id__patch",
+        "parameters": [
+          {
+            "name": "profil_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Profil Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProfilName"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "boolean"
+                  },
+                  "title": "Response Profil Umbenennen Api Sprecherprofile  Profil Id  Patch"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "sprecher"
+        ],
+        "summary": "Profil Loeschen",
+        "operationId": "profil_loeschen_api_sprecherprofile__profil_id__delete",
+        "parameters": [
+          {
+            "name": "profil_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Profil Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "boolean"
+                  },
+                  "title": "Response Profil Loeschen Api Sprecherprofile  Profil Id  Delete"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/dateien/eingang": {
+      "get": {
+        "tags": [
+          "dateien"
+        ],
+        "summary": "Eingang",
+        "description": "Aufnahmen im Aufnahmeordner und (Windows-Anwendung) im Eingangsordner, neueste zuerst.",
+        "operationId": "eingang_api_dateien_eingang_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/EingangsDatei"
+                  },
+                  "type": "array",
+                  "title": "Response Eingang Api Dateien Eingang Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/dateien/hochladen": {
+      "post": {
+        "tags": [
+          "dateien"
+        ],
+        "summary": "Hochladen",
+        "operationId": "hochladen_api_dateien_hochladen_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_hochladen_api_dateien_hochladen_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EingangsDatei"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/einstellungen": {
+      "get": {
+        "tags": [
+          "einstellungen"
+        ],
+        "summary": "Lesen",
+        "operationId": "lesen_api_einstellungen_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Lesen Api Einstellungen Get"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "einstellungen"
+        ],
+        "summary": "Aendern",
+        "description": "Nur bekannte Felder; alles andere ist ein Fehler (statt still verworfen zu werden).",
+        "operationId": "aendern_api_einstellungen_patch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "type": "object",
+                "title": "Aenderungen"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Aendern Api Einstellungen Patch"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/einstellungen/anbieter": {
+      "get": {
+        "tags": [
+          "einstellungen"
+        ],
+        "summary": "Anbieter",
+        "description": "Bekannte API-Anbieter mit fertigen Adressen fuer Transkription, Nachbearbeitung und Chat.",
+        "operationId": "anbieter_api_einstellungen_anbieter_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  "type": "array",
+                  "title": "Response Anbieter Api Einstellungen Anbieter Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/einstellungen/schluessel": {
+      "get": {
+        "tags": [
+          "einstellungen"
+        ],
+        "summary": "Schluessel Stand",
+        "description": "Nur ob ein Schluessel vorliegt -- der Wert verlaesst den Dienst nie.",
+        "operationId": "schluessel_stand_api_einstellungen_schluessel_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "boolean"
+                  },
+                  "type": "object",
+                  "title": "Response Schluessel Stand Api Einstellungen Schluessel Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/einstellungen/schluessel/{name}": {
+      "put": {
+        "tags": [
+          "einstellungen"
+        ],
+        "summary": "Schluessel Setzen",
+        "operationId": "schluessel_setzen_api_einstellungen_schluessel__name__put",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Name"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Schluesselsatz"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "boolean"
+                  },
+                  "title": "Response Schluessel Setzen Api Einstellungen Schluessel  Name  Put"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "einstellungen"
+        ],
+        "summary": "Schluessel Loeschen",
+        "operationId": "schluessel_loeschen_api_einstellungen_schluessel__name__delete",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Name"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "boolean"
+                  },
+                  "title": "Response Schluessel Loeschen Api Einstellungen Schluessel  Name  Delete"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/einstellungen/vorlagen": {
+      "get": {
+        "tags": [
+          "einstellungen"
+        ],
+        "summary": "Vorlagen",
+        "operationId": "vorlagen_api_einstellungen_vorlagen_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Vorlage"
+                  },
+                  "type": "array",
+                  "title": "Response Vorlagen Api Einstellungen Vorlagen Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/einstellungen/vorlagen/{name}": {
+      "put": {
+        "tags": [
+          "einstellungen"
+        ],
+        "summary": "Vorlage Ablegen",
+        "operationId": "vorlage_ablegen_api_einstellungen_vorlagen__name__put",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Name"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VorlageSpeichern"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "boolean"
+                  },
+                  "title": "Response Vorlage Ablegen Api Einstellungen Vorlagen  Name  Put"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/einstellungen/systemprompt": {
+      "get": {
+        "tags": [
+          "einstellungen"
+        ],
+        "summary": "Systemprompt",
+        "operationId": "systemprompt_api_einstellungen_systemprompt_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "title": "Response Systemprompt Api Einstellungen Systemprompt Get"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "einstellungen"
+        ],
+        "summary": "Systemprompt Speichern",
+        "operationId": "systemprompt_speichern_api_einstellungen_systemprompt_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VorlageSpeichern"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "boolean"
+                  },
+                  "type": "object",
+                  "title": "Response Systemprompt Speichern Api Einstellungen Systemprompt Put"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/einrichtung/stand": {
+      "get": {
+        "tags": [
+          "einrichtung"
+        ],
+        "summary": "Stand",
+        "description": "Wo die Einrichtung steht: abgeschlossen?, naechster Schritt, Arbeitsweise, was schon da ist und was fuer\ndie gewaehlte Arbeitsweise noch fehlt, laufende Einrichtungsauftraege. Laedt nichts.",
+        "operationId": "stand_api_einrichtung_stand_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EinrichtungStand"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/einrichtung/rechner": {
+      "get": {
+        "tags": [
+          "einrichtung"
+        ],
+        "summary": "Rechner",
+        "description": "Seite \"Ihr Computer\": Hardware, je Arbeitsschritt \"gut / maessig / nicht\" mit Dauer als Zahlen, die\nEmpfehlung (lokal / gemischt / online / keine) und die Modelle, die hier laufen. Laedt nichts.",
+        "operationId": "rechner_api_einrichtung_rechner_get",
+        "parameters": [
+          {
+            "name": "neu",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Neu"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EinrichtungRechner"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/einrichtung/kosten": {
+      "get": {
+        "tags": [
+          "einrichtung"
+        ],
+        "summary": "Kosten",
+        "description": "Seite \"Was noetig ist\": Bausteine mit Download und Platz (GB), Summe, ungefaehre Downloaddauer. Ohne\nAngaben fuer die gespeicherte Arbeitsweise; mit ``transkription``/``nachbearbeitung``/``chatbot`` als\nVorschau, ohne etwas zu speichern. ``sprachmodell``/``whisper_modell``: die Modelle, die ``entscheidung``\ngleich eintragen wird -- sonst stuende hier das bisher eingetragene Modell (Groesse, und ob es schon da ist).",
+        "operationId": "kosten_api_einrichtung_kosten_get",
+        "parameters": [
+          {
+            "name": "transkription",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "lokal",
+                    "api"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Transkription"
+            }
+          },
+          {
+            "name": "nachbearbeitung",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "lokal",
+                    "api"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Nachbearbeitung"
+            }
+          },
+          {
+            "name": "chatbot",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "lokal",
+                    "api"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Chatbot"
+            }
+          },
+          {
+            "name": "sprachmodell",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Sprachmodell"
+            }
+          },
+          {
+            "name": "whisper_modell",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Whisper Modell"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EinrichtungKosten"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/einrichtung/entscheidung": {
+      "post": {
+        "tags": [
+          "einrichtung"
+        ],
+        "summary": "Entscheidung",
+        "description": "Seite \"Arbeitsweise\" (und die Zustimmung zur Rechenumgebung von \"Was noetig ist\"). Schreibt dieselben\nEinstellungen wie der alte Assistent. Ein Online-Dienst wird nie von selbst gewaehlt -- das entscheidet der\nAufruf.",
+        "operationId": "entscheidung_api_einrichtung_entscheidung_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EinrichtungEntscheidung"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EinrichtungStand"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/einrichtung/ffmpeg": {
+      "post": {
+        "tags": [
+          "einrichtung"
+        ],
+        "summary": "Ffmpeg",
+        "description": "FFmpeg (liest Audio- und Videodateien) als portable Fassung laden -- nur, wenn es fehlt. Als Auftrag.",
+        "operationId": "ffmpeg_api_einrichtung_ffmpeg_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EinrichtungZustimmung"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Auftrag"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/einrichtung/ollama": {
+      "post": {
+        "tags": [
+          "einrichtung"
+        ],
+        "summary": "Ollama",
+        "description": "Ollama vom Hersteller laden, Signatur pruefen (\"Ollama Inc.\"), still fuer das eigene Konto installieren und\nden Dienst starten. Ist Ollama schon installiert, wird nur gestartet. Als Auftrag mit Fortschritt (Bytes).",
+        "operationId": "ollama_api_einrichtung_ollama_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EinrichtungZustimmung"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Auftrag"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/einrichtung/modelle": {
+      "post": {
+        "tags": [
+          "einrichtung"
+        ],
+        "summary": "Modelle Laden",
+        "description": "Seiten \"Einrichtung\" und \"Mitschrift\": Sprachmodelle (Ollama), Spracherkennung (Whisper) und\nSprechererkennung (pyannote) laden -- der Reihe nach, als ein Auftrag. Was einzeln gelang, steht waehrend\nund nach dem Lauf in ``angaben.teile``; scheitert etwas, endet der Auftrag mit ``fehler``.",
+        "operationId": "modelle_laden_api_einrichtung_modelle_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EinrichtungModelle"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Auftrag"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/einrichtung/anbieter": {
+      "post": {
+        "tags": [
+          "einrichtung"
+        ],
+        "summary": "Anbieter",
+        "description": "Online-Dienst fuer einen Bereich: traegt Adresse und Modell des Anbieters ein (wie die Auswahl in den\nEinstellungen) und legt auf Wunsch den Schluessel ab. Die Liste der Anbieter: ``GET /api/einstellungen/anbieter``.",
+        "operationId": "anbieter_api_einrichtung_anbieter_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EinrichtungAnbieter"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EinrichtungAnbieterErgebnis"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/einrichtung/spaeter": {
+      "post": {
+        "tags": [
+          "einrichtung"
+        ],
+        "summary": "Spaeter",
+        "description": "\"Spaeter einrichten\": Ohne ``nicht_mehr_fragen`` aendert sich nichts (die Einrichtung erscheint beim\nnaechsten Start wieder). Mit: gilt als abgeschlossen -- und ohne Zustimmung wird die Rechenumgebung\nzurueckgestellt, damit der naechste Start nichts ungefragt laedt.",
+        "operationId": "spaeter_api_einrichtung_spaeter_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EinrichtungSpaeter"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EinrichtungStand"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/einrichtung/abschliessen": {
+      "post": {
+        "tags": [
+          "einrichtung"
+        ],
+        "summary": "Abschliessen",
+        "description": "Seite \"Fertig\": Einrichtung abgeschlossen. ``neustart_noetig`` in der Antwort sagt, ob der Dienst fuer die\nlokale Mitschrift noch einmal starten muss (\"Die App startet kurz neu\"); ``online_ohne_anbieter``, wo noch\nAnbieter und Schluessel fehlen.",
+        "operationId": "abschliessen_api_einrichtung_abschliessen_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EinrichtungStand"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/geraete/usb/anschluesse": {
+      "get": {
+        "tags": [
+          "geraete"
+        ],
+        "summary": "Anschluesse",
+        "operationId": "anschluesse_api_geraete_usb_anschluesse_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  "type": "array",
+                  "title": "Response Anschluesse Api Geraete Usb Anschluesse Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/geraete/usb/erkennen": {
+      "post": {
+        "tags": [
+          "geraete"
+        ],
+        "summary": "Erkennen",
+        "operationId": "erkennen_api_geraete_usb_erkennen_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UsbErkennen"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Erkennen Api Geraete Usb Erkennen Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/geraete/usb/einrichten": {
+      "post": {
+        "tags": [
+          "geraete"
+        ],
+        "summary": "Einrichten",
+        "operationId": "einrichten_api_geraete_usb_einrichten_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UsbEinrichten"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Einrichten Api Geraete Usb Einrichten Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/geraete": {
+      "get": {
+        "tags": [
+          "geraete"
+        ],
+        "summary": "Stand",
+        "operationId": "stand_api_geraete_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Stand Api Geraete Get"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "geraete"
+        ],
+        "summary": "Anlegen",
+        "operationId": "anlegen_api_geraete_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GeraetAnlegen"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Anlegen Api Geraete Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/geraete/firewall": {
+      "post": {
+        "tags": [
+          "geraete"
+        ],
+        "summary": "Firewall Freigeben",
+        "description": "Den Empfangsport in der Windows-Firewall fuer private Netze freigeben (Windows fragt nach Administratorrechten).\nAngeboten, wenn sich ein eingerichtetes Geraet nicht meldet -- siehe ``services/firewall_service.py``.",
+        "operationId": "firewall_freigeben_api_geraete_firewall_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "boolean"
+                  },
+                  "type": "object",
+                  "title": "Response Firewall Freigeben Api Geraete Firewall Post"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/geraete/{name}": {
+      "delete": {
+        "tags": [
+          "geraete"
+        ],
+        "summary": "Entfernen",
+        "operationId": "entfernen_api_geraete__name__delete",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Name"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "boolean"
+                  },
+                  "title": "Response Entfernen Api Geraete  Name  Delete"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/chat": {
+      "post": {
+        "tags": [
+          "chat"
+        ],
+        "summary": "Fragen",
+        "description": "Antwortet als Server-Sent Events: ``status``, ``token`` (Stueck fuer Stueck), dann ``fertig`` mit Antwort,\nQuellen und Verlaufskennung -- oder ``fehler``.",
+        "operationId": "fragen_api_chat_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatAnfrage"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/chat/verlaeufe": {
+      "get": {
+        "tags": [
+          "chat"
+        ],
+        "summary": "Verlaeufe",
+        "operationId": "verlaeufe_api_chat_verlaeufe_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  "type": "array",
+                  "title": "Response Verlaeufe Api Chat Verlaeufe Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/chat/verlaeufe/{kennung}": {
+      "get": {
+        "tags": [
+          "chat"
+        ],
+        "summary": "Verlauf Lesen",
+        "operationId": "verlauf_lesen_api_chat_verlaeufe__kennung__get",
+        "parameters": [
+          {
+            "name": "kennung",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Kennung"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Verlauf Lesen Api Chat Verlaeufe  Kennung  Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "chat"
+        ],
+        "summary": "Verlauf Loeschen",
+        "operationId": "verlauf_loeschen_api_chat_verlaeufe__kennung__delete",
+        "parameters": [
+          {
+            "name": "kennung",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Kennung"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "boolean"
+                  },
+                  "title": "Response Verlauf Loeschen Api Chat Verlaeufe  Kennung  Delete"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ollama/modelle": {
+      "get": {
+        "tags": [
+          "ollama"
+        ],
+        "summary": "Modelle Stand",
+        "operationId": "modelle_stand_api_ollama_modelle_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Modelle Stand Api Ollama Modelle Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ollama/laden": {
+      "post": {
+        "tags": [
+          "ollama"
+        ],
+        "summary": "Laden",
+        "description": "Laedt ein Modell herunter. Laeuft als Auftrag mit niedrigem Vorrang -- eine Verarbeitung geht vor.",
+        "operationId": "laden_api_ollama_laden_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModellLaden"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Laden Api Ollama Laden Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ich": {
+      "get": {
+        "tags": [
+          "nutzer"
+        ],
+        "summary": "Ich",
+        "operationId": "ich_api_ich_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Ich Api Ich Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ich/passwort": {
+      "put": {
+        "tags": [
+          "nutzer"
+        ],
+        "summary": "Eigenes Passwort",
+        "operationId": "eigenes_passwort_api_ich_passwort_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasswortAendern"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "boolean"
+                  },
+                  "type": "object",
+                  "title": "Response Eigenes Passwort Api Ich Passwort Put"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ich/zugaenge": {
+      "post": {
+        "tags": [
+          "nutzer"
+        ],
+        "summary": "Eigener Zugang",
+        "operationId": "eigener_zugang_api_ich_zugaenge_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ZugangAnlegen"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "title": "Response Eigener Zugang Api Ich Zugaenge Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ich/zugaenge/{bezeichnung}": {
+      "delete": {
+        "tags": [
+          "nutzer"
+        ],
+        "summary": "Eigenen Zugang Entfernen",
+        "operationId": "eigenen_zugang_entfernen_api_ich_zugaenge__bezeichnung__delete",
+        "parameters": [
+          {
+            "name": "bezeichnung",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Bezeichnung"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "boolean"
+                  },
+                  "title": "Response Eigenen Zugang Entfernen Api Ich Zugaenge  Bezeichnung  Delete"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/nutzer": {
+      "get": {
+        "tags": [
+          "nutzer"
+        ],
+        "summary": "Liste",
+        "operationId": "liste_api_nutzer_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  "type": "array",
+                  "title": "Response Liste Api Nutzer Get"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "nutzer"
+        ],
+        "summary": "Anlegen",
+        "operationId": "anlegen_api_nutzer_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NutzerAnlegen"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Anlegen Api Nutzer Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/nutzer/namen": {
+      "get": {
+        "tags": [
+          "nutzer"
+        ],
+        "summary": "Namen",
+        "description": "Fuer das Teilen: wer ist da (nur Name und Anzeigename, aktive Nutzer).",
+        "operationId": "namen_api_nutzer_namen_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "type": "object"
+                  },
+                  "type": "array",
+                  "title": "Response Namen Api Nutzer Namen Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/nutzer/{name}": {
+      "patch": {
+        "tags": [
+          "nutzer"
+        ],
+        "summary": "Aendern",
+        "operationId": "aendern_api_nutzer__name__patch",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Name"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NutzerAendern"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Aendern Api Nutzer  Name  Patch"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "nutzer"
+        ],
+        "summary": "Entfernen",
+        "operationId": "entfernen_api_nutzer__name__delete",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Name"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "boolean"
+                  },
+                  "title": "Response Entfernen Api Nutzer  Name  Delete"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/nutzer/{name}/zugaenge": {
+      "post": {
+        "tags": [
+          "nutzer"
+        ],
+        "summary": "Zugang Fuer",
+        "operationId": "zugang_fuer_api_nutzer__name__zugaenge_post",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Name"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ZugangAnlegen"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Zugang Fuer Api Nutzer  Name  Zugaenge Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/nutzer/{name}/zugaenge/{bezeichnung}": {
+      "delete": {
+        "tags": [
+          "nutzer"
+        ],
+        "summary": "Zugang Entfernen",
+        "operationId": "zugang_entfernen_api_nutzer__name__zugaenge__bezeichnung__delete",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Name"
+            }
+          },
+          {
+            "name": "bezeichnung",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Bezeichnung"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "boolean"
+                  },
+                  "title": "Response Zugang Entfernen Api Nutzer  Name  Zugaenge  Bezeichnung  Delete"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Anmeldung": {
+        "properties": {
+          "schluessel": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 256
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Schluessel"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "passwort": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 512
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Passwort"
+          }
+        },
+        "type": "object",
+        "title": "Anmeldung",
+        "description": "Entweder ``schluessel`` (Zugangsschluessel) oder ``name`` + ``passwort``."
+      },
+      "AufnahmeStart": {
+        "properties": {
+          "geraet": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 300
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Geraet"
+          }
+        },
+        "type": "object",
+        "title": "AufnahmeStart"
+      },
+      "Auftrag": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "art": {
+            "type": "string",
+            "title": "Art"
+          },
+          "titel": {
+            "type": "string",
+            "title": "Titel"
+          },
+          "herkunft": {
+            "type": "string",
+            "title": "Herkunft"
+          },
+          "vorrang": {
+            "type": "integer",
+            "title": "Vorrang"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "erstellt": {
+            "type": "number",
+            "title": "Erstellt"
+          },
+          "besitzer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Besitzer"
+          },
+          "fremd": {
+            "type": "boolean",
+            "title": "Fremd",
+            "default": false
+          },
+          "platz": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Platz"
+          },
+          "gestartet": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gestartet"
+          },
+          "beendet": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Beendet"
+          },
+          "stufe": {
+            "type": "string",
+            "title": "Stufe",
+            "default": ""
+          },
+          "stufe_text": {
+            "type": "string",
+            "title": "Stufe Text",
+            "default": ""
+          },
+          "fortschritt": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fortschritt"
+          },
+          "abschnitt": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Abschnitt"
+          },
+          "vorschau": {
+            "type": "string",
+            "title": "Vorschau",
+            "default": ""
+          },
+          "meldungen": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Meldungen",
+            "default": []
+          },
+          "ergebnis": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ergebnis"
+          },
+          "fehler": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fehler"
+          },
+          "angaben": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Angaben",
+            "default": {}
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "art",
+          "titel",
+          "herkunft",
+          "vorrang",
+          "status",
+          "erstellt"
+        ],
+        "title": "Auftrag"
+      },
+      "AuswertungAnfrage": {
+        "properties": {
+          "transkript": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Transkript",
+            "description": "Pfad der Transkript-JSON"
+          },
+          "systemprompt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Systemprompt"
+          }
+        },
+        "type": "object",
+        "required": [
+          "transkript"
+        ],
+        "title": "AuswertungAnfrage"
+      },
+      "Besprechung": {
+        "properties": {
+          "besitzer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Besitzer"
+          },
+          "eigen": {
+            "type": "boolean",
+            "title": "Eigen",
+            "default": true
+          },
+          "geteilt_mit": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Geteilt Mit",
+            "default": []
+          },
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "titel": {
+            "type": "string",
+            "title": "Titel"
+          },
+          "zeit": {
+            "type": "string",
+            "title": "Zeit"
+          },
+          "transkript": {
+            "type": "string",
+            "title": "Transkript"
+          },
+          "dauer_sekunden": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dauer Sekunden"
+          },
+          "anzahl_sprecher": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Anzahl Sprecher"
+          },
+          "sprache": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sprache"
+          },
+          "hat_protokoll": {
+            "type": "boolean",
+            "title": "Hat Protokoll"
+          },
+          "protokolle": {
+            "items": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Protokolle"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "titel",
+          "zeit",
+          "transkript",
+          "hat_protokoll",
+          "protokolle"
+        ],
+        "title": "Besprechung"
+      },
+      "BesprechungDetails": {
+        "properties": {
+          "besitzer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Besitzer"
+          },
+          "eigen": {
+            "type": "boolean",
+            "title": "Eigen",
+            "default": true
+          },
+          "geteilt_mit": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Geteilt Mit",
+            "default": []
+          },
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "titel": {
+            "type": "string",
+            "title": "Titel"
+          },
+          "zeit": {
+            "type": "string",
+            "title": "Zeit"
+          },
+          "transkript": {
+            "type": "string",
+            "title": "Transkript"
+          },
+          "dauer_sekunden": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dauer Sekunden"
+          },
+          "anzahl_sprecher": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Anzahl Sprecher"
+          },
+          "sprache": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sprache"
+          },
+          "hat_protokoll": {
+            "type": "boolean",
+            "title": "Hat Protokoll"
+          },
+          "protokolle": {
+            "items": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Protokolle"
+          },
+          "sprecher": {
+            "items": {
+              "$ref": "#/components/schemas/Sprecher"
+            },
+            "type": "array",
+            "title": "Sprecher"
+          },
+          "segmente": {
+            "items": {
+              "$ref": "#/components/schemas/Segment"
+            },
+            "type": "array",
+            "title": "Segmente"
+          },
+          "protokoll": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProtokollText"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "dateien": {
+            "items": {
+              "$ref": "#/components/schemas/Datei"
+            },
+            "type": "array",
+            "title": "Dateien"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "titel",
+          "zeit",
+          "transkript",
+          "hat_protokoll",
+          "protokolle",
+          "sprecher",
+          "segmente",
+          "protokoll",
+          "dateien"
+        ],
+        "title": "BesprechungDetails"
+      },
+      "Body_hochladen_api_dateien_hochladen_post": {
+        "properties": {
+          "datei": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "Datei"
+          }
+        },
+        "type": "object",
+        "required": [
+          "datei"
+        ],
+        "title": "Body_hochladen_api_dateien_hochladen_post"
+      },
+      "ChatAnfrage": {
+        "properties": {
+          "frage": {
+            "type": "string",
+            "maxLength": 20000,
+            "minLength": 1,
+            "title": "Frage"
+          },
+          "besprechungen": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Besprechungen",
+            "description": "Kennungen der Besprechungen"
+          },
+          "verlauf_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verlauf Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "frage"
+        ],
+        "title": "ChatAnfrage"
+      },
+      "Datei": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "art": {
+            "type": "string",
+            "title": "Art"
+          },
+          "groesse": {
+            "type": "integer",
+            "title": "Groesse"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "art",
+          "groesse"
+        ],
+        "title": "Datei"
+      },
+      "EingangsDatei": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "pfad": {
+            "type": "string",
+            "title": "Pfad"
+          },
+          "groesse": {
+            "type": "integer",
+            "title": "Groesse"
+          },
+          "geaendert": {
+            "type": "number",
+            "title": "Geaendert"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "pfad",
+          "groesse",
+          "geaendert"
+        ],
+        "title": "EingangsDatei"
+      },
+      "EinrichtungAnbieter": {
+        "properties": {
+          "bereich": {
+            "type": "string",
+            "enum": [
+              "transkription",
+              "nachbearbeitung",
+              "chatbot"
+            ],
+            "title": "Bereich"
+          },
+          "anbieter": {
+            "type": "string",
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Anbieter",
+            "description": "Kennung aus /api/einstellungen/anbieter oder \"eigener\""
+          },
+          "endpunkt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Endpunkt"
+          },
+          "modell": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Modell"
+          },
+          "einbettung_endpunkt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Einbettung Endpunkt"
+          },
+          "einbettung_modell": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Einbettung Modell"
+          },
+          "schluessel": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 4096
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Schluessel"
+          },
+          "merken": {
+            "type": "boolean",
+            "title": "Merken",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "bereich",
+          "anbieter"
+        ],
+        "title": "EinrichtungAnbieter"
+      },
+      "EinrichtungAnbieterErgebnis": {
+        "properties": {
+          "bereich": {
+            "type": "string",
+            "title": "Bereich"
+          },
+          "anbieter": {
+            "type": "string",
+            "title": "Anbieter"
+          },
+          "endpunkt": {
+            "type": "string",
+            "title": "Endpunkt"
+          },
+          "modell": {
+            "type": "string",
+            "title": "Modell"
+          },
+          "adresse_vollstaendig": {
+            "type": "boolean",
+            "title": "Adresse Vollstaendig"
+          },
+          "schluessel_vorhanden": {
+            "type": "boolean",
+            "title": "Schluessel Vorhanden"
+          },
+          "gemerkt": {
+            "type": "boolean",
+            "title": "Gemerkt"
+          }
+        },
+        "type": "object",
+        "required": [
+          "bereich",
+          "anbieter",
+          "endpunkt",
+          "modell",
+          "adresse_vollstaendig",
+          "schluessel_vorhanden",
+          "gemerkt"
+        ],
+        "title": "EinrichtungAnbieterErgebnis"
+      },
+      "EinrichtungBaustein": {
+        "properties": {
+          "kennung": {
+            "type": "string",
+            "title": "Kennung",
+            "description": "\"ffmpeg\" | \"ollama\" | \"sprachmodell\" | \"einbettung\" | \"laufzeit\" | \"whisper\" | \"pyannote\""
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "download_gb": {
+            "type": "number",
+            "title": "Download Gb"
+          },
+          "platz_gb": {
+            "type": "number",
+            "title": "Platz Gb"
+          },
+          "hinweis": {
+            "type": "string",
+            "title": "Hinweis"
+          },
+          "vorhanden": {
+            "type": "boolean",
+            "title": "Vorhanden"
+          }
+        },
+        "type": "object",
+        "required": [
+          "kennung",
+          "name",
+          "download_gb",
+          "platz_gb",
+          "hinweis",
+          "vorhanden"
+        ],
+        "title": "EinrichtungBaustein"
+      },
+      "EinrichtungEntscheidung": {
+        "properties": {
+          "transkription": {
+            "type": "string",
+            "enum": [
+              "lokal",
+              "api"
+            ],
+            "title": "Transkription"
+          },
+          "nachbearbeitung": {
+            "type": "string",
+            "enum": [
+              "lokal",
+              "api"
+            ],
+            "title": "Nachbearbeitung"
+          },
+          "chatbot": {
+            "type": "string",
+            "enum": [
+              "lokal",
+              "api"
+            ],
+            "title": "Chatbot"
+          },
+          "sprachmodell": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sprachmodell",
+            "description": "Ollama-Modell fuer das Protokoll (aus /rechner)"
+          },
+          "whisper_modell": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Whisper Modell"
+          },
+          "zustimmung_rechenumgebung": {
+            "type": "boolean",
+            "title": "Zustimmung Rechenumgebung",
+            "description": "Zustimmung, die Rechenumgebung fuer die lokale Mitschrift beim naechsten Start zu laden",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "transkription",
+          "nachbearbeitung",
+          "chatbot"
+        ],
+        "title": "EinrichtungEntscheidung"
+      },
+      "EinrichtungKosten": {
+        "properties": {
+          "arbeitsweise": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Arbeitsweise"
+          },
+          "bausteine": {
+            "items": {
+              "$ref": "#/components/schemas/EinrichtungBaustein"
+            },
+            "type": "array",
+            "title": "Bausteine"
+          },
+          "download_gb": {
+            "type": "number",
+            "title": "Download Gb"
+          },
+          "platz_gb": {
+            "type": "number",
+            "title": "Platz Gb"
+          },
+          "download_minuten_von": {
+            "type": "number",
+            "title": "Download Minuten Von"
+          },
+          "download_minuten_bis": {
+            "type": "number",
+            "title": "Download Minuten Bis"
+          },
+          "annahme_mbit": {
+            "type": "integer",
+            "title": "Annahme Mbit"
+          },
+          "freier_platz_gb": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Freier Platz Gb"
+          },
+          "platz_knapp": {
+            "type": "boolean",
+            "title": "Platz Knapp"
+          },
+          "zustimmung_noetig": {
+            "type": "boolean",
+            "title": "Zustimmung Noetig"
+          },
+          "neustart_noetig": {
+            "type": "boolean",
+            "title": "Neustart Noetig"
+          },
+          "ollama_lizenz": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ollama Lizenz"
+          }
+        },
+        "type": "object",
+        "required": [
+          "arbeitsweise",
+          "bausteine",
+          "download_gb",
+          "platz_gb",
+          "download_minuten_von",
+          "download_minuten_bis",
+          "annahme_mbit",
+          "freier_platz_gb",
+          "platz_knapp",
+          "zustimmung_noetig",
+          "neustart_noetig",
+          "ollama_lizenz"
+        ],
+        "title": "EinrichtungKosten"
+      },
+      "EinrichtungModell": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "groesse_gb": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Groesse Gb"
+          },
+          "stufe": {
+            "type": "string",
+            "title": "Stufe"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "auf_grafikkarte": {
+            "type": "boolean",
+            "title": "Auf Grafikkarte"
+          },
+          "empfohlen": {
+            "type": "boolean",
+            "title": "Empfohlen"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "stufe",
+          "text",
+          "auf_grafikkarte",
+          "empfohlen"
+        ],
+        "title": "EinrichtungModell"
+      },
+      "EinrichtungModelle": {
+        "properties": {
+          "zustimmung": {
+            "type": "boolean",
+            "title": "Zustimmung",
+            "description": "Ausdrueckliche Zustimmung zum Herunterladen; ohne sie wird nichts geladen"
+          },
+          "sprachmodelle": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "maxItems": 10
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sprachmodelle",
+            "description": "Ollama-Modelle; ohne Angabe: was die Arbeitsweise braucht und fehlt"
+          },
+          "whisper": {
+            "type": "boolean",
+            "title": "Whisper",
+            "default": false
+          },
+          "whisper_modell": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Whisper Modell",
+            "description": "ohne Angabe: das eingestellte"
+          },
+          "sprechertrennung": {
+            "type": "boolean",
+            "title": "Sprechertrennung",
+            "default": false
+          },
+          "hf_token": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 512
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hf Token",
+            "description": "Zugang zu Hugging Face (wird nie zurueckgegeben)"
+          },
+          "hf_token_merken": {
+            "type": "boolean",
+            "title": "Hf Token Merken",
+            "default": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "zustimmung"
+        ],
+        "title": "EinrichtungModelle"
+      },
+      "EinrichtungRechner": {
+        "properties": {
+          "profil": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Profil"
+          },
+          "schritte": {
+            "items": {
+              "$ref": "#/components/schemas/EinrichtungSchritt"
+            },
+            "type": "array",
+            "title": "Schritte"
+          },
+          "empfehlung": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Empfehlung",
+            "description": "\"lokal\" | \"gemischt\" | \"api\" | null (Anwender entscheidet)"
+          },
+          "begruendung": {
+            "type": "string",
+            "title": "Begruendung"
+          },
+          "hinweise": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Hinweise"
+          },
+          "empfohlene_modelle": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "object",
+            "title": "Empfohlene Modelle"
+          },
+          "whisper_modelle": {
+            "items": {
+              "$ref": "#/components/schemas/EinrichtungModell"
+            },
+            "type": "array",
+            "title": "Whisper Modelle"
+          },
+          "sprachmodelle": {
+            "items": {
+              "$ref": "#/components/schemas/EinrichtungModell"
+            },
+            "type": "array",
+            "title": "Sprachmodelle"
+          },
+          "einbettungsmodelle": {
+            "items": {
+              "$ref": "#/components/schemas/EinrichtungModell"
+            },
+            "type": "array",
+            "title": "Einbettungsmodelle"
+          }
+        },
+        "type": "object",
+        "required": [
+          "profil",
+          "schritte",
+          "empfehlung",
+          "begruendung",
+          "hinweise",
+          "empfohlene_modelle",
+          "whisper_modelle",
+          "sprachmodelle",
+          "einbettungsmodelle"
+        ],
+        "title": "EinrichtungRechner"
+      },
+      "EinrichtungSchritt": {
+        "properties": {
+          "kennung": {
+            "type": "string",
+            "title": "Kennung",
+            "description": "\"mitschrift\" | \"sprecher\" | \"protokoll\" | \"chat\""
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "stufe": {
+            "type": "string",
+            "title": "Stufe",
+            "description": "\"gut\" | \"maessig\" | \"nicht\""
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "dauer_von": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dauer Von"
+          },
+          "dauer_bis": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dauer Bis"
+          },
+          "einheit": {
+            "type": "string",
+            "title": "Einheit",
+            "description": "\"minuten_je_stunde_aufnahme\" | \"sekunden_je_frage\" | \"\"",
+            "default": ""
+          },
+          "ort": {
+            "type": "string",
+            "title": "Ort",
+            "description": "\"Grafikkarte\" | \"Prozessor\" | \"\"",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "kennung",
+          "name",
+          "stufe",
+          "text"
+        ],
+        "title": "EinrichtungSchritt"
+      },
+      "EinrichtungSpaeter": {
+        "properties": {
+          "nicht_mehr_fragen": {
+            "type": "boolean",
+            "title": "Nicht Mehr Fragen",
+            "default": false
+          }
+        },
+        "type": "object",
+        "title": "EinrichtungSpaeter"
+      },
+      "EinrichtungStand": {
+        "properties": {
+          "einrichtung_abgeschlossen": {
+            "type": "boolean",
+            "title": "Einrichtung Abgeschlossen"
+          },
+          "naechster_schritt": {
+            "type": "string",
+            "title": "Naechster Schritt",
+            "description": "\"willkommen\" | \"neustart\" | \"mitschrift\" | \"fertig\""
+          },
+          "einrichtung_fortsetzen": {
+            "type": "string",
+            "title": "Einrichtung Fortsetzen"
+          },
+          "lokale_einrichtung_zurueckgestellt": {
+            "type": "boolean",
+            "title": "Lokale Einrichtung Zurueckgestellt"
+          },
+          "arbeitsweise": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Arbeitsweise",
+            "description": "{\"transkription\", \"nachbearbeitung\", \"chatbot\"} -> \"lokal\" | \"api\""
+          },
+          "modelle": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Modelle"
+          },
+          "vorhanden": {
+            "$ref": "#/components/schemas/EinrichtungVorhanden"
+          },
+          "offen": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Offen",
+            "description": "Kennungen der Bausteine (wie in /kosten), die fuer die Arbeitsweise noch fehlen"
+          },
+          "rechenumgebung_fehlt": {
+            "type": "boolean",
+            "title": "Rechenumgebung Fehlt"
+          },
+          "neustart_noetig": {
+            "type": "boolean",
+            "title": "Neustart Noetig",
+            "description": "Der Dienst muss einmal neu starten (\"Die App startet kurz neu\")"
+          },
+          "online_ohne_anbieter": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Online Ohne Anbieter"
+          },
+          "geraete": {
+            "type": "integer",
+            "title": "Geraete"
+          },
+          "geraete_empfang_aktiv": {
+            "type": "boolean",
+            "title": "Geraete Empfang Aktiv"
+          },
+          "auftraege": {
+            "items": {
+              "$ref": "#/components/schemas/Auftrag"
+            },
+            "type": "array",
+            "title": "Auftraege"
+          }
+        },
+        "type": "object",
+        "required": [
+          "einrichtung_abgeschlossen",
+          "naechster_schritt",
+          "einrichtung_fortsetzen",
+          "lokale_einrichtung_zurueckgestellt",
+          "arbeitsweise",
+          "modelle",
+          "vorhanden",
+          "offen",
+          "rechenumgebung_fehlt",
+          "neustart_noetig",
+          "online_ohne_anbieter",
+          "geraete",
+          "geraete_empfang_aktiv",
+          "auftraege"
+        ],
+        "title": "EinrichtungStand"
+      },
+      "EinrichtungVorhanden": {
+        "properties": {
+          "ffmpeg": {
+            "type": "boolean",
+            "title": "Ffmpeg"
+          },
+          "ollama": {
+            "type": "boolean",
+            "title": "Ollama"
+          },
+          "ollama_laeuft": {
+            "type": "boolean",
+            "title": "Ollama Laeuft"
+          },
+          "ollama_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ollama Version"
+          },
+          "ollama_modelle": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Ollama Modelle",
+            "default": []
+          },
+          "laufzeit": {
+            "type": "boolean",
+            "title": "Laufzeit",
+            "description": "Rechenumgebung (PyTorch & Co.) liegt auf der Platte"
+          },
+          "laufzeit_aktiv": {
+            "type": "boolean",
+            "title": "Laufzeit Aktiv",
+            "description": "Dieser Dienst laeuft schon in der Rechenumgebung"
+          },
+          "sprachmodell": {
+            "type": "boolean",
+            "title": "Sprachmodell"
+          },
+          "einbettung": {
+            "type": "boolean",
+            "title": "Einbettung"
+          },
+          "whisper": {
+            "type": "boolean",
+            "title": "Whisper"
+          },
+          "pyannote": {
+            "type": "boolean",
+            "title": "Pyannote"
+          },
+          "hf_token": {
+            "type": "boolean",
+            "title": "Hf Token"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ffmpeg",
+          "ollama",
+          "ollama_laeuft",
+          "laufzeit",
+          "laufzeit_aktiv",
+          "sprachmodell",
+          "einbettung",
+          "whisper",
+          "pyannote",
+          "hf_token"
+        ],
+        "title": "EinrichtungVorhanden",
+        "description": "Was schon auf diesem Rechner ist (gefragt werden nur Platte, Registry und der lokale Ollama-Dienst)."
+      },
+      "EinrichtungZustimmung": {
+        "properties": {
+          "zustimmung": {
+            "type": "boolean",
+            "title": "Zustimmung",
+            "description": "Ausdrueckliche Zustimmung zum Herunterladen; ohne sie wird nichts geladen"
+          }
+        },
+        "type": "object",
+        "required": [
+          "zustimmung"
+        ],
+        "title": "EinrichtungZustimmung"
+      },
+      "ExportAnfrage": {
+        "properties": {
+          "inhalt": {
+            "type": "string",
+            "pattern": "^(transkript|protokoll|beides)$",
+            "title": "Inhalt"
+          },
+          "formate": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Formate"
+          }
+        },
+        "type": "object",
+        "required": [
+          "inhalt",
+          "formate"
+        ],
+        "title": "ExportAnfrage"
+      },
+      "Faehigkeiten": {
+        "properties": {
+          "lokale_transkription": {
+            "type": "boolean",
+            "title": "Lokale Transkription"
+          },
+          "mikrofon": {
+            "type": "boolean",
+            "title": "Mikrofon"
+          },
+          "dateipfade": {
+            "type": "boolean",
+            "title": "Dateipfade"
+          },
+          "ordner_oeffnen": {
+            "type": "boolean",
+            "title": "Ordner Oeffnen"
+          },
+          "geraete_empfang": {
+            "type": "boolean",
+            "title": "Geraete Empfang"
+          },
+          "firewall_freigabe": {
+            "type": "boolean",
+            "title": "Firewall Freigabe",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "lokale_transkription",
+          "mikrofon",
+          "dateipfade",
+          "ordner_oeffnen",
+          "geraete_empfang"
+        ],
+        "title": "Faehigkeiten"
+      },
+      "Fehler": {
+        "properties": {
+          "titel": {
+            "type": "string",
+            "title": "Titel"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "bereich": {
+            "type": "string",
+            "title": "Bereich",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "titel",
+          "text",
+          "code"
+        ],
+        "title": "Fehler"
+      },
+      "Freigabe": {
+        "properties": {
+          "mit": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 200,
+            "title": "Mit",
+            "description": "\"alle\" oder Anmeldenamen; leer = nicht geteilt"
+          }
+        },
+        "type": "object",
+        "title": "Freigabe"
+      },
+      "GeraetAnlegen": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "besitzer": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 32
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Besitzer"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "GeraetAnlegen"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "Info": {
+        "properties": {
+          "version": {
+            "type": "string",
+            "title": "Version"
+          },
+          "rolle": {
+            "type": "string",
+            "title": "Rolle"
+          },
+          "angemeldet_als": {
+            "type": "string",
+            "title": "Angemeldet Als"
+          },
+          "anzeigename": {
+            "type": "string",
+            "title": "Anzeigename"
+          },
+          "admin": {
+            "type": "boolean",
+            "title": "Admin"
+          },
+          "mehrbenutzer": {
+            "type": "boolean",
+            "title": "Mehrbenutzer"
+          },
+          "faehigkeiten": {
+            "$ref": "#/components/schemas/Faehigkeiten"
+          },
+          "einrichtung_abgeschlossen": {
+            "type": "boolean",
+            "title": "Einrichtung Abgeschlossen"
+          },
+          "ausgabeordner": {
+            "type": "string",
+            "title": "Ausgabeordner"
+          }
+        },
+        "type": "object",
+        "required": [
+          "version",
+          "rolle",
+          "angemeldet_als",
+          "anzeigename",
+          "admin",
+          "mehrbenutzer",
+          "faehigkeiten",
+          "einrichtung_abgeschlossen",
+          "ausgabeordner"
+        ],
+        "title": "Info"
+      },
+      "ModellLaden": {
+        "properties": {
+          "modell": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Modell"
+          }
+        },
+        "type": "object",
+        "required": [
+          "modell"
+        ],
+        "title": "ModellLaden"
+      },
+      "NutzerAendern": {
+        "properties": {
+          "anzeigename": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 80
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Anzeigename"
+          },
+          "admin": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Admin"
+          },
+          "aktiv": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Aktiv"
+          },
+          "passwort": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 512
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Passwort",
+            "description": "Neues Passwort; \"\" entfernt es"
+          }
+        },
+        "type": "object",
+        "title": "NutzerAendern"
+      },
+      "NutzerAnlegen": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 32,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "anzeigename": {
+            "type": "string",
+            "maxLength": 80,
+            "title": "Anzeigename",
+            "default": ""
+          },
+          "admin": {
+            "type": "boolean",
+            "title": "Admin",
+            "default": false
+          },
+          "passwort": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 512
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Passwort"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "NutzerAnlegen"
+      },
+      "OrdnerOeffnen": {
+        "properties": {
+          "pfad": {
+            "type": "string",
+            "title": "Pfad"
+          }
+        },
+        "type": "object",
+        "required": [
+          "pfad"
+        ],
+        "title": "OrdnerOeffnen"
+      },
+      "PasswortAendern": {
+        "properties": {
+          "bisher": {
+            "type": "string",
+            "maxLength": 512,
+            "title": "Bisher",
+            "default": ""
+          },
+          "neu": {
+            "type": "string",
+            "maxLength": 512,
+            "minLength": 1,
+            "title": "Neu"
+          }
+        },
+        "type": "object",
+        "required": [
+          "neu"
+        ],
+        "title": "PasswortAendern"
+      },
+      "ProfilName": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "ProfilName"
+      },
+      "ProtokollSpeichern": {
+        "properties": {
+          "text": {
+            "type": "string",
+            "maxLength": 2000000,
+            "title": "Text"
+          }
+        },
+        "type": "object",
+        "required": [
+          "text"
+        ],
+        "title": "ProtokollSpeichern"
+      },
+      "ProtokollText": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "text"
+        ],
+        "title": "ProtokollText"
+      },
+      "Schluesselsatz": {
+        "properties": {
+          "wert": {
+            "type": "string",
+            "maxLength": 4096,
+            "title": "Wert"
+          },
+          "merken": {
+            "type": "boolean",
+            "title": "Merken",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "wert"
+        ],
+        "title": "Schluesselsatz"
+      },
+      "Segment": {
+        "properties": {
+          "start": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start"
+          },
+          "ende": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ende"
+          },
+          "sprecher_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sprecher Id"
+          },
+          "sprecher": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sprecher"
+          },
+          "text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Text"
+          }
+        },
+        "type": "object",
+        "required": [
+          "start",
+          "ende"
+        ],
+        "title": "Segment"
+      },
+      "Sprecher": {
+        "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "segmente": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Segmente"
+          },
+          "sekunden": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sekunden"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "Sprecher"
+      },
+      "SprecherNamen": {
+        "properties": {
+          "namen": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Namen"
+          }
+        },
+        "type": "object",
+        "required": [
+          "namen"
+        ],
+        "title": "SprecherNamen"
+      },
+      "TranskriptionAnfrage": {
+        "properties": {
+          "quelle": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Quelle",
+            "description": "Pfad der Audio-/Videodatei (auf dem Rechner des Dienstes)"
+          },
+          "sprache": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sprache",
+            "default": "de"
+          },
+          "min_sprecher": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 30.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Sprecher"
+          },
+          "max_sprecher": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 30.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Sprecher"
+          },
+          "sprechertrennung": {
+            "type": "boolean",
+            "title": "Sprechertrennung",
+            "default": true
+          },
+          "offline": {
+            "type": "boolean",
+            "title": "Offline",
+            "default": false
+          },
+          "fortsetzen": {
+            "type": "boolean",
+            "title": "Fortsetzen",
+            "default": true
+          },
+          "mit_auswertung": {
+            "type": "boolean",
+            "title": "Mit Auswertung",
+            "default": false
+          },
+          "systemprompt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Systemprompt"
+          }
+        },
+        "type": "object",
+        "required": [
+          "quelle"
+        ],
+        "title": "TranskriptionAnfrage"
+      },
+      "UsbEinrichten": {
+        "properties": {
+          "port": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Port"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 32,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "wlan_ssid": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Wlan Ssid"
+          },
+          "wlan_passwort": {
+            "type": "string",
+            "maxLength": 64,
+            "title": "Wlan Passwort",
+            "default": ""
+          },
+          "pc_url": {
+            "type": "string",
+            "maxLength": 200,
+            "title": "Pc Url",
+            "default": ""
+          },
+          "server_url": {
+            "type": "string",
+            "maxLength": 200,
+            "title": "Server Url",
+            "default": ""
+          },
+          "server_token": {
+            "type": "string",
+            "maxLength": 128,
+            "title": "Server Token",
+            "default": ""
+          },
+          "erste_nummer": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 99999.0,
+                "minimum": 2.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Erste Nummer"
+          }
+        },
+        "type": "object",
+        "required": [
+          "port",
+          "name",
+          "wlan_ssid"
+        ],
+        "title": "UsbEinrichten"
+      },
+      "UsbErkennen": {
+        "properties": {
+          "port": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Port"
+          }
+        },
+        "type": "object",
+        "required": [
+          "port"
+        ],
+        "title": "UsbErkennen"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      },
+      "Vorlage": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "eigene": {
+            "type": "boolean",
+            "title": "Eigene"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "text",
+          "eigene"
+        ],
+        "title": "Vorlage"
+      },
+      "VorlageSpeichern": {
+        "properties": {
+          "text": {
+            "type": "string",
+            "maxLength": 200000,
+            "title": "Text"
+          }
+        },
+        "type": "object",
+        "required": [
+          "text"
+        ],
+        "title": "VorlageSpeichern"
+      },
+      "ZugangAnlegen": {
+        "properties": {
+          "bezeichnung": {
+            "type": "string",
+            "maxLength": 60,
+            "minLength": 1,
+            "title": "Bezeichnung"
+          }
+        },
+        "type": "object",
+        "required": [
+          "bezeichnung"
+        ],
+        "title": "ZugangAnlegen"
+      },
+      "Zustand": {
+        "properties": {
+          "letzte_nummer": {
+            "type": "integer",
+            "title": "Letzte Nummer"
+          },
+          "jetzt": {
+            "type": "number",
+            "title": "Jetzt"
+          },
+          "auftraege": {
+            "items": {
+              "$ref": "#/components/schemas/Auftrag"
+            },
+            "type": "array",
+            "title": "Auftraege"
+          },
+          "empfang": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Empfang"
+          },
+          "aufnahme": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Aufnahme"
+          },
+          "freigaben": {
+            "items": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Freigaben"
+          }
+        },
+        "type": "object",
+        "required": [
+          "letzte_nummer",
+          "jetzt",
+          "auftraege",
+          "empfang",
+          "freigaben"
+        ],
+        "title": "Zustand"
+      }
+    }
+  }
+}

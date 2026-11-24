@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -204,12 +205,25 @@ def test_pdf_und_odt_laufen_ueber_uebergebene_schreiber(tmp_path):
     assert "<h1>Transkript: besprechung.mp3</h1>" in gesehen["pdf"]
 
 
-def test_fehlender_schreiber_wird_gemeldet(tmp_path):
+def _ohne_eigene_schreiber(monkeypatch):
+    """Weder Qt-Schreiber noch die eigenen (reportlab/ODT): so, als fehlte das Modul."""
+    monkeypatch.setitem(sys.modules, "protokoll_assistent.services.dokument_schreiber", None)
+
+
+def test_fehlender_schreiber_wird_gemeldet(tmp_path, monkeypatch):
+    _ohne_eigene_schreiber(monkeypatch)
     with pytest.raises(de.ExportFehler, match="nicht zur Verfuegung"):
         de.exportiere(de.INHALT_TRANSKRIPT, ["pdf"], tmp_path / "z", transkript_json=_transkript(tmp_path))
 
 
-def test_teilweiser_erfolg_behaelt_das_geschriebene(tmp_path):
+def test_pdf_und_odt_auch_ohne_qt(tmp_path):
+    pfade = de.exportiere(de.INHALT_TRANSKRIPT, ["pdf", "odt"], tmp_path / "z", transkript_json=_transkript(tmp_path))
+    assert [p.suffix for p in pfade] == [".pdf", ".odt"]
+    assert pfade[0].read_bytes().startswith(b"%PDF")
+
+
+def test_teilweiser_erfolg_behaelt_das_geschriebene(tmp_path, monkeypatch):
+    _ohne_eigene_schreiber(monkeypatch)
     transkript = _transkript(tmp_path)
     with pytest.raises(de.ExportTeilweise) as info:
         de.exportiere(de.INHALT_TRANSKRIPT, ["md", "odt"], tmp_path / "z", transkript_json=transkript)

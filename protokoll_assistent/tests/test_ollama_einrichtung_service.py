@@ -14,6 +14,7 @@ from types import SimpleNamespace
 import pytest
 
 from protokoll_assistent.services import ollama_einrichtung_service as oes
+from protokoll_assistent.utils import prozess
 
 URL = "https://ollama.com/download/OllamaSetup.exe"
 ENDE = "https://release-assets.githubusercontent.com/github-production-release-asset/1/OllamaSetup.exe"
@@ -401,6 +402,39 @@ def test_stille_installation_mit_inno_schaltern(tmp_path):
 
     oes.installiere_still(tmp_path / "OllamaSetup.exe", starte_fn=starten)
     assert aufrufe == [[str(tmp_path / "OllamaSetup.exe"), "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-"]]
+
+
+def test_installer_und_ollama_verlassen_den_job_des_fensters(tmp_path, monkeypatch):
+    """Das Fenster beendet beim Schliessen alles in seinem Job-Objekt. Installer und Ollama starten deshalb mit
+    CREATE_BREAKAWAY_FROM_JOB -- sonst brach die Installation mittendrin ab, und Ollama endete mit dem Fenster."""
+    monkeypatch.setattr(prozess, "AUS_DEM_JOB", 0x01000000)
+    flags = []
+
+    def starten(befehl, **kwargs):
+        flags.append(kwargs["creationflags"])
+        return SimpleNamespace(returncode=0)
+
+    oes.installiere_still(tmp_path / "OllamaSetup.exe", starte_fn=starten)
+    monkeypatch.setattr(oes.subprocess, "Popen", starten)
+    (tmp_path / "ollama app.exe").write_bytes(b"")
+    oes._starte_app(tmp_path)  # nur die Anwendung
+    (tmp_path / "ollama.exe").write_bytes(b"")
+    oes._starte_app(tmp_path)  # der Dienst
+    assert len(flags) == 3 and all(f & 0x01000000 for f in flags)
+
+
+def test_installer_ohne_breakaway_wenn_ein_fremder_job_es_verbietet(tmp_path, monkeypatch):
+    monkeypatch.setattr(prozess, "AUS_DEM_JOB", 0x01000000)
+    flags = []
+
+    def starten(befehl, **kwargs):
+        flags.append(kwargs["creationflags"])
+        if kwargs["creationflags"] & 0x01000000:
+            raise PermissionError(13, "Zugriff verweigert")
+        return SimpleNamespace(returncode=0)
+
+    oes.installiere_still(tmp_path / "OllamaSetup.exe", starte_fn=starten)
+    assert len(flags) == 2 and flags[1] == oes._KEIN_FENSTER
 
 
 @pytest.mark.parametrize(

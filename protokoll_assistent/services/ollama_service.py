@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from protokoll_assistent.utils.json_validation import extract_json_object
-from protokoll_assistent.utils.prozess import KEIN_FENSTER, LOSGELOEST, NEUE_PROZESSGRUPPE
+from protokoll_assistent.utils.prozess import KEIN_FENSTER, LOSGELOEST, NEUE_PROZESSGRUPPE, ausserhalb_des_jobs_starten
 
 
 # Im Container laeuft Ollama als eigener Dienst: Adresse ueber 'OLLAMA_URL'
@@ -101,7 +101,7 @@ OLLAMA_MODELLE: list[OllamaModellOption] = [
     ),
     OllamaModellOption(
         id="hf.co/LiquidAI/LFM2.5-2.6B-GGUF:Q4_K_M",
-        label="LFM2.5 2.6B (schneller, auch fuer Rechner ohne Grafikkarte)",
+        label="LFM2.5 2.6B (schneller, auch für Rechner ohne Grafikkarte)",
         groesse_gb=1.6,
         chat_endpunkt=True,
         hinweis=(
@@ -317,7 +317,10 @@ def dienst_starten(
         _start.letzter_versuch = jetzt
         starte = popen_fn or subprocess.Popen
         try:
-            starte(
+            # Ausserhalb des Job-Objekts des Fensters: Ollama soll das Schliessen des Fensters und einen Neustart des
+            # Dienstes ueberleben (mitten im Modell-Download).
+            ausserhalb_des_jobs_starten(
+                starte,
                 [str(programm), "serve"],
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,

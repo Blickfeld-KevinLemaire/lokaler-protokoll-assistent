@@ -38,7 +38,7 @@ DEFAULTS: dict[str, Any] = {
     "einrichtung_fortsetzen": "",
     # Ersteinrichtung mit "Nicht mehr fragen" geschlossen, ohne zuzustimmen:
     # Die schwere Rechenumgebung wird nicht ungefragt geladen, bis der Anwender
-    # die lokale Einrichtung selbst startet (siehe app.py).
+    # die lokale Einrichtung selbst startet (siehe 'bootstrap.laufzeit_beim_start_einrichten').
     "lokale_einrichtung_zurueckgestellt": False,
     # "lokal" | "api"
     "transkription_modus": "lokal",
@@ -93,6 +93,15 @@ DEFAULTS: dict[str, Any] = {
     # Laenge der Abschnitte (Sekunden), die das Sprachmodell einzeln auswertet. Kuerzere Abschnitte
     # verkuerzen die Wartezeit nach dem Ende: Es bleibt hoechstens der letzte offen.
     "geraete_live_abschnitt_sekunden": 180,
+    # Vorgaben fuer neue Transkriptionen (Oberflaeche und automatische Verarbeitung von Geraeteaufnahmen).
+    "sprache": "de",
+    "offline": False,
+    # Die Windows-Anwendung zusaetzlich im Netz anbieten (Browser auf anderen Rechnern). Aus, bis jemand
+    # es einschaltet; angemeldet wird mit Zugangsschluesseln, von denen hier nur der SHA-256 steht
+    # (Liste von {"name", "token_sha256", "angelegt"}).
+    "netz_freigabe_aktiv": False,
+    "netz_freigabe_port": 8780,
+    "server_zugaenge": [],
 }
 
 
@@ -111,8 +120,8 @@ def load_config() -> dict[str, Any]:
         data = None
     if not isinstance(data, dict):
         # Kein JSON (halb geschrieben, von Hand beschaedigt) oder gueltiges JSON, aber kein Objekt (z. B.
-        # eine Liste). Ohne diese Pruefung scheitert '.items()' unten -- in 'app.py' noch VOR dem ersten
-        # Fenster, also ohne jede sichtbare Meldung.
+        # eine Liste). Ohne diese Pruefung scheitert '.items()' unten -- beim Start des Dienstes noch VOR
+        # der Oberflaeche, also ohne jede sichtbare Meldung.
         _defekte_datei_sichern(path)
         return dict(DEFAULTS)
     merged = dict(DEFAULTS)

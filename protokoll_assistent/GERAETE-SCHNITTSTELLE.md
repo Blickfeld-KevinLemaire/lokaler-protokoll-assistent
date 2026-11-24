@@ -141,7 +141,7 @@ das ab, nachdem es die Aufnahme abgeschlossen hat, und zeigt den Stand an.
 | `auswertung` | Die Auswertung nach dem Auftrag läuft. | Fortschritt |
 | `fertig` | Alles ist da. `meldung` ist `Transkription erfolgreich`. | **grünes Häkchen, „Transkription erfolgreich"** |
 | `fehler` | Transkription oder Auswertung ist fehlgeschlagen oder wurde abgebrochen; `meldung` nennt, welcher Schritt. | Fehler |
-| `unbekannt` | Der Software ist nichts bekannt (Neustart der Software, Live-Verarbeitung ausgeschaltet). Kein Fehler: Die Aufnahme liegt trotzdem vor. | nichts oder „angekommen" |
+| `unbekannt` | Der Software ist nichts bekannt (Neustart der Software, Live-Verarbeitung ausgeschaltet; siehe unten). Kein Fehler: Die Aufnahme liegt trotzdem vor. | nichts oder „angekommen" |
 
 `fortschritt` (0 bis 1) fehlt, wenn die Software keinen kennt; er läuft über
 Transkription **und** Auswertung (erste Hälfte Transkription, zweite Auswertung).
@@ -164,6 +164,16 @@ Regeln für das Gerät (die Firmware des S3 mit Bildschirm hält sich daran):
 
 Der Stand liegt nur im Speicher der Software. Nach einem Neustart der Software
 meldet sie `unbekannt`; die Aufnahme selbst ist dann trotzdem sicher abgelegt.
+War die automatische Verarbeitung einer vollständig angekommenen Aufnahme beim
+Beenden der Software (oder des Rechners) noch nicht zu Ende, reiht die Software
+sie beim nächsten Start des Empfangs wieder ein: ohne Transkript von vorn, mit
+Transkript nur noch die Zusammenfassung. Wünsche des Geräts (`X-Auftrag`,
+`X-Rueckfrage`) sind dann vergessen – es geht **ohne Rückfrage** mit dem
+eingestellten Auftrag weiter. Ab dem Wiedereinreihen meldet `…/status` wieder
+den Stand (`transkription`/`auswertung`, am Ende `fertig` oder `fehler`); ein
+Gerät, das nach dreimal `unbekannt` schon aufgehört hat zu fragen, erfährt
+davon nichts, die Ergebnisse stehen trotzdem in der Software. Halb hochgeladene
+Aufnahmen werden nicht verarbeitet – sie lädt das Gerät wie immer zu Ende.
 Lädt ein Gerät eine schon abgelegte Aufnahme noch einmal hoch (die Bestätigung
 ging verloren), bleibt der bisherige Stand stehen – ein `fertig` wird dadurch
 nicht zurückgenommen.
@@ -171,8 +181,10 @@ nicht zurückgenommen.
 ### `GET /api/v1/auftraege`
 
 Die Namen der Vorlagen (Systemprompts), aus denen das Gerät **vor der Aufnahme** einen Auftrag wählen lässt
-(Auswahlliste am Display). Es sind höchstens 12 Namen mit je höchstens 60 Zeichen und höchstens 63 Byte UTF-8
-(so passt jeder Name ungekürzt in die Liste der Firmware; längere Vorlagen bietet die Software nicht an).
+(Auswahlliste am Display). Es sind höchstens 20 Namen mit je höchstens 60 Zeichen und höchstens 63 Byte UTF-8
+(so passt jeder Name ungekürzt in die Liste der Firmware; längere Vorlagen bietet die Software nicht an). Firmware
+vor November 2026 fasst nur 12 Einträge und übernimmt die ersten 12; die ganze Antwort bleibt unter 3 KB und passt
+in den Antwortpuffer jeder Firmware (6 KB).
 
 ```json
 {"auftraege":["Aufgaben und Zuständigkeiten","Entscheidungen","Meetingprotokoll"],
@@ -319,6 +331,10 @@ Quellenangaben); sonst ist sie die Liste fürs Display (siehe **Ausgabe** oben).
 * Die Datei erscheint erst mit dem Abschluss im Eingangsordner – vollständig
   und auf einen Schlag (Umbenennen im selben Ordner). Halbe Aufnahmen sieht
   die Verarbeitung nie.
+* Abgeschlossene Aufnahmen vermerkt der Dienst in `.empfang/fertig.json`
+  (erkennt so Wiederholungen); bei eingeschalteter Live-Verarbeitung zusätzlich,
+  ob ihre automatische Verarbeitung noch offen ist – daran findet er nach einem
+  Neustart die liegengebliebenen (siehe `…/status`).
 
 ## Senden während der Aufnahme
 

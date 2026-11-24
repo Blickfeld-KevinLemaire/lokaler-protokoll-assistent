@@ -2,8 +2,8 @@
 # Manueller/fortgeschrittener Weg NUR fuer einen Rechner, der bereits eine
 # vollstaendig eingerichtete '.venv-whisperx' mitbringt (WhisperX, PyTorch,
 # pyannote). Auf einem neuen PC OHNE eine solche Umgebung ist dieses Skript
-# NICHT noetig: einfach '.\Start-Protokoll-Assistent.ps1' ausfuehren -- die
-# Anwendung richtet sich dann automatisch selbst ein (siehe 'bootstrap.py').
+# NICHT noetig: einfach den Installer benutzen -- die Anwendung richtet sich
+# dann automatisch selbst ein (siehe 'bootstrap.py').
 #
 # Verwendet AUSSCHLIESSLICH die bereits vorhandene virtuelle Umgebung
 # '.venv-whisperx' neben diesem Ordner ('protokoll-assistent\.venv-whisperx').
@@ -28,7 +28,7 @@ if (-not (Test-Path $VenvPython)) {
 }
 Write-Host "Verwende vorhandene virtuelle Umgebung: $VenvDir"
 
-Write-Host "`nInstalliere GUI-/Build-Abhaengigkeiten (PySide6, PyInstaller) ..."
+Write-Host "`nInstalliere die Pakete der Anwendung (Dienst, Export, PyInstaller) ..."
 & $VenvPython -m pip install --upgrade pip
 if ($LASTEXITCODE -ne 0) { Write-Host "FEHLER: pip-Upgrade fehlgeschlagen." -ForegroundColor Red; exit 1 }
 

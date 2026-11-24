@@ -15,11 +15,11 @@ Zwei Wege nutzen das:
 * **Auf Wunsch**: Der Exportdialog laesst den Anwender Inhalt, Formate und
   Zielordner waehlen (``exportiere``).
 
-Der Dienst kennt kein Qt (CLAUDE.md). PDF und OpenDocument erzeugt Qt aus dem
-HTML-Text; diese Schreiber werden von der Oberflaeche als Funktionen
-uebergeben (``schreiber``), genau wie die ML-Aufrufe der anderen Dienste.
-Damit bleibt der Dienst ohne Fenster testbar und braucht keine zusaetzliche
-Bibliothek fuer PDF.
+Der Dienst kennt kein Qt (CLAUDE.md). PDF und OpenDocument schreibt
+``services/dokument_schreiber.py`` (reportlab bzw. eigener ODT-Schreiber).
+Ein Aufrufer kann eigene Schreiber als Funktionen uebergeben
+(``schreiber``), genau wie die ML-Aufrufe der anderen Dienste -- die Tests
+setzen so Attrappen ein.
 """
 
 from __future__ import annotations
@@ -35,6 +35,7 @@ from typing import Any
 
 from protokoll_assistent.services import export_service
 from protokoll_assistent.services.manifest_service import _ersetzen_mit_wiederholung
+from protokoll_assistent.utils.dateinamen import sicherer_stamm
 
 INHALT_TRANSKRIPT = "transkript"
 INHALT_PROTOKOLL = "protokoll"
@@ -71,7 +72,7 @@ FORMATE: tuple[Format, ...] = (
     Format("json", "JSON (.json)", ".json", (INHALT_TRANSKRIPT, INHALT_PROTOKOLL)),
 )
 
-# Formate, die Qt aus dem HTML-Text schreibt (siehe 'gui/dokument_qt.py').
+# Formate mit eigenem Schreiber (frueher Qt, heute 'dokument_schreiber.py'; ersetzbar ueber 'schreiber').
 QT_FORMATE = ("pdf", "odt")
 
 Schreiber = Callable[[str, Path], None]  # (HTML-Text, Zielpfad)
@@ -403,7 +404,7 @@ def _atomar_schreiben(ziel: Path, schreiben: Callable[[Path], None]) -> None:
 
 def _basisname(transkript: dict[str, Any] | None, protokoll_pfad: Path | None, transkript_pfad: Path | None) -> str:
     if transkript is not None and transkript.get("quelldatei_stamm"):
-        return str(transkript["quelldatei_stamm"])
+        return sicherer_stamm(transkript["quelldatei_stamm"], "export")
     for pfad in (transkript_pfad, protokoll_pfad):
         if pfad is not None:
             return pfad.stem
@@ -520,9 +521,15 @@ def _schreibe_format(
         ziel.write_text(als_html(dokument), encoding="utf-8")
     elif format_id in QT_FORMATE:
         funktion = schreiber.get(format_id)
-        if funktion is None:
-            raise ExportFehler("Dieses Format steht in dieser Umgebung nicht zur Verfuegung.")
-        funktion(als_html(dokument), ziel)
+        if funktion is not None:
+            funktion(als_html(dokument), ziel)
+        else:
+            # Ohne Qt (Programmschnittstelle, Servermodus): eigene Schreiber fuer PDF und OpenDocument.
+            try:
+                from protokoll_assistent.services.dokument_schreiber import schreibe as schreibe_ohne_qt
+            except ImportError as fehler:
+                raise ExportFehler("Dieses Format steht in dieser Umgebung nicht zur Verfuegung.") from fehler
+            schreibe_ohne_qt(format_id, dokument, ziel)
     elif format_id in ("srt", "vtt"):
         if transkript is None:
             raise ExportFehler("Untertitel brauchen ein Transkript.")

@@ -55,7 +55,7 @@ def token_ausgeben(name: str) -> int:
     nur hier einmal angezeigt; in die Einstellungen gehoert nur sein Hash."""
     if not geraete_empfang_service.geraetename_gueltig(name):
         print(
-            f"'{name}' ist kein gueltiger Geraetename (Buchstaben, Ziffern, _ und -, hoechstens 32 Zeichen).",
+            f"'{name}' ist kein gueltiger Geraetename (Buchstaben, Ziffern, Leerzeichen, _ und -, hoechstens 32 Zeichen).",
             file=sys.stderr,
         )
         return 2

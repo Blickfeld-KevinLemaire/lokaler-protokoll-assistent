@@ -8,8 +8,8 @@
 # ---------------------------------------------------------------------------
 [project]
 name = "lokaler-protokoll-assistent"
-version = "0.5.0-rc3"
-description = "Protokoll-Assistent: eine Windows-Anwendung (PySide6) fuer lokale und API-gestuetzte Transkription und Protokollauswertung"
+version = "0.7.0-rc1"
+description = "Protokoll-Assistent: eine Windows-Anwendung (Tauri-Fenster + Python-Dienst) fuer lokale und API-gestuetzte Transkription und Protokollauswertung"
 readme = "README.md"
 requires-python = ">=3.10,<3.12"
 dependencies = []
@@ -24,7 +24,6 @@ dev = [
     # 'sv-ttk' und 'tkinterdnd2' standen hier fuer die tkinter-Oberflaeche.
     # Die ist mit der Zusammenfuehrung entfallen, die Pakete damit auch.
     "sounddevice>=0.4.6",
-    "PySide6>=6.11.2,<7",
     "python-docx>=1.2.0",
     # Einziger Ort, an dem API-Schluessel optional dauerhaft gespeichert
     # werden koennen - ueber die Windows-Anmeldeinformationsverwaltung, nie
@@ -38,13 +37,10 @@ dev = [
     "truststore>=0.10.0",
     # Wird fuer den Windows-Build und dessen Probelauf in der CI gebraucht.
     "pyinstaller>=6.22.3",
-
     # Testwerkzeuge
     "pytest>=8.0",
     "pytest-cov>=5.0",
-    "pytest-qt>=4.4",
     "pytest-timeout>=2.3",
-
     # Qualitaet und Sicherheit
     "ruff>=0.6",
     "mypy>=1.11",
@@ -53,6 +49,11 @@ dev = [
     # filelock 4.1.0 nach, fuer das es keine bereinigte Fassung gibt (ab
     # 4.2.1 verlangt filelock 3.11) - Dependabot meldete das dauerhaft.
     "pip-audit>=2.7; python_version >= '3.11'",
+    "fastapi>=0.115",
+    "uvicorn>=0.32",
+    "python-multipart>=0.0.18",
+    "httpx>=0.28",
+    "reportlab>=4.2",
 ]
 
 [tool.uv]
@@ -71,11 +72,11 @@ minversion = "8.0"
 pythonpath = ["."]
 testpaths = ["protokoll_assistent/tests"]
 # "--capture=sys": Nur sys.stdout/stderr werden ersetzt, die
-# Dateideskriptoren bleiben intakt. Qt-Fenstertests vertragen das deutlich
-# besser als ein Abfangen auf Deskriptorebene.
+# Dateideskriptoren bleiben intakt. Eingefuehrt fuer die frueheren
+# Qt-Fenstertests; bewusst beibehalten, um das Verhalten der Suite nicht
+# nebenbei zu aendern.
 addopts = "-q --strict-markers --strict-config --capture=sys --timeout=120"
 markers = [
-    "gui: Test braucht eine echte Fensterumgebung (tkinter oder Qt)",
     "e2e: Ende-zu-Ende mit echten Modellen; laeuft nur mit PROTOKOLL_E2E=1 (siehe tests/e2e/conftest.py)",
 ]
 filterwarnings = ["error::DeprecationWarning:services.*", "error::DeprecationWarning:utils.*"]
@@ -98,13 +99,14 @@ omit = [
     "*/dist/*",
     "*/__init__.py",
     "*/conftest.py",
-    "*/protokoll_assistent.spec",
-    # PySide6 laedt interne Module ohne Quelldatei (shiboken). Sie tauchen mit
-    # relativen Namen auf, coverage sucht sie im Projektordner und meldet bei
-    # jedem Lauf "Couldn't parse". Mit dem Projekt haben sie nichts zu tun.
-    "*/shibokensupport/*",
-    "*/signature_bootstrap.py",
-    "*/pyscript",
+    # Build- und Release-Werkzeuge ausserhalb des Pakets. Sie laufen nicht in der Testsuite, sondern
+    # selbst als Pruefung in der CI: 'vermerk_dienst.py' ist nur der PyInstaller-Einstieg des Dienstes
+    # (wie 'vermerk_dienst.spec'), 'tools/dienst_rauchtest.py' startet in release.yml den GEBAUTEN
+    # Dienst, 'tools/versionen_pruefen.py' laeuft in ci.yml und release.yml. Bewusst einzeln benannt,
+    # damit 'protokoll_assistent/tools/' gemessen bleibt.
+    "vermerk_dienst.py",
+    "tools/dienst_rauchtest.py",
+    "tools/versionen_pruefen.py",
 ]
 relative_files = true
 
@@ -163,7 +165,7 @@ ignore = [
 
 [tool.ruff.lint.isort]
 # Ohne diese Liste haelt ruff die eigenen Pakete fuer Fremdpakete und sortiert
-# sie zwischen PySide6 und Co. ein.
+# sie zwischen FastAPI und Co. ein.
 known-first-party = ["protokoll_assistent"]
 
 [tool.ruff.lint.per-file-ignores]
@@ -199,10 +201,3 @@ check_untyped_defs = true
 #   warn_unreachable - der Code prueft absichtlich Typen von JSON-Antworten
 #     nach ("if not isinstance(daten, dict)"). Genau diese Vorsicht wuerde
 #     als "nicht erreichbar" gemeldet werden.
-
-[[tool.mypy.overrides]]
-# PySide6 liefert unvollstaendige Typinformationen: Kurzschreibweisen wie
-# 'Qt.red' oder 'QDialogButtonBox.Save' funktionieren zur Laufzeit, fehlen
-# aber in den Stubs.
-module = ["protokoll_assistent.gui.*"]
-disable_error_code = ["attr-defined"]

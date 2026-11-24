@@ -1,0 +1,9 @@
+node_modules/
+build/
+.svelte-kit/
+screenshots/
+package-lock.json
+openapi.json
+static/
+# Das Desktop-Fenster (Rust/Tauri) hat seine eigenen Werkzeuge (cargo fmt).
+src-tauri/

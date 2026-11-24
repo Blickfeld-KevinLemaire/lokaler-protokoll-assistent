@@ -37,6 +37,7 @@ from typing import Any
 
 from protokoll_assistent.services import ollama_service
 from protokoll_assistent.utils import netz
+from protokoll_assistent.utils.prozess import ausserhalb_des_jobs_starten
 
 OLLAMA_LIZENZ_URL = "https://github.com/ollama/ollama/blob/main/LICENSE"
 OLLAMA_BEDINGUNGEN_URL = "https://ollama.com/terms"
@@ -300,8 +301,8 @@ def _lies_signatur(pfad: Path) -> tuple[str, str]:
     if sys.platform != "win32":
         raise OSError("Die Signaturprüfung gibt es nur unter Windows.")
     import ctypes
+    import ctypes.wintypes as wintypes
     import uuid
-    from ctypes import wintypes
 
     class _Guid(ctypes.Structure):
         _fields_ = [
@@ -429,9 +430,13 @@ def installiere_still(
     pfad: Path, *, starte_fn: Callable[..., Any] = subprocess.run, zeitlimit: float = INSTALLATION_ZEITLIMIT_SEKUNDEN
 ) -> None:
     """Installiert ohne Fenster und Rueckfragen fuer das eigene Benutzerkonto.
-    Der Ollama-Installer startet Ollama danach selbst (Eintrag unter [Run])."""
+    Der Ollama-Installer startet Ollama danach selbst (Eintrag unter [Run]).
+
+    Ausserhalb des Job-Objekts des Fensters: Schliesst jemand das Fenster mitten in der Installation, liefe sie
+    sonst nicht zu Ende (und das von ihr gestartete Ollama endete gleich mit)."""
     try:
-        ergebnis = starte_fn(
+        ergebnis = ausserhalb_des_jobs_starten(
+            starte_fn,
             [str(pfad), "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-"],
             timeout=zeitlimit,
             check=False,
@@ -455,12 +460,14 @@ def installiere_still(
 def _starte_app(ordner: Path | None) -> None:
     """Startet den Ollama-Dienst (``ollama serve``), losgeloest von uns. Nur wenn es ``ollama.exe`` nicht gibt, die
     Ollama-Anwendung: Sie beendete sich bei Tests mitten in einem Modell-Download selbst (Ollama 0.40.4), der reine
-    Dienst nicht -- und fuer das Aufnahmegeraet muss der Dienst laufen, ohne dass jemand ein Fenster bedient."""
+    Dienst nicht -- und fuer das Aufnahmegeraet muss der Dienst laufen, ohne dass jemand ein Fenster bedient.
+    Beides ausserhalb des Job-Objekts des Fensters, sonst endete Ollama mit dem Fenster."""
     if ordner is None:
         return
     dienst = ordner / "ollama.exe"
     if dienst.is_file():
-        subprocess.Popen(
+        ausserhalb_des_jobs_starten(
+            subprocess.Popen,
             [str(dienst), "serve"],
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
@@ -472,7 +479,7 @@ def _starte_app(ordner: Path | None) -> None:
         return
     programm = ordner / "ollama app.exe"
     if programm.is_file():
-        subprocess.Popen([str(programm)], creationflags=_LOSGELOEST | _KEIN_FENSTER, close_fds=True)
+        ausserhalb_des_jobs_starten(subprocess.Popen, [str(programm)], creationflags=_LOSGELOEST | _KEIN_FENSTER, close_fds=True)
 
 
 def warte_auf_dienst(

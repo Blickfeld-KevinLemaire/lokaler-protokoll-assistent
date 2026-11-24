@@ -1,0 +1,198 @@
+<script lang="ts">
+  import Pencil from '@lucide/svelte/icons/pencil';
+  import { api } from '$lib/api/client';
+  import type { BesprechungDetails, Vorlage } from '$lib/api/typen';
+  import { STANDARD_VORLAGE, systempromptFuer, vorlageVorwahl } from '$lib/logik/vorlagen';
+  import { startMeldung } from '$lib/logik/warteschlange';
+  import { einstellungen } from '$lib/stores/einstellungen.svelte';
+  import { dialog, meldungen } from '$lib/stores/oberflaeche.svelte';
+  import { zustand } from '$lib/stores/zustand.svelte';
+  import AuftragKarte from '../AuftragKarte.svelte';
+  import Bestaetigen from '../Bestaetigen.svelte';
+  import Markdown from '../Markdown.svelte';
+
+  let {
+    details,
+    text = $bindable(),
+    nurLesen = false,
+    gespeichert
+  }: { details: BesprechungDetails; text: string; nurLesen?: boolean; gespeichert: () => void } = $props();
+
+  let bearbeiten = $state(false);
+  let speichert = $state(false);
+  let vorlagen = $state<Vorlage[]>([]);
+  let vorlageName = $state('');
+  let rueckfrage = $state(false);
+
+  const original = $derived(details.protokoll?.text ?? '');
+  const geaendert = $derived(text !== original);
+
+  // Läuft oder wartet schon eine Zusammenfassung für diese Besprechung?
+  const auftrag = $derived.by(() => {
+    const letzter = zustand.auftraege.findLast(
+      (a) => a.art === 'auswertung' && a.angaben?.transkript === details.transkript
+    );
+    return letzter && ['wartet', 'laeuft', 'fehler'].includes(letzter.status) ? letzter : null;
+  });
+
+  $effect(() => {
+    api
+      .vorlagen()
+      .then((liste) => {
+        vorlagen = liste;
+        vorlageName = vorlageVorwahl(liste, einstellungen.werte?.aktive_systemprompt_vorlage);
+      })
+      .catch((e) => console.warn('Vorlagen nicht geladen', e));
+  });
+
+  async function speichern() {
+    speichert = true;
+    try {
+      const antwort = await api.protokollSpeichern(details.id, text);
+      meldungen.zeigen(antwort.word_hinweis ? 'Gespeichert (Word-Datei nicht aktualisiert)' : 'Gespeichert');
+      bearbeiten = false;
+      gespeichert();
+    } catch (e) {
+      dialog.zeigen(e, 'Speichern hat nicht geklappt');
+    } finally {
+      speichert = false;
+    }
+  }
+
+  function verwerfen() {
+    const entwurf = text;
+    text = original;
+    bearbeiten = false;
+    meldungen.zeigen('Änderungen verworfen', 'info', 6000, {
+      text: 'Rückgängig',
+      tun: () => {
+        text = entwurf;
+        bearbeiten = true;
+      }
+    });
+  }
+
+  function erstellen() {
+    if (geaendert) rueckfrage = true;
+    else void neuErstellen();
+  }
+
+  async function neuErstellen() {
+    try {
+      const neu = await api.auswertungStarten(details.transkript, systempromptFuer(vorlagen, vorlageName));
+      zustand.auftragAktualisieren(neu);
+      text = original;
+      bearbeiten = false;
+      meldungen.zeigen(startMeldung(neu, zustand.auftraege) ?? 'Zusammenfassung wird erstellt', 'info');
+    } catch (e) {
+      dialog.zeigen(e, 'Start nicht möglich');
+    }
+  }
+</script>
+
+{#if !nurLesen}
+  <div class="leiste">
+    {#if vorlagen.length}
+      <select class="feld vorlage" aria-label="Vorlage" bind:value={vorlageName}>
+        <option value={STANDARD_VORLAGE}>Standard</option>
+        {#each vorlagen as v (v.name)}<option value={v.name}>{v.name}</option>{/each}
+      </select>
+    {/if}
+    <button
+      class="knopf"
+      class:primaer={!details.protokoll}
+      type="button"
+      disabled={auftrag?.status === 'wartet' || auftrag?.status === 'laeuft'}
+      onclick={erstellen}
+    >
+      {details.protokoll ? 'Neu erstellen' : 'Erstellen'}
+    </button>
+    <span class="raum"></span>
+    {#if details.protokoll}
+      {#if bearbeiten}
+        <button class="knopf leise" type="button" onclick={verwerfen}>Verwerfen</button>
+        <button class="knopf primaer" type="button" disabled={!geaendert || speichert} onclick={speichern}>
+          Speichern
+        </button>
+      {:else}
+        <button class="knopf" type="button" onclick={() => (bearbeiten = true)}>
+          <Pencil size={16} /> Bearbeiten
+        </button>
+      {/if}
+    {/if}
+  </div>{/if}
+
+<Bestaetigen
+  offen={rueckfrage}
+  titel="Änderungen verwerfen?"
+  text="Die Zusammenfassung wird neu erstellt. Ihre ungespeicherten Änderungen gehen dabei verloren."
+  verb="Neu erstellen"
+  bestaetigen={neuErstellen}
+  schliessen={() => (rueckfrage = false)}
+/>
+
+{#if auftrag}
+  <div class="auftrag"><AuftragKarte {auftrag} /></div>
+{/if}
+
+{#if details.protokoll}
+  {#if bearbeiten}
+    <div class="geteilt">
+      <textarea
+        class="feld editor"
+        aria-label="Zusammenfassung bearbeiten"
+        bind:value={text}
+        spellcheck="true"></textarea>
+      <div class="karte vorschau" aria-label="Vorschau"><Markdown {text} /></div>
+    </div>
+  {:else}
+    <div class="karte lesen"><Markdown text={original} /></div>
+  {/if}
+{:else if !auftrag}
+  <div class="leer">Noch keine Zusammenfassung</div>
+{/if}
+
+<style>
+  .leiste {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 14px;
+  }
+
+  .vorlage {
+    width: 220px;
+  }
+
+  .raum {
+    flex: 1;
+  }
+
+  .auftrag {
+    margin-bottom: 14px;
+  }
+
+  .lesen {
+    padding: 22px 26px;
+  }
+
+  .geteilt {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    height: calc(100vh - 260px);
+    min-height: 360px;
+  }
+
+  .editor {
+    height: 100%;
+    resize: none;
+    font-family: 'Cascadia Mono', Consolas, 'Segoe UI Mono', monospace;
+    font-size: 13px;
+  }
+
+  .vorschau {
+    padding: 18px 22px;
+    overflow-y: auto;
+  }
+</style>

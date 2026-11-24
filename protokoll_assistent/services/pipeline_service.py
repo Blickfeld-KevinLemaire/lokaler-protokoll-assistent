@@ -39,6 +39,7 @@ from protokoll_assistent.services import (
     sprecherprofil_service,
     transcription_service,
 )
+from protokoll_assistent.utils.dateinamen import sicherer_stamm
 from protokoll_assistent.utils.logging_setup import get_logger
 from protokoll_assistent.utils.timeformat import format_timestamp
 
@@ -112,6 +113,10 @@ class PipelineSettings:
     # gilt als sicher und wird nicht noch einmal transkribiert; ein Chunk, der nur zum Teil
     # abgedeckt ist, bekommt nur noch seinen Rest transkribiert. 'None' = nichts vorab.
     vorab_live: dict[str, Any] | None = None
+    # TXT/SRT/VTT neben die Transkript-JSON legen. Die neue Oberflaeche schaltet das ab: Sie zeigt nur das
+    # Word-Dokument und erzeugt alle anderen Formate erst beim Exportieren. Ohne diese Vorgabe (etwa im
+    # Servermodus) bleiben die Dateien.
+    begleitdateien: bool = True
 
 
 @dataclass
@@ -738,6 +743,7 @@ def _run_transcription_stage(
         sprecher_aktiv,
         diarization_turns,
         normalized_path,
+        begleitdateien=settings.begleitdateien,
     )
     manifest["protokoll_status"] = manifest_service.STATUS_AUSSTEHEND
     manifest_service.save_manifest(work_dir, manifest)
@@ -821,7 +827,8 @@ def load_transcript_for_protocol(
         eintrag["sprecher_id"]: eintrag["anzeigename"] for eintrag in daten.get("sprecher_zuordnung", [])
     }
     diarization_enabled = bool(daten.get("sprechertrennung_aktiv", True))
-    source_stem = str(daten.get("quelldatei_stamm") or transcript_json_path.stem)
+    # Der Stamm bildet den Dateinamen des Ergebnisses und stammt aus der (im Servermodus hochladbaren) Datei.
+    source_stem = sicherer_stamm(daten.get("quelldatei_stamm") or transcript_json_path.stem)
     return segments, speaker_names, diarization_enabled, source_stem
 
 
@@ -926,7 +933,12 @@ def run_protocol(
         protokoll_status = manifest_service.STATUS_ABGESCHLOSSEN
         callbacks.on_stage("export_protokoll", STAGE_LABELS["export_protokoll"])
         protocol_paths = export_service.write_protocol_exports(
-            settings.output_dir, protocol, source_stem, run_timestamp, system_prompt
+            settings.output_dir,
+            protocol,
+            source_stem,
+            run_timestamp,
+            system_prompt,
+            transkript_datei=settings.transcript_json_path.name,
         )
     except (protocol_service.ProtocolValidationError, ollama_service.OllamaError) as error:
         # Das Transkript bleibt in jedem Fall erhalten -- nur die
@@ -1022,7 +1034,12 @@ def run_pipeline(
             manifest["protokoll_status"] = manifest_service.STATUS_ABGESCHLOSSEN
             callbacks.on_stage("export_protokoll", STAGE_LABELS["export_protokoll"])
             protocol_paths = export_service.write_protocol_exports(
-                settings.output_dir, protocol, settings.source_path.stem, run_timestamp, system_prompt
+                settings.output_dir,
+                protocol,
+                settings.source_path.stem,
+                run_timestamp,
+                system_prompt,
+                transkript_datei=export_paths.json.name,
             )
         except (protocol_service.ProtocolValidationError, ollama_service.OllamaError) as error:
             # Das Transkript ist fertig und bleibt erhalten -- nur die

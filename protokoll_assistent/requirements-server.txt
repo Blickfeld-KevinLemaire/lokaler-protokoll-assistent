@@ -1,6 +1,6 @@
 # Pakete fuer den Servermodus (Container, ohne Oberflaeche).
 #
-# Bewusst ohne PySide6, sounddevice und keyring: Der Server hat keinen
+# Bewusst ohne sounddevice und keyring: Der Server hat keinen
 # Bildschirm, kein Mikrofon und keine Windows-Anmeldeinformationsverwaltung.
 # Die uebrigen Versionen entsprechen 'requirements-laufzeit.txt'.
 torch~=2.11.0
@@ -9,3 +9,10 @@ faster-whisper>=1.2.1
 pyannote.audio>=4.0.7
 huggingface_hub>=1.32.0
 python-docx>=1.1
+
+# Programmschnittstelle der neuen Oberflaeche (protokoll_assistent/api/) und PDF-Export ohne Qt
+# (services/dokument_schreiber.py). Alles reines Python bzw. fertige Wheels.
+fastapi>=0.115
+uvicorn>=0.32
+python-multipart>=0.0.18
+reportlab>=4.2

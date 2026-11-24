@@ -7,6 +7,20 @@
 #   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
 
 ARG BASIS_IMAGE=ubuntu:22.04
+
+# ---------------------------------------------------------------------------
+# Oberflaeche (SvelteKit, statisch gebaut). Der Dienst liefert sie an Browser aus.
+# ---------------------------------------------------------------------------
+FROM node:22-bookworm-slim AS oberflaeche
+WORKDIR /bau
+COPY oberflaeche/package.json oberflaeche/package-lock.json ./
+RUN npm ci --no-audit --no-fund
+COPY oberflaeche/ ./
+RUN npm run build
+
+# ---------------------------------------------------------------------------
+# Dienst
+# ---------------------------------------------------------------------------
 FROM ${BASIS_IMAGE}
 
 # Index fuer PyTorch: CPU-Pakete (Standard) oder leer lassen fuer die CUDA-Pakete von PyPI.
@@ -32,6 +46,7 @@ RUN python3 -m pip install --upgrade pip \
     && python3 -m pip install -r /tmp/requirements-server.txt
 
 COPY protokoll_assistent /app/protokoll_assistent
+COPY --from=oberflaeche /bau/build /app/oberflaeche/build
 
 # Daten liegen in Volumes unter /daten; der Dienst laeuft ohne Root-Rechte.
 # Die Modelle (Hugging Face) und die Zwischenstaende gehoeren ebenfalls dorthin.
@@ -42,6 +57,7 @@ ENV USER=protokoll \
     LOGNAME=protokoll \
     HOME=/daten/intern \
     PROTOKOLL_DATEN_DIR=/daten/intern \
+    VERMERK_ANWENDUNGSORDNER=/daten/intern \
     HF_HOME=/daten/modelle \
     PROTOKOLL_EINGANG=/daten/eingang \
     PROTOKOLL_AUSGANG=/daten/ausgang
@@ -49,4 +65,10 @@ RUN mkdir -p /daten/eingang /daten/ausgang /daten/intern /daten/modelle \
     && chmod -R a+rwX /daten /app/protokoll_assistent/einstellungen
 USER 1000:1000
 
-CMD ["python3", "-m", "protokoll_assistent.server"]
+# Programmschnittstelle + Oberflaeche fuer Browser (Anmeldung noetig), Eingangsordner und -- falls in der
+# Oberflaeche eingeschaltet -- Empfang fuer Aufnahmegeraete. Erster Admin:
+#   docker compose exec protokoll python3 -m protokoll_assistent.api nutzer-anlegen <Name> --admin
+EXPOSE 8780
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+    CMD python3 -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8780/api/gesundheit', timeout=4)"
+CMD ["python3", "-m", "protokoll_assistent.api", "--rolle", "server"]

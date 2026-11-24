@@ -31,3 +31,9 @@ protokoll_assistent/einstellungen/fachbegriffe.txt
 *.mp4
 daten
 .env
+# Oberflaeche: nur der Quelltext geht ins Image (gebaut wird dort); das Desktop-Fenster gar nicht.
+oberflaeche/node_modules
+oberflaeche/build
+oberflaeche/.svelte-kit
+oberflaeche/screenshots
+oberflaeche/src-tauri

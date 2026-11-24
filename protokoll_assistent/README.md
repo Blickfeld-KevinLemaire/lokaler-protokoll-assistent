@@ -51,10 +51,12 @@ Referenzrechner), wird diese automatisch erkannt und weiterverwendet.
 Die Anwendung ist als moderner, selbsterklärender Einrichtungsassistent
 aufgebaut — ähnlich wie man es von heutiger Desktop-Software gewohnt ist:
 
-1. **Anwendung starten** (`Start-Protokoll-Assistent.ps1` oder
-   `python -m protokoll_assistent.app`). Das Hauptfenster erscheint sofort,
-   darüber die **Ersteinrichtung** (`gui/ersteinrichtung.py`). Bis zur
-   Zustimmung wird **nichts** heruntergeladen:
+1. **Anwendung starten** (Startmenü bzw. `VERMERK.exe`; aus dem Quelltext
+   siehe [README im Projektstamm](../README.md#starten)). Das Fenster startet
+   den Dienst (`python -m protokoll_assistent.api`) und zeigt die
+   **Ersteinrichtung** (Seiten der Oberfläche, Endpunkte in
+   `api/routen_einrichtung.py`). Bis zur Zustimmung wird **nichts**
+   heruntergeladen:
    - **Willkommen** — was das Programm macht, in vier Schritten.
    - **Ihr Computer** — Arbeitsspeicher, Prozessor, Grafikkarte und freier
      Platz; je Arbeitsschritt (Mitschrift, Sprechererkennung, Protokoll, Frag
@@ -67,7 +69,7 @@ aufgebaut — ähnlich wie man es von heutiger Desktop-Software gewohnt ist:
    - **Einrichtung** — FFmpeg, Ollama (offizieller Installer, Signatur
      geprüft, still für das eigene Benutzerkonto installiert) und die
      Sprachmodelle. Fehlt für die lokale Mitschrift noch die Rechenumgebung,
-     startet die Anwendung dafür einmal neu: Sie legt eine eigene, private
+     startet der Dienst dafür einmal neu: Er legt eine eigene, private
      Umgebung an (`runtime\venv`) und installiert dort PyTorch passend zur
      erkannten Grafikkarte (oder für reinen CPU-Betrieb), faster-whisper,
      pyannote.audio usw. — mit kleinem Fortschrittsfenster, je nach
@@ -83,7 +85,7 @@ aufgebaut — ähnlich wie man es von heutiger Desktop-Software gewohnt ist:
    wieder. Mit „Nicht mehr fragen“ bleibt er weg — dann lädt die Anwendung
    auch die Rechenumgebung nicht von selbst, bis Sie unter Einstellungen →
    Transkription → Lokal „Einrichtung starten“ wählen.
-2. Danach können Sie im **Hauptfenster** direkt eine Datei auswählen oder
+2. Danach können Sie in der **Oberfläche** direkt eine Datei auswählen oder
    aufnehmen und die Verarbeitung starten. Das Whisper-Modell lässt sich dort
    jederzeit über das Dropdown "Whisper-Modell" ändern, die Wahl wird gemerkt.
 
@@ -101,7 +103,7 @@ Einzige echte Voraussetzung auf einem **neuen** PC:
   (<https://www.python.org/downloads/> — beim Installieren „Add python.exe
   to PATH" aktivieren).
 
-Alles Weitere (FFmpeg, PyTorch, faster-whisper, pyannote.audio, PySide6, Ollama
+Alles Weitere (FFmpeg, PyTorch, faster-whisper, pyannote.audio, Ollama
 inkl. Modell) wird von der Anwendung selbst automatisch eingerichtet, wie
 oben beschrieben. Für gute Geschwindigkeit wird eine NVIDIA-GPU mit
 aktuellem Treiber empfohlen (erfolgreich getestet z.B. mit RTX 3060 Ti,
@@ -168,7 +170,7 @@ protokoll-assistent\
     .venv-whisperx\
     protokoll_assistent_v2.py          (OpenRouter-Version — unverändert)
     protokoll_assistent\                (dieses Paket)
-        app.py
+        bootstrap.py
         ...
 ```
 
@@ -182,17 +184,13 @@ für die Bedienung keine Rolle.
 
 ```text
 protokoll_assistent\
-    app.py                          Einstiegspunkt (ruft zuerst bootstrap.py auf)
-    bootstrap.py                    Selbstinstallierende Laufzeitumgebung
-    gui\                            PySide6-Oberfläche
-        wizard.py                   Einrichtungsassistent (Willkommen/Einrichtung/
-                                     Systemtest/Modell/Eingabeordner)
-        main_window.py              Hauptfenster
-        worker.py                   QThread-Hintergrundverarbeitung
-        dialogs.py                  Systemprompt-Editor, Systemdiagnose
-        theme.py                    Einheitliches, modernes Erscheinungsbild
-        strings.py                  Gemeinsame Textbausteine
-    services\                       Kernlogik (ohne Qt-Abhängigkeit)
+    api\                            Der Dienst hinter dem Fenster (FastAPI):
+                                     python -m protokoll_assistent.api
+    ablauf\                         Steuerung ohne Oberfläche, Auftragswarteschlange
+    bootstrap.py                    Selbstinstallierende Laufzeitumgebung (startet
+                                     den Dienst darin neu)
+    server\                         Servermodus (Eingangsordner, Container)
+    services\                       Kernlogik (ohne Oberfläche)
         environment_service.py      GPU-Erkennung, Torch-Index-Auswahl, pip-Befehle
         chunking_service.py         Zehn-Minuten-Chunk-Planung
         manifest_service.py         Arbeitsordner/Manifest, Fortsetzbarkeit
@@ -202,7 +200,7 @@ protokoll_assistent\
         merge_service.py            Globale Zeitstempel, Overlap-Dedup
         speaker_merge_service.py    Sprecherzuordnung über Chunk-Grenzen
         model_service.py            Modell-/Cache-/Geräteverwaltung
-        model_download_service.py   Einmaliger Modell-Download (GUI + Konsole)
+        model_download_service.py   Einmaliger Modell-Download (Konsole)
         ollama_service.py           Lokaler Ollama-Client + Installer-Download
         protocol_service.py         Mehrstufige Protokollauswertung
         export_service.py           TXT/JSON/SRT/VTT/Protokoll/Bericht
@@ -211,7 +209,7 @@ protokoll_assistent\
         paths.py                    Ausschließlich relative Pfade (portabel)
         app_config.py                Lokale, rechnerspezifische Konfiguration
         timeformat.py, logging_setup.py, hf_env.py, json_validation.py
-        diagnostics.py              Systemdiagnose (GUI + Skripte)
+        diagnostics.py              Systemdiagnose (Dienst + Skripte)
         pyannote_patch.py           Separates Prüf-/Reparaturskript (Logik)
         setup_status.py             Einrichtungsstatus.json-Verwaltung (manueller Weg)
     einstellungen\
@@ -228,19 +226,15 @@ protokoll_assistent\
     konfiguration.json              zuletzt genutzte Ordner/Geräteauswahl (entsteht
                                      erst beim ersten Start, nicht im ZIP)
 
-    Start-Protokoll-Assistent.ps1   Einfachster Start auf JEDEM PC (empfohlen)
     _env_helper.ps1                 Gemeinsame Hilfsfunktion für die übrigen .ps1-Skripte
 
     Einrichtung-Lokal.ps1           Fortgeschrittener Weg: gefuehrte 5-Phasen-Einrichtung
-    Anwendung-starten.ps1           Fortgeschrittener Weg: Start nur nach vollständiger Einrichtung
     systempruefung.py               Phase 1 + Phase 4 (Systemcheck/Offline-Check)
     modelle_herunterladen.py        Phase 3 (Whisper-Modell/pyannote/Ollama)
     Einrichtungsstatus.json         wird von 'Einrichtung-Lokal.ps1' erzeugt (kein Bestandteil des ZIP)
 
     setup_lokal.ps1                 Nur Python-Umgebung, setzt vorhandene '.venv-whisperx' voraus
-    start_lokal.ps1                 Direkter Start ohne Status-Prüfung (Entwicklung)
     check_pyannote_fix.ps1          Nur die pyannote-Korrektur prüfen/anwenden
-    build_windows.ps1               PyInstaller-Build (One-Directory)
     requirements-anwendung.txt      Pakete der Anwendung (reichen für den API-Modus)
 ```
 
@@ -248,35 +242,30 @@ protokoll_assistent\
 
 ## Installation — Schritt für Schritt
 
-1. **ZIP entpacken** nach `protokoll-assistent\protokoll_assistent` (oder an
-   einen beliebigen anderen Ort — die Anwendung ermittelt alle Pfade
-   relativ zu sich selbst).
-2. PowerShell in diesem Ordner öffnen und starten:
-   ```powershell
-   powershell -ExecutionPolicy Bypass -File .\Start-Protokoll-Assistent.ps1
-   ```
-3. **Einrichtung abwarten**: Beim allerersten Start richtet sich die
-   Anwendung automatisch ein (private Python-Umgebung, PyTorch passend zu
-   GPU/CPU, faster-whisper, pyannote.audio, PySide6). Ein Fortschrittsfenster
-   zeigt den Verlauf.
-4. Im sich öffnenden **Einrichtungsassistenten**: FFmpeg/Ollama werden bei
-   Bedarf automatisch heruntergeladen, danach die KI-Modelle. Fehlt ein
-   Hugging-Face-Token, werden Sie einmalig **verdeckt** danach gefragt
-   (wird nicht gespeichert).
-5. **Systemtest abwarten** — zeigt, ob alles einsatzbereit ist.
-6. **Eingabeordner auswählen** — den Ordner mit Ihren Aufnahmen wählen;
-   unterstützte Dateien werden aufgelistet.
-7. Das **Hauptfenster** öffnet sich. Eine Datei aus der Liste auswählen
-   (oder „Andere Datei wählen …") und **Verarbeitung starten**.
-8. **Lange Aufnahme auswählen** (Audio oder Video) — Transkription,
+1. **Installer ausführen** (`VERMERK-Desktop-Setup-<Version>.exe`, siehe
+   [README im Projektstamm](../README.md)). Aus dem Quelltext startet man
+   stattdessen das Fenster mit `VERMERK_PYTHON` (siehe dort, Abschnitt
+   „Starten“).
+2. **VERMERK starten** (Startmenü bzw. `VERMERK.exe`). Das Fenster startet
+   den Dienst und zeigt die **Ersteinrichtung**.
+3. **Einrichtung abwarten**: Wird die lokale Mitschrift gewählt, richtet sich
+   der Dienst nach Ihrer Zustimmung beim nächsten Start automatisch ein
+   (private Python-Umgebung, PyTorch passend zu GPU/CPU, faster-whisper,
+   pyannote.audio). Ein kleines Fortschrittsfenster zeigt den Verlauf.
+4. In der **Ersteinrichtung**: FFmpeg/Ollama werden bei Bedarf
+   heruntergeladen, danach die KI-Modelle. Der Hugging-Face-Zugang für die
+   Sprechererkennung wird dort eingetragen (auf Wunsch in der
+   Windows-Anmeldeinformationsverwaltung gemerkt, nie als Datei).
+5. Danach in der **Oberfläche** eine Aufnahme wählen (oder aufnehmen) und
+   die Verarbeitung starten.
+6. **Lange Aufnahme auswählen** (Audio oder Video) — Transkription,
    Sprechertrennung und Protokollerstellung laufen automatisch nacheinander.
-9. Bei **Unterbrechung** (Programm/Rechner beendet) die Anwendung erneut
+7. Bei **Unterbrechung** (Programm/Rechner beendet) die Anwendung erneut
    starten, denselben Ordner/dieselbe Datei wählen und in der Oberfläche
    **„Verarbeitung fortsetzen"** wählen — bereits abgeschlossene Chunks
    werden nicht erneut berechnet.
-10. Spätere Starts: einfach wieder `Start-Protokoll-Assistent.ps1`
-    ausführen — die Einrichtung läuft dann sofort durch (nur der schnelle
-    Systemtest), ohne erneuten Download.
+8. Spätere Starts: einfach wieder VERMERK starten — die vorhandene
+   Rechenumgebung wird ohne erneuten Download benutzt.
 
 ---
 
@@ -304,8 +293,9 @@ protokoll_assistent\
 - **Systemdiagnose**: prüft Python, PyTorch, CUDA/GPU (informativ — CPU
   funktioniert auch), FFmpeg, faster-whisper-/pyannote-Import, Modell-Cache,
   HF_TOKEN (nur Ja/Nein), Ollama, Schreibzugriff.
-- **Start/Abbrechen**: Verarbeitung läuft in einem Hintergrund-Thread, die
-  Oberfläche friert nicht ein. Abbruch wirkt nach dem aktuellen Chunk.
+- **Start/Abbrechen**: Verarbeitung läuft als Auftrag in der Warteschlange
+  des Dienstes, die Oberfläche friert nicht ein. Abbruch wirkt nach dem
+  aktuellen Chunk.
 - **Fortschrittsanzeige**: aktueller Chunk, Gesamtfortschritt, Laufzeit,
   geschätzte Restdauer, Status für Transkription und Ollama-Auswertung getrennt.
 - **Sprechertabelle**: technische ID, Segmentanzahl, Sprechdauer, editierbarer
@@ -348,9 +338,8 @@ Erkannte Sprecher: 5
 
 ## Verfügbare Whisper-Modelle
 
-Im Einrichtungsassistenten (Schritt "Modell") und jederzeit im Hauptfenster
-(Dropdown "Whisper-Modell") stehen folgende Modelle zur Auswahl, absteigend
-nach Anspruch sortiert:
+In der Ersteinrichtung (Schritt „Mitschrift“) und in den Einstellungen
+stehen folgende Modelle zur Auswahl, absteigend nach Anspruch sortiert:
 
 | Modell-ID | Beschreibung | Braucht (gemessen) |
 |---|---|---|
@@ -378,8 +367,8 @@ auf ein schwächeres Modell gewechselt: Wer Platz schafft, bekommt die volle
 Qualität, und wer das nicht will, wählt selbst `small`.
 
 Diese Liste ist eine kuratierte Auswahl bewährter Modelle, keine
-abschließende Einschränkung: Über "Eigene Modell-ID eingeben …" (im
-Einrichtungsassistenten) lässt sich jede andere gültige faster-whisper-/
+abschließende Einschränkung: Über `konfiguration.json` (Schlüssel
+`whisper_modell`) lässt sich jede andere gültige faster-whisper-/
 CTranslate2-Modell-ID verwenden (z. B. eine eigene Hugging-Face-Repo-ID).
 
 Die Empfehlung steht in ``services/model_service.py::empfehle_whisper_modell``,
@@ -449,57 +438,49 @@ jeder Auswertung angesehen, geändert und zurückgesetzt werden.
 
 ## Windows-Build (EXE)
 
+Die Windows-Anwendung besteht aus zwei Builds, beide im Projektstamm:
+
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\build_windows.ps1
+# Fenster (Tauri), bettet die gebaute Oberfläche ein
+Push-Location oberflaeche; npm ci; npm run build; Pop-Location
+Push-Location oberflaeche\src-tauri
+cargo build --release --locked --features tauri/custom-protocol
+Pop-Location
+# Dienst (PyInstaller, One-Directory) und sein Rauchtest
+uv run pyinstaller --noconfirm vermerk_dienst.spec
+uv run python tools/dienst_rauchtest.py dist/vermerk-dienst/vermerk-dienst.exe
 ```
 
-Erstellt einen **One-Directory-Build** (kein One-File, da faster-whisper/PyTorch/CUDA
-dafür ungeeignet groß sind) unter `dist\VERMERK-Desktop\`. Startpunkt:
-`VERMERK-Desktop.exe`. Modelldateien werden **nicht** in den Build
-kopiert — die EXE verwendet Ihren vorhandenen Hugging-Face-/Ollama-Cache. In
-einer gebauten EXE ist `bootstrap.py` automatisch inaktiv (alles ist bereits
-gebündelt) — der Einrichtungsassistent zeigt direkt Systemtest und
-Eingabeordner-Auswahl.
-
-**Wichtig:** Diese EXE konnte in der Entwicklungsumgebung dieses Auftrags
-**nicht** mit echten Modellen getestet werden (kein Windows, keine
-NVIDIA-GPU, faster-whisper/pyannote nicht installierbar). Was tatsächlich geprüft
-wurde: Die PyInstaller-Spezifikation wurde probeweise mit PySide6 (ohne
-faster-whisper/PyTorch) gebaut — der Build lief fehlerfrei durch, und die
-resultierende Anwendung startete tatsächlich bis zur vollständigen
-Oberfläche (Bootstrap wurde dabei korrekt als „bereits gebündelt"
-übersprungen). Bitte auf Ihrem Rechner nach dem Build zusätzlich prüfen:
-
-1. `dist\VERMERK-Desktop\VERMERK-Desktop.exe` startet und
-   zeigt Einrichtungsassistent bzw. Datenschutzhinweis.
-2. Systemdiagnose in der Oberfläche zeigt PyTorch/faster-whisper/pyannote als „OK".
-3. Ein-Minuten-Testdatei (`dbb_TEST_1_Minute.mp3`) läuft vollständig durch.
-4. Zehn-Minuten-Testdatei (`dbb_TEST_10_Minuten.mp3`) läuft vollständig durch
-   inkl. Chunking, Zusammenführung und Ollama-Protokoll.
-
-Meldet PyInstaller `ModuleNotFoundError` für ein faster-whisper-/pyannote-
-Zusatzpaket, ergänzen Sie es in der Liste `PACKAGES_TO_COLLECT` am Anfang von
-`protokoll_assistent.spec` (liegt im Projektstamm, weil sie das Paket baut).
+Der Dienst ist ein **One-Directory-Build** (`dist\vermerk-dienst\`) und enthält
+bewusst **kein** PyTorch/faster-whisper/pyannote: Im lokalen Modus richtet
+`bootstrap.py` diese Rechenumgebung mit dem vom Installer mitgelieferten
+Python selbst ein und startet den Dienst darin aus dem Quelltext neu.
+Modelldateien werden nie in den Build kopiert. Wie daraus der Installer
+entsteht, steht in [`installer/README.md`](../installer/README.md); in der CI
+baut `release.yml` alles zusammen.
 
 ---
 
 ## Fortgeschrittener/manueller Einrichtungsweg
 
-Für die meisten Nutzer genügt `Start-Protokoll-Assistent.ps1` (siehe oben).
-Für IT-Rollouts auf mehreren Rechnern oder wenn Sie die Einrichtung
-unabhängig vom GUI-Assistenten nachvollziehbar protokollieren möchten,
+Für die meisten Nutzer genügt der Installer mit der Ersteinrichtung (siehe
+oben). Für IT-Rollouts auf mehreren Rechnern oder wenn Sie die Einrichtung
+unabhängig von der Oberfläche nachvollziehbar protokollieren möchten,
 steht zusätzlich der ursprüngliche, PowerShell-basierte 5-Phasen-Weg zur
 Verfügung:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\Einrichtung-Lokal.ps1
-powershell -ExecutionPolicy Bypass -File .\Anwendung-starten.ps1
 ```
+
+Gestartet wird danach wie gewohnt das Fenster; aus dem Quelltext mit
+`VERMERK_PYTHON` auf die eingerichtete Umgebung (siehe
+[README im Projektstamm](../README.md#starten)).
 
 - **Phase 1** (`systempruefung.py`): Windows, Python 3.10/3.11, NVIDIA-GPU/
   -Treiber, CUDA, RAM, Speicherplatz, FFmpeg/ffprobe, Ollama.
 - **Phase 2** (`setup_lokal.ps1`): setzt eine bereits vorhandene
-  `.venv-whisperx` voraus und installiert dort nur die GUI-/Build-Extras
+  `.venv-whisperx` voraus und installiert dort nur die Pakete der Anwendung
   (`requirements-anwendung.txt`) sowie die pyannote-Korrektur.
 - **Phase 3** (`modelle_herunterladen.py`): faster-whisper (Standard:
   `large-v3-turbo`, mit `--modell <id>` anpassbar -- siehe
@@ -507,7 +488,7 @@ powershell -ExecutionPolicy Bypass -File .\Anwendung-starten.ps1
   pyannote, `ollama pull qwen3.5:4b-q4_K_M`.
 - **Phase 4**: Offline-Funktionsprüfung (alles läuft ohne Internetzugriff).
 - **Phase 5**: `Einrichtungsstatus.json` wird als vollständig markiert.
-  `Anwendung-starten.ps1` verweigert den Start, solange eine Phase fehlt.
+  Ein erneuter Lauf überspringt bereits erfolgreiche Phasen.
 
 `check_pyannote_fix.ps1` prüft/korrigiert ausschließlich die
 pyannote-NaN-Absicherung, unabhängig vom gewählten Weg.
@@ -646,26 +627,18 @@ faster-whisper/PyTorch/pyannote/Ollama vorinstalliert):
   Abbruch/Fortsetzen/fehlerhaftem Chunk, hardwarebasierte Whisper-
   Modellempfehlung — alle mit ausgetauschten Backends, ohne echte
   ML-Modelle oder echte Downloads).
-- Der neue Einrichtungsschritt "Modell" (`gui/wizard.py::ModelChoicePage`)
-  sowie die Modellauswahl im Hauptfenster wurden in einer Offscreen-Qt-
-  Umgebung tatsächlich konstruiert und durchgeklickt: Vorauswahl anhand
-  simulierter Diagnoseergebnisse, Umschalten auf "Eigene Modell-ID
-  eingeben …", simulierter Download inkl. Freischaltung von "Weiter", sowie
-  Speichern/Wiederherstellen der Wahl in `konfiguration.json`.
-- Die komplette PySide6-Oberfläche (Einrichtungsassistent mit allen vier
-  Seiten, Hauptfenster mit Eingabeordner-Auswahl, Systemprompt-Dialog,
-  Systemdiagnose) wurde in einer Offscreen-Qt-Umgebung tatsächlich
-  konstruiert und durchgeklickt (kein reiner Code-Review) — inklusive des
-  Uebergangs vom Assistenten zum Hauptfenster mit vorausgewähltem Ordner.
+- Die Oberfläche wird heute ohne Fenster geprüft: der Dienst über die
+  Programmschnittstelle (`tests/test_api_*.py`), die Svelte-Oberfläche mit
+  vitest, das Tauri-Fenster mit `cargo test`. (Die frühere PySide6-Oberfläche
+  samt ihrer Offscreen-Qt-Tests ist im November 2026 entfernt worden.)
 - `bootstrap.py` wurde mit vollständig simulierten (keine echten Downloads/
   Installationen) venv-/pip-/Python-Versions-Szenarien getestet: bereits
   vorhandene `.venv-whisperx` wird direkt verwendet, ein „frischer PC" legt
-  `runtime\venv` an und installiert GPU- bzw. CPU-Pakete passend, eine
-  gebaute EXE überspringt den Bootstrap vollständig, ein fehlgeschlagener
+  `runtime\venv` an und installiert GPU- bzw. CPU-Pakete passend, der
+  gebaute Dienst nimmt dafür das mitgelieferte Python, ein fehlgeschlagener
   Installationsschritt bricht sauber ab statt weiterzumachen.
-- Die PyInstaller-Spezifikation wurde probeweise gebaut (mit PySide6, ohne
-  faster-whisper/PyTorch) und die daraus gebaute Anwendung startete fehlerfrei bis
-  zur Oberfläche, mit korrekt übersprungenem Bootstrap.
+- Der gebaute Dienst (`vermerk_dienst.spec`) wird vor jedem Release in der CI
+  gestartet und mit Schlüssel abgefragt (`tools/dienst_rauchtest.py`).
 
 **Nur auf einem echten Windows-Rechner testbar** (nicht behauptet, hier
 getestet worden zu sein):
@@ -677,10 +650,9 @@ getestet worden zu sein):
   Ollama-Protokollerstellung mit echten Audiodateien.
 - Der automatische FFmpeg- und Ollama-Installer-Download.
 - Die gebaute `.exe` selbst (PyInstaller-Bündelung von faster-whisper/PyTorch/CUDA).
-- Alle PowerShell-Skripte (`Start-Protokoll-Assistent.ps1`,
-  `Einrichtung-Lokal.ps1`, `Anwendung-starten.ps1`, `setup_lokal.ps1`,
-  `start_lokal.ps1`, `check_pyannote_fix.ps1`, `build_windows.ps1`) —
-  PowerShell ist auf dieser Linux-Umgebung nicht verfügbar.
+- Alle PowerShell-Skripte (`Einrichtung-Lokal.ps1`, `setup_lokal.ps1`,
+  `check_pyannote_fix.ps1`) — PowerShell ist auf dieser Linux-Umgebung nicht
+  verfügbar.
 - Verhalten bei tatsächlich mehrstündigen Aufnahmen, echtem GPU-Speicherdruck
   und der realen pyannote-Kompatibilitätskorrektur an Ihrer installierten
   Version.

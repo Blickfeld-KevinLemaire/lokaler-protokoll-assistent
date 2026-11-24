@@ -11,34 +11,12 @@ und wird von diesem Text nicht beruehrt.
 
 ---
 
-## 1. Im Programm enthalten (wird mit der EXE ausgeliefert)
+## 1. Im Programm enthalten (wird mit Fenster und Dienst ausgeliefert)
 
-### Qt 6 und PySide6 / shiboken6 (Version 6.11.2)
-
-* Urheber: The Qt Company Ltd. und Mitwirkende
-* Gewaehlte Lizenz: **GNU Lesser General Public License, Version 3**
-  ([`lizenzen/lgpl-3.0.txt`](lizenzen/lgpl-3.0.txt))
-* Die LGPL-3.0 baut auf der GPL-3.0 auf; deren Text liegt ebenfalls bei
-  ([`lizenzen/gpl-3.0.txt`](lizenzen/gpl-3.0.txt)).
-* Bezugsquelle: https://www.qt.io — https://pypi.org/project/PySide6/
-
-PySide6 wird wahlweise unter LGPL-3.0, GPL-2.0 oder GPL-3.0 angeboten. Fuer
-dieses Programm wird ausdruecklich die **LGPL-3.0** gewaehlt.
-
-**Wie die Pflichten der LGPL-3.0 erfuellt werden**
-
-| Pflicht | Umsetzung |
-|---|---|
-| Qt darf nur dynamisch eingebunden werden | Der Build ist ein One-Directory-Build (`exclude_binaries=True` + `COLLECT`). Die Qt-Bibliotheken liegen als eigene `.dll`- und `.pyd`-Dateien neben der EXE, nicht darin. |
-| Anwender muessen Qt austauschen koennen | Die Dateien liegen offen im Programmordner und koennen durch eine andere Qt-Fassung derselben Hauptversion ersetzt werden. Es gibt keine Signatur- oder Integritaetspruefung, die das verhindert. |
-| Qt darf nicht veraendert sein, sonst muessen die Aenderungen offengelegt werden | Qt und PySide6 werden unveraendert aus den offiziellen Paketen uebernommen. |
-| Lizenztext und Hinweis muessen beiliegen | Dieser Text und der Ordner `lizenzen/`. |
-| Kein Komprimieren/Strippen, das den Austausch erschwert | In der Build-Spezifikation sind `upx=False` und `strip=False` gesetzt. |
-
-> Bitte diese vier Punkte nicht unbeabsichtigt aendern. Ein Wechsel auf einen
-> One-File-Build, statisches Linken oder eine Integritaetspruefung der DLLs
-> wuerde die LGPL-Bedingungen verletzen — dann waere eine kommerzielle
-> Qt-Lizenz noetig.
+> **Qt / PySide6 wird nicht mehr ausgeliefert.** Bis 0.6.0-alpha.1 lag die alte
+> Oberflaeche als Qt-Anwendung (PySide6 6.11.2, LGPL-3.0) bei. Sie ist durch das
+> Tauri-Fenster ersetzt und entfernt; damit entfallen auch die LGPL-Auflagen
+> und die Lizenztexte `lgpl-3.0.txt`/`gpl-3.0.txt`.
 
 ### python-docx (1.2.0)
 
@@ -124,6 +102,76 @@ Sie kommen als Abhaengigkeiten mit und liegen als reines Python (cffi: mit einer
   Abhängigkeiten. Es wurde **kein Code daraus übernommen**; der Chatbot ist
   eine eigene, kleine Umsetzung in `services/chat_service.py`.
 
+### Tauri 2 — das Fenster `VERMERK.exe` (ab 0.6.0)
+
+* `tauri` 2.12.7, `tauri-build` 2.7.6, `tauri-runtime-wry` 2.12.5, `wry` 0.57.3,
+  `tao` 0.37.3 und die Plugins `tauri-plugin-dialog` 2.8.4,
+  `tauri-plugin-single-instance` 2.5.5, `tauri-plugin-log` 2.10.2
+* Urheber: The Tauri Programme within The Commons Conservancy und Mitwirkende
+* Lizenz: wahlweise **MIT** oder **Apache-2.0** (gewaehlt: MIT)
+* Bezugsquelle: https://tauri.app — https://github.com/tauri-apps/tauri
+* Weitere Rust-Bibliotheken in der EXE (vollstaendig in
+  `oberflaeche/src-tauri/Cargo.lock`): ganz ueberwiegend MIT und/oder
+  Apache-2.0, daneben Unicode-3.0, Zlib, BSD-3-Clause, 0BSD, CC0-1.0 und
+  Unlicense — alles freizuegige Lizenzen ohne Offenlegungspflicht, verlangt
+  wird nur der Urheberhinweis (dieser Text). Darunter u. a. `windows-sys`
+  (Microsoft, MIT oder Apache-2.0), `webview2-com` (MIT), `serde`,
+  `serde_json`, `log`, `time`, `base64`, `getrandom` (je MIT oder Apache-2.0).
+* **MPL-2.0** (dateibezogenes Copyleft): `cssparser`, `cssparser-macros`,
+  `selectors`, `dtoa-short` (ueber `tauri-utils`) und `option-ext` (ueber
+  `dirs`). Sie werden **unveraendert** von crates.io uebernommen; ihr
+  Quelltext ist dort in genau der Fassung aus `Cargo.lock` oeffentlich
+  erhaeltlich. Werden sie je veraendert, muessen die geaenderten Dateien
+  offengelegt werden — der uebrige Code nicht.
+* Rust-Standardbibliothek: MIT oder Apache-2.0.
+
+### Microsoft Edge WebView2 — wird nicht mitgeliefert
+
+Das Fenster zeigt die Oberflaeche mit der WebView2-Laufzeit von Microsoft an.
+Sie ist unter Windows 10 und 11 Bestandteil des Systems (Evergreen Runtime)
+und wird **weder** in die EXE noch in den Installer gepackt. Es gelten die
+Bedingungen von Microsoft zwischen Microsoft und dem Anwender. Fehlt sie auf
+einem Rechner ausnahmsweise, laesst sie sich kostenlos von Microsoft
+installieren: https://developer.microsoft.com/microsoft-edge/webview2/
+
+### Die Oberflaeche (ab 0.6.0)
+
+Die Oberflaeche ist mit SvelteKit gebaut und wird als fertige Webseite
+(HTML/JS/CSS) in `VERMERK.exe` bzw. im Dienst mitgeliefert. Darin enthalten:
+
+| Paket | Lizenz |
+|---|---|
+| Svelte / SvelteKit | MIT |
+| Lucide-Symbole (`@lucide/svelte`) | ISC |
+| marked (Markdown) | MIT |
+| DOMPurify | Apache-2.0 oder MPL-2.0 (Wahl: Apache-2.0) |
+| `@tauri-apps/api`, `@tauri-apps/plugin-dialog` | MIT oder Apache-2.0 |
+
+Die genauen Fassungen stehen in `oberflaeche/package-lock.json`. Entwicklungs-
+werkzeuge (Vite, TypeScript, Vitest, Playwright, eslint, prettier …) werden
+nicht ausgeliefert.
+
+### Der Dienst `dienst\vermerk-dienst.exe` (ab 0.6.0)
+
+Der Dienst ist ein PyInstaller-Build (One-Directory, siehe unten) und
+enthaelt **kein** Qt. Zusaetzlich zu den oben genannten
+Paketen (python-docx, sounddevice, keyring, pyserial, truststore, lxml …):
+
+| Paket | Fassung | Lizenz |
+|---|---|---|
+| FastAPI | 0.165.0 | MIT |
+| Starlette | 1.10.0 | BSD-3-Clause |
+| uvicorn | 0.54.0 | BSD-3-Clause |
+| h11 | 0.16.0 | MIT |
+| anyio | 4.16.0 | MIT |
+| click | 8.5.1 | BSD-3-Clause |
+| pydantic / pydantic-core | 2.14.4 / 2.50.5 | MIT |
+| python-multipart | 0.0.34 | Apache-2.0 |
+| ReportLab (PDF-Export) | 5.1.0 | BSD-3-Clause |
+| Pillow (von ReportLab benutzt) | 13.0.0 | MIT-CMU (HPND) |
+
+Die genauen Fassungen eines Builds stehen in `uv.lock`.
+
 ### PyInstaller (6.22.3) — nur der Startlader
 
 * Lizenz: GPL-2.0 **mit Ausnahmeregelung**
@@ -205,9 +253,10 @@ und stimmt dabei den jeweiligen Bedingungen zu.
 Dieser Text ist eine technische Bestandsaufnahme und keine Rechtsberatung.
 Vor einem Verkauf sollten vor allem diese Punkte geklaert werden:
 
-1. **Die vier LGPL-Punkte oben bleiben eingehalten.** Sie sind beim heutigen
-   Build erfuellt; ein Wechsel der Build-Form waere der wahrscheinlichste
-   Weg, das zu verlieren.
+1. **Keine LGPL-Bibliothek ungeprueft einbauen.** Seit Qt entfallen ist,
+   liefert der Build keine LGPL-Bibliothek mehr aus. Kommt wieder eine dazu,
+   muss sie dynamisch eingebunden und austauschbar bleiben (One-Directory,
+   keine Integritaetspruefung), mit Lizenztext in `lizenzen/`.
 2. **FFmpeg bleibt beim Anwender.** Sobald ein GPL-Build mitgeliefert wird,
    stellt sich die Frage der GPL-Wirkung auf das Gesamtpaket neu.
 3. **Modellgewichte einzeln freigeben lassen.** Das ist der Punkt, der am

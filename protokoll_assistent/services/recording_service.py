@@ -3,8 +3,8 @@
 Nimmt Ton ueber ein vom Betriebssystem erkanntes Audioeingabegeraet auf und
 schreibt ihn als WAV-Datei. Die fertige Datei wird danach genau wie eine von
 Hand ausgewaehlte oder per Drag & Drop abgelegte Aufnahme weiterverarbeitet
-(siehe ``gui.main_window.MainWindow._set_source_file``) - dieses Modul kennt
-weder Qt noch die Transkriptions-Pipeline.
+(siehe ``ablauf/aufnahme.py``) - dieses Modul kennt weder Qt noch die
+Transkriptions-Pipeline.
 
 Die Auswahl des Aufnahmegeraets wird rechnerspezifisch in
 ``utils.app_config`` gespeichert (Schluessel ``aufnahmegeraet``) und beim

@@ -27,6 +27,7 @@
 #define VERMERK_UPLOAD_TIMEOUT_MS 15000
 #define VERMERK_ABFRAGE_TIMEOUT_MS 4000
 #define VERMERK_OHNE_FORTSCHRITT_MAX 3  /* so oft hintereinander kein Fortschritt: spaeter erneut */
+#define VERMERK_UPLOAD_DMA_RESERVE (8 * 1024)   /* so viel DMA-Speicher am Stueck muss neben dem Puffer frei bleiben */
 
 #define HASH_UNBEKANNT UINT64_MAX
 
@@ -413,6 +414,12 @@ static int teil_senden(vermerk_arbeit_t *a, FILE *f, uint8_t *puffer, size_t puf
     uint32_t rest = laenge;
     while (rest > 0) {
         size_t n = (rest < puffer_groesse) ? rest : puffer_groesse;
+        /* Beginnt das Stueck mitten in einem Sektor, zuerst nur bis zur Sektorgrenze lesen: Danach liest FatFs ganze
+         * Sektoren direkt in den (ausgerichteten) Puffer, und der SD-Treiber braucht keinen Zwischenpuffer. */
+        uint64_t pos = ab + (laenge - rest);
+        if ((pos % 512u) != 0 && n > 512u - (size_t)(pos % 512u)) {
+            n = 512u - (size_t)(pos % 512u);
+        }
         if (!lesen(a, f, puffer, n)) {
             esp_http_client_close(a->client);
             return 0;
@@ -511,10 +518,20 @@ vermerk_ergebnis_t vermerk_upload_datei(vermerk_ziel_t ziel, uint32_t teil_max_b
      * knapp (Encoder und sein Stack liegen dauerhaft darin), reicht auch ein kleiner Puffer. */
     size_t puffer_groesse = puffer_gross;
     uint8_t *puffer = heap_caps_malloc(puffer_groesse, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    /* Nach dem Puffer muss DMA-faehiger Speicher frei bleiben: Liest der Upload ab einer Stelle mitten im Sektor
+     * (Wiederaufnahme nach dem Live-Senden), liegt das Ziel von fread nicht ausgerichtet, und der SD-Treiber braucht
+     * einen Zwischenpuffer (mind. ca. 1 KB). Ohne ihn scheitert jedes Lesen ("allocate_dma_buf: not enough mem"),
+     * die Aufnahme bleibt fuer immer "offen". WLAN und TCP brauchen ebenfalls internen Speicher. */
+    if (puffer != NULL && puffer_klein < puffer_gross &&
+        heap_caps_get_largest_free_block(MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL) < VERMERK_UPLOAD_DMA_RESERVE) {
+        free(puffer);
+        puffer = NULL;
+    }
     if (puffer == NULL && puffer_klein < puffer_gross) {
         puffer_groesse = puffer_klein;
         puffer = heap_caps_malloc(puffer_groesse, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     }
+    const size_t dma_frei = heap_caps_get_largest_free_block(MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
     if (a == NULL || puffer == NULL) {
         free(puffer);
         free(a);
@@ -635,13 +652,13 @@ vermerk_ergebnis_t vermerk_upload_datei(vermerk_ziel_t ziel, uint32_t teil_max_b
     int64_t gesamt_ms = (t_ende - t_start) / 1000;
     printf("VERMERK Upload-Diagnose %s (%s): ab Byte %llu, %u KB in %u Stuecken, gesamt %lld ms (%lld KB/s) | "
            "Verbinden %lld ms, SD lesen %lld ms, WLAN senden %lld ms, Serverantwort %lld ms | "
-           "Puffer %u B, Stack frei %u B, Ergebnis: %s\n",
+           "Puffer %u B (danach DMA-Block frei %u B), Stack frei %u B, Ergebnis: %s\n",
            name, vermerk_konfig_ziel_name(ziel), (unsigned long long)start_byte,
            (unsigned)(a->gesendet / 1024), (unsigned)a->stuecke, (long long)gesamt_ms,
            (long long)(gesamt_ms > 0 ? (int64_t)(a->gesendet / 1024) * 1000 / gesamt_ms : 0),
            (long long)(a->verbinden_us / 1000), (long long)(a->sd_us / 1000),
            (long long)(a->netz_us / 1000), (long long)(a->antwort_us / 1000),
-           (unsigned)puffer_groesse, (unsigned)uxTaskGetStackHighWaterMark(NULL),
+           (unsigned)puffer_groesse, (unsigned)dma_frei, (unsigned)uxTaskGetStackHighWaterMark(NULL),
            vermerk_ergebnis_text(ergebnis));
 
     mbedtls_sha256_free(&a->sha);

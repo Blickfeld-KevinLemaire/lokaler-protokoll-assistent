@@ -68,6 +68,12 @@ class Schritteinschaetzung:
     schritt: str
     stufe: str
     text: str
+    # Dieselbe Dauer als Zahlen (fuer die neue Oberflaeche, die sie selbst formuliert): von/bis in ``einheit``
+    # (EINHEIT_*), gerechnet auf ``ort`` (ORT_*). Leer, wenn der Schritt hier nicht sinnvoll ist.
+    dauer_von: float | None = None
+    dauer_bis: float | None = None
+    einheit: str = ""
+    ort: str = ""
 
 
 @dataclass
@@ -102,6 +108,8 @@ def formatiere_dauer(von: float, bis: float) -> str:
 
 ORT_GRAFIKKARTE = "Grafikkarte"
 ORT_PROZESSOR = "Prozessor"
+EINHEIT_MINUTEN_JE_STUNDE = "minuten_je_stunde_aufnahme"
+EINHEIT_SEKUNDEN_JE_FRAGE = "sekunden_je_frage"
 
 
 def _empfohlene_bewertung(analyse: Analyse, bereich: str) -> rechner_analyse_service.Bewertung | None:
@@ -136,7 +144,10 @@ def _mitschrift(analyse: Analyse) -> Schritteinschaetzung:
         modell = analyse.empfehlung[rechner_analyse_service.BEREICH_TRANSKRIPTION] or ""
         echtzeit = rechner_analyse_service.CPU_ECHTZEIT_FAKTOR.get(modell, 1.0) * rechner_analyse_service._cpu_faktor(profil)
         von, bis = 60 / echtzeit, 60 / echtzeit * 1.5
-    return Schritteinschaetzung(SCHRITT_MITSCHRIFT, stufe, f"{formatiere_dauer(von, bis)} je Stunde Aufnahme ({ort})")
+    return Schritteinschaetzung(
+        SCHRITT_MITSCHRIFT, stufe, f"{formatiere_dauer(von, bis)} je Stunde Aufnahme ({ort})",
+        von, bis, EINHEIT_MINUTEN_JE_STUNDE, ort,
+    )
 
 
 def _sprecher(analyse: Analyse, mitschrift: Schritteinschaetzung) -> Schritteinschaetzung:
@@ -146,10 +157,14 @@ def _sprecher(analyse: Analyse, mitschrift: Schritteinschaetzung) -> Schritteins
     # unter Windows nur als Vorschau; dort bleibt die Sprechererkennung beim Prozessor.
     if analyse.profil.cuda_gpu:
         von, bis = SPRECHER_GPU_MIN_JE_STUNDE
-        return Schritteinschaetzung(SCHRITT_SPRECHER, GUT, f"{formatiere_dauer(von, bis)} je Stunde ({ORT_GRAFIKKARTE})")
+        return Schritteinschaetzung(
+            SCHRITT_SPRECHER, GUT, f"{formatiere_dauer(von, bis)} je Stunde ({ORT_GRAFIKKARTE})",
+            von, bis, EINHEIT_MINUTEN_JE_STUNDE, ORT_GRAFIKKARTE,
+        )
     minuten = SPRECHER_CPU_MIN_JE_STUNDE / rechner_analyse_service._cpu_faktor(analyse.profil)
     return Schritteinschaetzung(
-        SCHRITT_SPRECHER, MAESSIG, f"{formatiere_dauer(minuten, minuten * 1.5)} je Stunde ({ORT_PROZESSOR}) – optional"
+        SCHRITT_SPRECHER, MAESSIG, f"{formatiere_dauer(minuten, minuten * 1.5)} je Stunde ({ORT_PROZESSOR}) – optional",
+        minuten, minuten * 1.5, EINHEIT_MINUTEN_JE_STUNDE, ORT_PROZESSOR,
     )
 
 
@@ -172,7 +187,10 @@ def _protokoll(analyse: Analyse) -> Schritteinschaetzung:
     ort = _ort_von(analyse, rechner_analyse_service.BEREICH_NACHBEARBEITUNG)
     if ort == ORT_GRAFIKKARTE and stufe == GUT:
         von, bis = protokoll_minuten_auf_der_grafikkarte(analyse.profil)
-        return Schritteinschaetzung(SCHRITT_PROTOKOLL, GUT, f"{formatiere_dauer(von, bis)} je Stunde Aufnahme ({ort})")
+        return Schritteinschaetzung(
+            SCHRITT_PROTOKOLL, GUT, f"{formatiere_dauer(von, bis)} je Stunde Aufnahme ({ort})",
+            von, bis, EINHEIT_MINUTEN_JE_STUNDE, ort,
+        )
     # Prozessor: der Wert der kleinen Karte mal dem (nicht gemessenen) Faktor fuer den Prozessor.
     von, bis = PROTOKOLL_GPU_MIN_JE_STUNDE
     faktor_von, faktor_bis = PROTOKOLL_CPU_FAKTOR
@@ -180,6 +198,10 @@ def _protokoll(analyse: Analyse) -> Schritteinschaetzung:
         SCHRITT_PROTOKOLL,
         MAESSIG,
         f"{formatiere_dauer(von * faktor_von, bis * faktor_bis)} je Stunde Aufnahme ({ORT_PROZESSOR})",
+        von * faktor_von,
+        bis * faktor_bis,
+        EINHEIT_MINUTEN_JE_STUNDE,
+        ORT_PROZESSOR,
     )
 
 
@@ -191,7 +213,9 @@ def _chat(analyse: Analyse, protokoll: Schritteinschaetzung) -> Schritteinschaet
     # "gut" gibt es fuer das Protokoll nur auf der Grafikkarte (siehe '_protokoll'); Ollama rechnet die Suche dort mit.
     ort = ORT_GRAFIKKARTE if protokoll.stufe == GUT else ORT_PROZESSOR
     dauer = f"etwa {von}–{bis} Sekunden" if bis < 90 else f"etwa {max(1, round(von / 60))}–{round(bis / 60)} Minuten"
-    return Schritteinschaetzung(SCHRITT_CHAT, protokoll.stufe, f"{dauer} je Frage ({ort})")
+    return Schritteinschaetzung(
+        SCHRITT_CHAT, protokoll.stufe, f"{dauer} je Frage ({ort})", von, bis, EINHEIT_SEKUNDEN_JE_FRAGE, ort
+    )
 
 
 def schaetze(analyse: Analyse) -> Moeglichkeiten:

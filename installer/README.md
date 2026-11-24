@@ -11,25 +11,23 @@ dass man das Ergebnis lokal ausprobieren will.
 
 | Bestandteil | Form | Woher |
 |---|---|---|
-| Die Anwendung | `VERMERK-Desktop.exe` | PyInstaller, `../protokoll_assistent.spec` |
-| Dieselbe Anwendung als Quelltext | Programmdateien | `../protokoll_assistent/` (ohne `tests`, `runtime`, `logs`, `__pycache__`) |
+| Das Fenster | `VERMERK.exe` (Tauri) | `cargo build --release` in `../oberflaeche/src-tauri/` |
+| Der Dienst | `dienst\vermerk-dienst.exe` | PyInstaller, `../vermerk_dienst.spec` |
+| Derselbe Dienst als Quelltext | Programmdateien | `../protokoll_assistent/` (ohne `tests`, `runtime`, `logs`, `__pycache__`) |
 | Python-Laufzeitumgebung | `python\` (CPython 3.11) | `python-laufzeit-holen.ps1` |
 | Lizenztexte | `LICENSE`, `NOTICES.md`, `lizenzen/` | Projektstamm |
 
-**Warum zweimal dasselbe?** Die EXE genuegt fuer den API-Modus. Der lokale
-Modus braucht PyTorch/faster-whisper passend zur jeweiligen Grafikkarte -
-mehrere Gigabyte, je nach Rechner verschieden; das laesst sich nicht sinnvoll
-buendeln. Dafuer richtet sich die Anwendung beim ersten Start aus dem
-mitgelieferten Quelltext heraus selbst eine Umgebung ein
-(`protokoll_assistent/bootstrap.py`).
+**Warum zweimal dasselbe?** Fenster und gebauter Dienst genuegen fuer den
+API-Modus. Der lokale Modus braucht PyTorch/faster-whisper passend zur
+jeweiligen Grafikkarte - mehrere Gigabyte, je nach Rechner verschieden; das
+laesst sich nicht sinnvoll buendeln. Dafuer richtet sich der Dienst beim
+ersten Start im lokalen Modus aus dem mitgelieferten Quelltext heraus selbst
+eine Umgebung ein (`protokoll_assistent/bootstrap.py`) und startet sich darin
+als `python -m protokoll_assistent.api` neu.
 
 **Der Anwender muss dafuer kein Python installieren.** Der Installer bringt
-unter `{app}\python` eine eigene Laufzeitumgebung mit. Nur wenn dieser Ordner
-fehlt, wird ersatzweise nach einem installierten Python 3.10/3.11 gesucht.
-
-`bootstrap.py` musste dafuer **nicht** angefasst werden: es nimmt ohnehin
-das Python entgegen, mit dem es gestartet wurde, und baut daraus
-`runtime\venv`.
+unter `{app}\python` eine eigene Laufzeitumgebung mit; aus ihr baut
+`bootstrap.py` die Umgebung `runtime\venv`.
 
 ## Selbst bauen
 
@@ -37,8 +35,12 @@ das Python entgegen, mit dem es gestartet wurde, und baut daraus
 # 1. Inno Setup (einmalig)
 winget install --exact --id JRSoftware.InnoSetup --scope user
 
-# 2. Die beiden EXEs bauen (im Projektstamm)
-uv run pyinstaller --noconfirm protokoll_assistent.spec
+# 2. Oberflaeche, Fenster und Dienst bauen (im Projektstamm)
+Push-Location oberflaeche; npm ci; npm run build; Pop-Location
+Push-Location oberflaeche\src-tauri
+cargo build --release --locked --features tauri/custom-protocol
+Pop-Location
+uv run pyinstaller --noconfirm vermerk_dienst.spec
 
 # 3. Python-Laufzeitumgebung holen (~24 MB Download, einmalig)
 pwsh -NoProfile -File installer\python-laufzeit-holen.ps1

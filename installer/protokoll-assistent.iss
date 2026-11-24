@@ -1,18 +1,26 @@
 ; ---------------------------------------------------------------------------
 ; Inno-Setup-Skript fuer VERMERK Desktop.
 ;
-; Baut aus den beiden fertigen Build-Ergebnissen EINEN Installer:
+; Baut aus den fertigen Build-Ergebnissen EINEN Installer:
 ;
-;   ..\dist\VERMERK-Desktop\   die gebaute Anwendung,
-;                                  erzeugt von 'protokoll_assistent.spec'
-;   ..\protokoll_assistent\        dieselben Programmdateien als Quelltext -
+;   ..\oberflaeche\src-tauri\target\release\VERMERK.exe
+;                                  das Fenster (Tauri 2, siehe ARCHITEKTUR.md),
+;                                  -> {app}\VERMERK.exe
+;   ..\dist\vermerk-dienst\       der Dienst (One-Directory, erzeugt von
+;                                  'vermerk_dienst.spec') -> {app}\dienst\
+;   ..\protokoll_assistent\        die Programmdateien als Quelltext -
 ;                                  fuer den lokalen Modus (siehe bootstrap.py)
 ;   ..\dist-python\python\         die mitgelieferte Python-Laufzeitumgebung,
 ;                                  geholt von 'python-laufzeit-holen.ps1'
 ;
 ; Der Anwender muss NICHTS vorinstallieren - auch kein Python. Im reinen
-; API-Modus genuegt die eigenstaendige EXE; fuer den lokalen Modus liegt ein
-; eigenes Python unter '{app}\python'.
+; API-Modus genuegen Fenster und Dienst; fuer den lokalen Modus liegt ein
+; eigenes Python unter '{app}\python'. Das Fenster braucht Microsoft Edge
+; WebView2 - unter Windows 10/11 ist es vorinstalliert und wird nicht
+; mitgeliefert.
+;
+; Einstellungen und Daten liegen weiter in '{app}' (nicht in '{app}\dienst'):
+; Das Fenster gibt dem Dienst seinen Ordner ueber VERMERK_ANWENDUNGSORDNER mit.
 ;
 ; Die lokale Anwendung wird bewusst NICHT als EXE mitgeliefert: sie braucht
 ; PyTorch/WhisperX passend zur jeweiligen Grafikkarte (mehrere Gigabyte) und
@@ -36,7 +44,7 @@
 #define MeinName "VERMERK Desktop"
 #define MeinHersteller "Kevin Lemaire"
 #define MeineUrl "https://github.com/Blickfeld-KevinLemaire/lokaler-protokoll-assistent"
-#define MeineExe "VERMERK-Desktop.exe"
+#define MeineExe "VERMERK.exe"
 
 [Setup]
 ; Diese GUID identifiziert die Anwendung dauerhaft - bitte NICHT aendern,
@@ -75,23 +83,26 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
-; 1) Die gebaute Anwendung als fertige EXE (mit gemeinsamem
-;    '_internal'-Ordner, in dem die DLLs liegen).
-; Die Ein-/Ausgabeordner entstehen erst beim Ausfuehren. Wurde die Anwendung
-; vor dem Bauen des Installers lokal einmal gestartet, liegen sie im
-; Build-Ordner - in den Installer gehoeren sie nicht. 'einstellungen' ist
-; dabei besonders wichtig: dort steht 'fachbegriffe.txt' mit Projektnamen
-; und echten Nachnamen (deshalb auch in '.gitignore').
+; 1) Das Fenster.
+Source: "..\oberflaeche\src-tauri\target\release\VERMERK.exe"; DestDir: "{app}"; Flags: ignoreversion
+
+; 1b) Der Dienst (mit eigenem '_internal'-Ordner, in dem die DLLs liegen).
+; Die Ein-/Ausgabeordner entstehen erst beim Ausfuehren. Wurde der Dienst vor
+; dem Bauen des Installers gestartet (Rauchtest), koennen sie im Build-Ordner
+; liegen - in den Installer gehoeren sie nicht. 'einstellungen' ist dabei
+; besonders wichtig: dort steht 'fachbegriffe.txt' mit Projektnamen und echten
+; Nachnamen. Die Muster beginnen mit '\', gelten also nur fuer die oberste
+; Ebene - '_internal\einstellungen' (die mitgelieferte Vorlage) bleibt.
 ;
 ; Ohne 'createallsubdirs', sonst wuerden diese Ordner wenigstens leer
 ; mitinstalliert. Alles, was wirklich gebraucht wird, enthaelt Dateien.
-Source: "..\dist\VERMERK-Desktop\*"; DestDir: "{app}"; \
+Source: "..\dist\vermerk-dienst\*"; DestDir: "{app}\dienst"; \
     Flags: ignoreversion recursesubdirs; \
-    Excludes: "eingabe\*,ausgabe\*,sprecherprofile\*,chatverlaeufe\*,zwischenstaende\*,einstellungen\*,Ergebnis des Meetings wie gew*"
+    Excludes: "\eingabe\*,\ausgabe\*,\aufnahmen\*,\arbeitsdaten\*,\logs\*,\sprecherprofile\*,\chatverlaeufe\*,\zwischenstaende\*,\einstellungen\*,\konfiguration.json,\Ergebnis des Meetings wie gew*"
 
 ; 2) Dieselben Programmdateien als Quelltext. Gebraucht werden sie nur im
 ;    lokalen Modus: Dort richtet 'bootstrap.py' eine eigene Umgebung mit
-;    PyTorch/faster-whisper ein und startet die Anwendung darin neu.
+;    PyTorch/faster-whisper ein und startet den Dienst darin neu.
 ;    Entwickler-, Test- und Laufzeitordner bleiben aussen vor.
 ; Ohne 'createallsubdirs': sonst wuerden die ausgeschlossenen Ordner
 ; (tests, __pycache__, ...) wenigstens leer mitinstalliert.
@@ -116,7 +127,7 @@ Source: "..\protokoll_assistent\*"; DestDir: "{app}\protokoll_assistent"; \
 Source: "..\dist-python\python\*"; DestDir: "{app}\python"; \
     Flags: ignoreversion recursesubdirs createallsubdirs
 
-; 4) Lizenztexte sichtbar im Programmordner (LGPL-Pflicht, siehe NOTICES.md).
+; 4) Lizenztexte und Urheberhinweise sichtbar im Programmordner (siehe NOTICES.md).
 Source: "..\NOTICES.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\lizenzen\*"; DestDir: "{app}\lizenzen"; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -139,6 +150,21 @@ Type: files; Name: "{app}\Protokoll-Assistent.exe"
 Type: files; Name: "{group}\Protokoll-Assistent.lnk"
 Type: files; Name: "{group}\{cm:UninstallProgram,Protokoll-Assistent}.lnk"
 Type: files; Name: "{autodesktop}\Protokoll-Assistent.lnk"
+; Das alte Qt-Fenster (bis 0.5.x): 'VERMERK-Desktop.exe' mit seinem Ordner
+; '_internal' direkt im Programmordner. Seit 0.6.0 startet 'VERMERK.exe'; der
+; Dienst hat seine Bibliotheken in 'dienst\_internal'. Die Verknuepfungen
+; tragen denselben Namen und zeigen nach dem Update auf 'VERMERK.exe'.
+; Einstellungen und Daten liegen nicht in '_internal' und bleiben erhalten.
+Type: files; Name: "{app}\VERMERK-Desktop.exe"
+Type: filesandordirs; Name: "{app}\_internal"
+; Der Quelltext der alten Qt-Oberflaeche und ihre Startskripte (bis 0.6.0-alpha.1 mitinstalliert). Inno
+; entfernt Dateien, die eine neue Fassung nicht mehr mitbringt, beim Update nicht von selbst.
+Type: filesandordirs; Name: "{app}\protokoll_assistent\gui"
+Type: files; Name: "{app}\protokoll_assistent\app.py"
+Type: files; Name: "{app}\protokoll_assistent\Start-Protokoll-Assistent.ps1"
+Type: files; Name: "{app}\protokoll_assistent\start_lokal.ps1"
+Type: files; Name: "{app}\protokoll_assistent\Anwendung-starten.ps1"
+Type: files; Name: "{app}\protokoll_assistent\build_windows.ps1"
 
 [UninstallDelete]
 ; Die selbst eingerichtete Laufzeitumgebung und die Protokolldateien gehoeren
@@ -160,10 +186,20 @@ Type: filesandordirs; Name: "{app}\protokoll_assistent\tools\ffmpeg"
 ; Deinstallieren zurueck. Kommt ein neuer Paketordner dazu, gehoert er
 ; hier ebenfalls hinein.
 Type: filesandordirs; Name: "{app}\protokoll_assistent\__pycache__"
-Type: filesandordirs; Name: "{app}\protokoll_assistent\gui\__pycache__"
 Type: filesandordirs; Name: "{app}\protokoll_assistent\services\__pycache__"
 Type: filesandordirs; Name: "{app}\protokoll_assistent\tools\__pycache__"
 Type: filesandordirs; Name: "{app}\protokoll_assistent\utils\__pycache__"
 Type: filesandordirs; Name: "{app}\protokoll_assistent\server\__pycache__"
+Type: filesandordirs; Name: "{app}\protokoll_assistent\api\__pycache__"
+Type: filesandordirs; Name: "{app}\protokoll_assistent\ablauf\__pycache__"
+; Protokolle des Dienstes, falls er sie neben sich anlegt.
+Type: filesandordirs; Name: "{app}\dienst\logs"
 ; Dasselbe fuer die mitgelieferte Python-Laufzeitumgebung.
 Type: filesandordirs; Name: "{app}\python"
+; Das Fenster (Tauri) fuehrt seine Protokolle ('logs': vermerk-*.log, dienst.log), die Handschlag-Dateien
+; ('laufzeit') und den Speicher von WebView2 ('EBWebView') unter %LOCALAPPDATA%\<identifier> -- nicht im
+; Programmordner. Bisher blieb der Ordner nach dem Deinstallieren liegen, obwohl die Hinweise sagen, die
+; Protokolldateien wuerden entfernt. Darin liegen keine Ergebnisse und keine 'konfiguration.json' -- nur
+; das im Fenster gewaehlte Farbschema geht mit.
+; Der Name muss zu "identifier" in oberflaeche\src-tauri\tauri.conf.json passen (ein Test prueft das).
+Type: filesandordirs; Name: "{localappdata}\de.vermerk.desktop"

@@ -73,10 +73,16 @@ TEILSTAND_MAX_ALTER_SEKUNDEN = 7 * 24 * 3600
 MAX_FERTIG_EINTRAEGE = 2000
 
 EMPFANGSORDNER = ".empfang"
+# Vermerk in ``fertig.json``: Die automatische Verarbeitung der Aufnahme ist noch nicht zu Ende.
+VERARBEITUNG_OFFEN = "offen"
+VERARBEITUNG_ERLEDIGT = "erledigt"
 ERLAUBTE_ENDUNGEN = (".opus", ".ogg", ".wav", ".mp3")
 
+# Alle Muster nur mit ``fullmatch`` pruefen: Bei ``match`` passt "$" auch vor einem abschliessenden Zeilenumbruch
+# ("Raum1\n", "H5_001.opus\n").
 _DATEINAME = re.compile(r"^[A-Za-z0-9_-]{1,64}\.(?:opus|ogg|wav|mp3)$", re.IGNORECASE)
-_GERAETENAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$")
+# Buchstaben (auch Umlaute), Ziffern, Leerzeichen, "_" und "-"; vorn und hinten ein Buchstabe oder eine Ziffer.
+_GERAETENAME = re.compile(r"^[^\W_](?:[\w \-]*[^\W_])?$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _GERAETE_ID = re.compile(r"^[0-9a-f]{12}$")
 _FIRMWARE = re.compile(r"^[A-Za-z0-9._/+-]{1,64}$")
@@ -106,13 +112,15 @@ def token_hash(token: str) -> str:
 
 
 def geraetename_gueltig(name: str) -> bool:
-    """Buchstaben, Ziffern, ``_`` und ``-``, hoechstens 32 Zeichen. Der Name
-    steht spaeter vorn im Dateinamen jeder Aufnahme dieses Geraets."""
-    return bool(_GERAETENAME.match(name))
+    """Buchstaben (auch Umlaute), Ziffern, Leerzeichen, ``_`` und ``-``, hoechstens 32 Zeichen. Der Name
+    steht spaeter vorn im Dateinamen jeder Aufnahme dieses Geraets -- deshalb keine Zeichen, die in Dateinamen
+    stoeren (``/ \\ : * ? " < > |``), und kein Leerzeichen am Anfang oder Ende. Das Geraet selbst kennt den Namen
+    nicht (er haengt am Token), die Firmware ist davon also nicht betroffen."""
+    return len(name) <= 32 and bool(_GERAETENAME.fullmatch(name))
 
 
 def dateiname_gueltig(name: str) -> bool:
-    return bool(_DATEINAME.match(name))
+    return bool(_DATEINAME.fullmatch(name))
 
 
 def geraete_aus_text(text: str) -> tuple[Geraet, ...]:
@@ -128,7 +136,7 @@ def geraete_aus_text(text: str) -> tuple[Geraet, ...]:
         name, hashwert = name.strip(), hashwert.strip().lower()
         if not trenner or not geraetename_gueltig(name):
             raise ValueError(f"'{eintrag[:40]}' ist kein Eintrag der Form Name:SHA256 mit gueltigem Geraetenamen.")
-        if not _SHA256.match(hashwert):
+        if not _SHA256.fullmatch(hashwert):
             raise ValueError(f"Zu '{name}' fehlt ein gueltiger SHA-256-Hash (64 Hex-Zeichen).")
         geraete.append(Geraet(name, hashwert))
     _doppelte_pruefen(geraete)
@@ -145,7 +153,7 @@ def geraete_aus_konfiguration(eintraege: Iterable[Any]) -> tuple[Geraet, ...]:
             continue
         name = str(eintrag.get("name", ""))
         hashwert = str(eintrag.get("token_sha256", "")).lower()
-        if geraetename_gueltig(name) and _SHA256.match(hashwert) and name.lower() not in namen:
+        if geraetename_gueltig(name) and _SHA256.fullmatch(hashwert) and name.lower() not in namen:
             namen.add(name.lower())
             geraete.append(Geraet(name, hashwert))
     return tuple(geraete)
@@ -184,7 +192,7 @@ class Kontakt:
 def geraete_id_lesen(wert: str | None) -> str | None:
     """``X-Geraete-Id``: Werks-MAC, 12 Hex-Zeichen. Anderes wird ignoriert."""
     text = (wert or "").strip().lower().replace(":", "").replace("-", "")
-    return text if _GERAETE_ID.match(text) else None
+    return text if _GERAETE_ID.fullmatch(text) else None
 
 
 def auftrag_lesen(wert: str | None) -> str | None:
@@ -203,7 +211,7 @@ def auftrag_lesen(wert: str | None) -> str | None:
 
 def firmware_lesen(wert: str | None) -> str | None:
     text = (wert or "").strip()
-    return text if _FIRMWARE.match(text) else None
+    return text if _FIRMWARE.fullmatch(text) else None
 
 
 def lokale_adressen() -> list[str]:
@@ -267,8 +275,12 @@ class Ablage:
         bei_abschluss: Callable[[str, str, Path], None] | None = None,
         bei_verworfen: Callable[[str, str], None] | None = None,
         jetzt: Callable[[], float] = time.time,
+        ziel_fuer_geraet: Callable[[str], Path] | None = None,
     ):
         self.ziel = ziel
+        # Mehrere Nutzer (Servermodus): Jede fertige Aufnahme kommt in den Ordner des Nutzers, dem das Geraet
+        # gehoert. Die Teilstaende bleiben im gemeinsamen Empfangsordner.
+        self._ziel_fuer_geraet = ziel_fuer_geraet
         self._ordner = ziel / EMPFANGSORDNER
         self._max_datei_bytes = max_datei_bytes
         self._platz_reserve = platz_reserve_bytes
@@ -342,7 +354,7 @@ class Ablage:
             return _fehler(400, "X-Offset und Content-Length duerfen nicht negativ sein.")
         if (gesamt is None) != (sha256 is None):
             return _fehler(400, "X-Gesamtgroesse und X-SHA256 gehoeren zusammen.")
-        if sha256 is not None and not _SHA256.match(sha256):
+        if sha256 is not None and not _SHA256.fullmatch(sha256):
             return _fehler(400, "X-SHA256 muss aus 64 kleinen Hex-Zeichen bestehen.")
         if gesamt is not None and gesamt < 0:
             return _fehler(400, "X-Gesamtgroesse darf nicht negativ sein.")
@@ -451,7 +463,7 @@ class Ablage:
                 self._verwerfen(teil)
                 self._verworfen_melden(geraet, datei)
                 return Antwort(200, {"naechstes_byte": gesamt, "fertig": True, "datei": fertig[kennung]["datei"]})
-            ziel = self._freier_zielname(f"{geraet}_{datei}")
+            ziel = self._freier_zielname(f"{geraet}_{datei}", geraet)
             # Erst ablegen, dann merken: Faellt dazwischen der Strom aus, entsteht
             # schlimmstenfalls eine doppelte Datei -- umgekehrt ginge sie verloren.
             try:
@@ -470,6 +482,10 @@ class Ablage:
             try:
                 _ordner_sichern(self.ziel)
                 fertig[kennung] = {"datei": ziel.name, "zeit": time.strftime("%Y-%m-%dT%H:%M:%S")}
+                if self._bei_abschluss is not None:
+                    # Wird automatisch verarbeitet: bis zum Ende offen. Endet die Software vorher (PC aus,
+                    # Laptop zugeklappt), reiht sie die Aufnahme beim naechsten Start wieder ein.
+                    fertig[kennung].update(pfad=str(ziel), verarbeitung=VERARBEITUNG_OFFEN)
                 self._fertig_speichern(fertig)
             except OSError as fehler:
                 logger.warning("Abschluss von %s konnte nicht vermerkt werden: %s", ziel.name, fehler)
@@ -487,12 +503,14 @@ class Ablage:
                 logger.exception("Meldung ueber die neue Aufnahme fehlgeschlagen")
         return Antwort(200, {"naechstes_byte": gesamt, "fertig": True, "datei": ziel.name})
 
-    def _freier_zielname(self, name: str) -> Path:
-        ziel = self.ziel / name
+    def _freier_zielname(self, name: str, geraet: str = "") -> Path:
+        ordner = self._ziel_fuer_geraet(geraet) if self._ziel_fuer_geraet is not None and geraet else self.ziel
+        ordner.mkdir(parents=True, exist_ok=True)
+        ziel = ordner / name
         stamm, endung = ziel.stem, ziel.suffix
         nummer = 2
         while ziel.exists():
-            ziel = self.ziel / f"{stamm}_{nummer}{endung}"
+            ziel = ordner / f"{stamm}_{nummer}{endung}"
             nummer += 1
         return ziel
 
@@ -532,6 +550,44 @@ class Ablage:
             json.dump({"version": 1, "aufnahmen": fertig}, handle, ensure_ascii=False, indent=2)
             temp = Path(handle.name)
         _ersetzen_mit_wiederholung(temp, self._fertig_datei())
+
+    def _pfad_des_eintrags(self, eintrag: dict[str, Any]) -> Path:
+        return Path(str(eintrag.get("pfad") or self.ziel / str(eintrag.get("datei") or "")))
+
+    def offene_aufnahmen(self) -> list[tuple[str, str, Path]]:
+        """Vollstaendig angekommene Aufnahmen, deren automatische Verarbeitung nie zu Ende kam (die Software oder
+        der Rechner wurde dazwischen beendet): ``(Geraet, Dateiname des Geraets, Datei am PC)``. Halbe Uploads
+        stehen hier nie -- vermerkt wird erst der geprüfte Abschluss."""
+        with self._sperre:
+            fertig = self._fertig_laden()
+        offen: list[tuple[str, str, Path]] = []
+        for kennung, eintrag in fertig.items():
+            if not isinstance(eintrag, dict) or eintrag.get("verarbeitung") != VERARBEITUNG_OFFEN:
+                continue
+            geraet, _, rest = str(kennung).partition("/")
+            datei = rest.split("/", 1)[0]
+            if geraet and dateiname_gueltig(datei):
+                offen.append((geraet, datei, self._pfad_des_eintrags(eintrag)))
+        return offen
+
+    def verarbeitung_erledigt(self, pfad: Path) -> None:
+        """Die automatische Verarbeitung dieser Aufnahme ist zu Ende (fertig, fehlgeschlagen oder abgebrochen):
+        Nach einem Neustart wird sie nicht wieder eingereiht."""
+        with self._sperre:
+            fertig = self._fertig_laden()
+            betroffen = [
+                e
+                for e in fertig.values()
+                if isinstance(e, dict) and e.get("verarbeitung") == VERARBEITUNG_OFFEN and self._pfad_des_eintrags(e) == pfad
+            ]
+            if not betroffen:
+                return
+            for eintrag in betroffen:
+                eintrag["verarbeitung"] = VERARBEITUNG_ERLEDIGT
+            try:
+                self._fertig_speichern(fertig)
+            except OSError as fehler:
+                logger.warning("Ende der Verarbeitung von %s konnte nicht vermerkt werden: %s", pfad.name, fehler)
 
     def aufraeumen(self, max_alter_sekunden: float = TEILSTAND_MAX_ALTER_SEKUNDEN) -> int:
         """Loescht Teilstaende, die lange nicht weitergewachsen sind. Liefert die Anzahl."""
@@ -600,8 +656,9 @@ AUFTRAG_MAX_ZEICHEN = 60
 # der Name kaeme gekuerzt zurueck und passte zu keiner Vorlage mehr.
 AUFTRAG_MAX_BYTES = 63
 AUFTRAG_ANZEIGE_MAX = 38
-# So viele Eintraege fasst die Liste der Firmware (VERMERK_AUFTRAEGE_MAX)
-MAX_AUFTRAEGE = 12
+# So viele Eintraege fasst die Liste der Firmware (VERMERK_AUFTRAEGE_MAX, seit November 2026 20; vorher 12 --
+# aeltere Geraete lesen nur die ersten 12, die Antwort passt bei allen in den 6-KB-Puffer)
+MAX_AUFTRAEGE = 20
 # Eine Anfrage ohne Aufnahme (Freigabe der Zusammenfassung) ist klein
 POST_MAX_BYTES = 1024
 
@@ -891,6 +948,8 @@ class GeraeteEmpfang:
         bei_zusammenfassung: Callable[[str, str], bool] | None = None,
         bei_keine_zusammenfassung: Callable[[str, str], bool] | None = None,
         fragen: Any = None,
+        ziel_fuer_geraet: Callable[[str], Path] | None = None,
+        bei_kontakt: Callable[[str], object] | None = None,
     ):
         self.geraete: tuple[Geraet, ...] = tuple(geraete)
         self.ablage = Ablage(
@@ -900,6 +959,7 @@ class GeraeteEmpfang:
             bei_teil=bei_teil,
             bei_abschluss=bei_abschluss,
             bei_verworfen=bei_verworfen,
+            ziel_fuer_geraet=ziel_fuer_geraet,
         )
         self._status_fn = status_fn
         self._auftraege_fn = auftraege_fn
@@ -913,6 +973,9 @@ class GeraeteEmpfang:
         self._faden: threading.Thread | None = None
         self._kontakte: dict[str, Kontakt] = {}
         self._kontakte_sperre = threading.Lock()
+        # Ein Geraet meldet sich zum ersten Mal seit dem Start (oder von anderswo): Die Oberflaeche zeigt sonst
+        # bis zum naechsten Neuladen "Noch nicht verbunden" samt Firewall-Knopf.
+        self._bei_kontakt = bei_kontakt
         self._jetzt: Callable[[], float] = time.time
 
     def status(self, geraet: str, datei: str) -> Antwort:
@@ -1019,14 +1082,14 @@ class GeraeteEmpfang:
     def frage_stand(self, geraet: str, kennung: str) -> Antwort:
         """``GET /api/v1/fragen/<Kennung>``: ``zustand`` (verstehen, antworten, sprechen, fertig, fehler), dazu
         ``frage``, ``antwort``, ``meldung`` und bei ``fertig`` die Groesse des Tons (``ton_bytes``)."""
-        if self._fragen is None or not _FRAGE_KENNUNG.match(kennung):
+        if self._fragen is None or not _FRAGE_KENNUNG.fullmatch(kennung):
             return _fehler(404, "Unbekannte Frage.")
         stand = self._fragen.stand(geraet, kennung)
         return Antwort(200, stand) if stand is not None else _fehler(404, "Unbekannte Frage.")
 
     def frage_ton(self, geraet: str, kennung: str) -> Antwort:
         """``GET /api/v1/fragen/<Kennung>/ton``: die gesprochene Antwort als WAV (16 kHz, 16 Bit, mono)."""
-        if self._fragen is None or not _FRAGE_KENNUNG.match(kennung):
+        if self._fragen is None or not _FRAGE_KENNUNG.fullmatch(kennung):
             return _fehler(404, "Unbekannte Frage.")
         stand = self._fragen.stand(geraet, kennung)
         if stand is None:
@@ -1053,6 +1116,11 @@ class GeraeteEmpfang:
             logger.info(
                 "Geraet %s: Id %s, Firmware %s, Adresse %s", name, geraete_id or "-", firmware or "-", adresse
             )
+            if self._bei_kontakt is not None:
+                try:
+                    self._bei_kontakt(name)
+                except Exception:  # Die Anzeige darf den Empfang nicht stoeren.
+                    logger.exception("Meldung ueber den Kontakt von %s fehlgeschlagen", name)
         if alt is not None and alt.geraete_id and geraete_id and alt.geraete_id != geraete_id:
             logger.warning(
                 "Das Token von %s kommt jetzt von einem anderen Geraet (%s statt %s) -- kopiert oder getauscht?",

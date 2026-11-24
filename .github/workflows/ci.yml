@@ -133,6 +133,12 @@ jobs:
       - name: mypy (Typpruefung)
         run: uv run mypy
 
+      - name: Versionen pruefen
+        # pyproject.toml, version.py, oberflaeche/package.json, tauri.conf.json
+        # und Cargo.toml muessen dieselbe Version tragen; '@tauri-apps/*' und die
+        # Tauri-Crates dasselbe Major.Minor (ARCHITEKTUR.md).
+        run: uv run python tools/versionen_pruefen.py
+
   tests:
     name: Tests (Windows, Python ${{ matrix.python-version }})
     needs: aenderungen
@@ -143,7 +149,7 @@ jobs:
     # Pflichtpruefungen "... Python 3.10" und "... 3.11" warteten dann ewig.
     if: ${{ !cancelled() }}
     runs-on: windows-latest
-    # Ein haengender Fenstertest soll keinen Windows-Laeufer sechs Stunden
+    # Ein haengender Test soll keinen Windows-Laeufer sechs Stunden
     # (die Vorgabe von GitHub) belegen. Normal sind gut zwei Minuten.
     timeout-minutes: 30
     strategy:
@@ -173,10 +179,6 @@ jobs:
 
       - name: Tests mit Abdeckung
         if: needs.aenderungen.outputs.code != 'false'
-        # Die Fenstertests brauchen eine Desktop-Sitzung; die haben die
-        # Windows-Laeufer von GitHub. Qt laeuft trotzdem unsichtbar.
-        env:
-          QT_QPA_PLATFORM: offscreen
         run: uv run pytest --cov --cov-report=xml --cov-report=term-missing --junitxml=testergebnis.xml
 
       - name: Ergebnis zusammenfassen
@@ -194,6 +196,105 @@ jobs:
           path: coverage.xml
           if-no-files-found: ignore
           retention-days: 14
+
+  # Die neue Oberflaeche (Svelte) und das Desktop-Fenster (Tauri/Rust). Beide
+  # sind (noch) KEINE Pflichtpruefungen fuer 'main'; uebersprungen wird bei
+  # reiner Dokumentation wie oben per 'if', nie per 'paths-ignore'.
+  oberflaeche:
+    name: Oberfläche
+    needs: aenderungen
+    if: ${{ !cancelled() && needs.aenderungen.outputs.code != 'false' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: oberflaeche
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Gibt es die Oberflaeche schon?
+        id: vorhanden
+        working-directory: .
+        run: |
+          if [ -f oberflaeche/package.json ]; then
+            echo "ja=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ja=false" >> "$GITHUB_OUTPUT"
+            echo "oberflaeche/package.json fehlt noch - Pruefungen der Oberflaeche uebersprungen."
+          fi
+
+      - name: Node einrichten
+        if: steps.vorhanden.outputs.ja == 'true'
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: oberflaeche/package-lock.json
+
+      - name: Abhaengigkeiten (npm ci)
+        if: steps.vorhanden.outputs.ja == 'true'
+        run: npm ci
+
+      - name: Typen und Svelte pruefen
+        if: steps.vorhanden.outputs.ja == 'true'
+        run: npm run check --if-present
+
+      - name: Linting
+        if: steps.vorhanden.outputs.ja == 'true'
+        run: npm run lint --if-present
+
+      - name: Tests
+        if: steps.vorhanden.outputs.ja == 'true'
+        run: npm run test --if-present
+
+      - name: Bauen
+        if: steps.vorhanden.outputs.ja == 'true'
+        run: npm run build
+
+  fenster:
+    name: Desktop-Fenster (Rust)
+    needs: aenderungen
+    if: ${{ !cancelled() && needs.aenderungen.outputs.code != 'false' }}
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: oberflaeche/src-tauri
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Rust einrichten
+        shell: pwsh
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt,clippy --no-self-update
+          rustup default stable
+          cargo --version
+
+      - name: Rust-Zwischenspeicher
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: oberflaeche/src-tauri
+
+      - name: Platzhalter fuer oberflaeche/build
+        # Tauri prueft 'frontendDist' beim Kompilieren. Gebaut wird die
+        # Oberflaeche im Job daneben; hier genuegt eine leere Seite.
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force ../build | Out-Null
+          if (-not (Test-Path ../build/index.html)) {
+            Set-Content -Path ../build/index.html -Value '<!doctype html><title>VERMERK</title>' -Encoding utf8
+          }
+
+      - name: Formatierung (cargo fmt)
+        run: cargo fmt --check
+
+      - name: Linting (clippy)
+        run: cargo clippy --locked --all-targets -- -D warnings
+
+      - name: Tests (cargo test)
+        # Der Integrationstest mit dem echten Python-Dienst ist mit #[ignore]
+        # markiert (siehe tests/dienst_handschlag.rs).
+        run: cargo test --locked
 
   sicherheit:
     name: Geheimnisse und Schwachstellen
@@ -218,7 +319,13 @@ jobs:
           curl -sSfL -o gitleaks.tar.gz \
             "https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/gitleaks_${VERSION}_linux_x64.tar.gz"
           tar -xzf gitleaks.tar.gz gitleaks
-          ./gitleaks detect --source . --redact --verbose --exit-code 1
+          # Nur die Historie des geprueften Stands (HEAD), nicht die aller Branches:
+          # Ohne --log-opts nimmt gitleaks "git log --all", und fetch-depth 0 holt
+          # jeden Branch mit. Dann legte ein Fehlalarm auf einem fremden, noch nicht
+          # zusammengefuehrten Branch jeden Pull Request lahm (so geschehen im
+          # November 2026). Was ein Branch einschleppt, faellt in seinem eigenen
+          # Pull Request auf; Fehlalarme in der Historie stehen in .gitleaksignore.
+          ./gitleaks detect --source . --redact --verbose --exit-code 1 --log-opts="--full-history HEAD"
 
       - name: uv einrichten
         if: needs.aenderungen.outputs.code != 'false'

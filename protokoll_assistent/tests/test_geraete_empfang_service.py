@@ -81,7 +81,7 @@ def test_geraete_aus_text():
     ("text", "meldung"),
     [
         ("S3-Audio", "Name:SHA256"),
-        ("S3 Audio:" + "a" * 64, "Name:SHA256"),
+        ("S3/Audio:" + "a" * 64, "Name:SHA256"),
         ("S3:abc", "SHA-256"),
         ("S3:" + "a" * 64 + ",s3:" + "b" * 64, "mehrfach"),
     ],
@@ -125,6 +125,7 @@ def test_geraet_zum_token():
         ("x" * 64 + ".opus", True),
         ("x" * 65 + ".opus", False),
         ("H5%2F.opus", False),
+        ("H5_007.opus\n", False),  # "$" bei re.match liesse den Zeilenumbruch durch
     ],
 )
 def test_dateiname_gueltig(name, gueltig):
@@ -431,6 +432,28 @@ def test_upload_ueber_http_mit_wiederaufnahme(dienst):
     assert (dienst.ablage.ziel / "S3-Audio_H5_007.opus").read_bytes() == daten
 
 
+@pytest.mark.parametrize(
+    ("name", "gueltig"),
+    [
+        ("Raum-3", True),
+        ("Besprechungsraum 3", True),
+        ("Jens Büro", True),
+        ("A", True),
+        ("x" * 32, True),
+        ("x" * 33, False),
+        (" Raum", False),
+        ("Raum ", False),
+        ("_Raum", False),
+        ("Raum/3", False),
+        ("Raum:3", False),
+        ("", False),
+        ("Raum1\n", False),
+    ],
+)
+def test_geraetename_gueltig(name, gueltig):
+    assert empfang.geraetename_gueltig(name) is gueltig
+
+
 def test_geraetename_kommt_aus_dem_token(dienst):
     anfrage(dienst, "PUT", "/api/v1/aufnahmen/H5.opus", b"c6", token=TOKEN_ZWEI, X_Offset="0", X_Gesamtgroesse="2", X_SHA256=sha(b"c6"))
     assert (dienst.ablage.ziel / "C6_H5.opus").read_bytes() == b"c6"
@@ -586,6 +609,40 @@ def test_kontakt_wird_gemerkt_und_aenderungen_protokolliert(dienst, caplog):
 
     anfrage(dienst, "GET", "/api/v1/hallo", X_Geraete_Id="aaaaaaaaaaaa", X_Firmware="esp32-s3-audio/1.0.0")
     assert any("anderen Geraet" in r.getMessage() and r.levelname == "WARNING" for r in caplog.records)
+
+
+def test_neuer_kontakt_wird_gemeldet_wiederholte_nicht(tmp_path):
+    # Die Oberflaeche erfaehrt so, dass sich ein Geraet gemeldet hat (sonst stand es dort bis zum Neuladen als
+    # "Noch nicht verbunden" mit Firewall-Knopf, etwa nach jedem Neustart des Empfangs).
+    gemeldet: list[str] = []
+    laufend = GeraeteEmpfang(
+        tmp_path / "eingang", (Geraet("S3-Audio", empfang.token_hash(TOKEN)),), port=0, adresse="127.0.0.1",
+        bei_kontakt=gemeldet.append,
+    )
+    laufend.starten()
+    try:
+        for _ in range(3):
+            anfrage(laufend, "GET", "/api/v1/hallo", X_Geraete_Id="1a2b3c4d5e6f", X_Firmware="esp32-s3-audio/1.0.0")
+        assert gemeldet == ["S3-Audio"]
+        anfrage(laufend, "GET", "/api/v1/hallo", X_Geraete_Id="1a2b3c4d5e6f", X_Firmware="esp32-s3-audio/1.0.1")
+        assert gemeldet == ["S3-Audio", "S3-Audio"]
+    finally:
+        laufend.stoppen()
+
+
+def test_fehler_beim_melden_des_kontakts_stoert_nicht(tmp_path):
+    def kaputt(_name: str) -> None:
+        raise RuntimeError("Anzeige weg")
+
+    laufend = GeraeteEmpfang(
+        tmp_path / "eingang", (Geraet("S3-Audio", empfang.token_hash(TOKEN)),), port=0, adresse="127.0.0.1",
+        bei_kontakt=kaputt,
+    )
+    laufend.starten()
+    try:
+        assert anfrage(laufend, "GET", "/api/v1/hallo")[0] == 200
+    finally:
+        laufend.stoppen()
 
 
 def test_ohne_kennung_wird_trotzdem_angenommen(dienst):
@@ -818,10 +875,11 @@ def test_auftraege_ueber_http(tmp_path):
 
 def test_hoechstens_so_viele_auftraege_wie_die_firmware_fasst(tmp_path):
     geraete = (Geraet("S3-Audio", empfang.token_hash(TOKEN)),)
-    namen = [f"Vorlage {i}" for i in range(20)]
+    namen = [f"Vorlage {i}" for i in range(30)]
     dienst = GeraeteEmpfang(tmp_path / "eingang", geraete, port=0, adresse="127.0.0.1", auftraege_fn=lambda: namen)
     dienst.starten()
     try:
+        assert empfang.MAX_AUFTRAEGE == 20  # VERMERK_AUFTRAEGE_MAX in firmware/components/vermerk_upload
         assert anfrage(dienst, "GET", "/api/v1/auftraege")[1]["auftraege"] == namen[: empfang.MAX_AUFTRAEGE]
     finally:
         dienst.stoppen()
@@ -1110,6 +1168,15 @@ def test_ohne_fragendienst_gibt_es_keine_fragen(dienst):
 # --------------------------------------------------------------------------
 # Fremde im Netz koennen die Geraete nicht aussperren
 # --------------------------------------------------------------------------
+def _freie_plaetze(server, erwartet):
+    """Freie Plaetze, sobald es ``erwartet`` sind (hoechstens 5 s). Der Bearbeitungsfaden gibt seinen Platz erst
+    frei, nachdem die Antwort schon beim Client ist -- sofort nachgezaehlt, fehlte ab und zu einer."""
+    ende = time.monotonic() + 5
+    while server.plaetze._value != erwartet and time.monotonic() < ende:
+        time.sleep(0.01)
+    return server.plaetze._value
+
+
 def test_verbindungen_ohne_anmeldung_belegen_keinen_platz(tmp_path, monkeypatch):
     # Frueher nahm JEDE Verbindung sofort einen der Plaetze: Acht offene Verbindungen ohne Token, die nur ab
     # und zu ein Byte schickten, sperrten jedes Aufnahmegeraet mit 503 aus.
@@ -1128,7 +1195,7 @@ def test_verbindungen_ohne_anmeldung_belegen_keinen_platz(tmp_path, monkeypatch)
         status, _, _ = anfrage(laufend, "GET", "/api/v1/hallo", token="falsch")
         assert status == 401
         server = laufend._server
-        assert server is not None and server.plaetze._value == 1  # type: ignore[attr-defined]
+        assert server is not None and _freie_plaetze(server, 1) == 1
     finally:
         for fremd in fremde:
             fremd.close()
@@ -1158,7 +1225,7 @@ def test_platz_wird_nach_jeder_anfrage_wieder_frei(dienst):
         assert anfrage(dienst, "GET", "/api/v1/hallo")[0] == 200
         assert anfrage(dienst, "GET", "/api/v1/unbekannt")[0] == 404
     server = dienst._server
-    assert server is not None and server.plaetze._value == empfang.MAX_VERBINDUNGEN  # type: ignore[attr-defined]
+    assert server is not None and _freie_plaetze(server, empfang.MAX_VERBINDUNGEN) == empfang.MAX_VERBINDUNGEN
 
 
 def test_unerwarteter_fehler_wird_protokolliert_und_gibt_den_platz_frei(dienst, monkeypatch, caplog):
@@ -1172,7 +1239,7 @@ def test_unerwarteter_fehler_wird_protokolliert_und_gibt_den_platz_frei(dienst, 
     monkeypatch.undo()
     assert anfrage(dienst, "GET", "/api/v1/hallo")[0] == 200
     server = dienst._server
-    assert server is not None and server.plaetze._value == empfang.MAX_VERBINDUNGEN  # type: ignore[attr-defined]
+    assert server is not None and _freie_plaetze(server, empfang.MAX_VERBINDUNGEN) == empfang.MAX_VERBINDUNGEN
 
 
 # --------------------------------------------------------------------------
@@ -1220,3 +1287,42 @@ def test_gescheiterte_buchfuehrung_laesst_die_aufnahme_nicht_unbearbeitet(tmp_pa
     antwort = hochladen(ablage, "S3", "H5_011.opus", daten)
     assert antwort.status == 200 and antwort.daten["fertig"] is True
     assert gemeldet == [antwort.daten["datei"]]
+
+
+# --------------------------------------------------------------------------
+# Windows-Anwendung und Servermodus: fuer das Geraet dasselbe
+# --------------------------------------------------------------------------
+@pytest.mark.parametrize("je_besitzer", [False, True], ids=["desktop", "server-mit-besitzern"])
+def test_geraet_merkt_keinen_unterschied_zwischen_desktop_und_server(tmp_path, je_besitzer):
+    """Die Firmware spricht mit beiden Varianten genau gleich (GERAETE-SCHNITTSTELLE.md). Im Servermodus landet
+    die fertige Datei nur im Ordner des Nutzers, dem das Geraet gehoert -- Antworten und Ablauf bleiben gleich."""
+    besitzer = {"S3-Audio": "anna", "C6": "ben"}
+    ziel_fn = (lambda geraet: tmp_path / "nutzer" / besitzer[geraet]) if je_besitzer else None
+    geraete = (Geraet("S3-Audio", empfang.token_hash(TOKEN)), Geraet("C6", empfang.token_hash(TOKEN_ZWEI)))
+    laufend = GeraeteEmpfang(tmp_path / "eingang", geraete, port=0, adresse="127.0.0.1", ziel_fuer_geraet=ziel_fn)
+    laufend.ablage._freier_platz = lambda _p: 10**12
+    laufend.starten()
+    try:
+        antworten = []
+        for token, inhalt in ((TOKEN, b"anna-daten"), (TOKEN_ZWEI, b"ben-daten")):
+            pfad = "/api/v1/aufnahmen/H5_001.opus"
+            antworten.append(anfrage(laufend, "GET", "/api/v1/hallo", token=token)[:2])
+            antworten.append(anfrage(laufend, "PUT", pfad, inhalt, token=token, X_Offset="0")[:2])
+            antworten.append(
+                anfrage(
+                    laufend, "PUT", pfad, b"", token=token, X_Offset=str(len(inhalt)),
+                    X_Gesamtgroesse=str(len(inhalt)), X_SHA256=sha(inhalt),
+                )[:2]
+            )
+    finally:
+        laufend.stoppen()
+    assert [status for status, _ in antworten] == [200] * 6
+    assert antworten[2][1] == {"naechstes_byte": 10, "fertig": True, "datei": "S3-Audio_H5_001.opus"}
+    assert antworten[5][1] == {"naechstes_byte": 9, "fertig": True, "datei": "C6_H5_001.opus"}
+    if je_besitzer:
+        assert (tmp_path / "nutzer" / "anna" / "S3-Audio_H5_001.opus").read_bytes() == b"anna-daten"
+        assert (tmp_path / "nutzer" / "ben" / "C6_H5_001.opus").read_bytes() == b"ben-daten"
+        assert not (tmp_path / "eingang" / "S3-Audio_H5_001.opus").exists()
+    else:
+        assert (tmp_path / "eingang" / "S3-Audio_H5_001.opus").read_bytes() == b"anna-daten"
+        assert (tmp_path / "eingang" / "C6_H5_001.opus").read_bytes() == b"ben-daten"

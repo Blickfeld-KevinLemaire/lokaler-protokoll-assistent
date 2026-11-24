@@ -5,5 +5,6 @@ Transkription und Nachbearbeitung laufen wahlweise lokal
 Weg gilt, ist eine Einstellung in 'konfiguration.json' und kein eigenes
 Programm.
 
-Einstiegspunkt: 'python -m protokoll_assistent.app'.
+Einstiegspunkt: der Dienst 'python -m protokoll_assistent.api' (gestartet vom
+Fenster 'VERMERK.exe', siehe ARCHITEKTUR.md).
 """

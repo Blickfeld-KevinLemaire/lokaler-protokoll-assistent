@@ -78,6 +78,9 @@ esp_err_t esp_audio_play(const int16_t* data, int length, uint32_t ticks_to_wait
  */
 esp_err_t esp_get_feed_data(bool is_get_raw_channel, int16_t *buffer, int buffer_len);
 
+/* Mikrofon-Codec und I2S-Empfang aus (false) bzw. wieder an (true); aus der Aufgabe aufrufen, die liest */
+esp_err_t esp_mic_aktiv(bool an);
+
 int esp_get_feed_channel(void);
 
 char* esp_get_input_format(void);
