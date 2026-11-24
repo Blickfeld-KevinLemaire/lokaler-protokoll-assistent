@@ -10,6 +10,7 @@
 
 
 #include "esp_rom_sys.h"
+#include "esp_heap_caps.h"
 #include "esp_check.h"
 #include "esp_vfs_fat.h"
 #include "sdmmc_cmd.h"
@@ -437,6 +438,111 @@ esp_err_t bsp_mic_aktiv(bool an)
         esp_codec_dev_set_in_channel_gain(record_dev, ESP_CODEC_DEV_MAKE_CHANNEL_MASK(k), RECORD_VOLUME);
     }
     return ESP_OK;
+}
+
+/* ---- VERMERK Sprachausgabe ----
+ * Im Betrieb gibt es nur den Aufnahme-Kanal (siehe bsp_i2s_init: ein dauerhafter Sende-Kanal kostet ca. 11 KB internes
+ * RAM). Fuer eine kurze Ansage wird darum getauscht: Mikrofon (ES7210) und Aufnahme-Kanal ab, Sende-Kanal und
+ * Lautsprecher-Codec (ES8311) an; danach zurueck. Der Speicherbedarf bleibt so gleich. Nur aus der Aufgabe
+ * aufrufen, die auch bsp_get_feed_data liest, und nie waehrend einer Aufnahme. */
+#define LAUTSPRECHER_BLOCK 256
+static int32_t *s_ls_puffer = NULL;   /* Stereo, 32 Bit, im PSRAM */
+
+static esp_err_t aufnahme_kanal_zurueck(void)
+{
+    esp_err_t ret = bsp_i2s_init(I2S_NUM_1, 16000, 2, 32);
+    if (ret == ESP_OK) {
+        ret = bsp_codec_adc_init(16000);
+    }
+    return ret;
+}
+
+static void sende_kanal_weg(void)
+{
+    bsp_codec_dac_deinit();
+    if (tx_handle != NULL) {
+        i2s_channel_disable(tx_handle);
+        i2s_del_channel(tx_handle);
+        tx_handle = NULL;
+    }
+}
+
+esp_err_t bsp_lautsprecher_an(int lautstaerke)
+{
+    if (tx_handle != NULL) {
+        return ESP_OK;
+    }
+    if (s_ls_puffer == NULL) {
+        s_ls_puffer = heap_caps_malloc(LAUTSPRECHER_BLOCK * 2 * sizeof(int32_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (s_ls_puffer == NULL) {
+            return ESP_ERR_NO_MEM;
+        }
+    }
+    bsp_codec_adc_deinit();
+    if (rx_handle != NULL) {
+        i2s_channel_disable(rx_handle);
+        i2s_del_channel(rx_handle);
+        rx_handle = NULL;
+    }
+
+    i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_1, I2S_ROLE_MASTER);
+    chan_cfg.auto_clear = true;   /* laeuft der Puffer leer, kommt Stille statt Wiederholung */
+    i2s_std_config_t std_cfg = I2S_CONFIG_DEFAULT(16000, I2S_SLOT_MODE_STEREO, 32);
+    std_cfg.gpio_cfg.din = GPIO_NUM_NC;
+    esp_err_t ret = i2s_new_channel(&chan_cfg, &tx_handle, NULL);
+    if (ret == ESP_OK) {
+        ret = i2s_channel_init_std_mode(tx_handle, &std_cfg);
+    }
+    if (ret == ESP_OK) {
+        ret = i2s_channel_enable(tx_handle);
+    }
+    if (ret == ESP_OK) {
+        bsp_codec_dac_init(16000, 2, 32);
+        if (play_dev == NULL) {
+            ret = ESP_FAIL;
+        }
+    }
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Lautsprecher nicht bereit: %s", esp_err_to_name(ret));
+        sende_kanal_weg();
+        aufnahme_kanal_zurueck();
+        return ret;
+    }
+    esp_codec_dev_set_out_vol(play_dev, lautstaerke);
+    return ESP_OK;
+}
+
+/* Mono, 16 Bit, 16 kHz (NULL = Stille); blockiert, bis die Werte im DMA-Puffer stehen (also etwa in Echtzeit) */
+esp_err_t bsp_lautsprecher_schreiben(const int16_t *mono, int anzahl)
+{
+    if (play_dev == NULL || s_ls_puffer == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    while (anzahl > 0) {
+        int n = anzahl > LAUTSPRECHER_BLOCK ? LAUTSPRECHER_BLOCK : anzahl;
+        for (int i = 0; i < n; i++) {
+            int32_t v = (mono != NULL) ? ((int32_t)mono[i] << 16) : 0;
+            s_ls_puffer[2 * i] = v;
+            s_ls_puffer[2 * i + 1] = v;
+        }
+        if (esp_codec_dev_write(play_dev, s_ls_puffer, n * 2 * (int)sizeof(int32_t)) != ESP_CODEC_DEV_OK) {
+            return ESP_FAIL;
+        }
+        if (mono != NULL) {
+            mono += n;
+        }
+        anzahl -= n;
+    }
+    return ESP_OK;
+}
+
+esp_err_t bsp_lautsprecher_aus(void)
+{
+    if (tx_handle == NULL && rx_handle != NULL) {
+        return ESP_OK;
+    }
+    sende_kanal_weg();
+    return aufnahme_kanal_zurueck();
 }
 
 esp_err_t bsp_get_feed_data(bool is_get_raw_channel, int16_t *buffer, int buffer_len)

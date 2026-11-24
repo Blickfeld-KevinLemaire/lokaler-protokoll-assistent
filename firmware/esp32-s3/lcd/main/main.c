@@ -96,7 +96,7 @@ static volatile bool storage_full_stop = false;   /* Aufnahme wegen vollem Speic
 #define PTT_GPIO                 GPIO_NUM_0      /* BOOT-Taste an der Seite, gedrueckt = 0 */
 #define DISPLAY_DIMMEN_NACH_MS      60000u       /* ohne Bedienung so lange hell, dann gedimmt */
 #define DISPLAY_HELLIGKEIT_GEDIMMT  10           /* Prozent; normal ist LCD_Backlight (80). Nie ganz aus */
-#define LAUTSPRECHER_PA_GPIO        GPIO_NUM_15  /* Verstaerker-Freigabe (1 = an); bis zur Sprachausgabe immer aus */
+#define LAUTSPRECHER_PA_GPIO        GPIO_NUM_15  /* Verstaerker-Freigabe (1 = an); nur waehrend einer Ansage an */
 #define DISPLAY_BL_GPIO             GPIO_NUM_5   /* Hintergrundlicht (EXAMPLE_LCD_PIN_NUM_BK_LIGHT) */
 #define AKKU_LEER_V                 3.30f        /* gefiltert, ohne Kabel: darunter Aufnahme sichern und schlafen */
 #define AKKU_LEER_BESTAETIGEN_MS    30000u       /* so lange muss die Spannung darunter bleiben */
@@ -220,6 +220,15 @@ typedef enum {
 } transfer_mode_t;
 
 static volatile transfer_mode_t transfer_mode = TRANSFER_MODE_LOCAL;
+
+#define STATUS_KEY_HOCHLADEN 1000   /* Statustext "WIRD HOCHGELADEN" (neben den Schluesseln der Verarbeitung) */
+
+/* Eine Aufnahme liegt noch auf dem Geraet und das Ziel ist erreichbar: sie geht gerade raus (oder gleich) */
+static bool aufnahme_wird_gesendet(void)
+{
+    bool ziel = (transfer_mode == TRANSFER_MODE_PC || transfer_mode == TRANSFER_MODE_SERVER);
+    return ziel && (upload_active || pending_uploads > 0);
+}
 
 /* Modus automatisch aus der Verbindungslage ableiten.
  * usb_serial_jtag_is_connected() ist nur bei einem echten USB-Host (PC) true,
@@ -424,6 +433,125 @@ static esp_err_t finalize_recording(FILE *f)
     return ok ? ESP_OK : ESP_FAIL;
 }
 
+/* ---- Sprachausgabe: wenige kurze Saetze, fest in der App ----
+ * Erzeugt mit tools/ansagen_erzeugen.py (IMA-ADPCM, 16 kHz Mono, untere 4 Bit zuerst, Start mit Vorhersage 0 und
+ * Index 0). Die Oberflaeche fordert an (ansage_anfordern), die Audio-Task spielt ab: Nur sie darf das Mikrofon gegen
+ * den Lautsprecher tauschen (bsp_lautsprecher_an). Gesprochen wird nur in Ruhe, nie waehrend Aufnahme oder Frage;
+ * eine startende Aufnahme bricht die Ansage nach hoechstens einem Block (16 ms) ab. */
+#define ANSAGE_LAUTSTAERKE   70          /* ES8311, 0..100 = -50..0 dB; 70 = -15 dB (80 war dem Nutzer zu laut) */
+
+typedef enum {
+    ANSAGE_KEINE = -1,
+    ANSAGE_TRANSKRIPTION = 0,            /* "Transkription erfolgreich." */
+    ANSAGE_FRAGE_ZUSAMMENFASSUNG,        /* "Moechten Sie eine Zusammenfassung erstellen?" */
+    ANSAGE_PROTOKOLL,                    /* "Protokoll erfolgreich." */
+} ansage_t;
+
+extern const uint8_t ansage_transkription_start[] asm("_binary_transkription_erfolgreich_adpcm_start");
+extern const uint8_t ansage_transkription_end[] asm("_binary_transkription_erfolgreich_adpcm_end");
+extern const uint8_t ansage_frage_start[] asm("_binary_frage_zusammenfassung_adpcm_start");
+extern const uint8_t ansage_frage_end[] asm("_binary_frage_zusammenfassung_adpcm_end");
+extern const uint8_t ansage_protokoll_start[] asm("_binary_protokoll_erfolgreich_adpcm_start");
+extern const uint8_t ansage_protokoll_end[] asm("_binary_protokoll_erfolgreich_adpcm_end");
+
+static volatile int ansage_wunsch = ANSAGE_KEINE;
+static volatile bool ansage_abbrechen = false;
+
+static void ansage_anfordern(ansage_t a)
+{
+    ansage_abbrechen = false;
+    ansage_wunsch = (int)a;
+}
+
+static void ansage_stoppen(void)
+{
+    ansage_wunsch = ANSAGE_KEINE;
+    ansage_abbrechen = true;
+}
+
+static bool ansage_erlaubt(void)
+{
+    rec_state_t rs = rec_state;
+    return (rs == REC_IDLE || rs == REC_DONE) && frage_phase == FRAGE_AUS && !ansage_abbrechen;
+}
+
+static const int8_t adpcm_index_tab[16] = {-1, -1, -1, -1, 2, 4, 6, 8, -1, -1, -1, -1, 2, 4, 6, 8};
+static const int16_t adpcm_schritt_tab[89] = {
+    7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 19, 21, 23, 25, 28, 31, 34, 37, 41, 45, 50, 55, 60, 66, 73, 80, 88, 97,
+    107, 118, 130, 143, 157, 173, 190, 209, 230, 253, 279, 307, 337, 371, 408, 449, 494, 544, 598, 658, 724, 796,
+    876, 963, 1060, 1166, 1282, 1411, 1552, 1707, 1878, 2066, 2272, 2499, 2749, 3024, 3327, 3660, 4026, 4428, 4871,
+    5358, 5894, 6484, 7132, 7845, 8630, 9493, 10442, 11487, 12635, 13899, 15289, 16818, 18500, 20350, 22385, 24623,
+    27086, 29794, 32767};
+
+/* false: abgebrochen oder Fehler */
+static bool ansage_satz(const uint8_t *d, size_t len, int16_t *puffer, int puffer_len)
+{
+    int pred = 0, idx = 0, n = 0;
+    for (size_t i = 0; i < len * 2; i++) {
+        int code = (i & 1) ? (d[i >> 1] >> 4) : (d[i >> 1] & 0x0F);
+        int schritt = adpcm_schritt_tab[idx];
+        int diff = schritt >> 3;
+        if (code & 4) diff += schritt;
+        if (code & 2) diff += schritt >> 1;
+        if (code & 1) diff += schritt >> 2;
+        pred += (code & 8) ? -diff : diff;
+        if (pred > 32767) pred = 32767;
+        if (pred < -32768) pred = -32768;
+        idx += adpcm_index_tab[code];
+        if (idx < 0) idx = 0;
+        if (idx > 88) idx = 88;
+        puffer[n++] = (int16_t)pred;
+        if (n == puffer_len) {
+            if (!ansage_erlaubt() || bsp_lautsprecher_schreiben(puffer, n) != ESP_OK) {
+                return false;
+            }
+            n = 0;
+        }
+    }
+    return n == 0 || bsp_lautsprecher_schreiben(puffer, n) == ESP_OK;
+}
+
+/* Nur aus der Audio-Task. Spielt die gewuenschte Ansage und alle, die waehrenddessen dazukommen. */
+static void ansage_abspielen(int16_t *puffer, int puffer_len)
+{
+    /* Waehrenddessen gilt das Mikrofon als pausiert: Wellenform steht, keine Meldung "MIKROFON PRUEFEN" */
+    mic_pausiert = true;
+    mic1_peak = 0;
+    mic2_peak = 0;
+    audio_first_ok_tick = 0;
+
+    esp_err_t e = bsp_lautsprecher_an(ANSAGE_LAUTSTAERKE);
+    if (e == ESP_OK) {
+        bsp_lautsprecher_schreiben(NULL, RECORD_SAMPLE_RATE / 50);        /* 20 ms Stille: Codec laeuft an */
+        gpio_set_level(LAUTSPRECHER_PA_GPIO, 1);
+        bsp_lautsprecher_schreiben(NULL, RECORD_SAMPLE_RATE * 3 / 50);    /* 60 ms: Verstaerker schwingt ein */
+        while (ansage_wunsch != ANSAGE_KEINE && ansage_erlaubt()) {
+            int a = ansage_wunsch;
+            ansage_wunsch = ANSAGE_KEINE;
+            const uint8_t *von = NULL, *bis = NULL;
+            switch (a) {
+                case ANSAGE_TRANSKRIPTION: von = ansage_transkription_start; bis = ansage_transkription_end; break;
+                case ANSAGE_FRAGE_ZUSAMMENFASSUNG: von = ansage_frage_start; bis = ansage_frage_end; break;
+                case ANSAGE_PROTOKOLL: von = ansage_protokoll_start; bis = ansage_protokoll_end; break;
+                default: break;
+            }
+            if (von == NULL) {
+                continue;
+            }
+            printf("VERMERK Ansage %d\n", a);
+            if (!ansage_satz(von, (size_t)(bis - von), puffer, puffer_len)) {
+                break;
+            }
+            bsp_lautsprecher_schreiben(NULL, RECORD_SAMPLE_RATE / 5);   /* 200 ms: Rest aus dem DMA-Puffer, Pause */
+        }
+        gpio_set_level(LAUTSPRECHER_PA_GPIO, 0);
+    }
+    esp_err_t z = bsp_lautsprecher_aus();
+    printf("VERMERK Lautsprecher: %s, Mikrofon zurueck: %s, RAM frei %u Bytes\n", esp_err_to_name(e),
+           esp_err_to_name(z), (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+    mic_pausiert = false;   /* das Mikrofon ist wieder offen; im Leerlauf schaltet die Schleife es gleich wieder ab */
+}
+
 static void audio_task(void *arg)
 {
     static int16_t raw[AUDIO_FRAMES * AUDIO_RAW_CHANNELS];
@@ -435,6 +563,13 @@ static void audio_task(void *arg)
     bool paused_flushed = false;
 
     while (1) {
+        if (ansage_wunsch != ANSAGE_KEINE) {
+            if (ansage_erlaubt() && record_file == NULL) {
+                ansage_abspielen(mono, AUDIO_FRAMES);
+                continue;
+            }
+            ansage_wunsch = ANSAGE_KEINE;   /* Aufnahme oder Frage laeuft: nicht dazwischen sprechen */
+        }
         /* Mikrofon nur, wenn es jemand braucht: Aufnahme oder Frage laeuft, oder das Display ist hell (die
          * Wellenform zeigt dann den Pegel). Im gedimmten Leerlauf sind Mikrofon-Codec und I2S aus. */
         rec_state_t mic_rs = rec_state;
@@ -776,6 +911,7 @@ static void rueckfrage_ja_cb(lv_event_t *e)
     (void)e;
     rueckfrage_beantwortet = true;
     zusammenfassung_gewuenscht = true;
+    ansage_stoppen();   /* beantwortet: die Frage nicht zu Ende sprechen */
 }
 
 static void rueckfrage_nein_cb(lv_event_t *e)
@@ -784,6 +920,7 @@ static void rueckfrage_nein_cb(lv_event_t *e)
     zusammenfassung_abgelehnt = true;
     ablehnung_melden = true;
     rueckfrage_beantwortet = true;
+    ansage_stoppen();
 }
 
 static void antwort_schliessen_cb(lv_event_t *e)
@@ -1001,6 +1138,7 @@ static void bedienung_ui_update(rec_state_t state)
     if (frage_noetig == lv_obj_has_flag(rueckfrage_box, LV_OBJ_FLAG_HIDDEN)) {
         if (frage_noetig) {
             lv_obj_clear_flag(rueckfrage_box, LV_OBJ_FLAG_HIDDEN);
+            ansage_anfordern(ANSAGE_FRAGE_ZUSAMMENFASSUNG);
         } else {
             lv_obj_add_flag(rueckfrage_box, LV_OBJ_FLAG_HIDDEN);
         }
@@ -1485,18 +1623,24 @@ static void update_ui(void)
 
         static int shown_pending = -1;
         int pending = (int)pending_uploads;
-        if (pending != shown_pending) {
+        bool gesendet = aufnahme_wird_gesendet();
+        int pending_key = pending * 2 + (gesendet ? 1 : 0);
+        if (pending_key != shown_pending) {
             if (pending <= 0) {
                 lv_obj_add_flag(pending_label, LV_OBJ_FLAG_HIDDEN);
             } else {
+                /* Verbindung da: es wird gesendet (Pfeil, blau); sonst wartet die Aufnahme auf dem Geraet */
                 if (pending == 1) {
-                    lv_label_set_text(pending_label, "1 AUFNAHME OFFEN");
+                    lv_label_set_text(pending_label, gesendet ? LV_SYMBOL_UPLOAD " 1 AUFNAHME WIRD GESENDET"
+                                                              : "1 AUFNAHME OFFEN");
                 } else {
-                    lv_label_set_text_fmt(pending_label, "%d AUFNAHMEN OFFEN", pending);
+                    lv_label_set_text_fmt(pending_label, gesendet ? LV_SYMBOL_UPLOAD " %d AUFNAHMEN WERDEN GESENDET"
+                                                                  : "%d AUFNAHMEN OFFEN", pending);
                 }
+                lv_obj_set_style_text_color(pending_label, lv_color_hex(gesendet ? 0x4AB7F4 : 0xAAAAAA), 0);
                 lv_obj_clear_flag(pending_label, LV_OBJ_FLAG_HIDDEN);
             }
-            shown_pending = pending;
+            shown_pending = pending_key;
         }
 
         last_wifi_update = now;
@@ -1679,10 +1823,10 @@ static void update_ui(void)
             fertig_vollbild_zustand != z) {
             fertig_vollbild_zustand = z;
             fertig_vollbild_start = lv_tick_get();
-            lv_label_set_text(fertig_vollbild_text, (z == VERMERK_VERARB_FERTIG && rueckfrage_gesehen)
-                                                        ? "ZUSAMMENFASSUNG\nFERTIG"
-                                                        : "TRANSKRIPTION\nERFOLGREICH");
+            const bool protokoll = (z == VERMERK_VERARB_FERTIG && rueckfrage_gesehen);
+            lv_label_set_text(fertig_vollbild_text, protokoll ? "ZUSAMMENFASSUNG\nFERTIG" : "TRANSKRIPTION\nERFOLGREICH");
             lv_obj_clear_flag(fertig_vollbild, LV_OBJ_FLAG_HIDDEN);
+            ansage_anfordern(protokoll ? ANSAGE_PROTOKOLL : ANSAGE_TRANSKRIPTION);
         }
     }
     {
@@ -1696,6 +1840,10 @@ static void update_ui(void)
                 key = (int)z * 10 + (rueckfrage_gesehen ? 1 : 0);
             }
         }
+        /* Nach "GESPEICHERT" sieht man sonst nicht, dass die Aufnahme gerade zum PC/Server geht */
+        if (key < 0 && (state == REC_IDLE || state == REC_DONE) && aufnahme_wird_gesendet()) {
+            key = STATUS_KEY_HOCHLADEN;
+        }
         if (state != vz_shown_state) {
             vz_shown_state = state;
             vz_shown_key = -2;   /* der Statustext wurde oben neu gesetzt: noch einmal darueberschreiben */
@@ -1703,7 +1851,10 @@ static void update_ui(void)
         if (key != vz_shown_key) {
             int vorher = vz_shown_key;
             vz_shown_key = key;
-            if (key >= 0) {
+            if (key == STATUS_KEY_HOCHLADEN) {
+                lv_label_set_text(status_label, LV_SYMBOL_UPLOAD " WIRD HOCHGELADEN");
+                lv_obj_set_style_text_color(status_label, lv_color_hex(0x4AB7F4), 0);
+            } else if (key >= 0) {
                 switch (verarbeitung_zustand) {
                     case VERMERK_VERARB_TRANSKRIPT:
                         lv_label_set_text(status_label, LV_SYMBOL_OK " TRANSKRIPTION ERFOLGREICH");

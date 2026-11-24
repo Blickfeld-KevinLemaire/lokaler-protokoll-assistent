@@ -35,4 +35,10 @@ idf_component_register(
                               "./BAT_Driver"
                               "./Wireless"
                               "."
+
+                         # Sprachausgabe (tools/ansagen_erzeugen.py): fest in der App, damit fuer ein Update die App reicht
+                         EMBED_FILES
+                              "./ansagen/transkription_erfolgreich.adpcm"
+                              "./ansagen/frage_zusammenfassung.adpcm"
+                              "./ansagen/protokoll_erfolgreich.adpcm"
                        )
