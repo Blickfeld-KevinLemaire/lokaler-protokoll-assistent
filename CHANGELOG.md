@@ -31,6 +31,18 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 ### Fixed
 
+- **VERMERK Raum nach einem Neustart:** Wurde die Software oder der PC (Laptop zugeklappt, heruntergefahren)
+  zwischen dem Ende des Uploads und dem Ende der Verarbeitung beendet, blieb die Aufnahme unbearbeitet liegen. Beim
+  nächsten Start wird sie jetzt von selbst weiterverarbeitet (ohne Rückfrage am Gerät, mit dem eingestellten
+  Auftrag); was schon fertig ist, entsteht nicht doppelt.
+- **Keine Sprache erkannt:** Fand die Transkription nichts Gesprochenes (falsches oder stummes Mikrofon), stand
+  sie auf „Fertig“, „Öffnen“ führte ins Leere. Jetzt endet sie mit dem Hinweis „Keine Sprache erkannt“ und der Bitte,
+  das Mikrofon zu prüfen; auch das Aufnahmegerät zeigt das an.
+- **Chat:** „Stopp“ hält die Antwort jetzt wirklich an. Vorher rechnete das Sprachmodell weiter, und in einem neuen
+  Chat legte die nächste Frage einen zweiten Verlauf an.
+- **Nutzerverwaltung:** Ändert ein Admin sein eigenes Passwort in der Nutzerliste, bleibt er angemeldet (wie unter
+  „Konto“); nur seine anderen Sitzungen enden.
+
 - **Firmware VERMERK Raum:** Nach „Nein“ auf die Frage nach der Zusammenfassung zeigt das Gerät nicht mehr
   „Zusammenfassung fertig“ und sagt nicht „Protokoll erfolgreich“.
 

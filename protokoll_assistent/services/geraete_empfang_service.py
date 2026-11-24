@@ -73,6 +73,9 @@ TEILSTAND_MAX_ALTER_SEKUNDEN = 7 * 24 * 3600
 MAX_FERTIG_EINTRAEGE = 2000
 
 EMPFANGSORDNER = ".empfang"
+# Vermerk in ``fertig.json``: Die automatische Verarbeitung der Aufnahme ist noch nicht zu Ende.
+VERARBEITUNG_OFFEN = "offen"
+VERARBEITUNG_ERLEDIGT = "erledigt"
 ERLAUBTE_ENDUNGEN = (".opus", ".ogg", ".wav", ".mp3")
 
 # Alle Muster nur mit ``fullmatch`` pruefen: Bei ``match`` passt "$" auch vor einem abschliessenden Zeilenumbruch
@@ -479,6 +482,10 @@ class Ablage:
             try:
                 _ordner_sichern(self.ziel)
                 fertig[kennung] = {"datei": ziel.name, "zeit": time.strftime("%Y-%m-%dT%H:%M:%S")}
+                if self._bei_abschluss is not None:
+                    # Wird automatisch verarbeitet: bis zum Ende offen. Endet die Software vorher (PC aus,
+                    # Laptop zugeklappt), reiht sie die Aufnahme beim naechsten Start wieder ein.
+                    fertig[kennung].update(pfad=str(ziel), verarbeitung=VERARBEITUNG_OFFEN)
                 self._fertig_speichern(fertig)
             except OSError as fehler:
                 logger.warning("Abschluss von %s konnte nicht vermerkt werden: %s", ziel.name, fehler)
@@ -543,6 +550,44 @@ class Ablage:
             json.dump({"version": 1, "aufnahmen": fertig}, handle, ensure_ascii=False, indent=2)
             temp = Path(handle.name)
         _ersetzen_mit_wiederholung(temp, self._fertig_datei())
+
+    def _pfad_des_eintrags(self, eintrag: dict[str, Any]) -> Path:
+        return Path(str(eintrag.get("pfad") or self.ziel / str(eintrag.get("datei") or "")))
+
+    def offene_aufnahmen(self) -> list[tuple[str, str, Path]]:
+        """Vollstaendig angekommene Aufnahmen, deren automatische Verarbeitung nie zu Ende kam (die Software oder
+        der Rechner wurde dazwischen beendet): ``(Geraet, Dateiname des Geraets, Datei am PC)``. Halbe Uploads
+        stehen hier nie -- vermerkt wird erst der geprüfte Abschluss."""
+        with self._sperre:
+            fertig = self._fertig_laden()
+        offen: list[tuple[str, str, Path]] = []
+        for kennung, eintrag in fertig.items():
+            if not isinstance(eintrag, dict) or eintrag.get("verarbeitung") != VERARBEITUNG_OFFEN:
+                continue
+            geraet, _, rest = str(kennung).partition("/")
+            datei = rest.split("/", 1)[0]
+            if geraet and dateiname_gueltig(datei):
+                offen.append((geraet, datei, self._pfad_des_eintrags(eintrag)))
+        return offen
+
+    def verarbeitung_erledigt(self, pfad: Path) -> None:
+        """Die automatische Verarbeitung dieser Aufnahme ist zu Ende (fertig, fehlgeschlagen oder abgebrochen):
+        Nach einem Neustart wird sie nicht wieder eingereiht."""
+        with self._sperre:
+            fertig = self._fertig_laden()
+            betroffen = [
+                e
+                for e in fertig.values()
+                if isinstance(e, dict) and e.get("verarbeitung") == VERARBEITUNG_OFFEN and self._pfad_des_eintrags(e) == pfad
+            ]
+            if not betroffen:
+                return
+            for eintrag in betroffen:
+                eintrag["verarbeitung"] = VERARBEITUNG_ERLEDIGT
+            try:
+                self._fertig_speichern(fertig)
+            except OSError as fehler:
+                logger.warning("Ende der Verarbeitung von %s konnte nicht vermerkt werden: %s", pfad.name, fehler)
 
     def aufraeumen(self, max_alter_sekunden: float = TEILSTAND_MAX_ALTER_SEKUNDEN) -> int:
         """Loescht Teilstaende, die lange nicht weitergewachsen sind. Liefert die Anzahl."""
