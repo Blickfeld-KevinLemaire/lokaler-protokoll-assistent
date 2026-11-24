@@ -17,6 +17,6 @@ uv run python -m protokoll_assistent.tools.logo_erzeugen
 ```
 
 Die Fassung für dunklen Grund färbt die dunklen Flächen weiß und behält das
-Hellblau. Verwendet werden die Dateien in `gui/branding.py`, in der
-Seitenleiste des Hauptfensters, in `protokoll_assistent.spec` (EXE-Symbol) und in
-`installer/protokoll-assistent.iss` (Installer-Symbol).
+Hellblau. Verwendet werden die Dateien in `vermerk_dienst.spec` (EXE-Symbol des
+Dienstes) und in `installer/protokoll-assistent.iss` (Installer-Symbol). Das
+Fenster und die Oberflaeche bringen eigene Symbole mit (`oberflaeche/`).

@@ -1,4 +1,5 @@
-# Pakete der Anwendung selbst (Oberflaeche, Export, Aufnahme, Schluesselablage).
+# Pakete der Anwendung selbst (Dienst hinter dem Fenster, Export, Aufnahme, Schluesselablage).
+# Die Oberflaeche ist kein Python-Paket: Sie laeuft im Tauri-Fenster ('oberflaeche/').
 #
 # Absichtlich NICHT enthalten (bereits in '.venv-whisperx' vorhanden und
 # darf nicht ersetzt werden): torch, torchaudio, whisperx, pyannote.audio,
@@ -8,7 +9,6 @@
 # ML-Laufzeit aus 'requirements-laufzeit.txt' wird nur gebraucht, wenn in
 # den Einstellungen 'Lokal' gewaehlt ist (siehe 'bootstrap.py').
 
-PySide6>=6.11.2,<7
 pyinstaller>=6.22.3
 python-docx>=1.2.0
 

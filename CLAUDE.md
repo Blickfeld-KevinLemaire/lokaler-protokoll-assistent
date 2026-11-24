@@ -6,7 +6,8 @@ wann eine Regel greift und wann nicht.
 
 ## Was das Projekt ist
 
-**Eine** Windows-Anwendung (PySide6): `protokoll_assistent/`. Sie transkribiert
+**Eine** Windows-Anwendung: ein Tauri-Fenster (`oberflaeche/`) mit einem
+Python-Dienst dahinter (`protokoll_assistent/`). Sie transkribiert
 Besprechungsaufnahmen und wertet sie zu einem Protokoll aus.
 
 Für beide Arbeitsschritte gibt es je zwei Wege, und die Wahl ist eine
@@ -17,8 +18,8 @@ Für beide Arbeitsschritte gibt es je zwei Wege, und die Wahl ist eine
 | Transkription | faster-whisper + pyannote | frei wählbarer Endpunkt (OpenAI-kompatibel) |
 | Nachbearbeitung | Ollama | frei wählbarer Endpunkt (Chat-Completions) |
 
-Gespeichert wird das in `protokoll_assistent/konfiguration.json`, bearbeitet im
-Einstellungsdialog (`gui/settings_dialog.py`). Wer ausschließlich über eine API
+Gespeichert wird das in `konfiguration.json` im Anwendungsordner, bearbeitet in
+den Einstellungen der Oberfläche (`/api/einstellungen`). Wer ausschließlich über eine API
 arbeitet, braucht weder PyTorch noch ein Modell auf der Platte — die schwere
 Laufzeitumgebung wird nur eingerichtet, wenn der Transkriptionsmodus beim Start
 auf „lokal" steht.
@@ -33,17 +34,17 @@ im Container (`Dockerfile`, `docker-compose.yml`) auf Linux; Anleitung in
 
 Das ändert die Zielplattform der **Anwendung** nicht: Oberfläche, Installer und
 Einrichtung bleiben Windows-only (Regeln 1, 7, 8). Der Servermodus nutzt nur
-`services/` und `utils/`, die ohnehin kein Qt kennen – diese Trennung ist die
+`ablauf/`, `services/` und `utils/`, die keine Oberfläche kennen – diese Trennung ist die
 Voraussetzung dafür und soll bleiben. Das Paket `server/` darf deshalb **nie**
-`gui/` oder PySide6 importieren. Seine Pakete stehen in
+eine Oberfläche (oder Qt) importieren. Seine Pakete stehen in
 `requirements-server.txt` (Regel 8: nicht mit den anderen Listen vermischen).
 Die Tests des Servers laufen überall; das Image baut `.github/workflows/container.yml`.
 
 ### Neue Oberfläche (Branch `feature/neue-oberflaeche`, ab 0.6)
 
-Auf diesem Branch wird die Qt-Oberfläche durch eine SvelteKit-Oberfläche
-(`oberflaeche/`) in einem Tauri-Fenster (`oberflaeche/src-tauri/`) ersetzt; die
-Logik liegt ohne Qt in `ablauf/`, die Programmschnittstelle in `api/`
+Auf diesem Branch hat eine SvelteKit-Oberfläche (`oberflaeche/`) in einem
+Tauri-Fenster (`oberflaeche/src-tauri/`) die alte Qt-Oberfläche ersetzt; die
+Logik liegt ohne Oberfläche in `ablauf/`, die Programmschnittstelle in `api/`
 (FastAPI, Rollen desktop/server). **Zielbild, Prozessmodell und verbindliche
 Regeln stehen in `ARCHITEKTUR.md` – dort zuerst lesen.** Das Wichtigste:
 
@@ -59,9 +60,9 @@ Regeln stehen in `ARCHITEKTUR.md` – dort zuerst lesen.** Das Wichtigste:
   `npm run build` (alle in der CI, Job „Oberfläche“). Fenster: `cargo fmt
   --check`, `cargo clippy -- -D warnings`, `cargo test` in `oberflaeche/src-tauri`.
 * Versionen gleich halten: `uv run python tools/versionen_pruefen.py`.
-* Die Qt-Oberfläche (`gui/`, `app.py`) liegt noch im Repository, wird aber nicht
-  mehr gebaut oder ausgeliefert; sie wird in einem eigenen Schritt entfernt
-  (dann auch die Regeln 5 und 7 und die Startskripte nach Regel 8 anpassen).
+* Die alte Qt-Oberfläche (`gui/`, `app.py`, `protokoll_assistent.spec`, die
+  Startskripte) ist im November 2026 entfernt worden; PySide6 ist keine
+  Abhängigkeit mehr. Wer in alten Commits gräbt, findet sie dort.
 
 ### Vorgeschichte (wichtig beim Lesen alter Commits)
 
@@ -191,20 +192,18 @@ sich genau die Verarbeitung langer Aufnahmen ändert — Abschnitte
 (`chunking_service`), die mehrstufige Protokollauswertung (`protocol_service`)
 oder die Kontextgröße für Ollama. Einzelheiten in `tests/e2e/conftest.py`.
 
-### 5. Fenstertests
+### 5. Tests der Oberfläche und Testdaten
 
-* Qt läuft unsichtbar über `QT_QPA_PLATFORM=offscreen`, gesetzt in
-  `protokoll_assistent/tests/conftest.py`. Pro Prozess darf es nur eine
-  `QApplication` geben — dafür ist die Fixture `qt_app` da.
-* `QApplication` nie global über `monkeypatch` ersetzen: pytest-qt ruft in
-  seinen Abbau-Haken `QApplication.instance()` auf und bricht dann ab. Wenn
-  es sein muss, `unittest.mock.patch` als Kontextmanager **innerhalb** des
-  Tests verwenden.
-* **Keine Nebenfäden in Tests, die mit Fenstern zu tun haben.** Wartet eine
-  Methode auf ein `threading.Event`, wird **nicht** per `threading.Timer`
-  geantwortet. Stattdessen das Warten selbst ersetzen oder das Signal direkt
-  mit seinem Empfänger verbinden, so wie es in der Anwendung auch läuft. Im
-  Testbestand gibt es bewusst keinen einzigen `threading.Timer`.
+Die alte Qt-Oberfläche und ihre Fenstertests (pytest-qt, `QT_QPA_PLATFORM`)
+gibt es nicht mehr. Die Oberfläche wird heute in drei Schichten geprüft:
+
+* der Dienst über die Programmschnittstelle (`tests/test_api_*.py`, FastAPI
+  `TestClient`, ohne Netz und ohne Fenster),
+* die Svelte-Oberfläche mit `npm test` (vitest) in `oberflaeche/`,
+* das Tauri-Fenster mit `cargo test` in `oberflaeche/src-tauri/`.
+
+Weiter gilt:
+
 * Tests dürfen **nicht** in die echte `konfiguration.json` schreiben.
   `app_config.get_config_file` wird dafür auf `tmp_path` umgebogen. Ohne das
   hinterlässt die Suite eine Datei im Arbeitsbaum und die Tests bestimmen sich
@@ -229,49 +228,55 @@ schreiben Dateien sonst mit CRLF zurück, und aus einer Zwei-Zeilen-Korrektur
 wird ein Diff über die ganze Datei. Nach einem Massenlauf eines Formatierers
 prüfen: `git diff --stat` darf nur die tatsächlich geänderten Zeilen zeigen.
 
-### 7. Qt bleibt dynamisch eingebunden (LGPL)
+### 7. Builds bleiben One-Directory
 
-PySide6 wird unter der **LGPL-3.0** benutzt. Damit das zulässig bleibt, muss
-der Build ein **One-Directory-Build** bleiben: `exclude_binaries=True` plus
-`COLLECT`, dazu `upx=False` und `strip=False`. Die Qt-Bibliotheken liegen dann
-als eigene Dateien neben der EXE und lassen sich austauschen — genau das
-verlangt die LGPL.
+Der Dienst (`vermerk_dienst.spec`) ist ein **One-Directory-Build**:
+`exclude_binaries=True` plus `COLLECT`, dazu `upx=False`, `strip=False` und
+`optimize=0`. Ein One-File-Build entpackt sich bei jedem Start nach
+`%TEMP%\_MEI…` und ließ nach jedem harten Abbruch hunderte MB dort liegen
+(siehe `ARCHITEKTUR.md`).
 
-Nicht auf einen One-File-Build umstellen, nicht statisch linken, keine
-Integritäts- oder Signaturprüfung über die Qt-DLLs legen. Jede dieser
-Änderungen würde eine kommerzielle Qt-Lizenz nötig machen. Einzelheiten in
+Qt (PySide6, LGPL-3.0) wird seit dem Entfernen der alten Oberfläche **nicht
+mehr ausgeliefert**; die Qt-Auflagen aus `NOTICES.md` sind damit entfallen.
+Kommt je wieder eine LGPL-Bibliothek in einen Build, gilt dasselbe wie damals:
+dynamisch eingebunden, als eigene Dateien austauschbar, keine
+Integritätsprüfung darüber, Lizenztext in `lizenzen/` und Hinweis in
 `NOTICES.md`.
-
-Ebenfalls nicht tun: PySide6 durch **PyQt** ersetzen. PyQt gibt es nur unter
-GPL oder kommerziell — für ein proprietäres Produkt wäre das schlechter, nicht
-besser.
 
 ### 8. Die Installation der Anwender nicht anfassen
 
-`protokoll_assistent/Einrichtung-Lokal.ps1`, `setup_lokal.ps1` und
-`protokoll_assistent/requirements-anwendung.txt` sind der Weg, auf dem Anwender
-die Anwendung installieren. `pyproject.toml` steht **zusätzlich** daneben und
-gilt nur für Entwicklung und CI. Neue Laufzeit-Abhängigkeiten gehören in beide,
-sonst fehlen sie den Anwendern.
+Anwender installieren mit dem Installer (`installer/protokoll-assistent.iss`).
+Für den manuellen, protokollierten Weg (z. B. IT-Rollout) gibt es zusätzlich
+`protokoll_assistent/Einrichtung-Lokal.ps1` und `setup_lokal.ps1`; beide lesen
+`protokoll_assistent/requirements-anwendung.txt`. `pyproject.toml` steht
+**zusätzlich** daneben und gilt nur für Entwicklung und CI. Neue
+Laufzeit-Abhängigkeiten gehören in beide, sonst fehlen sie den Anwendern. Die
+früheren Startskripte der Qt-Anwendung (`Start-Protokoll-Assistent.ps1`,
+`start_lokal.ps1`, `Anwendung-starten.ps1`) sind mit ihr entfallen; gestartet
+wird das Fenster `VERMERK.exe` (Regel 9).
 
 Drei Paketlisten, drei Zwecke — bitte nicht vermischen:
 
-* `requirements-anwendung.txt` — was die Anwendung selbst braucht (PySide6,
-  python-docx, sounddevice, keyring). Reicht für den reinen API-Modus.
+* `requirements-anwendung.txt` — was der Dienst selbst braucht (FastAPI,
+  uvicorn, python-docx, sounddevice, keyring …). Reicht für den reinen API-Modus.
 * `requirements-laufzeit.txt` — die schwere ML-Umgebung, die `bootstrap.py`
   bei Bedarf selbst einrichtet (Torch, faster-whisper, pyannote …).
 * `requirements-torch.txt` — der CUDA-Index dazu.
 
-### 9. Die Anwendung wird als Modul gestartet
+### 9. Der Dienst wird als Modul gestartet
 
-`python -m protokoll_assistent.app`, nie über den Dateipfad. Ein Pfadstart legt
-nur den Ordner der Datei in den Suchpfad; kein einziger Paketimport wäre
-auflösbar. `bootstrap._relaunch` startet die Anwendung aus demselben Grund mit
-`-m` und mit der Projektwurzel als Arbeitsverzeichnis.
+Das Fenster `VERMERK.exe` startet den Dienst: installiert
+`dienst\vermerk-dienst.exe`, aus dem Quelltext
+`python -m protokoll_assistent.api` (Debug-Build des Fensters oder
+`VERMERK_PYTHON`, siehe `oberflaeche/src-tauri/src/dienst_pfad.rs`) — nie über
+den Dateipfad. Ein Pfadstart legt nur den Ordner der Datei in den Suchpfad;
+kein einziger Paketimport wäre auflösbar. `bootstrap._relaunch` startet den
+Dienst aus demselben Grund mit `-m` (und derselben Befehlszeile) und mit der
+Projektwurzel als Arbeitsverzeichnis.
 
-`bootstrap.ensure_runtime_and_relaunch()` muss **vor** dem ersten Import von
-PySide6/Torch laufen — daher die ungewöhnliche Importreihenfolge in `app.py`.
-Diese Reihenfolge bitte so lassen.
+`api.__main__.rechenumgebung_vorbereiten()` ruft `bootstrap` auf, **bevor** der
+Dienst irgendetwas Schweres importiert — Torch & Co. dürfen erst danach (und nur
+bei Bedarf) geladen werden. Diese Reihenfolge bitte so lassen.
 
 ### 10. Bestehendes nicht umbenennen oder durchformatieren
 
@@ -290,8 +295,8 @@ jede Datei neu und macht `git blame` wertlos. In der CI läuft
 Wenn eine Lint- oder Typ-Regel nur Rauschen erzeugt, lieber in
 `pyproject.toml` mit einer Begründung abschalten, als den Code umzuschreiben.
 Beispiele, die schon so gelöst sind: `S603`/`S607` (externe Programme werden
-korrekt mit Argumentlisten statt `shell=True` aufgerufen) und `attr-defined`
-für `protokoll_assistent.gui.*` (PySide6 liefert unvollständige Stubs).
+korrekt mit Argumentlisten statt `shell=True` aufgerufen) und `S310`
+(URL-Aufrufe nur an geprüfte Endpunkte).
 
 ### 11. Die CI kostet Geld
 
@@ -392,28 +397,36 @@ Wer wirklich umstellen will, ändert beides zusammen.
   freigegeben. Keine Lizenzhinweise entfernen.
 * `NOTICES.md` und `lizenzen/` — Hinweise zu fremder Software. Beide werden
   vom PyInstaller-Build **mit ausgeliefert** (siehe `datas` in
-  `protokoll_assistent.spec`). Kommt eine Abhängigkeit dazu oder ändert
+  `vermerk_dienst.spec`) und liegen im Installer sichtbar im Programmordner.
+  Kommt eine Abhängigkeit dazu oder ändert
   sich eine Version, gehört das dort nachgetragen.
 * `.github/CODEOWNERS`, `.github/pull_request_template.md` — Ablauf bei
   Pull Requests.
 * `.github/workflows/codeql.yml` — CodeQL laeuft nur, solange das Repository
   oeffentlich ist.
 * `installer/protokoll-assistent.iss` — der Inno-Setup-Installer. Er liefert
-  die gebaute EXE **und** den Quelltext **und** eine eigene
-  Python-Laufzeitumgebung aus: Die EXE genügt für den API-Modus, der lokale
-  Modus richtet sich über `bootstrap.py` aus dem Quelltext heraus ein.
+  das Fenster `VERMERK.exe`, den gebauten Dienst (`dienst\`) **und** den
+  Quelltext **und** eine eigene Python-Laufzeitumgebung aus: Fenster und Dienst
+  genügen für den API-Modus, der lokale Modus richtet sich über `bootstrap.py`
+  aus dem Quelltext heraus ein.
 
 ## Wo was liegt
 
 ```
-protokoll_assistent.spec       PyInstaller-Spezifikation (baut das Paket)
+vermerk_dienst.spec            PyInstaller-Spezifikation des Dienstes
+vermerk_dienst.py              dessen Einstiegspunkt (ruft protokoll_assistent.api)
+ARCHITEKTUR.md                 Zielbild, Prozesse, verbindliche Regeln
+
+oberflaeche/                   SvelteKit-Oberfläche (statisch gebaut)
+  src-tauri/                   das Fenster VERMERK.exe (Tauri 2, Rust)
 
 protokoll_assistent/
-  app.py                       Einstiegspunkt (ruft zuerst bootstrap auf!)
+  api/                         der Dienst: FastAPI (python -m protokoll_assistent.api)
+  ablauf/                      Steuerung ohne Oberfläche, Auftragswarteschlange
   bootstrap.py                 legt bei Bedarf die schwere ML-Laufzeit an
-  gui/                         PySide6: Hauptfenster, Einstellungen,
-                               Assistent, Dialoge, Worker
-  services/                    Verarbeitungskette und API-Dienste, ohne Qt
+                               und startet den Dienst darin neu
+  services/                    Verarbeitungskette und API-Dienste
+  server/                      Servermodus (Eingangsordner, Container)
   utils/                       Pfade, Konfiguration, Diagnose, Logging
   tests/                       die gesamte Testsuite
   einstellungen/               mitgelieferte Systemprompt-Vorlage
@@ -422,17 +435,17 @@ protokoll_assistent/
   requirements-*.txt           siehe Regel 8
 ```
 
-Die Verarbeitungskette in `services/` kennt kein Qt. Das soll so bleiben:
-Oberfläche und Logik sind getrennt, deshalb sind die Dienste ohne Fenster
-testbar.
+Die Verarbeitungskette in `services/` und die Steuerung in `ablauf/` kennen
+keine Oberfläche (weder Qt noch FastAPI). Das soll so bleiben: Oberfläche und
+Logik sind getrennt, deshalb sind die Dienste ohne Fenster testbar.
 
-**Installierte Fassung: zwei Prozesse, ein Ordner.** Im lokalen Modus startet die
-gebaute EXE die Anwendung als `python -m protokoll_assistent.app` aus dem
+**Installierte Fassung: zwei Prozesse, ein Ordner.** Im lokalen Modus startet der
+gebaute Dienst sich als `python -m protokoll_assistent.api` aus dem
 mitgelieferten Quelltext neu (`bootstrap._relaunch`). Dieser zweite Prozess ist
 nicht „gebaut" – ohne Vorgabe hielte `paths.get_app_dir()` dort den Paketordner
 `{app}\protokoll_assistent` für den Anwendungsordner und führte eine zweite
-`konfiguration.json` samt eigenen Datenordnern (so war es bis 0.5.0-beta). Die EXE
-gibt ihren Ordner deshalb über `VERMERK_ANWENDUNGSORDNER` mit. Wer den **Paketordner**
+`konfiguration.json` samt eigenen Datenordnern (so war es bis 0.5.0-beta). Das
+Fenster gibt den Anwendungsordner deshalb über `VERMERK_ANWENDUNGSORDNER` mit. Wer den **Paketordner**
 meint (mitgelieferte `requirements-*.txt`, Arbeitsordner für `python -m …`), nimmt
 `paths.get_paket_dir()`, nicht `get_app_dir()`. Installationen, die schon getrennt
 arbeiten (`{app}\protokoll_assistent\konfiguration.json` vorhanden), bleiben so.
@@ -444,8 +457,9 @@ ffprobe schreiben UTF-8, Windows PowerShell 5.1 die OEM-Codepage (850; im Skript
 auf UTF-8 stellen), curl die ANSI-Codepage. Immer `encoding=` passend setzen und
 `errors="replace"`.
 
-Die **Ersteinrichtung** (`gui/ersteinrichtung.py`, nur Windows-Anwendung,
-nicht der Servermodus) stuetzt sich auf `services/einrichtungsplan_service.py`
+Die **Ersteinrichtung** (Seiten in der Oberfläche, Endpunkte in
+`api/routen_einrichtung.py`, nur Windows-Anwendung, nicht der Servermodus;
+siehe `ARCHITEKTUR.md`) stuetzt sich auf `services/einrichtungsplan_service.py`
 (was geht auf diesem Rechner, was kostet es) und
 `services/ollama_einrichtung_service.py` (Ollama-Installer laden, Signatur
 pruefen, still installieren). Ohne Zustimmung darf nichts geladen werden – auch

@@ -15,11 +15,11 @@ Zwei Wege nutzen das:
 * **Auf Wunsch**: Der Exportdialog laesst den Anwender Inhalt, Formate und
   Zielordner waehlen (``exportiere``).
 
-Der Dienst kennt kein Qt (CLAUDE.md). PDF und OpenDocument erzeugt Qt aus dem
-HTML-Text; diese Schreiber werden von der Oberflaeche als Funktionen
-uebergeben (``schreiber``), genau wie die ML-Aufrufe der anderen Dienste.
-Damit bleibt der Dienst ohne Fenster testbar und braucht keine zusaetzliche
-Bibliothek fuer PDF.
+Der Dienst kennt kein Qt (CLAUDE.md). PDF und OpenDocument schreibt
+``services/dokument_schreiber.py`` (reportlab bzw. eigener ODT-Schreiber).
+Ein Aufrufer kann eigene Schreiber als Funktionen uebergeben
+(``schreiber``), genau wie die ML-Aufrufe der anderen Dienste -- die Tests
+setzen so Attrappen ein.
 """
 
 from __future__ import annotations
@@ -71,7 +71,7 @@ FORMATE: tuple[Format, ...] = (
     Format("json", "JSON (.json)", ".json", (INHALT_TRANSKRIPT, INHALT_PROTOKOLL)),
 )
 
-# Formate, die Qt aus dem HTML-Text schreibt (siehe 'gui/dokument_qt.py').
+# Formate mit eigenem Schreiber (frueher Qt, heute 'dokument_schreiber.py'; ersetzbar ueber 'schreiber').
 QT_FORMATE = ("pdf", "odt")
 
 Schreiber = Callable[[str, Path], None]  # (HTML-Text, Zielpfad)

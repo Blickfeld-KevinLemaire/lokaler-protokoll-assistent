@@ -8,6 +8,21 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+### Removed
+
+- **Die alte Qt-Oberfläche ist entfernt.** VERMERK besteht nur noch aus dem neuen Fenster und dem Dienst dahinter;
+  PySide6 wird weder mitgeliefert noch in die Rechenumgebung des lokalen Modus installiert. Ein Update räumt den
+  Quelltext der alten Oberfläche und ihre Startskripte aus dem Programmordner. Einstellungen und Daten bleiben
+  erhalten.
+- Die PowerShell-Startskripte der alten Anwendung (`Start-Protokoll-Assistent.ps1`, `start_lokal.ps1`,
+  `Anwendung-starten.ps1`) und der alte EXE-Build (`build_windows.ps1`, `protokoll_assistent.spec`) entfallen.
+  Gestartet wird über das Startmenü bzw. `VERMERK.exe`; die manuelle Einrichtung mit `Einrichtung-Lokal.ps1` bleibt.
+
+### Changed
+
+- Weil die Paketliste der Rechenumgebung kleiner geworden ist (ohne PySide6), gleicht der lokale Modus sie beim
+  ersten Start nach dem Update einmal ab (braucht Internet; ohne Netz läuft die vorhandene Umgebung weiter).
+
 ## [0.6.0-alpha.1] - 2026-11-22
 
 Testrelease der neuen Oberfläche (Branch `feature/neue-oberflaeche`), nicht für den normalen Einsatz. Einzelheiten

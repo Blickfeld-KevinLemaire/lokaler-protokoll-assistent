@@ -12,7 +12,7 @@ import os
 import sys
 from pathlib import Path
 
-# Die installierte EXE startet sich fuer den lokalen Modus als 'python -m protokoll_assistent.app' aus
+# Der installierte Dienst startet sich fuer den lokalen Modus als 'python -m protokoll_assistent.api' aus
 # dem mitgelieferten Quelltext neu ('bootstrap._relaunch'). Dieser zweite Prozess ist keine gebaute EXE
 # mehr -- ohne diese Vorgabe hielte er den Paketordner '{app}\protokoll_assistent' fuer den
 # Anwendungsordner und fuehrte dort eine ZWEITE 'konfiguration.json' samt eigenen Ordnern fuer Ausgabe,
@@ -21,7 +21,7 @@ ANWENDUNGSORDNER_VARIABLE = "VERMERK_ANWENDUNGSORDNER"
 
 
 def get_paket_dir() -> Path:
-    """Der Paketordner ``protokoll_assistent`` selbst (dort liegen ``app.py`` und die mitgelieferten
+    """Der Paketordner ``protokoll_assistent`` selbst (dort liegen ``bootstrap.py`` und die mitgelieferten
     ``requirements-*.txt``). Im Quellcode-Betrieb ist er zugleich der Anwendungsordner."""
     return Path(__file__).resolve().parent.parent
 
@@ -32,7 +32,7 @@ def get_app_dir() -> Path:
     Bei einer mit PyInstaller gebauten EXE ist dies der Ordner der EXE-Datei
     (One-Directory-Build) -- auch fuer den Prozess, den die EXE fuer den lokalen
     Modus aus dem Quelltext startet (``ANWENDUNGSORDNER_VARIABLE``). Im
-    Quellcode-Betrieb ist es der Ordner, der ``app.py`` enthaelt.
+    Quellcode-Betrieb ist es der Paketordner (``get_paket_dir``).
     """
     vorgabe = os.environ.get(ANWENDUNGSORDNER_VARIABLE, "").strip()
     if vorgabe:

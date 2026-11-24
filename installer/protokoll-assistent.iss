@@ -102,7 +102,7 @@ Source: "..\dist\vermerk-dienst\*"; DestDir: "{app}\dienst"; \
 
 ; 2) Dieselben Programmdateien als Quelltext. Gebraucht werden sie nur im
 ;    lokalen Modus: Dort richtet 'bootstrap.py' eine eigene Umgebung mit
-;    PyTorch/faster-whisper ein und startet die Anwendung darin neu.
+;    PyTorch/faster-whisper ein und startet den Dienst darin neu.
 ;    Entwickler-, Test- und Laufzeitordner bleiben aussen vor.
 ; Ohne 'createallsubdirs': sonst wuerden die ausgeschlossenen Ordner
 ; (tests, __pycache__, ...) wenigstens leer mitinstalliert.
@@ -127,7 +127,7 @@ Source: "..\protokoll_assistent\*"; DestDir: "{app}\protokoll_assistent"; \
 Source: "..\dist-python\python\*"; DestDir: "{app}\python"; \
     Flags: ignoreversion recursesubdirs createallsubdirs
 
-; 4) Lizenztexte sichtbar im Programmordner (LGPL-Pflicht, siehe NOTICES.md).
+; 4) Lizenztexte und Urheberhinweise sichtbar im Programmordner (siehe NOTICES.md).
 Source: "..\NOTICES.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\lizenzen\*"; DestDir: "{app}\lizenzen"; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -157,6 +157,14 @@ Type: files; Name: "{autodesktop}\Protokoll-Assistent.lnk"
 ; Einstellungen und Daten liegen nicht in '_internal' und bleiben erhalten.
 Type: files; Name: "{app}\VERMERK-Desktop.exe"
 Type: filesandordirs; Name: "{app}\_internal"
+; Der Quelltext der alten Qt-Oberflaeche und ihre Startskripte (bis 0.6.0-alpha.1 mitinstalliert). Inno
+; entfernt Dateien, die eine neue Fassung nicht mehr mitbringt, beim Update nicht von selbst.
+Type: filesandordirs; Name: "{app}\protokoll_assistent\gui"
+Type: files; Name: "{app}\protokoll_assistent\app.py"
+Type: files; Name: "{app}\protokoll_assistent\Start-Protokoll-Assistent.ps1"
+Type: files; Name: "{app}\protokoll_assistent\start_lokal.ps1"
+Type: files; Name: "{app}\protokoll_assistent\Anwendung-starten.ps1"
+Type: files; Name: "{app}\protokoll_assistent\build_windows.ps1"
 
 [UninstallDelete]
 ; Die selbst eingerichtete Laufzeitumgebung und die Protokolldateien gehoeren
@@ -178,7 +186,6 @@ Type: filesandordirs; Name: "{app}\protokoll_assistent\tools\ffmpeg"
 ; Deinstallieren zurueck. Kommt ein neuer Paketordner dazu, gehoert er
 ; hier ebenfalls hinein.
 Type: filesandordirs; Name: "{app}\protokoll_assistent\__pycache__"
-Type: filesandordirs; Name: "{app}\protokoll_assistent\gui\__pycache__"
 Type: filesandordirs; Name: "{app}\protokoll_assistent\services\__pycache__"
 Type: filesandordirs; Name: "{app}\protokoll_assistent\tools\__pycache__"
 Type: filesandordirs; Name: "{app}\protokoll_assistent\utils\__pycache__"

@@ -1,62 +1,13 @@
-"""Gemeinsame Vorbereitungen fuer die Tests der lokalen Windows-Anwendung.
+"""Gemeinsame Vorbereitungen fuer die Tests (Dienste, Ablauf, Programmschnittstelle, Servermodus).
 
-Die Qt-Tests laufen unsichtbar ("offscreen"), damit sie auch auf einem
-Build-Server ohne Bildschirm funktionieren.
+Die Tests brauchen weder Bildschirm noch Netz noch Grafikkarte (CLAUDE.md, Regel 4).
 """
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import pytest
-
-# Muss gesetzt sein, BEVOR die erste QApplication entsteht.
-os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-
-
-@pytest.fixture(scope="session")
-def qt_app():
-    """Genau eine QApplication fuer die ganze Testsitzung.
-
-    Qt erlaubt nur eine Instanz pro Prozess; sie wird am Ende bewusst nicht
-    zerstoert, weil Qt das beim Prozessende selbst erledigt.
-    """
-    pytest.importorskip("PySide6", reason="PySide6 ist nicht installiert.")
-    from PySide6.QtWidgets import QApplication
-
-    app = QApplication.instance() or QApplication([])
-    return app
-
-
-@pytest.fixture
-def qt_widgets(qt_app):
-    """Sammelt erzeugte Fenster ein und raeumt sie nach dem Test sicher weg."""
-    erzeugte = []
-
-    def merken(widget):
-        erzeugte.append(widget)
-        return widget
-
-    yield merken
-
-    from unittest import mock
-
-    from PySide6.QtWidgets import QMessageBox
-
-    # Das Hauptfenster fragt beim Schliessen nach, wenn noch eine Verarbeitung laeuft, und wartet kurz auf
-    # ihre Arbeitsfaeden. Beim Aufraeumen sitzt niemand davor: Die Rueckfrage wird mit "Ja" beantwortet (ein
-    # offenes Meldungsfenster hielte den Test bis zur Zeitgrenze an), gewartet wird nicht.
-    with mock.patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Yes):
-        for widget in reversed(erzeugte):
-            try:
-                if hasattr(widget, "SCHLIESSEN_WARTEZEIT_MS"):
-                    widget.SCHLIESSEN_WARTEZEIT_MS = 0
-                widget.close()
-                widget.deleteLater()
-            except Exception:  # noqa: S110 - beim Aufraeumen ist ein Fehler egal
-                pass
-    qt_app.processEvents()
 
 
 @pytest.fixture(autouse=True)

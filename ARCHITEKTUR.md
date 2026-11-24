@@ -55,9 +55,12 @@ Die Oberfläche erkennt am Tauri-Objekt (`window.__TAURI_INTERNALS__`) und an
 | `protokoll_assistent/services/`, `utils/` | Verarbeitung | weder Qt noch FastAPI |
 | `protokoll_assistent/ablauf/` | Steuerung, Warteschlange, Geräteautomatik, Bibliothek | services, utils |
 | `protokoll_assistent/api/` | FastAPI-Anwendung | ablauf, services, utils |
-| `protokoll_assistent/server/` | Servermodus (Eingangsordner) | ablauf, services, utils – nie gui, nie PySide6 |
-| `protokoll_assistent/gui/` | alte Qt-Oberfläche, wird entfernt, sobald die neue alles kann | – |
+| `protokoll_assistent/server/` | Servermodus (Eingangsordner) | ablauf, services, utils – nie eine Oberfläche, nie Qt |
 | `oberflaeche/` | SvelteKit-Oberfläche + `src-tauri/` (Fenster) | – |
+
+Die alte Qt-Oberfläche (`protokoll_assistent/gui/`, `app.py`,
+`protokoll_assistent.spec`) ist im November 2026 entfernt worden; PySide6 ist
+keine Abhängigkeit mehr.
 
 ## Regeln (viele davon Lehren aus einem ähnlich gebauten Projekt)
 
@@ -68,7 +71,7 @@ Die Oberfläche erkennt am Tauri-Objekt (`window.__TAURI_INTERNALS__`) und an
 * Nur den **selbst gestarteten** Prozess beenden – nie per Programmname
   (`taskkill /IM`). Keine fremden, verwaisten Dienste übernehmen.
 * **Nur One-Directory-Builds**, nie One-File (jeder harte Abbruch hinterließ
-  dort hunderte MB in `%TEMP%\_MEI…`; dazu Regel 7 / LGPL).
+  dort hunderte MB in `%TEMP%\_MEI…`; dazu Regel 7 in `CLAUDE.md`).
 * Prozesssteuerung (Dienst starten/stoppen) ist **kein** Tauri-Befehl, den die
   Webseite aufrufen kann.
 * `__COMPAT_LAYER` mit `RUNASADMIN` wird beim Start des Fensters entfernt;
@@ -156,7 +159,8 @@ Erster Admin im Container: `python -m protokoll_assistent.api nutzer-anlegen <Na
 Nur in der Windows-Anwendung (Rolle `desktop`, sonst 403); Endpunkte in
 `api/routen_einrichtung.py`, Datenformen `Einrichtung*` in `api/modelle.py`.
 Die Seiten führt die Oberfläche selbst; der Dienst liefert Zahlen und schreibt
-dieselben Einstellungen wie der alte Assistent (`gui/ersteinrichtung.py`).
+dieselben Einstellungen wie früher der Qt-Assistent (`gui/ersteinrichtung.py`,
+inzwischen entfernt).
 Grundregel: **Nichts wird ohne `zustimmung: true` im Aufruf geladen.**
 
 | Seite | Endpunkt | Was er tut |
