@@ -145,6 +145,46 @@ def test_chat_fehler_ohne_unterlagen_und_unerwartet(umgebung: Umgebung, monkeypa
     assert "Unerwarteter Fehler: weg" in umgebung.client.post("/api/chat", json={"frage": "x"}).text
 
 
+def test_chat_stopp_rechnet_nicht_weiter_und_legt_keinen_verlauf_an(umgebung: Umgebung, monkeypatch: pytest.MonkeyPatch) -> None:
+    """"Stopp" beendet den Strom. Danach haelt das naechste Stueck des Sprachmodells die Antwort an, und es entsteht
+    kein Verlauf -- die Oberflaeche erfuehre seine Kennung nie und legte mit der naechsten Frage einen zweiten an."""
+    import asyncio
+
+    from protokoll_assistent.api import modelle
+    from protokoll_assistent.api.kontext import Angemeldet
+
+    transkript_json_schreiben(umgebung.tmp / "aus" / "m_lokal_transkript_20260101_100000.json")
+    weiter = threading.Event()
+    gesendet: list[str] = []
+
+    def beantworte(frage: str, dokumente: list[Any], verlauf: list[Any], *args: Any, on_status: Any = None, on_token: Any = None, **kw: Any) -> tuple[str, list[str]]:
+        on_status("Suche")
+        assert weiter.wait(5)
+        for stueck in ("Hal", "lo"):
+            on_token(stueck)
+            gesendet.append(stueck)
+        return "Hallo", []
+
+    monkeypatch.setattr(chat_service, "beantworte", beantworte)
+    monkeypatch.setattr(chat_service, "funktionen_aus_einstellungen", lambda e: (None, None))
+    vorher = {f for f in threading.enumerate() if f.name == "chat"}
+
+    async def ablauf() -> str:
+        wer = Angemeldet("desktop", True, None)
+        antwort = await routen_chat.fragen(modelle.ChatAnfrage(frage="Was wurde beschlossen?"), None, umgebung.dienste, wer)  # type: ignore[arg-type]
+        strom = antwort.body_iterator
+        erstes = await strom.__anext__()  # type: ignore[union-attr]
+        await strom.aclose()  # type: ignore[union-attr]
+        weiter.set()
+        for faden in {f for f in threading.enumerate() if f.name == "chat"} - vorher:
+            await asyncio.to_thread(faden.join, 5)
+        return str(erstes)
+
+    assert "event: status" in asyncio.run(ablauf())
+    assert gesendet == []  # das Sprachmodell rechnet nicht weiter
+    assert umgebung.client.get("/api/chat/verlaeufe").json() == []
+
+
 def test_chat_einstellungen_api(umgebung: Umgebung) -> None:
     app_config.update_config(chatbot_modus="api", chatbot_api_modell="m", chatbot_api_endpunkt="https://x.example/v1/chat/completions")
     umgebung.steuerung.schluessel.fuer_sitzung("transkription", "k")
