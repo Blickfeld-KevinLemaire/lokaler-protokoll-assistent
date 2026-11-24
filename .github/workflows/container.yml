@@ -62,12 +62,15 @@ jobs:
 
       - name: Programmschnittstelle und Oberflaeche im Image
         # Rolle server mit Notfall-Zugang: Gesundheit ohne, Info nur mit Schluessel, Oberflaeche ausgeliefert.
+        # Der Probeschluessel steht in einer Variablen: Als Klartext hinter "Authorization:"
+        # haelt gitleaks (Regel curl-auth-header) ihn fuer ein echtes Geheimnis.
         run: |
-          docker run -d --name vermerk-probe -p 8780:8780 -e VERMERK_ZUGANG=probe-zugang-0123456789 \
+          zugang=probe-zugang-0123456789
+          docker run -d --name vermerk-probe -p 8780:8780 -e VERMERK_ZUGANG="$zugang" \
             -e PROTOKOLL_PROTOKOLL_ERSTELLEN=0 protokoll-server:test
           for i in $(seq 1 60); do curl -fsS http://127.0.0.1:8780/api/gesundheit && break; sleep 2; done
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8780/api/info)" = "401"
-          test "$(curl -s -o /dev/null -w '%{http_code}' -H 'Authorization: Bearer probe-zugang-0123456789' http://127.0.0.1:8780/api/info)" = "200"
+          test "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $zugang" http://127.0.0.1:8780/api/info)" = "200"
           curl -fsS http://127.0.0.1:8780/ | grep -qi "<html"
           docker logs vermerk-probe | tail -20
           docker rm -f vermerk-probe

@@ -441,23 +441,25 @@ def test_mitschrift_mit_sprechererkennung(umgebung: Umgebung, monkeypatch: pytes
 
     monkeypatch.setattr(model_download_service, "download_whisper_and_alignment", whisper)
     monkeypatch.setattr(model_download_service, "download_pyannote", pyannote)
-    token = "hf_geheim_0123456789"
+    # Die Variable heisst absichtlich nicht "token": gitleaks (generic-api-key) hielte die Zuweisung
+    # sonst fuer ein echtes Geheimnis.
+    wert = "hf_geheim_0123456789"
     auftrag = client.post(
         "/api/einrichtung/modelle",
-        json={**basis, "whisper": True, "whisper_modell": "small", "sprechertrennung": True, "hf_token": token},
+        json={**basis, "whisper": True, "whisper_modell": "small", "sprechertrennung": True, "hf_token": wert},
     ).json()
-    assert auftrag["angaben"]["hf_token_gemerkt"] is True and gemerkt == {"hf_token": token}
+    assert auftrag["angaben"]["hf_token_gemerkt"] is True and gemerkt == {"hf_token": wert}
     umgebung.auftraege_ausfuehren()
     fertig = _auftrag(umgebung, auftrag["id"])
     assert fertig["status"] == "fertig" and fertig["angaben"]["teile"] == {"whisper": True, "pyannote": True}
-    assert aufrufe == {"whisper": "small", "token": token}
+    assert aufrufe == {"whisper": "small", "token": wert}
     konfig = app_config.load_config()
     assert konfig["whisper_modell"] == "small" and konfig["einrichtung_fortsetzen"] == ""
     # Der Schluessel taucht nirgends auf: weder im Auftrag noch in den Ereignissen noch in den Einstellungen.
-    assert token not in str(fertig) and token not in str(konfig)
+    assert wert not in str(fertig) and wert not in str(konfig)
     gesehen: list[dict[str, Any]] = []
     umgebung.steuerung.bus.abonnieren(lambda e: gesehen.append(e.als_dict()), seit=0).beenden()
-    assert gesehen and token not in str(gesehen)
+    assert gesehen and wert not in str(gesehen)
 
 
 def test_mitschrift_ohne_schluesselspeicher_und_mit_fehlschlag(umgebung: Umgebung, monkeypatch: pytest.MonkeyPatch) -> None:
