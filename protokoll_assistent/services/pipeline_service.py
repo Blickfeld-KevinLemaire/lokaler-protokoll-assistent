@@ -39,6 +39,7 @@ from protokoll_assistent.services import (
     sprecherprofil_service,
     transcription_service,
 )
+from protokoll_assistent.utils.dateinamen import sicherer_stamm
 from protokoll_assistent.utils.logging_setup import get_logger
 from protokoll_assistent.utils.timeformat import format_timestamp
 
@@ -826,7 +827,8 @@ def load_transcript_for_protocol(
         eintrag["sprecher_id"]: eintrag["anzeigename"] for eintrag in daten.get("sprecher_zuordnung", [])
     }
     diarization_enabled = bool(daten.get("sprechertrennung_aktiv", True))
-    source_stem = str(daten.get("quelldatei_stamm") or transcript_json_path.stem)
+    # Der Stamm bildet den Dateinamen des Ergebnisses und stammt aus der (im Servermodus hochladbaren) Datei.
+    source_stem = sicherer_stamm(daten.get("quelldatei_stamm") or transcript_json_path.stem)
     return segments, speaker_names, diarization_enabled, source_stem
 
 

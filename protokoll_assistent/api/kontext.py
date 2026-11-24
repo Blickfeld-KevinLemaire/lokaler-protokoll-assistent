@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePath
 from typing import Any
 
 from fastapi import HTTPException, Request, status
@@ -88,13 +88,17 @@ class Dienste:
         pfad = Path(text).expanduser()
         if self.ist_desktop:
             return pfad
-        aufgeloest = pfad.resolve()
         ordner = [self.aufnahmeordner(wer), self.ausgabeordner(wer)]
         if not self.mehrbenutzer:
             ordner += self.erlaubte_ordner()
             eingabe = self.steuerung.konfiguration().get("eingabeordner")
             if eingabe:
                 ordner.append(Path(eingabe))
+        if ist_unc(pfad) and not any(_liegt_woertlich_in(pfad, basis) for basis in ordner):
+            # Schon resolve() wuerde unter Windows den fremden Rechner per SMB ansprechen (und dabei die
+            # Anmeldung des Windows-Kontos anbieten). Freigegebene Ordner auf einem Netzlaufwerk gehen weiter.
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "Auf diesen Ordner gibt es hier keinen Zugriff.")
+        aufgeloest = pfad.resolve()
         for basis in ordner:
             if _liegt_in(aufgeloest, basis):
                 return aufgeloest
@@ -108,6 +112,20 @@ class Dienste:
             # Ergebnisse ohne Besitzer (allgemeiner Ordner) verwalten die Admins -- die Ordner der Nutzer nicht.
             return aufgeloest
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Auf diesen Ordner gibt es hier keinen Zugriff.")
+
+
+def ist_unc(pfad: PurePath) -> bool:
+    """Netzwerkpfad (``\\\\rechner\\freigabe\\...``)? Nur unter Windows bedeutsam; dort liest ``drive`` ihn so."""
+    return pfad.drive.startswith(("\\\\", "//"))
+
+
+def _liegt_woertlich_in(pfad: PurePath, basis: PurePath) -> bool:
+    """Wie ``_liegt_in``, aber ohne etwas aufzuloesen (kein Zugriff auf das Dateisystem oder das Netz)."""
+    try:
+        pfad.relative_to(basis)
+    except ValueError:
+        return False
+    return ".." not in pfad.parts
 
 
 def _liegt_in(pfad: Path, basis: Path) -> bool:

@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+import os
+from pathlib import Path, PureWindowsPath
 from typing import Any
 
 import pytest
@@ -11,6 +12,7 @@ from fastapi.testclient import TestClient
 from protokoll_assistent.ablauf import freigaben as freigaben_modul
 from protokoll_assistent.ablauf.freigaben import Freigaben
 from protokoll_assistent.ablauf.nutzer import NutzerFehler, Nutzerverwaltung, passwort_hash, passwort_passt
+from protokoll_assistent.api import kontext
 from protokoll_assistent.api.sicherheit import ROLLE_SERVER
 from protokoll_assistent.tests.ablauf_hilfen import transkript_json_schreiben
 from protokoll_assistent.tests.api_hilfen import Umgebung, app_bauen, eigene_konfiguration
@@ -435,3 +437,26 @@ def test_freigaben_schreiben_unter_eindeutigem_arbeitsnamen(tmp_path: Path, monk
         freigaben.setzen("anna", "dritte", ["ben"])
     assert list(tmp_path.glob("*.tmp")) == []  # kein liegengebliebener Arbeitsstand
     assert freigaben.mit_wem("anna", "dritte") == []
+
+def test_unc_pfade_erkennen() -> None:
+    assert kontext.ist_unc(PureWindowsPath(r"\\angreifer\freigabe\x.wav"))
+    assert kontext.ist_unc(PureWindowsPath("//angreifer/freigabe/x.wav"))
+    assert not kontext.ist_unc(PureWindowsPath(r"C:\Aufnahmen\x.wav"))
+    basis = PureWindowsPath(r"\\nas\vermerk\aufnahmen")
+    assert kontext._liegt_woertlich_in(PureWindowsPath(r"\\nas\vermerk\aufnahmen\x.wav"), basis)
+    assert not kontext._liegt_woertlich_in(PureWindowsPath(r"\\nas\vermerk\aufnahmen\..\..\x.wav"), basis)
+    assert not kontext._liegt_woertlich_in(PureWindowsPath(r"\\angreifer\freigabe\x.wav"), basis)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="UNC-Pfade gibt es nur unter Windows")
+def test_fremder_netzwerkpfad_wird_nicht_aufgeloest(server: Umgebung, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Schon resolve() spraeche den fremden Rechner per SMB an (und boete die Windows-Anmeldung an).
+    echt = Path.resolve
+
+    def resolve(self: Path, strict: bool = False) -> Path:
+        assert not kontext.ist_unc(self), f"UNC-Pfad aufgeloest: {self}"
+        return echt(self, strict)
+
+    monkeypatch.setattr(Path, "resolve", resolve)
+    antwort = _client(server, "ben").post("/api/auftraege/transkription", json={"quelle": r"\\angreifer\freigabe\x.wav"})
+    assert antwort.status_code == 403

@@ -15,7 +15,6 @@ import argparse
 import json
 import struct
 import subprocess
-import sys
 import tempfile
 import wave
 from pathlib import Path
@@ -218,4 +217,4 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()

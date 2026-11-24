@@ -17,6 +17,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from protokoll_assistent.utils.dateinamen import sicherer_stamm
 from protokoll_assistent.utils.timeformat import format_srt_timestamp, format_timestamp, format_vtt_timestamp
 
 UNBENANNTER_SPRECHER = "Sprecher unbekannt"
@@ -373,8 +374,9 @@ def reexport_with_new_names(json_path: Path, name_overrides: dict[str, str]) -> 
     speaker_names = build_speaker_names(order, name_overrides)
 
     output_dir = json_path.parent
-    source_stem = data["quelldatei_stamm"]
-    run_timestamp = data["lauf_zeitstempel"]
+    # Beide bilden Dateinamen und stehen in der Datei selbst: nur als Namensstueck verwenden.
+    source_stem = sicherer_stamm(data["quelldatei_stamm"])
+    run_timestamp = sicherer_stamm(data["lauf_zeitstempel"])
     enriched = attach_speaker_names(segments, speaker_names)
     stats = compute_speaker_stats(segments)
 
@@ -457,8 +459,9 @@ def write_protocol_exports(
     nach dem es entstanden ist.
     """
     output_dir.mkdir(parents=True, exist_ok=True)
-    json_path = output_dir / f"{source_stem}_protokoll_{run_timestamp}.json"
-    md_path = output_dir / f"{source_stem}_protokoll_{run_timestamp}.md"
+    source_stem = sicherer_stamm(source_stem)
+    json_path = output_dir / f"{source_stem}_protokoll_{sicherer_stamm(run_timestamp)}.json"
+    md_path = output_dir / f"{source_stem}_protokoll_{sicherer_stamm(run_timestamp)}.md"
     daten = {
         "quelldatei_stamm": source_stem,
         "erstellt": datetime.now().astimezone().isoformat(timespec="seconds"),

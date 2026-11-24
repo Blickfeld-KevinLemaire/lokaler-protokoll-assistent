@@ -35,6 +35,7 @@ from typing import Any
 
 from protokoll_assistent.services import export_service
 from protokoll_assistent.services.manifest_service import _ersetzen_mit_wiederholung
+from protokoll_assistent.utils.dateinamen import sicherer_stamm
 
 INHALT_TRANSKRIPT = "transkript"
 INHALT_PROTOKOLL = "protokoll"
@@ -403,7 +404,7 @@ def _atomar_schreiben(ziel: Path, schreiben: Callable[[Path], None]) -> None:
 
 def _basisname(transkript: dict[str, Any] | None, protokoll_pfad: Path | None, transkript_pfad: Path | None) -> str:
     if transkript is not None and transkript.get("quelldatei_stamm"):
-        return str(transkript["quelldatei_stamm"])
+        return sicherer_stamm(transkript["quelldatei_stamm"], "export")
     for pfad in (transkript_pfad, protokoll_pfad):
         if pfad is not None:
             return pfad.stem

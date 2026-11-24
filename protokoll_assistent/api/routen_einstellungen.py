@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from typing import Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException, status
@@ -106,10 +107,9 @@ def schluessel_loeschen(name: str, d: Dienste = Depends(dienste), _a: Angemeldet
     if name not in SCHLUESSEL_NAMEN:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Unbekannter Schlüssel.")
     d.steuerung.schluessel.fuer_sitzung(name, "")
-    try:
+    # Ohne Schluesselablage (z. B. im Container) ist dort auch nichts gespeichert, das zu loeschen waere.
+    with contextlib.suppress(secret_store.SecretStoreUnavailableError):
         secret_store.delete_api_key(name)
-    except secret_store.SecretStoreUnavailableError:
-        pass
     return {"vorhanden": d.steuerung.schluessel.vorhanden(name)}
 
 

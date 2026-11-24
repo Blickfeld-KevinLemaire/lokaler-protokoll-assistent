@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from protokoll_assistent.services import ffmpeg_service
+from protokoll_assistent.utils.dateinamen import sicherer_stamm
 from protokoll_assistent.utils.timeformat import format_timestamp
 
 AusschneidenFn = Callable[[Path, Path, list[tuple[float, float]]], Path]
@@ -136,7 +137,7 @@ def sprecher_exportieren(
         (e["anzeigename"] for e in daten.get("sprecher_zuordnung", []) if e.get("sprecher_id") == sprecher_id),
         sprecher_id,
     )
-    stamm = f"{daten.get('quelldatei_stamm', 'aufnahme')}_{_dateiname(name)}"
+    stamm = f"{sicherer_stamm(daten.get('quelldatei_stamm'))}_{_dateiname(name)}"
     ziel_ordner.mkdir(parents=True, exist_ok=True)
     zaehler = 1
     basis = stamm
