@@ -65,6 +65,9 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 - **Einrichtung:** Wer die lokale Transkription aus den Einstellungen heraus einrichtet und die App schließt, statt
   „Jetzt neu starten“ zu wählen, landet beim nächsten Start wieder bei der Spracherkennung.
 - **Einrichtung:** Ein abgebrochener Download von Ollama gilt als abgebrochen, nicht als fehlgeschlagen.
+- **Einrichtung:** „Was nötig ist“ rechnet mit dem Sprachmodell, das für diesen Computer empfohlen und danach
+  eingetragen wird. War das bisherige Standardmodell schon vorhanden, wurde das empfohlene bisher eingetragen, aber
+  nie geladen – Zusammenfassungen scheiterten dann an „Sprachmodell fehlt“.
 
 ## [0.6.0-alpha.1] - 2026-11-22
 

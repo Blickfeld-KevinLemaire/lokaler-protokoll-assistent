@@ -318,25 +318,44 @@ def rechner(request: Request, neu: bool = False, d: Dienste = Depends(dienste)) 
     }
 
 
+def _sprachmodell_aenderungen(konfig: dict[str, Any], nachbearbeitung: str, sprachmodell: str | None) -> dict[str, Any]:
+    """Das gewaehlte Sprachmodell nur, wenn das Protokoll lokal laeuft, und nur dort, wo noch der Standard steht
+    (wie im alten Assistenten: eine eigene Wahl aus den Einstellungen bleibt)."""
+    aenderungen: dict[str, Any] = {}
+    if nachbearbeitung == "lokal" and sprachmodell and sprachmodell != ollama_service.DEFAULT_MODEL:
+        for schluessel in ("ollama_modell", "chatbot_ollama_modell"):
+            if konfig[schluessel] == ollama_service.DEFAULT_MODEL:
+                aenderungen[schluessel] = sprachmodell
+    return aenderungen
+
+
 @router.get("/kosten", response_model=modelle.EinrichtungKosten)
 def kosten(
     request: Request,
     transkription: modelle.Modus | None = None,
     nachbearbeitung: modelle.Modus | None = None,
     chatbot: modelle.Modus | None = None,
+    sprachmodell: str | None = None,
+    whisper_modell: str | None = None,
     d: Dienste = Depends(dienste),
 ) -> dict[str, Any]:
     """Seite "Was noetig ist": Bausteine mit Download und Platz (GB), Summe, ungefaehre Downloaddauer. Ohne
     Angaben fuer die gespeicherte Arbeitsweise; mit ``transkription``/``nachbearbeitung``/``chatbot`` als
-    Vorschau, ohne etwas zu speichern."""
+    Vorschau, ohne etwas zu speichern. ``sprachmodell``/``whisper_modell``: die Modelle, die ``entscheidung``
+    gleich eintragen wird -- sonst stuende hier das bisher eingetragene Modell (Groesse, und ob es schon da ist)."""
     konfig = d.steuerung.konfiguration()
     wahl = {bereich: konfig[schluessel] for bereich, schluessel in BEREICHE.items()}
     for bereich, wert in (("transkription", transkription), ("nachbearbeitung", nachbearbeitung), ("chatbot", chatbot)):
         if wert is not None:
             wahl[bereich] = wert
-    vorhanden = _vorhanden(d, konfig)
+    vorschau = dict(konfig)
+    if wahl["transkription"] == "lokal" and whisper_modell and model_service.get_whisper_model_option(whisper_modell):
+        vorschau["whisper_modell"] = whisper_modell
+    if sprachmodell and ollama_service.get_modell_option(sprachmodell) is not None:
+        vorschau.update(_sprachmodell_aenderungen(konfig, wahl["nachbearbeitung"], sprachmodell))
+    vorhanden = _vorhanden(d, vorschau)
     profil = _analyse(request, d).profil
-    bausteine = _bausteine(konfig, vorhanden, profil, wahl)
+    bausteine = _bausteine(vorschau, vorhanden, profil, wahl)
     download, platz = einrichtungsplan_service.summe(bausteine)
     minuten = einrichtungsplan_service.download_minuten(download, UEBLICHE_MBIT)
     ollama_noetig = any(b.kennung == "ollama" and not b.vorhanden for b in bausteine)
@@ -401,12 +420,7 @@ def entscheidung(
             empfohlen = gespeichert.empfehlung.get(rechner_analyse_service.BEREICH_TRANSKRIPTION) if gespeichert else None
             if empfohlen:
                 aenderungen["whisper_modell"] = empfohlen
-    # Das gewaehlte Sprachmodell nur, wenn das Protokoll lokal laeuft, und nur dort, wo noch der Standard steht
-    # (wie im alten Assistenten: eine eigene Wahl aus den Einstellungen bleibt).
-    if daten.nachbearbeitung == "lokal" and daten.sprachmodell and daten.sprachmodell != ollama_service.DEFAULT_MODEL:
-        for schluessel in ("ollama_modell", "chatbot_ollama_modell"):
-            if konfig[schluessel] == ollama_service.DEFAULT_MODEL:
-                aenderungen[schluessel] = daten.sprachmodell
+    aenderungen.update(_sprachmodell_aenderungen(konfig, daten.nachbearbeitung, daten.sprachmodell))
 
     if daten.transkription == "lokal":
         im_prozess = d.steuerung.abh.laufzeit_verfuegbar()

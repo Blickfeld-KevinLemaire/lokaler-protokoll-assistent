@@ -5,7 +5,6 @@
   import HardDrive from '@lucide/svelte/icons/hard-drive';
   import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
   import { onMount } from 'svelte';
-  import { api } from '$lib/api/client';
   import {
     alleSetzen,
     alleZugestimmt,
@@ -31,10 +30,7 @@
 
   onMount(() => {
     if (!einrichtung.kosten && wahlVollstaendig(einrichtung.wahl)) {
-      api
-        .einrichtungKosten(einrichtung.wahl)
-        .then((k) => (einrichtung.kosten = k))
-        .catch((e) => dialog.zeigen(e, 'Bedarf nicht ermittelt'));
+      einrichtung.kostenLaden().catch((e) => dialog.zeigen(e, 'Bedarf nicht ermittelt'));
     }
   });
 

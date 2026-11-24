@@ -1917,7 +1917,7 @@
           "einrichtung"
         ],
         "summary": "Kosten",
-        "description": "Seite \"Was noetig ist\": Bausteine mit Download und Platz (GB), Summe, ungefaehre Downloaddauer. Ohne\nAngaben fuer die gespeicherte Arbeitsweise; mit ``transkription``/``nachbearbeitung``/``chatbot`` als\nVorschau, ohne etwas zu speichern.",
+        "description": "Seite \"Was noetig ist\": Bausteine mit Download und Platz (GB), Summe, ungefaehre Downloaddauer. Ohne\nAngaben fuer die gespeicherte Arbeitsweise; mit ``transkription``/``nachbearbeitung``/``chatbot`` als\nVorschau, ohne etwas zu speichern. ``sprachmodell``/``whisper_modell``: die Modelle, die ``entscheidung``\ngleich eintragen wird -- sonst stuende hier das bisher eingetragene Modell (Groesse, und ob es schon da ist).",
         "operationId": "kosten_api_einrichtung_kosten_get",
         "parameters": [
           {
@@ -1978,6 +1978,38 @@
                 }
               ],
               "title": "Chatbot"
+            }
+          },
+          {
+            "name": "sprachmodell",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Sprachmodell"
+            }
+          },
+          {
+            "name": "whisper_modell",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Whisper Modell"
             }
           }
         ],

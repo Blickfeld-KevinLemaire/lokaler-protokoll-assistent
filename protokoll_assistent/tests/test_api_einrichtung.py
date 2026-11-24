@@ -176,6 +176,25 @@ def test_kosten_fuer_alles_lokal_und_als_vorschau(umgebung: Umgebung, rechner: R
     assert client.get("/api/einrichtung/kosten?transkription=irgendwo").status_code == 422
 
 
+def test_kosten_mit_dem_empfohlenen_sprachmodell(umgebung: Umgebung, rechner: Rechner) -> None:
+    """Ollama und das Standardmodell sind schon da (z. B. nach einer Neuinstallation), empfohlen ist aber ein anderes
+    Modell. "Was noetig ist" rechnete mit dem bisher eingetragenen Standard -- das empfohlene Modell wurde dann
+    eingetragen, aber nie angeboten und nie geladen; jede Zusammenfassung scheiterte an "Sprachmodell fehlt"."""
+    empfohlen = "qwen3.5:9b-q4_K_M"
+    rechner.ffmpeg = umgebung.tmp / "ffmpeg.exe"
+    rechner.ollama = OllamaStatus(installiert=True, dienst_laeuft=True)
+    rechner.ollama_modelle = [ollama_service.DEFAULT_MODEL, "bge-m3"]
+    client = umgebung.client
+    lokal = "transkription=api&nachbearbeitung=lokal&chatbot=lokal"
+    assert client.get(f"/api/einrichtung/kosten?{lokal}").json()["zustimmung_noetig"] is False
+    kosten = client.get(f"/api/einrichtung/kosten?{lokal}&sprachmodell={empfohlen}").json()
+    sprachmodell = next(b for b in kosten["bausteine"] if b["kennung"] == "sprachmodell")
+    assert sprachmodell["vorhanden"] is False and kosten["zustimmung_noetig"] is True
+    assert sprachmodell["download_gb"] == ollama_service.get_modell_option(empfohlen).groesse_gb  # type: ignore[union-attr]
+    # Nur Vorschau: eingetragen wird erst mit der Entscheidung.
+    assert app_config.load_config()["ollama_modell"] == ollama_service.DEFAULT_MODEL
+
+
 def test_kosten_warnt_bei_knappem_platz(umgebung: Umgebung, rechner: Rechner) -> None:
     rechner.profil = RechnerProfil(ram_gb=16.0, cpu_kerne=8, freier_platz_gb=3.0)
     assert umgebung.client.get("/api/einrichtung/kosten").json()["platz_knapp"] is True

@@ -117,6 +117,25 @@ describe('Ersteinrichtung: Ablauf mit Neustart', () => {
     expect(einrichtung.folge).toEqual(['mitschrift', 'fertig']);
   });
 
+  it('rechnet „Was nötig ist“ mit den Modellen, die gleich eingetragen werden', async () => {
+    // Sonst rechnete der Dienst mit dem bisher eingetragenen Standardmodell: War es schon da, wurde das
+    // empfohlene Modell eingetragen, aber nie angeboten und nie geladen.
+    const kosten = vi.spyOn(api, 'einrichtungKosten').mockResolvedValue({ bausteine: [] } as never);
+    vi.spyOn(api, 'einrichtungEntscheidung').mockResolvedValue(stand({}));
+    einrichtung.rechner = {
+      empfohlene_modelle: { transkription: 'small', nachbearbeitung: 'qwen3.5:9b-q4_K_M' }
+    } as never;
+    einrichtung.wahl = { transkription: 'lokal', nachbearbeitung: 'lokal', chatbot: 'lokal' };
+    einrichtung.schritt = 'arbeitsweise';
+    await einrichtung.weiter();
+    expect(kosten).toHaveBeenCalledWith(einrichtung.wahl, {
+      sprachmodell: 'qwen3.5:9b-q4_K_M',
+      whisper_modell: 'small'
+    });
+    einrichtung.rechner = null;
+    einrichtung.kosten = null;
+  });
+
   it('nimmt beim erneuten Versuch einen neu eingegebenen Zugangsschlüssel mit', async () => {
     // Die Sprechererkennung scheiterte (z. B. falscher Schlüssel): Der neue Schlüssel geht mit und bleibt nicht stehen.
     const laden = vi.spyOn(api, 'einrichtungModelle').mockResolvedValue({ id: 'neu' } as never);

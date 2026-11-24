@@ -252,7 +252,7 @@ class Einrichtung {
     switch (this.schritt) {
       case 'arbeitsweise': {
         if (!wahlVollstaendig(this.wahl)) return false;
-        this.kosten = await api.einrichtungKosten(this.wahl);
+        await this.kostenLaden();
         if (!bedarfVorhanden(this.kosten)) await this.entscheiden();
         return true;
       }
@@ -283,13 +283,26 @@ class Einrichtung {
     }
   }
 
+  /** Die Modelle, die `entscheiden` einträgt – „Was nötig ist“ muss mit denselben rechnen. */
+  modelleZurWahl(): { sprachmodell: string | null; whisper_modell: string | null } {
+    const empfohlen = this.rechner?.empfohlene_modelle ?? {};
+    return {
+      sprachmodell: this.wahl.nachbearbeitung === 'lokal' ? (empfohlen.nachbearbeitung ?? null) : null,
+      whisper_modell: this.wahl.transkription === 'lokal' ? (empfohlen.transkription ?? null) : null
+    };
+  }
+
+  /** „Was nötig ist“ für die aktuelle Wahl (noch nichts gespeichert). */
+  async kostenLaden(): Promise<void> {
+    if (!wahlVollstaendig(this.wahl)) return;
+    this.kosten = await api.einrichtungKosten(this.wahl, this.modelleZurWahl());
+  }
+
   private async entscheiden(): Promise<void> {
     if (!wahlVollstaendig(this.wahl)) return;
-    const empfohlen = this.rechner?.empfohlene_modelle ?? {};
     this.stand = await api.einrichtungEntscheidung({
       ...this.wahl,
-      sprachmodell: this.wahl.nachbearbeitung === 'lokal' ? (empfohlen.nachbearbeitung ?? null) : null,
-      whisper_modell: this.wahl.transkription === 'lokal' ? (empfohlen.transkription ?? null) : null,
+      ...this.modelleZurWahl(),
       zustimmung_rechenumgebung: !!this.zustimmung.laufzeit
     });
   }
