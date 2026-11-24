@@ -239,3 +239,18 @@ describe('Sprechernamen', () => {
     expect(sprecherName('Frau Keller', 'SPEAKER_00')).toBe('Frau Keller');
   });
 });
+
+describe('Teilen (Servermodus)', () => {
+  it('bietet Teilen nur dem Besitzer an – nicht bei Ergebnissen ohne Besitzer', async () => {
+    const { ohneBesitzer, teilenMoeglich } = await import('./teilen');
+    expect(teilenMoeglich({ eigen: true, besitzer: 'anna' }, true)).toBe(true);
+    expect(teilenMoeglich({ eigen: false, besitzer: 'ben' }, true)).toBe(false);
+    expect(teilenMoeglich({ eigen: true, besitzer: 'anna' }, false)).toBe(false);
+    // Eingangsordner ohne PROTOKOLL_EINGANG_NUTZER: der Admin sieht es, teilen lehnt der Dienst ab.
+    expect(teilenMoeglich({ eigen: true, besitzer: null }, true)).toBe(false);
+    expect(ohneBesitzer({ eigen: true, besitzer: null }, true)).toBe(true);
+    expect(ohneBesitzer({ eigen: true, besitzer: 'anna' }, true)).toBe(false);
+    expect(ohneBesitzer({ eigen: true, besitzer: null }, false)).toBe(false);
+    expect(teilenMoeglich(null, true)).toBe(false);
+  });
+});

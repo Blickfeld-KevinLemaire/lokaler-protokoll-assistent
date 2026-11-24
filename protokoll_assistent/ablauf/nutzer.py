@@ -169,13 +169,14 @@ class Nutzerverwaltung:
             nutzer = alle.get(name.lower())
             if nutzer is None:
                 raise NutzerFehler("Diesen Nutzer gibt es nicht.")
+            vorher = _hat_aktiven_admin(alle.values())
             if anzeigename is not None:
                 nutzer.anzeigename = anzeigename.strip() or nutzer.name
             if admin is not None:
                 nutzer.admin = admin
             if aktiv is not None:
                 nutzer.aktiv = aktiv
-            if not any(n.admin and n.aktiv for n in alle.values()):
+            if vorher and not _hat_aktiven_admin(alle.values()):
                 raise NutzerFehler("Es muss mindestens einen aktiven Admin geben.")
             self._schreiben(alle)
             return nutzer
@@ -183,9 +184,10 @@ class Nutzerverwaltung:
     def entfernen(self, name: str) -> None:
         with self._sperre:
             alle = self._lesen()
+            vorher = _hat_aktiven_admin(alle.values())
             if alle.pop(name.lower(), None) is None:
                 raise NutzerFehler("Diesen Nutzer gibt es nicht.")
-            if not any(n.admin and n.aktiv for n in alle.values()):
+            if vorher and not _hat_aktiven_admin(alle.values()):
                 raise NutzerFehler("Es muss mindestens einen aktiven Admin geben.")
             self._schreiben(alle)
 
@@ -251,6 +253,12 @@ class Nutzerverwaltung:
                 if hmac.compare_digest(gesucht, str(zugang.get("token_sha256", "")).lower()) and nutzer.aktiv:
                     treffer = nutzer
         return treffer
+
+
+def _hat_aktiven_admin(nutzer: Iterable[Nutzer]) -> bool:
+    """Gibt es einen aktiven Admin? Verboten ist nur, den letzten zu entfernen oder zu sperren. Solange es noch
+    keinen gibt (Ersteinrichtung ueber den Notfallzugang ``VERMERK_ZUGANG``), lassen sich Nutzer bearbeiten."""
+    return any(n.admin and n.aktiv for n in nutzer)
 
 
 def _passwort_pruefen(passwort: str) -> None:

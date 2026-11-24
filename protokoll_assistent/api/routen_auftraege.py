@@ -77,8 +77,11 @@ def transkription(daten: modelle.TranskriptionAnfrage, d: Dienste = Depends(dien
 def auswertung(daten: modelle.AuswertungAnfrage, d: Dienste = Depends(dienste), wer: Angemeldet = Depends(angemeldet)) -> Any:
     transkript = d.pfad_pruefen(daten.transkript, wer)
     try:
+        # Das Protokoll gehoert neben sein Transkript: Nur dort ordnet die Bibliothek es zu. Ergebnisse aus dem
+        # Eingangsordner liegen je Aufnahme in einem Unterordner -- im Ausgabeordner selbst bliebe ein neues
+        # Protokoll unsichtbar.
         auftrag = d.steuerung.auswertung_starten(
-            AuswertungsWunsch(transkript=Path(transkript), ausgabe=d.ausgabeordner(wer), systemprompt=daten.systemprompt),
+            AuswertungsWunsch(transkript=Path(transkript), ausgabe=Path(transkript).parent, systemprompt=daten.systemprompt),
             besitzer=wer.besitzer,
         )
     except Ablauffehler as fehler:

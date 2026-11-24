@@ -67,8 +67,20 @@ def eigener_zugang(daten: modelle.ZugangAnlegen, d: Dienste = Depends(dienste), 
 
 @router.delete("/ich/zugaenge/{bezeichnung}")
 def eigenen_zugang_entfernen(bezeichnung: str, d: Dienste = Depends(dienste), wer: Angemeldet = Depends(angemeldet)) -> dict[str, bool]:
+    verwaltung = _verwaltung(d)
+    eintrag = verwaltung.hole(wer.name)
+    if (
+        eintrag is not None
+        and not eintrag.passwort
+        and [z.get("bezeichnung") for z in eintrag.zugaenge] == [bezeichnung]
+    ):
+        # Sonst sperrte man sich selbst aus (beim einzigen Admin bliebe nur noch der Notfallzugang).
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Das ist Ihr einziger Zugang. Bitte zuerst ein Passwort setzen oder einen weiteren Schlüssel anlegen.",
+        )
     try:
-        _verwaltung(d).zugang_entfernen(wer.name, bezeichnung)
+        verwaltung.zugang_entfernen(wer.name, bezeichnung)
     except NutzerFehler as fehler:
         raise _fehler(fehler) from fehler
     return {"entfernt": True}

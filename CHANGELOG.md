@@ -62,6 +62,17 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
   der Empfang das, statt „Anschluss belegt“.
 - **Server mit mehreren Nutzern:** Wird ein Nutzer entfernt, werden seine Aufnahmegeräte „Allgemein“; ihre
   Aufnahmen landeten sonst in einem Ordner, den niemand mehr sieht.
+- **Server mit mehreren Nutzern:**
+  - Admins sehen jetzt die Transkripte ohne Besitzer (Eingangsordner ohne `PROTOKOLL_EINGANG_NUTZER`, Geräte ohne
+    Besitzer) in ihrer Liste, mit dem Vermerk „ohne Besitzer“ – bisher sah sie im Browser niemand.
+  - „Zusammenfassung erstellen“ bei Aufnahmen aus dem Eingangsordner zeigt das Ergebnis wieder an (es landete
+    bisher in einem anderen Ordner und blieb unsichtbar).
+  - `PROTOKOLL_EINGANG_NUTZER` wirkt auch, wenn der Nutzer erst nach dem Start des Containers angelegt wird, und
+    unabhängig von Groß- und Kleinschreibung.
+  - Teilen lässt sich wieder ändern, nachdem ein Kollege, mit dem geteilt war, entfernt wurde.
+  - Bei der Ersteinrichtung mit `VERMERK_ZUGANG` lassen sich Nutzer bearbeiten und entfernen, bevor es einen Admin
+    gibt.
+  - Den eigenen einzigen Zugangsschlüssel (ohne Passwort) kann man nicht mehr entfernen und sich so aussperren.
 
 ## [0.6.0-alpha.1] - 2026-11-22
 

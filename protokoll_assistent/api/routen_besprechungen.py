@@ -40,19 +40,30 @@ class Gefunden:
     besprechung: bibliothek.Besprechung
     besitzer: str | None
     eigen: bool
+    # Servermodus: Ergebnis ohne Besitzer im allgemeinen Ordner (Eingangsordner ohne PROTOKOLL_EINGANG_NUTZER,
+    # Geraet ohne Besitzer). Es gehoert niemandem; die Admins verwalten es. Kennung: "~<stamm>".
+    allgemein: bool = False
 
 
-def _kennung(d: Dienste, besitzer: str | None, stamm: str) -> str:
+def _kennung(d: Dienste, besitzer: str | None, stamm: str, *, allgemein: bool = False) -> str:
+    if allgemein:
+        return freigaben.TRENNER + stamm
     return freigaben.kennung(besitzer, stamm) if d.mehrbenutzer and besitzer else stamm
 
 
 def _als_dict(d: Dienste, g: Gefunden) -> dict[str, Any]:
     daten = g.besprechung.als_dict()
-    daten["id"] = _kennung(d, g.besitzer, g.besprechung.id)
+    daten["id"] = _kennung(d, g.besitzer, g.besprechung.id, allgemein=g.allgemein)
     daten["besitzer"] = g.besitzer
     daten["eigen"] = g.eigen
     daten["geteilt_mit"] = d.freigaben().mit_wem(g.besitzer, g.besprechung.id) if d.mehrbenutzer and g.besitzer else []
     return daten
+
+
+def allgemeine_sichtbar(d: Dienste, wer: Angemeldet) -> bool:
+    """Sieht dieser Nutzer zusaetzlich die Ergebnisse ohne Besitzer? Nur Admins mit eigenem Ordner (der
+    Notfallzugang hat den allgemeinen Ordner ohnehin als eigenen)."""
+    return d.mehrbenutzer and wer.admin and wer.besitzer is not None
 
 
 def _alle(d: Dienste, wer: Angemeldet) -> list[Gefunden]:
@@ -64,11 +75,19 @@ def _alle(d: Dienste, wer: Angemeldet) -> list[Gefunden]:
         gefunden = bibliothek.finde(d.ausgabeordner_von(besitzer), stamm)
         if gefunden is not None:
             geteilte.append(Gefunden(gefunden, besitzer, False))
-    return sorted(eigene + geteilte, key=lambda g: (g.besprechung.zeit, g.besprechung.id), reverse=True)
+    allgemeine = (
+        [Gefunden(b, None, True, allgemein=True) for b in bibliothek.besprechungen(d.ausgabe_basis())]
+        if allgemeine_sichtbar(d, wer)
+        else []
+    )
+    return sorted(eigene + geteilte + allgemeine, key=lambda g: (g.besprechung.zeit, g.besprechung.id), reverse=True)
 
 
 def besprechung_finden(d: Dienste, wer: Angemeldet, kennung: str, *, aendern: bool = False) -> Gefunden:
-    if d.mehrbenutzer and wer.besitzer is not None:
+    if d.mehrbenutzer and wer.besitzer is not None and kennung.startswith(freigaben.TRENNER):
+        gefunden = bibliothek.finde(d.ausgabe_basis(), kennung[len(freigaben.TRENNER) :]) if allgemeine_sichtbar(d, wer) else None
+        ergebnis = Gefunden(gefunden, None, True, allgemein=True) if gefunden is not None else None
+    elif d.mehrbenutzer and wer.besitzer is not None:
         teile = freigaben.zerlegen(kennung)
         besitzer, stamm = teile if teile is not None else (wer.besitzer, kennung)
         eigen = besitzer.lower() == wer.besitzer.lower()
@@ -89,7 +108,11 @@ def besprechung_finden(d: Dienste, wer: Angemeldet, kennung: str, *, aendern: bo
 def unterlagen_fuer(d: Dienste, wer: Angemeldet, kennungen: list[str]) -> list[Path]:
     """Transkript und neuestes Protokoll je gewaehlter Besprechung (ohne Auswahl: alle sichtbaren) -- fuer den Chat."""
     alle = _alle(d, wer)
-    gewaehlt = [g for g in alle if _kennung(d, g.besitzer, g.besprechung.id) in set(kennungen)] if kennungen else alle
+    gewaehlt = (
+        [g for g in alle if _kennung(d, g.besitzer, g.besprechung.id, allgemein=g.allgemein) in set(kennungen)]
+        if kennungen
+        else alle
+    )
     pfade: list[Path] = []
     for g in gewaehlt:
         pfade.append(g.besprechung.transkript)
@@ -163,11 +186,17 @@ def teilen(
     if not d.mehrbenutzer or wer.besitzer is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Teilen gibt es nur auf dem Server mit mehreren Nutzern.")
     g = besprechung_finden(d, wer, kennung, aendern=True)
+    if g.allgemein:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Transkripte ohne Besitzer lassen sich nicht teilen.")
     bekannt = {n.name.lower() for n in d.nutzer.liste()} if d.nutzer is not None else set()
-    unbekannt = [m for m in daten.mit if m != freigaben.ALLE and m.lower() not in bekannt]
+    # Wer inzwischen entfernt wurde, faellt still aus der Freigabe -- die Oberflaeche schickt die bisherige Liste
+    # mit, zeigt ihn aber nicht mehr an; ohne das liesse sich die Freigabe gar nicht mehr aendern.
+    bisher = {m.lower() for m in d.freigaben().mit_wem(wer.besitzer, g.besprechung.id)}
+    entfernt = {m.lower() for m in daten.mit if m != freigaben.ALLE and m.lower() not in bekannt and m.lower() in bisher}
+    unbekannt = [m for m in daten.mit if m != freigaben.ALLE and m.lower() not in bekannt and m.lower() not in entfernt]
     if unbekannt:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Unbekannte Nutzer: {', '.join(unbekannt)}")
-    mit = d.freigaben().setzen(wer.besitzer, g.besprechung.id, daten.mit)
+    mit = d.freigaben().setzen(wer.besitzer, g.besprechung.id, [m for m in daten.mit if m.lower() not in entfernt])
     return {"geteilt_mit": mit}
 
 

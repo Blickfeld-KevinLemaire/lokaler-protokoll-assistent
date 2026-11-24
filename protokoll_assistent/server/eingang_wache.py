@@ -16,6 +16,7 @@ from __future__ import annotations
 import dataclasses
 import logging
 import threading
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -36,12 +37,16 @@ class EingangsWache:
         zustand_datei: Path,
         *,
         besitzer: str | None = None,
+        besitzer_aufloesen: Callable[[], str | None] | None = None,
         verarbeiten: Any = verarbeitung.verarbeite,
         webhook: Any = verarbeitung.melde_webhook,
     ):
+        """``besitzer_aufloesen``: wird je Datei gefragt, wem sie gehoert (statt des festen ``besitzer``). So zaehlt
+        ein Nutzer aus ``PROTOKOLL_EINGANG_NUTZER`` auch dann, wenn er erst nach dem Start angelegt wurde."""
         self.steuerung = steuerung
         self.einstellungen = einstellungen
         self.besitzer = besitzer
+        self._besitzer_aufloesen = besitzer_aufloesen
         self._verarbeiten = verarbeiten
         self._webhook = webhook
         self._zustand = warteschlange.Zustand(zustand_datei)
@@ -64,7 +69,8 @@ class EingangsWache:
 
     def _einreihen(self, datei: Path) -> Auftrag:
         schluessel = self._beobachter.schluessel(datei)
-        einstellungen = dataclasses.replace(self.einstellungen, ausgang=self.steuerung.ausgabeordner(self.besitzer))
+        besitzer = self._besitzer_aufloesen() if self._besitzer_aufloesen is not None else self.besitzer
+        einstellungen = dataclasses.replace(self.einstellungen, ausgang=self.steuerung.ausgabeordner(besitzer))
 
         def ausfuehren(fortschritt: Fortschritt) -> dict[str, Any]:
             ergebnis = self._verarbeiten(
@@ -88,7 +94,7 @@ class EingangsWache:
                     self._eingereiht.discard(datei)
 
         return self.steuerung.auftraege.einreihen(
-            ART, datei.name, ausfuehren, herkunft="ordner", angaben={"quelle": str(datei)}, nach_ende=danach, besitzer=self.besitzer
+            ART, datei.name, ausfuehren, herkunft="ordner", angaben={"quelle": str(datei)}, nach_ende=danach, besitzer=besitzer
         )
 
     def _abschliessen(self, datei: Path, schluessel: str | None, auftrag: Auftrag) -> None:
