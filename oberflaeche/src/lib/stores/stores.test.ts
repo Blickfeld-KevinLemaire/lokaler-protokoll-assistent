@@ -62,6 +62,57 @@ describe('Zustand: Uhr des Dienstes', () => {
   });
 });
 
+describe('Zustand: Aufnahmegeräte', () => {
+  function status(datei: string, z: string, nummer: number) {
+    zustand.ereignis({
+      nummer,
+      art: 'geraet_status',
+      daten: { geraet: 'Raum 1', datei, zustand: z },
+      zeit: 0
+    });
+  }
+
+  it('hält „Wartet auf Freigabe am Gerät“ aktuell, ohne /api/zustand neu zu laden', () => {
+    zustand.zuruecksetzen();
+    zustand.uebernehmen({
+      letzte_nummer: 1,
+      jetzt: 0,
+      auftraege: [],
+      empfang: null,
+      freigaben: [{ geraet: 'Raum 1', datei: 'H5_001.opus', pfad: 'C:/a/Raum 1_H5_001.opus' }]
+    });
+    // „Ja“ am Gerät: Die Zusammenfassung läuft, die Freigabe wartet nicht mehr.
+    status('H5_001.opus', 'auswertung', 2);
+    expect(zustand.freigaben).toEqual([]);
+    // Die nächste Aufnahme steht als Transkript und wartet auf die Antwort am Gerät.
+    status('H5_002.opus', 'transkription', 3);
+    expect(zustand.freigaben).toEqual([]);
+    status('H5_002.opus', 'transkript', 4);
+    status('H5_002.opus', 'transkript', 5);
+    expect(zustand.freigaben.map((f) => f.datei)).toEqual(['H5_002.opus']);
+    // „Nein“ am Gerät
+    status('H5_002.opus', 'fertig', 6);
+    expect(zustand.freigaben).toEqual([]);
+  });
+
+  it('zeigt den Live-Text nur, solange die Aufnahme läuft', () => {
+    zustand.zuruecksetzen();
+    zustand.ereignis({
+      nummer: 1,
+      art: 'live',
+      daten: { geraet: 'Raum 1', datei: 'H5_003.opus', text: '[00:00] Hallo', bis: 20 },
+      zeit: 0
+    });
+    status('H5_003.opus', 'empfang', 2);
+    expect(Object.keys(zustand.live)).toEqual(['Raum 1']);
+    // Eine ältere Aufnahme desselben Geräts ändert am Live-Text nichts.
+    status('H5_002.opus', 'fertig', 3);
+    expect(Object.keys(zustand.live)).toEqual(['Raum 1']);
+    status('H5_003.opus', 'wartet', 4);
+    expect(zustand.live).toEqual({});
+  });
+});
+
 describe('Ersteinrichtung: Ablauf mit Neustart', () => {
   afterEach(() => {
     einrichtung.aktiv = false;

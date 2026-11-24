@@ -175,6 +175,9 @@ def einrichten(daten: UsbEinrichten, d: Dienste = Depends(nur_desktop), _a: Ange
     # Sofort speichern: Das Geraet traegt das neue Token schon.
     seit = time.time()
     a.anwenden(app_config.update_config(geraete_empfang_geraete=vorhandene, geraete_empfang_aktiv=True))
+    # Der Empfang ist jetzt an: Die Oberflaeche laedt ihre Einstellungen neu -- sonst zeigte der Schalter
+    # "Aufnahmen von Geräten annehmen" weiter "aus", obwohl schon Aufnahmen angenommen werden.
+    d.steuerung.bus.senden("einstellungen", {"geaendert": ["geraete_empfang_aktiv"]})
     # Meldet es sich? Nur wenn es an diesen Rechner sendet (eine eigene Adresse kann woanders hinzeigen).
     erreicht = auf_meldung_warten(a.kontakte, name, seit, MELDUNG_ABWARTEN_SEKUNDEN)
     return {

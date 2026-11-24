@@ -611,6 +611,40 @@ def test_kontakt_wird_gemerkt_und_aenderungen_protokolliert(dienst, caplog):
     assert any("anderen Geraet" in r.getMessage() and r.levelname == "WARNING" for r in caplog.records)
 
 
+def test_neuer_kontakt_wird_gemeldet_wiederholte_nicht(tmp_path):
+    # Die Oberflaeche erfaehrt so, dass sich ein Geraet gemeldet hat (sonst stand es dort bis zum Neuladen als
+    # "Noch nicht verbunden" mit Firewall-Knopf, etwa nach jedem Neustart des Empfangs).
+    gemeldet: list[str] = []
+    laufend = GeraeteEmpfang(
+        tmp_path / "eingang", (Geraet("S3-Audio", empfang.token_hash(TOKEN)),), port=0, adresse="127.0.0.1",
+        bei_kontakt=gemeldet.append,
+    )
+    laufend.starten()
+    try:
+        for _ in range(3):
+            anfrage(laufend, "GET", "/api/v1/hallo", X_Geraete_Id="1a2b3c4d5e6f", X_Firmware="esp32-s3-audio/1.0.0")
+        assert gemeldet == ["S3-Audio"]
+        anfrage(laufend, "GET", "/api/v1/hallo", X_Geraete_Id="1a2b3c4d5e6f", X_Firmware="esp32-s3-audio/1.0.1")
+        assert gemeldet == ["S3-Audio", "S3-Audio"]
+    finally:
+        laufend.stoppen()
+
+
+def test_fehler_beim_melden_des_kontakts_stoert_nicht(tmp_path):
+    def kaputt(_name: str) -> None:
+        raise RuntimeError("Anzeige weg")
+
+    laufend = GeraeteEmpfang(
+        tmp_path / "eingang", (Geraet("S3-Audio", empfang.token_hash(TOKEN)),), port=0, adresse="127.0.0.1",
+        bei_kontakt=kaputt,
+    )
+    laufend.starten()
+    try:
+        assert anfrage(laufend, "GET", "/api/v1/hallo")[0] == 200
+    finally:
+        laufend.stoppen()
+
+
 def test_ohne_kennung_wird_trotzdem_angenommen(dienst):
     assert anfrage(dienst, "GET", "/api/v1/hallo", X_Geraete_Id="kaputt")[0] == 200
     assert dienst.kontakte()["S3-Audio"].geraete_id is None

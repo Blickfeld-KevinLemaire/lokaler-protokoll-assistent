@@ -1,5 +1,8 @@
 <script lang="ts">
-  /** Gerät ohne USB hinzufügen: Name (und im Servermodus Besitzer), danach Adresse und Schlüssel einmal zeigen. */
+  /**
+   * Gerät ohne USB hinzufügen: Name (und im Servermodus Besitzer), danach Adresse und Schlüssel einmal zeigen.
+   * Der Name darf Leerzeichen und Umlaute haben („Besprechungsraum 3“); die Regeln prüft der Dienst und nennt sie.
+   */
   import Copy from '@lucide/svelte/icons/copy';
   import { api } from '$lib/api/client';
   import type { GeraetAngelegt } from '$lib/api/typen';
@@ -51,7 +54,6 @@
         <input
           class="feld"
           maxlength="32"
-          pattern="[A-Za-z0-9_\-]+"
           placeholder="z. B. Besprechungsraum 3"
           autofocus
           bind:value={name}

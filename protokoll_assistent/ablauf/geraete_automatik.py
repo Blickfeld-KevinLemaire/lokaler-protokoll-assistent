@@ -177,6 +177,9 @@ class GeraeteAutomatik:
                 "bei_keine_zusammenfassung": self._zusammenfassung_abgelehnt_rueckruf,
                 "bei_wunsch": self._wunsch,
                 "fragen": self.fragen,
+                # Neuer Kontakt (auch nach jedem Neustart des Empfangs): Die Oberflaeche laedt die Geraeteliste
+                # beim Ereignis "empfang" neu -- sonst stuende ein verbundenes Geraet dort als "Noch nicht verbunden".
+                "bei_kontakt": lambda _geraet: self._empfang_melden(),
             }
             if self.steuerung.mehrbenutzer:
                 zusaetze["ziel_fuer_geraet"] = lambda geraet: self.steuerung.aufnahmeordner(self.besitzer_von(geraet))
@@ -185,6 +188,15 @@ class GeraeteAutomatik:
                 zusaetze["bei_abschluss"] = self._abschluss
                 zusaetze["bei_verworfen"] = self.live.verwerfen
             dienst = self.abh.dienst_fabrik(ziel, geraete, port=port, bei_neuer_aufnahme=self._neue_aufnahme, **zusaetze)
+            try:
+                # Vorab, getrennt vom Port: Ein nicht erreichbarer Eingangsordner (Netzlaufwerk aus, USB-Stick
+                # abgezogen) meldete sich sonst als "Anschluss belegt" -- und man suchte den Fehler am Port.
+                ziel.mkdir(parents=True, exist_ok=True)
+            except OSError:
+                self.fehler = f"Der Ordner für eingehende Aufnahmen ist nicht erreichbar: {ziel}"
+                self.fehler_code = "ordner"
+                self._empfang_melden()
+                return
             try:
                 dienst.starten()
             except OSError:

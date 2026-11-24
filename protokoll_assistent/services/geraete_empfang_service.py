@@ -904,6 +904,7 @@ class GeraeteEmpfang:
         bei_keine_zusammenfassung: Callable[[str, str], bool] | None = None,
         fragen: Any = None,
         ziel_fuer_geraet: Callable[[str], Path] | None = None,
+        bei_kontakt: Callable[[str], object] | None = None,
     ):
         self.geraete: tuple[Geraet, ...] = tuple(geraete)
         self.ablage = Ablage(
@@ -927,6 +928,9 @@ class GeraeteEmpfang:
         self._faden: threading.Thread | None = None
         self._kontakte: dict[str, Kontakt] = {}
         self._kontakte_sperre = threading.Lock()
+        # Ein Geraet meldet sich zum ersten Mal seit dem Start (oder von anderswo): Die Oberflaeche zeigt sonst
+        # bis zum naechsten Neuladen "Noch nicht verbunden" samt Firewall-Knopf.
+        self._bei_kontakt = bei_kontakt
         self._jetzt: Callable[[], float] = time.time
 
     def status(self, geraet: str, datei: str) -> Antwort:
@@ -1067,6 +1071,11 @@ class GeraeteEmpfang:
             logger.info(
                 "Geraet %s: Id %s, Firmware %s, Adresse %s", name, geraete_id or "-", firmware or "-", adresse
             )
+            if self._bei_kontakt is not None:
+                try:
+                    self._bei_kontakt(name)
+                except Exception:  # Die Anzeige darf den Empfang nicht stoeren.
+                    logger.exception("Meldung ueber den Kontakt von %s fehlgeschlagen", name)
         if alt is not None and alt.geraete_id and geraete_id and alt.geraete_id != geraete_id:
             logger.warning(
                 "Das Token von %s kommt jetzt von einem anderen Geraet (%s statt %s) -- kopiert oder getauscht?",

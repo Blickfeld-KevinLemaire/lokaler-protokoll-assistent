@@ -194,6 +194,19 @@ def test_geraeteaufnahme_landet_beim_besitzer(server: Umgebung) -> None:
     assert _client(server, "ben").get("/api/besprechungen").json() == []
 
 
+def test_geraete_eines_entfernten_nutzers_werden_allgemein(server: Umgebung) -> None:
+    # Sonst kaemen die Aufnahmen weiter in den Ordner eines Nutzers, den es nicht mehr gibt -- niemand saehe sie.
+    chef = _client(server, "chef")
+    chef.post("/api/geraete", json={"name": "Raum 1", "besitzer": "ben"})
+    chef.post("/api/geraete", json={"name": "Küche", "besitzer": "anna"})
+    assert chef.delete("/api/nutzer/ben").json() == {"entfernt": True}
+    automatik = server.dienste.automatik
+    assert automatik is not None
+    assert automatik.besitzer_von("Raum 1") is None and automatik.besitzer_von("Küche") == "anna"
+    besitzer = {g["name"]: g["besitzer"] for g in chef.get("/api/geraete").json()["geraete"]}
+    assert besitzer == {"Raum 1": None, "Küche": "anna"}
+
+
 def test_nutzerverwaltung_ueber_die_schnittstelle(server: Umgebung) -> None:
     chef, anna = _client(server, "chef"), _client(server, "anna")
     assert anna.get("/api/nutzer").status_code == 403

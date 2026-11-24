@@ -50,6 +50,18 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 - **Einrichtung:** Ein abgebrochenes Laden der Modelle gilt als abgebrochen, nicht als fertig; die Mitschrift bleibt
   dann zur Einrichtung offen.
 - Der Fortschritt einer laufenden Verarbeitung bleibt nicht mehr minutenlang auf einem alten Stand stehen.
+- **VERMERK Raum – Gerät ohne USB hinzufügen:** Namen mit Leerzeichen oder Umlauten („Besprechungsraum 3“,
+  „Küche“) werden angenommen; vorher tat der Knopf „Hinzufügen“ dabei nichts.
+- **VERMERK Raum – Anzeige:** „Wartet auf Freigabe am Gerät“ verschwindet nach „Ja“ oder „Nein“ am Gerät und
+  erscheint bei einer neuen Rückfrage sofort (vorher erst nach einem Neustart). Der Live-Text einer Aufnahme
+  verschwindet, sobald sie angekommen ist. Ein Gerät, das sich meldet, steht gleich als verbunden da – auch nach
+  einer Änderung der Einstellungen – statt als „Noch nicht verbunden“ mit dem Knopf „Empfang freigeben“.
+- **VERMERK Raum – Einrichtung per USB:** Der Schalter „Aufnahmen von Geräten annehmen“ zeigt danach „an“.
+- **VERMERK Raum:** Der Schalter „Live mitschreiben und auswerten“ sagt jetzt, dass ohne ihn Aufnahmen nur abgelegt
+  und nicht automatisch verarbeitet werden. Ist der Eingangsordner nicht erreichbar (Netzlaufwerk, USB-Stick), meldet
+  der Empfang das, statt „Anschluss belegt“.
+- **Server mit mehreren Nutzern:** Wird ein Nutzer entfernt, werden seine Aufnahmegeräte „Allgemein“; ihre
+  Aufnahmen landeten sonst in einem Ordner, den niemand mehr sieht.
 
 ## [0.6.0-alpha.1] - 2026-11-22
 
