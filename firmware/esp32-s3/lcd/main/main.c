@@ -142,6 +142,14 @@ static volatile bool ablehnung_melden = false;              /* "Nein" gedrueckt,
 static volatile bool rueckfrage_gesehen = false;            /* die Software hat "transkript" gemeldet: Zwei-Schritt-Ablauf */
 static volatile bool zusammenfassung_gewuenscht = false;    /* "Ja" gedrueckt, noch nicht an die Software gemeldet */
 static volatile bool status_neu_erzwingen = false;          /* Statustext aus dem Zustand neu setzen */
+
+/* Gibt es zu dieser Aufnahme eine Zusammenfassung? Zwei-Schritt-Ablauf und nicht "Nein" gedrueckt. Nach "Nein" meldet
+ * die Software ebenfalls "fertig" (GERAETE-SCHNITTSTELLE.md, keine_zusammenfassung) -- kommt das vor der naechsten
+ * Abfrage an, darf das Geraet nicht "Zusammenfassung fertig" zeigen oder "Protokoll erfolgreich" sagen. */
+static bool mit_zusammenfassung(void)
+{
+    return rueckfrage_gesehen && !zusammenfassung_abgelehnt;
+}
 static int vz_shown_key = -2;
 
 /* Hinweis nach einem Neustart (z. B. versehentlich die Ein/Aus-Taste gedrueckt): Die Taste unterbricht die Stromversorgung
@@ -1823,7 +1831,7 @@ static void update_ui(void)
             fertig_vollbild_zustand != z) {
             fertig_vollbild_zustand = z;
             fertig_vollbild_start = lv_tick_get();
-            const bool protokoll = (z == VERMERK_VERARB_FERTIG && rueckfrage_gesehen);
+            const bool protokoll = (z == VERMERK_VERARB_FERTIG && mit_zusammenfassung());
             lv_label_set_text(fertig_vollbild_text, protokoll ? "ZUSAMMENFASSUNG\nFERTIG" : "TRANSKRIPTION\nERFOLGREICH");
             lv_obj_clear_flag(fertig_vollbild, LV_OBJ_FLAG_HIDDEN);
             ansage_anfordern(protokoll ? ANSAGE_PROTOKOLL : ANSAGE_TRANSKRIPTION);
@@ -1837,7 +1845,7 @@ static void update_ui(void)
             bool abgelaufen = (z == VERMERK_VERARB_FEHLER) &&
                               ((uint32_t)(esp_timer_get_time() / 1000) - verarbeitung_ende_ms) > VERARBEITUNG_ANZEIGE_MS;
             if (!abgelaufen && z >= VERMERK_VERARB_WARTET) {
-                key = (int)z * 10 + (rueckfrage_gesehen ? 1 : 0);
+                key = (int)z * 10 + (mit_zusammenfassung() ? 1 : 0);
             }
         }
         /* Nach "GESPEICHERT" sieht man sonst nicht, dass die Aufnahme gerade zum PC/Server geht */
@@ -1861,7 +1869,7 @@ static void update_ui(void)
                         lv_obj_set_style_text_color(status_label, lv_color_hex(0x59D65C), 0);
                         break;
                     case VERMERK_VERARB_FERTIG:
-                        lv_label_set_text(status_label, rueckfrage_gesehen ? LV_SYMBOL_OK " ZUSAMMENFASSUNG FERTIG"
+                        lv_label_set_text(status_label, mit_zusammenfassung() ? LV_SYMBOL_OK " ZUSAMMENFASSUNG FERTIG"
                                                                            : LV_SYMBOL_OK " TRANSKRIPTION ERFOLGREICH");
                         lv_obj_set_style_text_color(status_label, lv_color_hex(0x59D65C), 0);
                         break;
