@@ -17,27 +17,27 @@
   import Trash2 from '@lucide/svelte/icons/trash-2';
   import Users from '@lucide/svelte/icons/users';
   import { tick, type Component } from 'svelte';
-  import { api } from '$lib/api/client';
-  import type { Besprechung, BesprechungDetails } from '$lib/api/typen';
+  import { api } from '#lib/api/client.ts';
+  import type { Besprechung, BesprechungDetails } from '#lib/api/typen.ts';
   import {
     besprechungsMenue,
     geloeschtMeldung,
     loeschFrage,
     type BesprechungsAktion
-  } from '$lib/logik/besprechungsmenue';
-  import { datumText, dauerText } from '$lib/logik/format';
-  import { oeffnetMenue } from '$lib/logik/kontextmenue';
-  import { ohneBesitzer } from '$lib/logik/teilen';
-  import { transkriptAlsText } from '$lib/logik/transkript';
-  import { VerzoegerterKlick } from '$lib/logik/verzoegerterKlick';
-  import { systempromptFuer, vorlageVorwahl } from '$lib/logik/vorlagen';
-  import { startMeldung } from '$lib/logik/warteschlange';
-  import { inZwischenablage } from '$lib/logik/zwischenablage';
-  import { einstellungen } from '$lib/stores/einstellungen.svelte';
-  import { dialog, meldungen, rueckfrage } from '$lib/stores/oberflaeche.svelte';
-  import { personen } from '$lib/stores/personen.svelte';
-  import { verbindung } from '$lib/stores/verbindung.svelte';
-  import { zustand } from '$lib/stores/zustand.svelte';
+  } from '#lib/logik/besprechungsmenue.ts';
+  import { datumText, dauerText } from '#lib/logik/format.ts';
+  import { oeffnetMenue } from '#lib/logik/kontextmenue.ts';
+  import { ohneBesitzer } from '#lib/logik/teilen.ts';
+  import { transkriptAlsText } from '#lib/logik/transkript.ts';
+  import { VerzoegerterKlick } from '#lib/logik/verzoegerterKlick.ts';
+  import { systempromptFuer, vorlageVorwahl } from '#lib/logik/vorlagen.ts';
+  import { startMeldung } from '#lib/logik/warteschlange.ts';
+  import { inZwischenablage } from '#lib/logik/zwischenablage.ts';
+  import { einstellungen } from '#lib/stores/einstellungen.svelte.ts';
+  import { dialog, meldungen, rueckfrage } from '#lib/stores/oberflaeche.svelte.ts';
+  import { personen } from '#lib/stores/personen.svelte.ts';
+  import { verbindung } from '#lib/stores/verbindung.svelte.ts';
+  import { zustand } from '#lib/stores/zustand.svelte.ts';
   import Kontextmenue from '../Kontextmenue.svelte';
   import ExportDialog from './ExportDialog.svelte';
   import NameFeld from './NameFeld.svelte';

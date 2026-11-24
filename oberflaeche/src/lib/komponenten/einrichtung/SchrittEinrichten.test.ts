@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/svelte';
 import { afterEach, describe, expect, it } from 'vitest';
-import type { Auftrag } from '$lib/api/typen';
-import { zustand } from '$lib/stores/zustand.svelte';
+import type { Auftrag } from '#lib/api/typen.ts';
+import { zustand } from '#lib/stores/zustand.svelte.ts';
 import SchrittEinrichten from './SchrittEinrichten.svelte';
 
 const BEDINGUNGEN = 'https://huggingface.co/pyannote/speaker-diarization-community-1';

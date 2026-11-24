@@ -7,15 +7,15 @@
   import Square from '@lucide/svelte/icons/square';
   import X from '@lucide/svelte/icons/x';
   import { tick } from 'svelte';
-  import { fragen } from '$lib/api/chat';
-  import { api } from '$lib/api/client';
-  import type { Besprechung, ChatNachricht, ChatVerlaufKurz } from '$lib/api/typen';
-  import Kopf from '$lib/komponenten/Kopf.svelte';
-  import LeerZustand from '$lib/komponenten/LeerZustand.svelte';
-  import Markdown from '$lib/komponenten/Markdown.svelte';
-  import { zeitLesen } from '$lib/logik/format';
-  import { dialog, meldungen } from '$lib/stores/oberflaeche.svelte';
-  import { verbindung } from '$lib/stores/verbindung.svelte';
+  import { fragen } from '#lib/api/chat.ts';
+  import { api } from '#lib/api/client.ts';
+  import type { Besprechung, ChatNachricht, ChatVerlaufKurz } from '#lib/api/typen.ts';
+  import Kopf from '#lib/komponenten/Kopf.svelte';
+  import LeerZustand from '#lib/komponenten/LeerZustand.svelte';
+  import Markdown from '#lib/komponenten/Markdown.svelte';
+  import { zeitLesen } from '#lib/logik/format.ts';
+  import { dialog, meldungen } from '#lib/stores/oberflaeche.svelte.ts';
+  import { verbindung } from '#lib/stores/verbindung.svelte.ts';
 
   interface Eintrag extends ChatNachricht {
     laeuft?: boolean;

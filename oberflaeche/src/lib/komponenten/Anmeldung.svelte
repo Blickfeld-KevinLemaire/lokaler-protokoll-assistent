@@ -4,8 +4,8 @@
    * sonst genügt der Zugangsschlüssel.
    */
   import { onMount } from 'svelte';
-  import { api, ApiFehler } from '$lib/api/client';
-  import { verbindung } from '$lib/stores/verbindung.svelte';
+  import { api, ApiFehler } from '#lib/api/client.ts';
+  import { verbindung } from '#lib/stores/verbindung.svelte.ts';
 
   type Art = 'passwort' | 'schluessel';
   const ART_SCHLUESSEL = 'vermerk.anmeldeart';

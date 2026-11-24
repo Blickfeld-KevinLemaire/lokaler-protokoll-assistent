@@ -1,10 +1,10 @@
 <script lang="ts">
   /** Besprechung mit einzelnen Personen oder allen teilen. */
-  import { api } from '$lib/api/client';
-  import type { BesprechungDetails } from '$lib/api/typen';
-  import { dialog, meldungen } from '$lib/stores/oberflaeche.svelte';
-  import { personen } from '$lib/stores/personen.svelte';
-  import { verbindung } from '$lib/stores/verbindung.svelte';
+  import { api } from '#lib/api/client.ts';
+  import type { BesprechungDetails } from '#lib/api/typen.ts';
+  import { dialog, meldungen } from '#lib/stores/oberflaeche.svelte.ts';
+  import { personen } from '#lib/stores/personen.svelte.ts';
+  import { verbindung } from '#lib/stores/verbindung.svelte.ts';
   import Dialog from '../Dialog.svelte';
 
   let {

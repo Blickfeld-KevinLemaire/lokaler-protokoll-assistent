@@ -8,10 +8,10 @@
   import Settings from '@lucide/svelte/icons/settings';
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
-  import { api } from '$lib/api/client';
-  import { KUERZEL_TEXT } from '$lib/logik/tasten';
-  import { dialog } from '$lib/stores/oberflaeche.svelte';
-  import { verbindung } from '$lib/stores/verbindung.svelte';
+  import { api } from '#lib/api/client.ts';
+  import { KUERZEL_TEXT } from '#lib/logik/tasten.ts';
+  import { dialog } from '#lib/stores/oberflaeche.svelte.ts';
+  import { verbindung } from '#lib/stores/verbindung.svelte.ts';
   import StatusBereich from './StatusBereich.svelte';
 
   const eintraege = [

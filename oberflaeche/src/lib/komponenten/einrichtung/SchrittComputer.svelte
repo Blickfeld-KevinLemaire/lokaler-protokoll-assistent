@@ -4,8 +4,8 @@
   import FileText from '@lucide/svelte/icons/file-text';
   import MessagesSquare from '@lucide/svelte/icons/messages-square';
   import { onMount } from 'svelte';
-  import { BEREICHE, dauerText, empfehlungText, schrittFuer, urteil } from '$lib/logik/einrichtung';
-  import { einrichtung } from '$lib/stores/einrichtung.svelte';
+  import { BEREICHE, dauerText, empfehlungText, schrittFuer, urteil } from '#lib/logik/einrichtung.ts';
+  import { einrichtung } from '#lib/stores/einrichtung.svelte.ts';
   import Fortschritt from '../Fortschritt.svelte';
   import Info from '../Info.svelte';
 

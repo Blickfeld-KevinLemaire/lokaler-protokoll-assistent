@@ -1,11 +1,11 @@
 import { createEvent, fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { tick } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { api } from '$lib/api/client';
-import type { Besprechung, BesprechungDetails, Info } from '$lib/api/typen';
-import { rueckfrage } from '$lib/stores/oberflaeche.svelte';
-import { verbindung } from '$lib/stores/verbindung.svelte';
-import { zustand } from '$lib/stores/zustand.svelte';
+import { api } from '#lib/api/client.ts';
+import type { Besprechung, BesprechungDetails, Info } from '#lib/api/typen.ts';
+import { rueckfrage } from '#lib/stores/oberflaeche.svelte.ts';
+import { verbindung } from '#lib/stores/verbindung.svelte.ts';
+import { zustand } from '#lib/stores/zustand.svelte.ts';
 import { INFO } from '../../../test/hilfen';
 import BesprechungsTabelle from './BesprechungsTabelle.svelte';
 

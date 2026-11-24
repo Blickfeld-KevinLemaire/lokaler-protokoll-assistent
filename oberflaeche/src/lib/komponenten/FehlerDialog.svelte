@@ -1,8 +1,8 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
-  import { einrichtung } from '$lib/stores/einrichtung.svelte';
-  import { dialog } from '$lib/stores/oberflaeche.svelte';
-  import { verbindung } from '$lib/stores/verbindung.svelte';
+  import { einrichtung } from '#lib/stores/einrichtung.svelte.ts';
+  import { dialog } from '#lib/stores/oberflaeche.svelte.ts';
+  import { verbindung } from '#lib/stores/verbindung.svelte.ts';
   import Dialog from './Dialog.svelte';
 
   const f = $derived(dialog.fehler);

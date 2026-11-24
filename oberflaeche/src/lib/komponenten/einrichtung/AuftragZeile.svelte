@@ -2,13 +2,13 @@
   /** Ein Einrichtungsauftrag, ruhig dargestellt: was, wie weit, wann fertig. */
   import Check from '@lucide/svelte/icons/check';
   import CircleAlert from '@lucide/svelte/icons/circle-alert';
-  import type { Auftrag } from '$lib/api/typen';
-  import { textMitAdressen } from '$lib/logik/format';
-  import { zeitenFuerAuftrag } from '$lib/logik/restzeit';
-  import { stufenText } from '$lib/logik/stufen';
-  import { auftragTitel } from '$lib/logik/warteschlange';
-  import { uhr } from '$lib/stores/oberflaeche.svelte';
-  import { zustand } from '$lib/stores/zustand.svelte';
+  import type { Auftrag } from '#lib/api/typen.ts';
+  import { textMitAdressen } from '#lib/logik/format.ts';
+  import { zeitenFuerAuftrag } from '#lib/logik/restzeit.ts';
+  import { stufenText } from '#lib/logik/stufen.ts';
+  import { auftragTitel } from '#lib/logik/warteschlange.ts';
+  import { uhr } from '#lib/stores/oberflaeche.svelte.ts';
+  import { zustand } from '#lib/stores/zustand.svelte.ts';
   import Fortschritt from '../Fortschritt.svelte';
 
   let { auftrag, wiederholen }: { auftrag: Auftrag; wiederholen?: () => void } = $props();

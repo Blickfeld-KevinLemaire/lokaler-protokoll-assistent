@@ -1,7 +1,7 @@
 <script lang="ts">
   /** „Arbeitsweise“: je Bereich auf diesem Computer oder über einen Online-Dienst. */
-  import { BEREICHE, schrittFuer, urteil, type Modus } from '$lib/logik/einrichtung';
-  import { einrichtung } from '$lib/stores/einrichtung.svelte';
+  import { BEREICHE, schrittFuer, urteil, type Modus } from '#lib/logik/einrichtung.ts';
+  import { einrichtung } from '#lib/stores/einrichtung.svelte.ts';
   import Wahl from '../einstellungen/Wahl.svelte';
   import Info from '../Info.svelte';
 

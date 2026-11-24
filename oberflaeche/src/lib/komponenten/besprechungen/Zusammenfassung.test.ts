@@ -1,8 +1,8 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { api } from '$lib/api/client';
-import type { Auftrag, BesprechungDetails, Einstellungen } from '$lib/api/typen';
-import { einstellungen } from '$lib/stores/einstellungen.svelte';
+import { api } from '#lib/api/client.ts';
+import type { Auftrag, BesprechungDetails, Einstellungen } from '#lib/api/typen.ts';
+import { einstellungen } from '#lib/stores/einstellungen.svelte.ts';
 import Zusammenfassung from './Zusammenfassung.svelte';
 
 const VORLAGEN = [

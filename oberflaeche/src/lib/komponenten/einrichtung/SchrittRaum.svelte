@@ -4,10 +4,10 @@
   import Radio from '@lucide/svelte/icons/radio';
   import Usb from '@lucide/svelte/icons/usb';
   import { onMount } from 'svelte';
-  import { api } from '$lib/api/client';
-  import type { GeraetEintrag } from '$lib/api/typen';
-  import { einstellungen } from '$lib/stores/einstellungen.svelte';
-  import { verbindung } from '$lib/stores/verbindung.svelte';
+  import { api } from '#lib/api/client.ts';
+  import type { GeraetEintrag } from '#lib/api/typen.ts';
+  import { einstellungen } from '#lib/stores/einstellungen.svelte.ts';
+  import { verbindung } from '#lib/stores/verbindung.svelte.ts';
   import GeraetHinzufuegen from '../raum/GeraetHinzufuegen.svelte';
   import UsbEinrichtung from '../raum/UsbEinrichtung.svelte';
   import Info from '../Info.svelte';

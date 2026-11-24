@@ -1,10 +1,10 @@
 <script lang="ts">
   /** Online-Dienst wählen: fertige Anbieter, Zugangsschlüssel; Adresse und Modell unter „Erweitert“. */
   import Check from '@lucide/svelte/icons/check';
-  import { api } from '$lib/api/client';
-  import type { Anbieter, Einstellungen, SchluesselStand } from '$lib/api/typen';
-  import { einstellungen } from '$lib/stores/einstellungen.svelte';
-  import { dialog, meldungen } from '$lib/stores/oberflaeche.svelte';
+  import { api } from '#lib/api/client.ts';
+  import type { Anbieter, Einstellungen, SchluesselStand } from '#lib/api/typen.ts';
+  import { einstellungen } from '#lib/stores/einstellungen.svelte.ts';
+  import { dialog, meldungen } from '#lib/stores/oberflaeche.svelte.ts';
   import Erweitert from '../Erweitert.svelte';
 
   type Bereich = 'transkription' | 'nachbearbeitung' | 'chat';

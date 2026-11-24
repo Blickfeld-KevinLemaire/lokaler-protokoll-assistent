@@ -5,7 +5,7 @@
    * geben den Fokus zurück; ein Klick daneben oder Verlassen des Fensters schließt auch. Es bleibt ganz im Fenster.
    */
   import { onMount } from 'svelte';
-  import { imFenster, naechster, perAnfangsbuchstabe, type MenuePunkt } from '$lib/logik/kontextmenue';
+  import { imFenster, naechster, perAnfangsbuchstabe, type MenuePunkt } from '#lib/logik/kontextmenue.ts';
 
   let {
     x,

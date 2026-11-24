@@ -2,11 +2,11 @@
   /** Vorlagen für Zusammenfassungen bearbeiten; „Standard“ ist der allgemeine Auftrag. */
   import Check from '@lucide/svelte/icons/check';
   import Plus from '@lucide/svelte/icons/plus';
-  import { api } from '$lib/api/client';
-  import type { Vorlage } from '$lib/api/typen';
-  import { einstellungen } from '$lib/stores/einstellungen.svelte';
-  import { dialog, meldungen } from '$lib/stores/oberflaeche.svelte';
-  import { verbindung } from '$lib/stores/verbindung.svelte';
+  import { api } from '#lib/api/client.ts';
+  import type { Vorlage } from '#lib/api/typen.ts';
+  import { einstellungen } from '#lib/stores/einstellungen.svelte.ts';
+  import { dialog, meldungen } from '#lib/stores/oberflaeche.svelte.ts';
+  import { verbindung } from '#lib/stores/verbindung.svelte.ts';
 
   const STANDARD = '';
 

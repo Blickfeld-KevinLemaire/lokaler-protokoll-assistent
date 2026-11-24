@@ -16,9 +16,9 @@
     wahlVollstaendig,
     zustimmungMoeglich,
     zustimmungSetzen
-  } from '$lib/logik/einrichtung';
-  import { einrichtung } from '$lib/stores/einrichtung.svelte';
-  import { dialog } from '$lib/stores/oberflaeche.svelte';
+  } from '#lib/logik/einrichtung.ts';
+  import { einrichtung } from '#lib/stores/einrichtung.svelte.ts';
+  import { dialog } from '#lib/stores/oberflaeche.svelte.ts';
   import Info from '../Info.svelte';
 
   const ERKLAERUNG: Record<string, string> = {

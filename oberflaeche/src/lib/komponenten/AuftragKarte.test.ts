@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/svelte';
 import { describe, expect, it } from 'vitest';
-import type { Auftrag } from '$lib/api/typen';
+import type { Auftrag } from '#lib/api/typen.ts';
 import AuftragKarte from './AuftragKarte.svelte';
 
 function auftrag(teil: Partial<Auftrag>): Auftrag {

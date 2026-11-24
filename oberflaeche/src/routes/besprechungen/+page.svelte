@@ -6,18 +6,18 @@
   import { tick } from 'svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
-  import { api } from '$lib/api/client';
-  import type { Besprechung } from '$lib/api/typen';
-  import BesprechungsTabelle from '$lib/komponenten/besprechungen/BesprechungsTabelle.svelte';
-  import Details from '$lib/komponenten/besprechungen/Details.svelte';
-  import Kopf from '$lib/komponenten/Kopf.svelte';
-  import LeerZustand from '$lib/komponenten/LeerZustand.svelte';
-  import { zeitLesen } from '$lib/logik/format';
-  import { KUERZEL_TEXT } from '$lib/logik/tasten';
-  import { dialog } from '$lib/stores/oberflaeche.svelte';
-  import { personen } from '$lib/stores/personen.svelte';
-  import { verbindung } from '$lib/stores/verbindung.svelte';
-  import { zustand } from '$lib/stores/zustand.svelte';
+  import { api } from '#lib/api/client.ts';
+  import type { Besprechung } from '#lib/api/typen.ts';
+  import BesprechungsTabelle from '#lib/komponenten/besprechungen/BesprechungsTabelle.svelte';
+  import Details from '#lib/komponenten/besprechungen/Details.svelte';
+  import Kopf from '#lib/komponenten/Kopf.svelte';
+  import LeerZustand from '#lib/komponenten/LeerZustand.svelte';
+  import { zeitLesen } from '#lib/logik/format.ts';
+  import { KUERZEL_TEXT } from '#lib/logik/tasten.ts';
+  import { dialog } from '#lib/stores/oberflaeche.svelte.ts';
+  import { personen } from '#lib/stores/personen.svelte.ts';
+  import { verbindung } from '#lib/stores/verbindung.svelte.ts';
+  import { zustand } from '#lib/stores/zustand.svelte.ts';
 
   let liste = $state<Besprechung[] | null>(null);
   let suche = $state('');
@@ -46,7 +46,7 @@
   $effect(() => {
     if (!page.url.searchParams.get('suche') || !suchfeld) return;
     void tick().then(() => suchfeld?.focus());
-    void goto('/besprechungen', { replaceState: true, keepFocus: true, noScroll: true });
+    void goto('/besprechungen', { replace: true, reset: false });
   });
 
   // Aus dem Status-Bereich kommt der Pfad des Transkripts; daraus wird die Besprechung.
@@ -56,7 +56,7 @@
     if (treffer) {
       const reiter = page.url.searchParams.get('reiter');
       void goto(`/besprechungen?id=${encodeURIComponent(treffer.id)}${reiter ? `&reiter=${reiter}` : ''}`, {
-        replaceState: true
+        replace: true
       });
     }
   });

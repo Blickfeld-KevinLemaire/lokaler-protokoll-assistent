@@ -1,7 +1,7 @@
 <script lang="ts">
-  import type { Segment } from '$lib/api/typen';
-  import { zeitmarke } from '$lib/logik/format';
-  import { transkriptBloecke } from '$lib/logik/transkript';
+  import type { Segment } from '#lib/api/typen.ts';
+  import { zeitmarke } from '#lib/logik/format.ts';
+  import { transkriptBloecke } from '#lib/logik/transkript.ts';
 
   let { segmente }: { segmente: Segment[] } = $props();
 

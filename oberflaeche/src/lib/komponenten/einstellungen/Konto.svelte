@@ -1,11 +1,11 @@
 <script lang="ts">
   /** Eigenes Konto (Servermodus): Passwort, eigene Zugangsschlüssel, Abmelden. */
   import X from '@lucide/svelte/icons/x';
-  import { api } from '$lib/api/client';
-  import type { NeuerZugang, Nutzer } from '$lib/api/typen';
-  import { datumText } from '$lib/logik/format';
-  import { dialog, meldungen, rueckfrage } from '$lib/stores/oberflaeche.svelte';
-  import { verbindung } from '$lib/stores/verbindung.svelte';
+  import { api } from '#lib/api/client.ts';
+  import type { NeuerZugang, Nutzer } from '#lib/api/typen.ts';
+  import { datumText } from '#lib/logik/format.ts';
+  import { dialog, meldungen, rueckfrage } from '#lib/stores/oberflaeche.svelte.ts';
+  import { verbindung } from '#lib/stores/verbindung.svelte.ts';
   import Info from '../Info.svelte';
   import SchluesselEinmal from './SchluesselEinmal.svelte';
 
