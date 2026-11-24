@@ -6,6 +6,7 @@
   import { api } from '$lib/api/client';
   import type { BesprechungDetails } from '$lib/api/typen';
   import { datumText, dauerText } from '$lib/logik/format';
+  import { ohneBesitzer, teilenMoeglich } from '$lib/logik/teilen';
   import { dialog } from '$lib/stores/oberflaeche.svelte';
   import { personen } from '$lib/stores/personen.svelte';
   import { verbindung } from '$lib/stores/verbindung.svelte';
@@ -104,10 +105,11 @@
         <span>{dauerText(details.dauer_sekunden)}</span>
         {#if details.anzahl_sprecher}<span>{details.anzahl_sprecher} Sprecher</span>{/if}
         {#if !eigen}<span class="geteilt">geteilt von {personen.anzeigename(details.besitzer)}</span>{/if}
+        {#if ohneBesitzer(details, verbindung.mehrbenutzer)}<span>ohne Besitzer</span>{/if}
       </div>
     {/if}
   </div>
-  {#if details && eigen && verbindung.mehrbenutzer}
+  {#if details && teilenMoeglich(details, verbindung.mehrbenutzer)}
     <button class="knopf" type="button" onclick={() => (teilenOffen = true)}>
       {#if details.geteilt_mit?.length}<Users size={16} /> Geteilt{:else}Teilen{/if}
     </button>

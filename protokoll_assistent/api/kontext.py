@@ -14,7 +14,7 @@ from protokoll_assistent.ablauf.aufnahme import Aufnahmesteuerung
 from protokoll_assistent.ablauf.freigaben import Freigaben
 from protokoll_assistent.ablauf.geraete_automatik import GeraeteAutomatik
 from protokoll_assistent.ablauf.nutzer import Nutzerverwaltung
-from protokoll_assistent.ablauf.steuerung import Steuerung
+from protokoll_assistent.ablauf.steuerung import NUTZER_ORDNER, Steuerung
 from protokoll_assistent.api.sicherheit import ROLLE_DESKTOP, Zugang
 
 
@@ -96,12 +96,26 @@ class Dienste:
             if eingabe:
                 ordner.append(Path(eingabe))
         for basis in ordner:
-            try:
-                aufgeloest.relative_to(basis.resolve())
-            except ValueError:
-                continue
+            if _liegt_in(aufgeloest, basis):
+                return aufgeloest
+        if (
+            self.mehrbenutzer
+            and wer is not None
+            and wer.admin
+            and _liegt_in(aufgeloest, self.ausgabe_basis())
+            and not _liegt_in(aufgeloest, self.ausgabe_basis() / NUTZER_ORDNER)
+        ):
+            # Ergebnisse ohne Besitzer (allgemeiner Ordner) verwalten die Admins -- die Ordner der Nutzer nicht.
             return aufgeloest
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Auf diesen Ordner gibt es hier keinen Zugriff.")
+
+
+def _liegt_in(pfad: Path, basis: Path) -> bool:
+    try:
+        pfad.relative_to(basis.resolve())
+    except ValueError:
+        return False
+    return True
 
 
 def dienste(request: Request) -> Dienste:

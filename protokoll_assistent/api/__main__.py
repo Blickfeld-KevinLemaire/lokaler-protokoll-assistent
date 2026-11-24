@@ -247,15 +247,36 @@ def eingang_einrichten(dienste: Dienste, umgebung: dict[str, str] | None = None)
     # Ohne eigene Einstellung landen die Ergebnisse im Ausgangsordner des Containers.
     if not dienste.steuerung.konfiguration().get("ausgabeordner"):
         app_config.update_config(ausgabeordner=str(einstellungen.ausgang))
-    besitzer = (umgebung.get("PROTOKOLL_EINGANG_NUTZER") or "").strip() or None
-    if besitzer is not None and (dienste.nutzer is None or dienste.nutzer.hole(besitzer) is None):
+    gewuenscht = (umgebung.get("PROTOKOLL_EINGANG_NUTZER") or "").strip() or None
+    nutzer = dienste.nutzer
+
+    def besitzer_aufloesen() -> str | None:
+        # Je Datei neu nachgesehen: Der Nutzer wird oft erst nach dem ersten Start angelegt (README: erst den
+        # Container starten, dann den ersten Admin). Der Anmeldename aus der Nutzerliste bestimmt den Ordner --
+        # "Anna" in der .env darf nicht neben "anna" einen zweiten anlegen, den niemand sieht.
+        if gewuenscht is None or nutzer is None:
+            return None
+        try:
+            gefunden = nutzer.hole(gewuenscht)
+        except NutzerFehler:
+            return None
+        return gefunden.name if gefunden is not None else None
+
+    besitzer = besitzer_aufloesen()
+    if gewuenscht is not None and besitzer is None:
         dienste.steuerung.hinweis(
-            f"PROTOKOLL_EINGANG_NUTZER: Den Nutzer „{besitzer}“ gibt es nicht; Ergebnisse sehen nur Admins.",
+            f"PROTOKOLL_EINGANG_NUTZER: Den Nutzer „{gewuenscht}“ gibt es (noch) nicht; bis er angelegt ist, "
+            "sehen die Ergebnisse nur Admins.",
             stufe="fehler",
             quelle="netz",
         )
-        besitzer = None
-    return EingangsWache(dienste.steuerung, einstellungen, paths.get_work_dir() / "eingang_zustand.json", besitzer=besitzer)
+    return EingangsWache(
+        dienste.steuerung,
+        einstellungen,
+        paths.get_work_dir() / "eingang_zustand.json",
+        besitzer=besitzer,
+        besitzer_aufloesen=besitzer_aufloesen if gewuenscht is not None and nutzer is not None else None,
+    )
 
 
 def starten(argumente: argparse.Namespace, argv: Sequence[str] = ()) -> int:

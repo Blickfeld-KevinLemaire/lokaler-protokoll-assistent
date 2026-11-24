@@ -173,3 +173,25 @@ def test_eingang_einrichten_aus_der_umgebung(tmp_path: Path, monkeypatch: pytest
     dienste.nutzer.anlegen("anna", admin=True)
     wache = start.eingang_einrichten(dienste, {"PROTOKOLL_EINGANG": str(tmp_path / "e"), "PROTOKOLL_EINGANG_NUTZER": "anna"})
     assert wache is not None and wache.besitzer == "anna"
+
+
+def test_eingang_nutzer_erst_nach_dem_start_angelegt(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """README: Container starten, danach den ersten Admin anlegen. Der Nutzer aus PROTOKOLL_EINGANG_NUTZER fehlte beim
+    Start -- bisher gehoerten deshalb alle Aufnahmen bis zum naechsten Neustart niemandem. Ausserdem bestimmt die
+    Schreibweise der Nutzerliste den Ordner ("Anna" in der .env, Nutzer "anna")."""
+    eigene_konfiguration(monkeypatch, tmp_path)
+    monkeypatch.setattr(start.paths, "get_work_dir", lambda: tmp_path / "arbeit")
+    dienste = start.dienste_erstellen(ROLLE_SERVER, None, mehrbenutzer=True)
+    umgebung = {"PROTOKOLL_EINGANG": str(tmp_path / "e"), "PROTOKOLL_STABIL_SEKUNDEN": "0", "PROTOKOLL_EINGANG_NUTZER": "Anna"}
+    wache = start.eingang_einrichten(dienste, umgebung)
+    assert wache is not None and wache.besitzer is None
+    wache.einstellungen.eingang.mkdir(parents=True)
+    verarbeiten = Verarbeitung()
+    wache._verarbeiten = verarbeiten
+    assert dienste.nutzer is not None
+    dienste.nutzer.anlegen("anna")  # erst jetzt, im laufenden Betrieb
+    _datei, auftrag = _eingereihte_datei(wache, "sitzung.wav")
+    assert auftrag.besitzer == "anna"
+    alle_auftraege_ausfuehren(dienste.steuerung)
+    assert verarbeiten.aufrufe[0][1] == dienste.steuerung.ausgabeordner("anna")
+    assert dienste.steuerung.ausgabeordner("anna").name == "anna"

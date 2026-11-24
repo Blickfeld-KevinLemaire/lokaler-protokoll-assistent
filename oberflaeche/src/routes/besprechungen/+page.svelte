@@ -14,6 +14,7 @@
   import Kopf from '$lib/komponenten/Kopf.svelte';
   import LeerZustand from '$lib/komponenten/LeerZustand.svelte';
   import { datumText, dauerText, zeitLesen } from '$lib/logik/format';
+  import { ohneBesitzer } from '$lib/logik/teilen';
   import { KUERZEL_TEXT } from '$lib/logik/tasten';
   import { dialog } from '$lib/stores/oberflaeche.svelte';
   import { personen } from '$lib/stores/personen.svelte';
@@ -119,6 +120,8 @@
               <span class="geteilt">geteilt von {personen.anzeigename(b.besitzer)}</span>
             {:else if verbindung.mehrbenutzer && b.geteilt_mit?.length}
               <span class="geteilt leise" title="Geteilt"><Users size={16} /></span>
+            {:else if ohneBesitzer(b, verbindung.mehrbenutzer)}
+              <span class="geteilt leise">ohne Besitzer</span>
             {/if}
           </span>
           <span role="cell" class="leise">{datumText(b.zeit)}</span>

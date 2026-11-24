@@ -12,6 +12,7 @@ from protokoll_assistent.ablauf import freigaben as freigaben_modul
 from protokoll_assistent.ablauf.freigaben import Freigaben
 from protokoll_assistent.ablauf.nutzer import NutzerFehler, Nutzerverwaltung, passwort_hash, passwort_passt
 from protokoll_assistent.api.sicherheit import ROLLE_SERVER
+from protokoll_assistent.tests.ablauf_hilfen import transkript_json_schreiben
 from protokoll_assistent.tests.api_hilfen import Umgebung, app_bauen, eigene_konfiguration
 
 PASSWORT = "ein-sicheres-passwort"
@@ -224,6 +225,89 @@ def test_selbstverwaltung(server: Umgebung) -> None:
     assert anna.post("/api/ich/zugaenge", json={"bezeichnung": "Handy"}).status_code == 400
     assert anna.delete("/api/ich/zugaenge/Handy").json() == {"entfernt": True}
     assert anna.delete("/api/ich/zugaenge/Handy").status_code == 400
+
+
+def test_neue_zusammenfassung_landet_neben_dem_transkript(server: Umgebung) -> None:
+    """Der Eingangsordner legt je Aufnahme einen Unterordner an. „Zusammenfassung neu erstellen“ schrieb das Protokoll
+    in den Ausgabeordner des Nutzers -- dort ordnete die Bibliothek es keinem Transkript zu, es blieb unsichtbar."""
+    transkript = transkript_json_schreiben(
+        server.tmp / "aus" / "nutzer" / "anna" / "sitzung_20260101_100000" / "sitzung_lokal_transkript_20260101_100000.json"
+    )
+    anna = _client(server, "anna")
+    [eintrag] = anna.get("/api/besprechungen").json()
+    assert eintrag["hat_protokoll"] is False
+    antwort = anna.post("/api/auftraege/auswertung", json={"transkript": eintrag["transkript"]})
+    assert antwort.status_code == 201, antwort.text
+    server.auftraege_ausfuehren()
+    assert server.pipeline.auswertungen[-1].output_dir == transkript.parent
+    details = anna.get(f"/api/besprechungen/{eintrag['id']}").json()
+    assert details["hat_protokoll"] and details["protokoll"]["text"].startswith("# Protokoll")
+
+
+def test_admins_sehen_ergebnisse_ohne_besitzer(server: Umgebung) -> None:
+    """Eingangsordner ohne PROTOKOLL_EINGANG_NUTZER (Vorgabe) und Geraete ohne Besitzer schreiben in den allgemeinen
+    Ordner. Laut README sehen das die Admins -- bisher sah es niemand ausser dem Notfallzugang."""
+    transkript = transkript_json_schreiben(
+        server.tmp / "aus" / "vorstand_20260101_100000" / "vorstand_lokal_transkript_20260101_100000.json"
+    )
+    annas = transkript_json_schreiben(server.tmp / "aus" / "nutzer" / "anna" / "privat_lokal_transkript_20260101_090000.json")
+    chef, anna = _client(server, "chef"), _client(server, "anna")
+    liste = chef.get("/api/besprechungen").json()
+    assert [(b["titel"], b["besitzer"], b["eigen"]) for b in liste] == [("vorstand", None, True)]
+    kennung = liste[0]["id"]
+    assert kennung == "~vorstand_lokal_transkript_20260101_100000"
+    assert chef.get(f"/api/besprechungen/{kennung}").json()["segmente"][0]["text"] == "Hallo zusammen."
+    assert chef.put(f"/api/besprechungen/{kennung}/sprecher", json={"namen": {"SPEAKER_00": "Vorsitz"}}).status_code == 200
+    assert chef.put(f"/api/besprechungen/{kennung}/freigabe", json={"mit": ["anna"]}).status_code == 400
+    # Zusammenfassen geht -- auch das landet neben dem Transkript im allgemeinen Ordner.
+    assert chef.post("/api/auftraege/auswertung", json={"transkript": str(transkript)}).status_code == 201
+    server.auftraege_ausfuehren()
+    assert chef.get(f"/api/besprechungen/{kennung}").json()["hat_protokoll"] is True
+    # Nicht-Admins sehen nichts davon, und auch Admins kommen nicht in die Ordner der Nutzer.
+    assert [b["titel"] for b in anna.get("/api/besprechungen").json()] == ["privat"]
+    assert anna.get(f"/api/besprechungen/{kennung}").status_code == 404
+    assert anna.post("/api/auftraege/auswertung", json={"transkript": str(transkript)}).status_code == 403
+    assert chef.post("/api/auftraege/auswertung", json={"transkript": str(annas)}).status_code == 403
+
+
+def test_freigabe_bleibt_aenderbar_wenn_ein_nutzer_entfernt_wurde(server: Umgebung) -> None:
+    """Die Oberflaeche schickt beim Teilen die bisherige Liste mit; ein inzwischen entfernter Kollege steht darin,
+    wird aber nicht mehr angezeigt. Bisher lehnte der Dienst das als „Unbekannte Nutzer“ ab -- die Freigabe liess
+    sich gar nicht mehr aendern."""
+    assert server.dienste.nutzer is not None
+    server.dienste.nutzer.anlegen("carla")
+    transkript_json_schreiben(server.tmp / "aus" / "nutzer" / "anna" / "runde_lokal_transkript_20260101_100000.json")
+    anna, chef = _client(server, "anna"), _client(server, "chef")
+    kennung = anna.get("/api/besprechungen").json()[0]["id"]
+    assert anna.put(f"/api/besprechungen/{kennung}/freigabe", json={"mit": ["ben", "carla"]}).json() == {"geteilt_mit": ["ben", "carla"]}
+    assert chef.delete("/api/nutzer/carla").json() == {"entfernt": True}
+    # Ben nicht mehr: Die Oberflaeche schickt nur noch carla mit.
+    assert anna.put(f"/api/besprechungen/{kennung}/freigabe", json={"mit": ["carla"]}).json() == {"geteilt_mit": []}
+    assert anna.put(f"/api/besprechungen/{kennung}/freigabe", json={"mit": ["carla"]}).status_code == 400  # neu: unbekannt
+
+
+def test_letzten_eigenen_zugang_nicht_entfernen(server: Umgebung) -> None:
+    """Wer kein Passwort hat, sperrte sich mit dem Entfernen seines einzigen Zugangsschluessels selbst aus -- beim
+    ersten Admin (nutzer-anlegen gibt nur einen Schluessel aus) blieb dann nur der Notfallzugang."""
+    ben = _client(server, "ben")
+    antwort = ben.delete("/api/ich/zugaenge/Skript")
+    assert antwort.status_code == 400 and "einziger Zugang" in antwort.json()["detail"]
+    assert ben.get("/api/info").status_code == 200
+    ben.post("/api/ich/zugaenge", json={"bezeichnung": "Zweiter"})
+    assert ben.delete("/api/ich/zugaenge/Zweiter").json() == {"entfernt": True}
+
+
+def test_nutzer_bearbeiten_bevor_es_einen_admin_gibt(tmp_path: Path) -> None:
+    """Ersteinrichtung ueber VERMERK_ZUGANG: Solange noch kein Nutzer Admin ist, scheiterte jede Aenderung (auch nur
+    der Anzeigename oder das Entfernen eines falsch angelegten Nutzers) an „mindestens einen aktiven Admin“."""
+    v = Nutzerverwaltung(tmp_path / "nutzer.json")
+    v.anlegen("anna")
+    v.anlegen("tippfehler")
+    assert v.aendern("anna", anzeigename="Anna A.").anzeigename == "Anna A."
+    v.entfernen("tippfehler")
+    assert v.aendern("anna", admin=True).admin is True
+    with pytest.raises(NutzerFehler, match="mindestens einen aktiven Admin"):
+        v.aendern("anna", aktiv=False)
 
 
 def test_desktop_kennt_keine_nutzer(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
