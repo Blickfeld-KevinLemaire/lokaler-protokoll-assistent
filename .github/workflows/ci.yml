@@ -149,7 +149,7 @@ jobs:
     # Pflichtpruefungen "... Python 3.10" und "... 3.11" warteten dann ewig.
     if: ${{ !cancelled() }}
     runs-on: windows-latest
-    # Ein haengender Fenstertest soll keinen Windows-Laeufer sechs Stunden
+    # Ein haengender Test soll keinen Windows-Laeufer sechs Stunden
     # (die Vorgabe von GitHub) belegen. Normal sind gut zwei Minuten.
     timeout-minutes: 30
     strategy:
@@ -179,10 +179,6 @@ jobs:
 
       - name: Tests mit Abdeckung
         if: needs.aenderungen.outputs.code != 'false'
-        # Die Fenstertests brauchen eine Desktop-Sitzung; die haben die
-        # Windows-Laeufer von GitHub. Qt laeuft trotzdem unsichtbar.
-        env:
-          QT_QPA_PLATFORM: offscreen
         run: uv run pytest --cov --cov-report=xml --cov-report=term-missing --junitxml=testergebnis.xml
 
       - name: Ergebnis zusammenfassen

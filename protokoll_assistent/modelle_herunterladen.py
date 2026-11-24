@@ -2,10 +2,10 @@
 lokalen Modelle (Whisper-Modell, pyannote, Ollama).
 
 Die eigentliche Download-Logik lebt in
-``services/model_download_service.py`` und wird identisch auch vom
-grafischen Einrichtungsassistenten der Anwendung verwendet (siehe
-``gui/wizard.py``). Dieses Skript ist der Konsolen-/Automatisierungs-Weg,
-z.B. fuer ``Einrichtung-Lokal.ps1``.
+``services/model_download_service.py``; die Ersteinrichtung der Oberflaeche
+laedt die Modelle ueber den Dienst (``api/routen_einrichtung.py``). Dieses
+Skript ist der Konsolen-/Automatisierungs-Weg, z.B. fuer
+``Einrichtung-Lokal.ps1``.
 
 Der Hugging-Face-Token wird ENTWEDER aus der Umgebungsvariable HF_TOKEN
 gelesen ODER -- falls nicht gesetzt -- einmalig verdeckt abgefragt

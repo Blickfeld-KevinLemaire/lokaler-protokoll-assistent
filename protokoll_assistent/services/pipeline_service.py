@@ -113,8 +113,8 @@ class PipelineSettings:
     # abgedeckt ist, bekommt nur noch seinen Rest transkribiert. 'None' = nichts vorab.
     vorab_live: dict[str, Any] | None = None
     # TXT/SRT/VTT neben die Transkript-JSON legen. Die neue Oberflaeche schaltet das ab: Sie zeigt nur das
-    # Word-Dokument und erzeugt alle anderen Formate erst beim Exportieren. Servermodus und Qt-Oberflaeche
-    # behalten die Dateien.
+    # Word-Dokument und erzeugt alle anderen Formate erst beim Exportieren. Ohne diese Vorgabe (etwa im
+    # Servermodus) bleiben die Dateien.
     begleitdateien: bool = True
 
 

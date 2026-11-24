@@ -1,6 +1,6 @@
 # Pakete fuer den Servermodus (Container, ohne Oberflaeche).
 #
-# Bewusst ohne PySide6, sounddevice und keyring: Der Server hat keinen
+# Bewusst ohne sounddevice und keyring: Der Server hat keinen
 # Bildschirm, kein Mikrofon und keine Windows-Anmeldeinformationsverwaltung.
 # Die uebrigen Versionen entsprechen 'requirements-laufzeit.txt'.
 torch~=2.11.0

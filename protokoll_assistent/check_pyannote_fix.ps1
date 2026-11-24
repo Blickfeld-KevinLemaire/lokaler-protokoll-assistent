@@ -23,7 +23,8 @@ $VenvPython = Get-ActiveVenvPython -ScriptDir $ScriptDir
 if (-not (Test-Path $VenvPython)) {
     Write-Host "FEHLER: Es wurde keine virtuelle Umgebung gefunden unter:" -ForegroundColor Red
     Write-Host "  $VenvDir"
-    Write-Host "Bitte zuerst '.\Start-Protokoll-Assistent.ps1' einmal ausfuehren."
+    Write-Host "Bitte zuerst die lokale Einrichtung abschliessen (Ersteinrichtung der Anwendung"
+    Write-Host "oder '.\Einrichtung-Lokal.ps1')."
     exit 1
 }
 

@@ -1,9 +1,9 @@
 """Wiederverwendbare Logik zum einmaligen Herunterladen aller lokalen Modelle.
 
-Wird sowohl vom eigenstaendigen Skript ``Modelle-herunterladen.py`` (Konsole,
-``print``/``getpass``) als auch vom GUI-Einrichtungsassistenten
-(``gui/wizard.py``, Qt-Signale statt Konsole) verwendet. Die eigentliche
-Logik ist bewusst an dieser Stelle einmal implementiert.
+Wird vom eigenstaendigen Skript ``modelle_herunterladen.py`` (Konsole,
+``print``/``getpass``) verwendet; Fortschritt und Token-Abfrage kommen als
+Funktionen herein. Die eigentliche Logik ist bewusst an dieser Stelle einmal
+implementiert.
 """
 
 from __future__ import annotations

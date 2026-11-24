@@ -45,7 +45,7 @@ def test_frozen_ohne_mitgelieferte_laufzeit_tut_nichts(monkeypatch, tmp_path):
     # Nur die reine EXE/das ZIP weitergegeben, ohne die vom Installer
     # mitgelieferte Python-Laufzeitumgebung ('python\python.exe' NEBEN der
     # EXE) -- der lokale Modus laesst sich dann nicht automatisch
-    # einrichten. Das darf nicht abstuerzen; 'main_window.py' faengt den
+    # einrichten. Das darf nicht abstuerzen; der Dienst faengt den
     # fehlenden lokalen Modus beim Start einer Transkription separat ab.
     from protokoll_assistent.utils import paths
 
@@ -59,9 +59,9 @@ def test_frozen_ohne_mitgelieferte_laufzeit_tut_nichts(monkeypatch, tmp_path):
 
 
 def test_frozen_mit_mitgelieferter_laufzeit_richtet_ein_und_startet_neu(monkeypatch, tmp_path):
-    # Der eigentliche, vorher fehlende Fall: die gebaute EXE bringt PySide6 &
+    # Der eigentliche, vorher fehlende Fall: der gebaute Dienst bringt FastAPI &
     # Co. mit, aber bewusst nicht Torch/faster-whisper/pyannote (siehe
-    # 'release.yml') -- fuer den lokalen Modus muss sich das genau wie im
+    # 'vermerk_dienst.spec') -- fuer den lokalen Modus muss sich das genau wie im
     # Quellcode-Betrieb selbst einrichten, nur mit der mitgelieferten
     # Python-Laufzeitumgebung als Basis statt der (nicht dafuer nutzbaren)
     # EXE selbst.
@@ -117,8 +117,8 @@ def _relaunch_cwd_testen(monkeypatch, tmp_path, *, app_dir: Path, hat_konsole: b
         returncode = 0
 
     def _fake_run(befehl, env, cwd, creationflags):
-        # Die Oberflaeche darf kein sichtbares Konsolenfenster bekommen --
-        # ausser sie erbt die Konsole, aus der sie gestartet wurde.
+        # Der Dienst darf kein sichtbares Konsolenfenster bekommen --
+        # ausser er erbt die Konsole, aus der er gestartet wurde.
         assert creationflags == (0 if hat_konsole else KEIN_FENSTER)
         calls.append((befehl, cwd))
         return _FakeCompleted()
@@ -132,7 +132,7 @@ def _relaunch_cwd_testen(monkeypatch, tmp_path, *, app_dir: Path, hat_konsole: b
     assert len(calls) == 1
     befehl, cwd = calls[0]
     schalter = ["-B", "-s"] if getattr(bootstrap.sys, "frozen", False) else []
-    assert befehl == [str(Path("/irgendwo/python.exe")), *schalter, "-m", "protokoll_assistent.app"]
+    assert befehl == [str(Path("/irgendwo/python.exe")), *schalter, "-m", "protokoll_assistent.api"]
     return Path(cwd)
 
 
@@ -156,7 +156,7 @@ def test_relaunch_bleibt_in_app_dir_wenn_gebaut(monkeypatch, tmp_path):
 
 
 def test_relaunch_aus_dem_terminal_behaelt_die_konsole(monkeypatch, tmp_path):
-    # Aus einem Terminal gestartet erbt die Oberflaeche dessen Konsole, ohne
+    # Aus einem Terminal gestartet erbt der Dienst dessen Konsole, ohne
     # ein neues Fenster -- die Ausgabe bleibt dort fuer Entwickler sichtbar.
     cwd = _relaunch_cwd_testen(monkeypatch, tmp_path, app_dir=tmp_path / "protokoll_assistent", hat_konsole=True)
     assert cwd == tmp_path
@@ -322,7 +322,7 @@ def test_installation_failure_exits_nonzero_and_does_not_relaunch(monkeypatch, t
 
     relaunch_calls = []
     monkeypatch.setattr(bootstrap, "_relaunch", lambda python_exe: relaunch_calls.append(python_exe))
-    # Ohne Fenster (Quelltext-Start mit einem Python ohne PySide6) bleibt es beim Abbruch.
+    # Ohne Dienst (Quelltext-Start mit einem Python ohne FastAPI) bleibt es beim Abbruch.
     monkeypatch.setattr(bootstrap, "_ohne_rechenumgebung_weiter", lambda: False)
 
     with pytest.raises(SystemExit) as exc_info:
@@ -390,7 +390,7 @@ FRISCH = {"transkription_modus": "lokal", "einrichtung_abgeschlossen": False, "e
         ({**FRISCH, "transkription_modus": "api"}, True, True, False),  # API: nie
         (FRISCH, True, False, False),  # frische Installation: erst fragen
         (FRISCH, True, True, True),  # schon eingerichtet: wie immer hineinwechseln
-        (FRISCH, False, False, True),  # ohne PySide6 kein Fenster: bisheriger Weg
+        (FRISCH, False, False, True),  # ohne Oberflaeche, die fragen koennte: direkter Weg
         ({**FRISCH, "einrichtung_fortsetzen": "transkription"}, True, False, True),  # zugestimmt, Neustart
         ({**FRISCH, "einrichtung_abgeschlossen": True}, True, False, True),  # in den Einstellungen auf "Lokal" gestellt
         ({**FRISCH, "einrichtung_abgeschlossen": True, "einrichtung_fortsetzen": "transkription"}, True, False, True),
@@ -399,28 +399,6 @@ FRISCH = {"transkription_modus": "lokal", "einrichtung_abgeschlossen": False, "e
 )
 def test_rechenumgebung_nur_mit_zustimmung(konfig, fenster, laufzeit, erwartet):
     assert bootstrap.laufzeit_beim_start_einrichten(konfig, fenster, laufzeit) is erwartet
-
-
-def test_neustart_aus_dem_quelltext_als_modul_ohne_markierung(monkeypatch, tmp_path):
-    from protokoll_assistent.utils import paths
-
-    monkeypatch.setattr(paths, "get_app_dir", lambda: tmp_path / "protokoll_assistent")
-    monkeypatch.setattr(paths, "get_paket_dir", lambda: tmp_path / "protokoll_assistent")
-    monkeypatch.setenv(bootstrap.MARKER_ENV_VAR, "1")
-    monkeypatch.delattr(bootstrap.sys, "frozen", raising=False)
-    befehl, ordner, umgebung = bootstrap.neustart_kommando()
-    assert befehl == [bootstrap.sys.executable, "-m", bootstrap.ANWENDUNGSMODUL]
-    assert ordner == tmp_path  # die Projektwurzel (CLAUDE.md, Regel 9)
-    assert bootstrap.MARKER_ENV_VAR not in umgebung
-
-
-def test_neustart_der_gebauten_exe(monkeypatch, tmp_path):
-    from protokoll_assistent.utils import paths
-
-    monkeypatch.setattr(paths, "get_app_dir", lambda: tmp_path)
-    monkeypatch.setattr(bootstrap.sys, "frozen", True, raising=False)
-    befehl, ordner, _umgebung = bootstrap.neustart_kommando()
-    assert befehl == [bootstrap.sys.executable] and ordner == tmp_path
 
 
 def test_pip_aufrufe_der_einrichtung_oeffnen_kein_konsolenfenster(monkeypatch):
@@ -496,7 +474,7 @@ def test_anwendungsordner_aus_der_umgebung(monkeypatch, tmp_path):
     monkeypatch.delattr(paths.sys, "frozen", raising=False)
     monkeypatch.delenv(paths.ANWENDUNGSORDNER_VARIABLE, raising=False)
     paket = paths.get_paket_dir()
-    assert paths.get_app_dir() == paket and (paket / "app.py").is_file()
+    assert paths.get_app_dir() == paket and (paket / "bootstrap.py").is_file()
 
     monkeypatch.setenv(paths.ANWENDUNGSORDNER_VARIABLE, str(tmp_path))
     assert paths.get_app_dir() == tmp_path
@@ -583,18 +561,34 @@ def test_gescheiterte_ersteinrichtung_fuehrt_zurueck_ins_programm(monkeypatch, t
     monkeypatch.setattr(app_config, "get_config_file", lambda: tmp_path / "konfiguration.json")
     app_config.update_config(transkription_modus="lokal", einrichtung_fortsetzen="transkription")
     _umgebung(monkeypatch, tmp_path, python=False, kennung=False)
-    monkeypatch.setattr(bootstrap.importlib.util, "find_spec", lambda name: object())  # PySide6 ist da
+    gefragt: list[str] = []
+    monkeypatch.setattr(bootstrap.importlib.util, "find_spec", lambda name: gefragt.append(name) or object())
     monkeypatch.setattr(
         bootstrap, "_create_venv", lambda venv_dir, base_python=None: (_ for _ in ()).throw(RuntimeError("Platte voll"))
     )
     neustarts = []
     monkeypatch.setattr(bootstrap, "_relaunch", lambda python_exe: neustarts.append(python_exe))
 
-    bootstrap.ensure_runtime_and_relaunch()  # kehrt zurueck: 'app.py' zeigt danach das Hauptfenster
+    bootstrap.ensure_runtime_and_relaunch()  # kehrt zurueck: der Dienst startet danach ohne Rechenumgebung
+
+    assert "fastapi" in gefragt  # FastAPI ist da: Der Dienst kann ohne Rechenumgebung laufen
 
     assert neustarts == []
     assert app_config.load_config()["einrichtung_fortsetzen"] == ""
     assert bootstrap.laufzeit_beim_start_einrichten(app_config.load_config(), True, False) is False
+
+
+def test_ohne_fastapi_kein_weiter_ohne_rechenumgebung(monkeypatch, tmp_path):
+    # Quelltext-Start mit einem nackten Python: Ohne FastAPI startete der Dienst gar nicht -- dann bleibt es
+    # beim Abbruch, und die Einstellungen bleiben unveraendert.
+    from protokoll_assistent.utils import app_config
+
+    monkeypatch.setattr(app_config, "get_config_file", lambda: tmp_path / "konfiguration.json")
+    app_config.update_config(einrichtung_fortsetzen="transkription")
+    monkeypatch.delattr(bootstrap.sys, "frozen", raising=False)
+    monkeypatch.setattr(bootstrap.importlib.util, "find_spec", lambda name: None)
+    assert bootstrap._ohne_rechenumgebung_weiter() is False
+    assert app_config.load_config()["einrichtung_fortsetzen"] == "transkription"
 
 
 def test_halb_angelegte_umgebung_wird_neu_angelegt(monkeypatch, tmp_path):

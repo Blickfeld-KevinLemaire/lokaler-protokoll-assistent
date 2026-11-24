@@ -95,8 +95,6 @@ jobs:
 
       - name: Tests vor dem Build
         # Ein Release soll nie aus einem roten Stand entstehen.
-        env:
-          QT_QPA_PLATFORM: offscreen
         run: uv run pytest --junitxml=testergebnis.xml
 
       - name: Testergebnis zusammenfassen

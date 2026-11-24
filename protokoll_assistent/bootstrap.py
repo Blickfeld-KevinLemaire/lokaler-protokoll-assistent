@@ -1,20 +1,24 @@
-"""Selbstinstallierende Laufzeitumgebung -- macht die Anwendung auf jedem
+"""Selbstinstallierende Laufzeitumgebung -- macht den lokalen Modus auf jedem
 PC lauffaehig, ohne dass vorher manuell eine virtuelle Umgebung eingerichtet
 werden muss.
 
-Ablauf beim allerersten Start auf einem neuen Rechner, im Quellcode-Betrieb:
+Aufgerufen wird das Modul vom Dienst der Oberflaeche (``python -m
+protokoll_assistent.api`` bzw. ``vermerk-dienst.exe``, siehe
+``api.__main__.rechenumgebung_vorbereiten``), bevor er startet. Ablauf beim
+allerersten Start im lokalen Modus, im Quellcode-Betrieb:
 1. Ist bereits eine funktionierende '.venv-whisperx' NEBEN der Anwendung
    vorhanden (der urspruengliche Referenz-Rechner), wird diese direkt
    weiterverwendet -- kein erneuter Download.
 2. Andernfalls wird unter 'runtime\\venv' eine eigene, private Python-
    Umgebung angelegt und dort automatisch alles Benoetigte installiert
    (PyTorch passend zu erkannter GPU/CPU, faster-whisper, pyannote.audio,
-   PySide6, ...).
-3. Die Anwendung startet sich anschliessend in dieser Umgebung neu.
+   FastAPI, ...).
+3. Der Dienst startet sich anschliessend in dieser Umgebung neu -- mit
+   derselben Befehlszeile (``als_dienst``).
 
-In der gebauten EXE (PyInstaller) laeuft derselbe Ablauf, nur mit der vom
+Im gebauten Dienst (PyInstaller) laeuft derselbe Ablauf, nur mit der vom
 Installer mitgelieferten Python-Laufzeitumgebung ('python\\python.exe') als
-Basis statt des aufgerufenen Interpreters -- die EXE selbst bringt PySide6 &
+Basis statt des aufgerufenen Interpreters -- der Dienst selbst bringt FastAPI &
 Co. bereits mit, aber bewusst nicht Torch/faster-whisper/pyannote (siehe
 '_ensure_runtime_and_relaunch_frozen').
 
@@ -200,20 +204,19 @@ def _report_python_diagnosis_and_exit() -> None:
     sys.exit(1)
 
 
-# Die Anwendung wird als MODUL neu gestartet, nicht ueber einen Dateipfad.
-# Ein Pfadstart ("python .../app.py") legt nur den Ordner der Datei in den
+# Der Dienst wird als MODUL neu gestartet, nicht ueber einen Dateipfad.
+# Ein Pfadstart ("python .../api/__main__.py") legt nur den Ordner der Datei in den
 # Suchpfad, kein einziger Paketimport waere dann aufloesbar.
-ANWENDUNGSMODUL = "protokoll_assistent.app"
-# Was der Neustart in der Rechenumgebung zusaetzlich bekommt (der Dienst: seine Befehlszeile).
-NEUSTART_ARGUMENTE: list[str] = []
 DIENSTMODUL = "protokoll_assistent.api"
+ANWENDUNGSMODUL = DIENSTMODUL
+# Was der Neustart in der Rechenumgebung zusaetzlich bekommt: die Befehlszeile des Dienstes ('als_dienst').
+NEUSTART_ARGUMENTE: list[str] = []
 ELTERN_VARIABLE = "VERMERK_ELTERN_PID"
 
 
 def _hat_konsole() -> bool:
-    """Haengt dieser Prozess an einer Konsole (Entwickler-Terminal,
-    ``Start-Protokoll-Assistent.ps1``)? Die gebaute EXE ist eine
-    Fensteranwendung und hat keine. Ohne Windows gibt es die Frage nicht."""
+    """Haengt dieser Prozess an einer Konsole (Entwickler-Terminal)? Der vom
+    Fenster gestartete Dienst hat keine. Ohne Windows gibt es die Frage nicht."""
     windll = getattr(ctypes, "windll", None)
     if windll is None:
         return True
@@ -252,19 +255,19 @@ def _relaunch(python_exe: Path) -> None:
             child_env[ANWENDUNGSORDNER_VARIABLE] = str(app_dir)
     else:
         cwd = get_paket_dir().parent
-    # Ohne Konsolenfenster: Dieses 'python.exe' ist die Oberflaeche. Ein
+    # Ohne Konsolenfenster: Dieses 'python.exe' ist der Dienst hinter dem Fenster. Ein
     # sichtbares Konsolenfenster bliebe so lange offen, wie das Programm
     # laeuft, und schloesse der Anwender es, endete auch das Programm.
     # Das Fenster bleibt trotzdem als (unsichtbare) Konsole des Prozesses
     # bestehen, so oeffnen dessen Hilfsprozesse (ffmpeg, ...) auch keine eigenen.
     # Hat dieser Prozess selbst schon eine Konsole (Start aus dem Terminal),
     # erbt das Kind sie ohne neues Fenster -- dort bleibt die Ausgabe sichtbar.
-    if ANWENDUNGSMODUL == DIENSTMODUL:
-        # Der neu gestartete Dienst beendet sich auch, wenn DIESER Prozess endet (das Fenster startet ihn neu
-        # oder beendet ihn) -- nicht nur, wenn das Fenster endet. Sonst bliebe er als Waise zurueck und
-        # hielte Port und Grafikkarte.
-        bisher = child_env.get(ELTERN_VARIABLE, "").strip()
-        child_env[ELTERN_VARIABLE] = ",".join(p for p in (bisher, str(os.getpid())) if p)
+    #
+    # Der neu gestartete Dienst beendet sich auch, wenn DIESER Prozess endet (das Fenster startet ihn neu
+    # oder beendet ihn) -- nicht nur, wenn das Fenster endet. Sonst bliebe er als Waise zurueck und
+    # hielte Port und Grafikkarte.
+    bisher = child_env.get(ELTERN_VARIABLE, "").strip()
+    child_env[ELTERN_VARIABLE] = ",".join(p for p in (bisher, str(os.getpid())) if p)
     # Gebaute Fassung: '-B' schreibt kein '__pycache__' in den Programmordner (sonst blieben nach der
     # Deinstallation hunderte Dateien liegen), '-s' laesst Pakete aus dem Nutzerprofil aussen vor.
     schalter = ["-B", "-s"] if getattr(sys, "frozen", False) else []
@@ -278,31 +281,33 @@ def _relaunch(python_exe: Path) -> None:
 
 
 def als_dienst(argumente: list[str]) -> None:
-    """Der Neustart in der Rechenumgebung startet den Dienst der neuen Oberflaeche (mit derselben
-    Befehlszeile) statt der alten Qt-Anwendung."""
+    """Der Neustart in der Rechenumgebung bekommt dieselbe Befehlszeile wie der laufende Dienst (Rolle,
+    Port, Port-Datei ...)."""
     global ANWENDUNGSMODUL, NEUSTART_ARGUMENTE
     ANWENDUNGSMODUL = DIENSTMODUL
     NEUSTART_ARGUMENTE = list(argumente)
 
 
 def laufzeit_beim_start_einrichten(konfig: dict[str, Any], fenster_moeglich: bool, laufzeit_vorhanden: bool) -> bool:
-    """Soll ``app.py`` vor dem ersten Fenster die Rechenumgebung einrichten
+    """Soll der Dienst vor seinem Start die Rechenumgebung einrichten
     (bzw. in die vorhandene wechseln)?
 
     Nur im lokalen Transkriptionsmodus -- und nie ohne Zustimmung: Bei einer
     frischen Installation (und nach "Nicht mehr fragen") erscheint zuerst die
-    Ersteinrichtung in der leichten Umgebung. Sie sagt, was die gut 5 GB kosten,
-    und startet erst nach der Zustimmung neu. Ist die Umgebung schon da, wird
-    nichts geladen -- dann wird wie immer in sie gewechselt. Ohne PySide6 gaebe
-    es gar kein Fenster -- dann bleibt es beim bisherigen Weg."""
+    Ersteinrichtung der Oberflaeche in der leichten Umgebung. Sie sagt, was die
+    gut 5 GB kosten, und laesst den Dienst erst nach der Zustimmung neu starten.
+    Ist die Umgebung schon da, wird nichts geladen -- dann wird wie immer in sie
+    gewechselt. ``fenster_moeglich``: Gibt es eine Oberflaeche, die vorher um
+    Zustimmung fragen kann (der Dienst hinter dem Fenster: ja)? Ohne sie bleibt
+    es beim direkten Weg."""
     if konfig.get("transkription_modus") != "lokal":
         return False
     if laufzeit_vorhanden or not fenster_moeglich:
         return True
     # Zustimmung heisst: in der Ersteinrichtung zugestimmt ('einrichtung_fortsetzen') oder in den
-    # Einstellungen ausdruecklich auf "Lokal" umgeschaltet. Ein Klick auf "Lokal" im Hauptfenster stellt die
-    # Einrichtung dagegen zurueck ('gui.main_window._transkription_modus_geaendert') -- sonst lud der
-    # naechste Start ungefragt gut 5 GB, ohne die Seite, die sagt, was das kostet.
+    # Einstellungen ausdruecklich auf "Lokal" umgeschaltet. Ohne Zustimmung bleibt die Einrichtung
+    # zurueckgestellt -- sonst lud der naechste Start ungefragt gut 5 GB, ohne die Seite, die sagt, was das
+    # kostet.
     erster_start = not konfig.get("einrichtung_abgeschlossen") and not konfig.get("einrichtung_fortsetzen")
     return not (erster_start or konfig.get("lokale_einrichtung_zurueckgestellt"))
 
@@ -321,32 +326,11 @@ def laufzeit_eingerichtet() -> bool:
     return venv_dir == get_legacy_venv_dir() or environment_service.kennungsdatei(venv_dir).is_file()
 
 
-# Gesetzt, wenn sich die Anwendung selbst neu gestartet hat: Die alte Instanz beendet sich dann gerade
-# erst und haelt die Sperre gegen eine zweite Instanz noch einen Augenblick.
-NEUSTART_VARIABLE = "VERMERK_NEUSTART"
-
-
-def neustart_kommando() -> tuple[list[str], Path, dict[str, str]]:
-    """(Befehl, Arbeitsordner, Umgebung), um die Anwendung als NEUEN Prozess zu
-    starten -- so, als haette der Anwender sie selbst geoeffnet. Die
-    Ersteinrichtung braucht das, damit nach ihrer Zustimmung dieses Modul die
-    Rechenumgebung einrichtet. Die Markierung der verwalteten Umgebung wird
-    deshalb bewusst NICHT weitergegeben."""
-    from protokoll_assistent.utils.paths import get_app_dir, get_paket_dir
-
-    umgebung = {name: wert for name, wert in os.environ.items() if name != MARKER_ENV_VAR}
-    # Die neue Instanz wartet kurz auf das Ende dieser (siehe 'app._instanz_sperren').
-    umgebung[NEUSTART_VARIABLE] = "1"
-    if getattr(sys, "frozen", False):
-        return [sys.executable], get_app_dir(), umgebung
-    return [sys.executable, "-m", ANWENDUNGSMODUL], get_paket_dir().parent, umgebung
-
-
 def ensure_runtime_and_relaunch() -> None:
-    """Sorgt fuer eine lauffaehige Umgebung und startet die Anwendung darin
+    """Sorgt fuer eine lauffaehige Umgebung und startet den Dienst darin
     neu. Kehrt zurueck, wenn bereits in der verwalteten Umgebung ausgefuehrt
     wird (dann ist nichts weiter zu tun) -- oder wenn die Einrichtung
-    gescheitert ist und die Anwendung ohne Rechenumgebung starten kann
+    gescheitert ist und der Dienst ohne Rechenumgebung starten kann
     (siehe ``_ohne_rechenumgebung_weiter``)."""
     if is_running_in_managed_venv():
         return
@@ -358,29 +342,28 @@ def ensure_runtime_and_relaunch() -> None:
 
 
 def _ensure_runtime_and_relaunch_frozen() -> None:
-    """Die gebaute EXE bringt PySide6 & Co. bereits mit -- aber bewusst
-    NICHT Torch/faster-whisper/pyannote (siehe 'release.yml': die EXE bleibt
-    dadurch klein, und ein reiner API-Anwender braucht sie nie). Waehlt der
+    """Der gebaute Dienst bringt FastAPI & Co. bereits mit -- aber bewusst
+    NICHT Torch/faster-whisper/pyannote (siehe 'vermerk_dienst.spec': der Dienst
+    bleibt dadurch klein, und ein reiner API-Anwender braucht sie nie). Waehlt der
     Anwender trotzdem den lokalen Modus, muss sich diese schwere Laufzeit
     also genauso selbst einrichten wie im Quellcode-Betrieb.
 
     Die gebaute EXE selbst laesst sich dafuer nicht als "python -m ..."
-    aufrufen. Der Installer liefert deshalb zusaetzlich zur EXE den
-    Quelltext (Ordner 'protokoll_assistent' NEBEN der EXE) und eine
-    eigenstaendige Python-Laufzeitumgebung ('python\\python.exe') mit --
-    genau damit wird hier die 'runtime\\venv'-Umgebung angelegt und
-    anschliessend die Anwendung (aus dem mitgelieferten Quelltext) neu
-    gestartet."""
+    aufrufen. Der Installer liefert deshalb zusaetzlich den Quelltext (Ordner
+    'protokoll_assistent' im Programmordner) und eine eigenstaendige
+    Python-Laufzeitumgebung ('python\\python.exe') mit -- genau damit wird hier
+    die 'runtime\\venv'-Umgebung angelegt und anschliessend der Dienst (aus dem
+    mitgelieferten Quelltext) neu gestartet."""
     from protokoll_assistent.utils.paths import get_active_venv_dir, get_app_dir, venv_python_path
 
     bundled_python = get_app_dir() / "python" / "python.exe"
     if not bundled_python.is_file():
-        # Nur die reine EXE/das ZIP weitergegeben, ohne die mitgelieferte
+        # Nur Fenster und Dienst weitergegeben (ZIP), ohne die mitgelieferte
         # Python-Laufzeitumgebung (kein Installer-Build) -- der lokale Modus
-        # ist dann nicht automatisch einrichtbar. Das darf die Anwendung
-        # nicht abstuerzen lassen: 'gui/main_window.py' prueft vor dem Start
-        # einer lokalen Transkription ohnehin, ob die Laufzeitumgebung
-        # erreichbar ist, und meldet dann verstaendlich, was fehlt.
+        # ist dann nicht automatisch einrichtbar. Das darf den Dienst
+        # nicht abstuerzen lassen: Er prueft vor einer lokalen Verarbeitung
+        # ohnehin, ob die Laufzeitumgebung erreichbar ist, und meldet dann
+        # verstaendlich, was fehlt.
         return
 
     venv_dir = get_active_venv_dir()
@@ -590,12 +573,13 @@ def _sperre_freigeben(sperre: Any) -> None:
 
 
 def _ohne_rechenumgebung_weiter() -> bool:
-    """Nach einer gescheiterten ERSTEN Einrichtung: Kann die Anwendung ohne Rechenumgebung starten? Dann
+    """Nach einer gescheiterten ERSTEN Einrichtung: Kann der Dienst ohne Rechenumgebung starten? Dann
     wird die Fortsetzung zurueckgenommen, damit nicht jeder weitere Start wieder hier landet -- frueher gab
     es von dort keinen Weg zurueck ins Programm, ausser die Einstellungsdatei von Hand zu aendern. Die
     Ersteinrichtung erscheint beim naechsten Start erneut und bietet beides an: noch einmal versuchen oder
-    online arbeiten."""
-    if not (getattr(sys, "frozen", False) or importlib.util.find_spec("PySide6") is not None):
+    online arbeiten. Ohne FastAPI (Quelltext-Start mit einem nackten Python) startete der Dienst gar nicht --
+    dann bleibt es beim Abbruch."""
+    if not (getattr(sys, "frozen", False) or importlib.util.find_spec("fastapi") is not None):
         return False
     from protokoll_assistent.utils import app_config
 

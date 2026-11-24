@@ -2,9 +2,8 @@
 
 Die Datei haelt fest, welche Einrichtungsphasen bereits erfolgreich
 abgeschlossen wurden, damit ``Einrichtung-Lokal.ps1`` nach einem Fehler an
-der richtigen Stelle fortgesetzt werden kann und ``Anwendung-starten.ps1``
-den regulaeren Programmstart verweigern kann, solange die Einrichtung
-unvollstaendig ist.
+der richtigen Stelle fortgesetzt werden kann (bereits erfolgreiche Phasen
+werden uebersprungen).
 
 Es werden ausschliesslich Versionsnummern, Pruefergebnisse und Zeitstempel
 gespeichert -- niemals der HF_TOKEN oder andere Zugangsdaten.

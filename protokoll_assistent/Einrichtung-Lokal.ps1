@@ -4,16 +4,15 @@
 # Sie die Einrichtung unabhaengig vom GUI-Assistenten und nachvollziehbar
 # protokolliert durchfuehren moechten (z.B. IT-Rollout auf mehreren PCs).
 #
-# Auf einem einzelnen, neuen PC reicht in der Regel einfach
-# '.\Start-Protokoll-Assistent.ps1' -- die Anwendung richtet sich dann beim
-# ersten Start automatisch selbst ein (inkl. eigener 'runtime\venv') und
-# fuehrt direkt in der Oberflaeche durch Einrichtung, Systemtest und
-# Eingabeordner-Auswahl.
+# Auf einem einzelnen, neuen PC reicht in der Regel der Installer
+# (VERMERK-Desktop-Setup) -- die Anwendung richtet sich dann beim ersten
+# Start automatisch selbst ein (inkl. eigener 'runtime\venv') und fuehrt in
+# der Oberflaeche durch die Ersteinrichtung.
 #
 # Ablauf in 5 nachvollziehbaren Phasen:
 # Phase 1: Systempruefung (Windows, Python 3.10, NVIDIA-GPU/-Treiber, CUDA,
 #          RAM, Speicherplatz, FFmpeg/ffprobe, Ollama)
-# Phase 2: Python-Umgebung (PySide6, PyInstaller, pyannote-Korrektur) --
+# Phase 2: Python-Umgebung (Pakete der Anwendung, pyannote-Korrektur) --
 #          delegiert an setup_lokal.ps1 und setzt daher eine bereits
 #          vorhandene '.venv-whisperx' voraus (siehe dortige Hinweise).
 # Phase 3: Lokale Modelle herunterladen (WhisperX, Alignment, pyannote,
@@ -147,5 +146,5 @@ Set-PhaseDone "abschluss"
 Write-Host "`n=======================================================================" -ForegroundColor Green
 Write-Host " EINRICHTUNG VOLLSTAENDIG ABGESCHLOSSEN" -ForegroundColor Green
 Write-Host "=======================================================================" -ForegroundColor Green
-Write-Host "Sie koennen die Anwendung jetzt starten mit:"
-Write-Host "  .\Anwendung-starten.ps1"
+Write-Host "Sie koennen die Anwendung jetzt starten: das Fenster VERMERK.exe mit"
+Write-Host "VERMERK_PYTHON auf diese Umgebung ($VenvPython) - siehe README.md."

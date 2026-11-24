@@ -38,7 +38,7 @@ DEFAULTS: dict[str, Any] = {
     "einrichtung_fortsetzen": "",
     # Ersteinrichtung mit "Nicht mehr fragen" geschlossen, ohne zuzustimmen:
     # Die schwere Rechenumgebung wird nicht ungefragt geladen, bis der Anwender
-    # die lokale Einrichtung selbst startet (siehe app.py).
+    # die lokale Einrichtung selbst startet (siehe 'bootstrap.laufzeit_beim_start_einrichten').
     "lokale_einrichtung_zurueckgestellt": False,
     # "lokal" | "api"
     "transkription_modus": "lokal",
@@ -120,8 +120,8 @@ def load_config() -> dict[str, Any]:
         data = None
     if not isinstance(data, dict):
         # Kein JSON (halb geschrieben, von Hand beschaedigt) oder gueltiges JSON, aber kein Objekt (z. B.
-        # eine Liste). Ohne diese Pruefung scheitert '.items()' unten -- in 'app.py' noch VOR dem ersten
-        # Fenster, also ohne jede sichtbare Meldung.
+        # eine Liste). Ohne diese Pruefung scheitert '.items()' unten -- beim Start des Dienstes noch VOR
+        # der Oberflaeche, also ohne jede sichtbare Meldung.
         _defekte_datei_sichern(path)
         return dict(DEFAULTS)
     merged = dict(DEFAULTS)

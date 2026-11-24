@@ -3,10 +3,10 @@
 Die Konfigurationsdatei liegt in jedem Test im Temp-Verzeichnis - es wird
 nie die echte Datei neben der Anwendung gelesen oder geschrieben.
 
-Wichtig an diesem Modul: 'app.py' ruft 'load_config()' auf MODULEBENE auf,
-also noch bevor es ein Fenster gibt. Alles, was hier wirft, bricht den
-Start ohne jede sichtbare Meldung ab (gestartet wird ueblicherweise mit
-'pythonw', also ohne Konsole)."""
+Wichtig an diesem Modul: Der Dienst ruft 'load_config()' beim Start auf
+('bootstrap', 'api/__main__.py'), also noch bevor die Oberflaeche etwas
+anzeigen kann. Alles, was hier wirft, bricht den Start ohne jede sichtbare
+Meldung ab (der Dienst laeuft ohne Konsole)."""
 
 from __future__ import annotations
 
@@ -57,7 +57,7 @@ def test_kaputte_datei_faellt_auf_die_standardwerte_zurueck(konfig_datei):
 def test_gueltiges_json_ohne_objekt_faellt_auf_die_standardwerte_zurueck(konfig_datei, inhalt):
     """Gueltiges JSON, aber kein Objekt - etwa nach einem misslungenen
     Eingriff von Hand. Ohne Pruefung scheitert '.items()' mit einem
-    'AttributeError', und zwar in 'app.py' noch vor dem ersten Fenster."""
+    'AttributeError', und zwar beim Start des Dienstes."""
     konfig_datei.write_text(inhalt, encoding="utf-8")
 
     assert app_config.load_config() == app_config.DEFAULTS

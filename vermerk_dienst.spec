@@ -9,7 +9,7 @@ Regeln (ARCHITEKTUR.md, CLAUDE.md Regel 7):
 * NUR One-Directory (``exclude_binaries=True`` + ``COLLECT``). Ein One-File-Build entpackt sich bei jedem
   Start nach ``%TEMP%\_MEI...`` und liess nach jedem harten Abbruch hunderte MB dort liegen.
 * ``upx=False``, ``strip=False``, ``optimize=0`` (asserts bleiben).
-* Kein PySide6: Der Dienst kennt kein Qt. Das alte Fenster baut weiterhin ``protokoll_assistent.spec``.
+* Kein Qt: Das Fenster ist ``VERMERK.exe`` (Tauri, ``oberflaeche/src-tauri``); die alte Qt-Oberflaeche ist entfernt.
 * Kein Torch/faster-whisper/pyannote: Die schwere Rechenumgebung richtet ``bootstrap.py`` im lokalen Modus
   bei Bedarf selbst ein (mit dem mitgelieferten Python aus dem Installer) und startet den Dienst dort aus
   dem Quelltext neu.
@@ -44,7 +44,7 @@ hiddenimports += [
     "keyring.backends.Windows",
 ]
 hiddenimports += collect_submodules("reportlab.pdfbase")
-hiddenimports += collect_submodules("protokoll_assistent", filter=lambda name: ".tests" not in name and ".gui" not in name)
+hiddenimports += collect_submodules("protokoll_assistent", filter=lambda name: ".tests" not in name)
 
 datas = [
     ("protokoll_assistent/resources", "resources"),
@@ -81,12 +81,8 @@ a = Analysis(
     hooksconfig={},
     runtime_hooks=[],
     excludes=[
-        "PySide6",
-        "shiboken6",
         "pytest",
         "_pytest",
-        "pytestqt",
-        "protokoll_assistent.gui",
         "protokoll_assistent.tests",
         "torch",
         "torchaudio",
