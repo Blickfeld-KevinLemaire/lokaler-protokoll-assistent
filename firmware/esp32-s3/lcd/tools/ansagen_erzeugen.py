@@ -13,15 +13,15 @@ Neue Saetze: hier in SAETZE eintragen, in CMakeLists.txt und in main.c (ansage_d
 
 import argparse
 import json
-import os
 import struct
 import subprocess
 import sys
 import tempfile
 import wave
+from pathlib import Path
 
-HIER = os.path.dirname(os.path.abspath(__file__))
-ZIEL = os.path.join(os.path.dirname(HIER), "main", "ansagen")
+HIER = Path(__file__).resolve().parent
+ZIEL = HIER.parent / "main" / "ansagen"
 RATE = 16000
 
 # Name der Datei -> gesprochener Text. Die Reihenfolge entspricht ansage_t in main.c.
@@ -51,30 +51,117 @@ def sapi(jobs, stimme):
         # nur in PowerShell 7 (pwsh) sind die neueren Stimmen wie Katja sichtbar
         subprocess.run(["pwsh", "-NoProfile", "-Command", ps], check=True)
     finally:
-        os.unlink(liste)
+        Path(liste).unlink()
 
 
 def lesen(datei):
     """Stille vorn und hinten bis auf 40 ms kuerzen, Spitze auf ca. -1 dBFS."""
     with wave.open(datei, "rb") as w:
-        assert w.getframerate() == RATE and w.getsampwidth() == 2 and w.getnchannels() == 1
+        if w.getframerate() != RATE or w.getsampwidth() != 2 or w.getnchannels() != 1:
+            raise ValueError(f"{datei}: erwartet 16 kHz, 16 Bit, Mono")
         raw = w.readframes(w.getnframes())
-    x = list(struct.unpack("<%dh" % (len(raw) // 2), raw))
+    x = list(struct.unpack(f"<{len(raw) // 2}h", raw))
     schwelle = 300
     a = next((i for i, v in enumerate(x) if abs(v) > schwelle), 0)
     b = len(x) - next((i for i, v in enumerate(reversed(x)) if abs(v) > schwelle), 0)
-    x = x[max(0, a - 640):min(len(x), b + 640)]
+    x = x[max(0, a - 640) : min(len(x), b + 640)]
     spitze = max(1, max(abs(v) for v in x))
     g = 29000 / spitze
     return [max(-32768, min(32767, int(v * g))) for v in x]
 
 
 IDX = [-1, -1, -1, -1, 2, 4, 6, 8, -1, -1, -1, -1, 2, 4, 6, 8]
-STEP = [7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 19, 21, 23, 25, 28, 31, 34, 37, 41, 45, 50, 55, 60, 66, 73, 80, 88, 97,
-        107, 118, 130, 143, 157, 173, 190, 209, 230, 253, 279, 307, 337, 371, 408, 449, 494, 544, 598, 658, 724, 796,
-        876, 963, 1060, 1166, 1282, 1411, 1552, 1707, 1878, 2066, 2272, 2499, 2749, 3024, 3327, 3660, 4026, 4428, 4871,
-        5358, 5894, 6484, 7132, 7845, 8630, 9493, 10442, 11487, 12635, 13899, 15289, 16818, 18500, 20350, 22385, 24623,
-        27086, 29794, 32767]
+STEP = [
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    16,
+    17,
+    19,
+    21,
+    23,
+    25,
+    28,
+    31,
+    34,
+    37,
+    41,
+    45,
+    50,
+    55,
+    60,
+    66,
+    73,
+    80,
+    88,
+    97,
+    107,
+    118,
+    130,
+    143,
+    157,
+    173,
+    190,
+    209,
+    230,
+    253,
+    279,
+    307,
+    337,
+    371,
+    408,
+    449,
+    494,
+    544,
+    598,
+    658,
+    724,
+    796,
+    876,
+    963,
+    1060,
+    1166,
+    1282,
+    1411,
+    1552,
+    1707,
+    1878,
+    2066,
+    2272,
+    2499,
+    2749,
+    3024,
+    3327,
+    3660,
+    4026,
+    4428,
+    4871,
+    5358,
+    5894,
+    6484,
+    7132,
+    7845,
+    8630,
+    9493,
+    10442,
+    11487,
+    12635,
+    13899,
+    15289,
+    16818,
+    18500,
+    20350,
+    22385,
+    24623,
+    27086,
+    29794,
+    32767,
+]
 
 
 def adpcm(x):
@@ -116,19 +203,18 @@ def main():
     ap.add_argument("--stimme", default="Microsoft Katja")
     args = ap.parse_args()
 
-    os.makedirs(ZIEL, exist_ok=True)
-    tmp = tempfile.mkdtemp(prefix="vermerk_ansagen_")
-    jobs = [(os.path.join(tmp, f"{name}.wav"), text) for name, text in SAETZE.items()]
+    ZIEL.mkdir(parents=True, exist_ok=True)
+    tmp = Path(tempfile.mkdtemp(prefix="vermerk_ansagen_"))
+    jobs = [(str(tmp / f"{name}.wav"), text) for name, text in SAETZE.items()]
     sapi(jobs, args.stimme)
 
-    for (datei, text), name in zip(jobs, SAETZE):
+    for (datei, text), name in zip(jobs, SAETZE, strict=True):
         x = lesen(datei)
         daten = adpcm(x)
-        with open(os.path.join(ZIEL, name + ".adpcm"), "wb") as f:
-            f.write(daten)
-        os.unlink(datei)
+        (ZIEL / f"{name}.adpcm").write_bytes(daten)
+        Path(datei).unlink()
         print(f"{name}: {len(x) / RATE:.1f} s, {len(daten)} Byte  ({text})")
-    os.rmdir(tmp)
+    tmp.rmdir()
 
 
 if __name__ == "__main__":
