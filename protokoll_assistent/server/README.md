@@ -157,7 +157,7 @@ Firmware und Adresse – praktisch für die Fehlersuche.
   verändert wurde. Unfertiges (`.part`, `.tmp`, versteckte Dateien) wird übersprungen.
 * **Reihenfolge:** eine Aufnahme nach der anderen, die älteste zuerst.
 * **Danach:** Die Aufnahme wandert nach `eingang/verarbeitet/` (oder bei einem
-  Fehler nach `eingang/fehler/`). Geht das Verschieben nicht (schreibgeschützte
+  Fehler oder nach einem Abbruch in der Oberfläche nach `eingang/fehler/`). Geht das Verschieben nicht (schreibgeschützte
   Freigabe), merkt sich der Dienst die Datei und verarbeitet sie nicht noch einmal.
 * **Neustart mitten in einer Aufnahme:** Der Dienst beendet sich auf `docker stop`
   sauber; die Aufnahme bleibt im Eingang und wird beim nächsten Start mit den

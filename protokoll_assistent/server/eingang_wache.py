@@ -19,7 +19,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from protokoll_assistent.ablauf.auftraege import Auftrag, Fortschritt, Status
+from protokoll_assistent.ablauf.auftraege import Auftrag, AuftragAbgebrochen, Fortschritt, Status
 from protokoll_assistent.ablauf.steuerung import Steuerung
 from protokoll_assistent.server import verarbeitung, warteschlange
 from protokoll_assistent.server.einstellungen import ServerEinstellungen
@@ -71,32 +71,48 @@ class EingangsWache:
                 datei, einstellungen, abbrechen=fortschritt.abbruch_gewuenscht, protokollieren=fortschritt.meldung
             )
             daten: dict[str, Any] = ergebnis.als_dict()
+            if ergebnis.status == verarbeitung.STATUS_ABGEBROCHEN:
+                # Sonst endete ein abgebrochener Lauf als "fertig" (die Verarbeitung liefert ein Ergebnis).
+                raise AuftragAbgebrochen(datei.name)
             if ergebnis.status == verarbeitung.STATUS_FEHLER:
                 raise RuntimeError(ergebnis.fehler or "Die Verarbeitung ist fehlgeschlagen.")
             return daten
 
         def danach(auftrag: Auftrag) -> None:
-            with self._sperre:
-                self._eingereiht.discard(datei)
-            if auftrag.status is Status.ABGEBROCHEN:
-                logger.info("Abgebrochen: %s bleibt im Eingang.", datei.name)
-                return
-            ok = auftrag.status is Status.FERTIG
-            ziel = warteschlange.ORDNER_VERARBEITET if ok else warteschlange.ORDNER_FEHLER
-            if schluessel is not None:
-                self._zustand.merke(schluessel, verarbeitung.STATUS_FERTIG if ok else verarbeitung.STATUS_FEHLER)
-            if warteschlange.verschiebe_nach(datei, self.einstellungen.eingang, ziel) is None:
-                logger.warning("%s konnte nicht verschoben werden; sie wird nicht noch einmal verarbeitet.", datei.name)
-            self.steuerung.bus.senden("dateien", {"grund": "eingang_verarbeitet", "datei": datei.name})
-            if self.einstellungen.webhook_url:
-                nutzlast = auftrag.ergebnis or {"status": verarbeitung.STATUS_FEHLER, "datei": datei.name, "fehler": auftrag.fehler}
-                problem = self._webhook(self.einstellungen.webhook_url, nutzlast, self.einstellungen.webhook_token)
-                if problem:
-                    logger.warning("Webhook nicht zugestellt: %s", problem)
+            # Erst nach dem Merken/Verschieben aus der Liste nehmen: Dazwischen saehe die naechste Abfrage die Datei
+            # noch im Eingang, weder eingereiht noch erledigt -- und reihte sie ein zweites Mal ein.
+            try:
+                self._abschliessen(datei, schluessel, auftrag)
+            finally:
+                with self._sperre:
+                    self._eingereiht.discard(datei)
 
         return self.steuerung.auftraege.einreihen(
             ART, datei.name, ausfuehren, herkunft="ordner", angaben={"quelle": str(datei)}, nach_ende=danach, besitzer=self.besitzer
         )
+
+    def _abschliessen(self, datei: Path, schluessel: str | None, auftrag: Auftrag) -> None:
+        if auftrag.status is Status.ABGEBROCHEN and self._stopp.is_set():
+            # Abbruch durch das Herunterfahren: beim naechsten Start noch einmal.
+            logger.info("Abgebrochen: %s bleibt im Eingang.", datei.name)
+            return
+        if auftrag.status is Status.FERTIG:
+            status_text, ziel = verarbeitung.STATUS_FERTIG, warteschlange.ORDNER_VERARBEITET
+        elif auftrag.status is Status.ABGEBROCHEN:
+            # Von Hand abgebrochen: nicht bei der naechsten Abfrage wieder einreihen.
+            status_text, ziel = verarbeitung.STATUS_ABGEBROCHEN, warteschlange.ORDNER_FEHLER
+        else:
+            status_text, ziel = verarbeitung.STATUS_FEHLER, warteschlange.ORDNER_FEHLER
+        if schluessel is not None:
+            self._zustand.merke(schluessel, status_text)
+        if warteschlange.verschiebe_nach(datei, self.einstellungen.eingang, ziel) is None:
+            logger.warning("%s konnte nicht verschoben werden; sie wird nicht noch einmal verarbeitet.", datei.name)
+        self.steuerung.bus.senden("dateien", {"grund": "eingang_verarbeitet", "datei": datei.name})
+        if self.einstellungen.webhook_url:
+            nutzlast = auftrag.ergebnis or {"status": status_text, "datei": datei.name, "fehler": auftrag.fehler}
+            problem = self._webhook(self.einstellungen.webhook_url, nutzlast, self.einstellungen.webhook_token)
+            if problem:
+                logger.warning("Webhook nicht zugestellt: %s", problem)
 
     # ------------------------------------------------------------------
     def starten(self) -> None:
