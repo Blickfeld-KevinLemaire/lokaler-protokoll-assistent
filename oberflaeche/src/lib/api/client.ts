@@ -307,6 +307,18 @@ export const api = {
       `/api/besprechungen/${pfadteil(id)}/sprecher`,
       { json: { namen } }
     ),
+  /** Nur der Anzeigename ändert sich; Kennung und Dateien bleiben. */
+  besprechungUmbenennen: (id: string, name: string) =>
+    json<{ titel: string }>('PUT', `/api/besprechungen/${pfadteil(id)}/name`, { json: { name } }),
+  /** In den Papierkorb: `windows` (Windows-Anwendung) oder `ordner` (`.papierkorb` im Ausgabeordner). */
+  besprechungLoeschen: (id: string) =>
+    json<{ geloescht: boolean; papierkorb: 'windows' | 'ordner' }>(
+      'DELETE',
+      `/api/besprechungen/${pfadteil(id)}`
+    ),
+  /** Windows-Anwendung: das Word-Dokument mit dem Standardprogramm öffnen. */
+  dokumentOeffnen: (id: string) =>
+    json<{ geoeffnet: boolean }>('POST', `/api/besprechungen/${pfadteil(id)}/dokument-oeffnen`),
   exportFormate: () => json<ExportFormat[]>('GET', '/api/besprechungen/export/formate'),
   exportieren: (id: string, inhalt: string, formate: string[]) =>
     json<ExportErgebnis>('POST', `/api/besprechungen/${pfadteil(id)}/export`, { json: { inhalt, formate } }),

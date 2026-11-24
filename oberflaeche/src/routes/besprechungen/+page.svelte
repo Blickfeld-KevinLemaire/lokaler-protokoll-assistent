@@ -1,20 +1,18 @@
 <script lang="ts">
-  import Check from '@lucide/svelte/icons/check';
   import Files from '@lucide/svelte/icons/files';
   import Plus from '@lucide/svelte/icons/plus';
   import Search from '@lucide/svelte/icons/search';
   import SearchX from '@lucide/svelte/icons/search-x';
-  import Users from '@lucide/svelte/icons/users';
   import { tick } from 'svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
   import { api } from '#lib/api/client.ts';
   import type { Besprechung } from '#lib/api/typen.ts';
+  import BesprechungsTabelle from '#lib/komponenten/besprechungen/BesprechungsTabelle.svelte';
   import Details from '#lib/komponenten/besprechungen/Details.svelte';
   import Kopf from '#lib/komponenten/Kopf.svelte';
   import LeerZustand from '#lib/komponenten/LeerZustand.svelte';
-  import { datumText, dauerText, zeitLesen } from '#lib/logik/format.ts';
-  import { ohneBesitzer } from '#lib/logik/teilen.ts';
+  import { zeitLesen } from '#lib/logik/format.ts';
   import { KUERZEL_TEXT } from '#lib/logik/tasten.ts';
   import { dialog } from '#lib/stores/oberflaeche.svelte.ts';
   import { personen } from '#lib/stores/personen.svelte.ts';
@@ -24,6 +22,7 @@
   let liste = $state<Besprechung[] | null>(null);
   let suche = $state('');
   let suchfeld: HTMLInputElement | undefined = $state();
+  let neuLaden = $state(0);
 
   const id = $derived(page.url.searchParams.get('id'));
   const transkript = $derived(page.url.searchParams.get('transkript'));
@@ -31,6 +30,7 @@
   $effect(() => {
     void zustand.besprechungenStand;
     void verbindung.runde;
+    void neuLaden;
     if (!verbindung.bereit) return;
     api
       .besprechungen()
@@ -104,39 +104,11 @@
       </LeerZustand>
     {/if}
   {:else}
-    <div class="karte tabelle" role="table" aria-label="Transkripte">
-      <div class="zeile kopfzeile" role="row">
-        <span role="columnheader">Titel</span>
-        <span role="columnheader">Datum</span>
-        <span role="columnheader">Dauer</span>
-        <span role="columnheader">Sprecher</span>
-        <span role="columnheader">Zusammenfassung</span>
-      </div>
-      {#each gefiltert as b (b.id)}
-        <a class="zeile" role="row" href="/besprechungen?id={encodeURIComponent(b.id)}">
-          <span class="titel" role="cell">
-            <span class="text">{b.titel}</span>
-            {#if b.eigen === false}
-              <span class="geteilt">geteilt von {personen.anzeigename(b.besitzer)}</span>
-            {:else if verbindung.mehrbenutzer && b.geteilt_mit?.length}
-              <span class="geteilt leise" title="Geteilt"><Users size={16} /></span>
-            {:else if ohneBesitzer(b, verbindung.mehrbenutzer)}
-              <span class="geteilt leise">ohne Besitzer</span>
-            {/if}
-          </span>
-          <span role="cell" class="leise">{datumText(b.zeit)}</span>
-          <span role="cell" class="leise">{dauerText(b.dauer_sekunden)}</span>
-          <span role="cell" class="leise">{b.anzahl_sprecher ?? '–'}</span>
-          <span role="cell">
-            {#if b.hat_protokoll}
-              <span class="marke ja"><Check size={16} /> Vorhanden</span>
-            {:else}
-              <span class="marke">–</span>
-            {/if}
-          </span>
-        </a>
-      {/each}
-    </div>
+    <BesprechungsTabelle
+      eintraege={gefiltert}
+      oeffnen={(b) => goto(`/besprechungen?id=${encodeURIComponent(b.id)}`)}
+      geaendert={() => neuLaden++}
+    />
   {/if}
 {/if}
 
@@ -158,81 +130,5 @@
   .suche input {
     padding-left: 32px;
     color: var(--text);
-  }
-
-  .tabelle {
-    overflow: hidden;
-  }
-
-  .zeile {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) 150px 110px 80px 140px;
-    gap: 16px;
-    align-items: center;
-    padding: 12px 18px;
-    border-top: 1px solid var(--rand);
-    color: var(--text);
-  }
-
-  a.zeile:hover {
-    background: var(--karte-2);
-    text-decoration: none;
-  }
-
-  .kopfzeile {
-    border-top: none;
-    padding-top: 10px;
-    padding-bottom: 10px;
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--text-3);
-    background: var(--karte-2);
-  }
-
-  .titel {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    min-width: 0;
-    font-weight: 500;
-  }
-
-  .titel .text {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .geteilt {
-    flex: none;
-    padding: 1px 8px;
-    border-radius: 9px;
-    background: var(--akzent-weich);
-    color: var(--link);
-    font-size: 12px;
-    font-weight: 500;
-  }
-
-  .geteilt.leise {
-    background: none;
-    padding: 0;
-  }
-
-  .marke {
-    font-size: 12.5px;
-    color: var(--text-3);
-  }
-
-  .marke.ja {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    color: var(--ok);
-    font-weight: 500;
-  }
-
-  .geteilt.leise {
-    display: inline-flex;
-    color: var(--text-3);
   }
 </style>

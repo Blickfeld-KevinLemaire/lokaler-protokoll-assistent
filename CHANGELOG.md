@@ -8,6 +8,23 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+### Added
+
+- **Kontextmenü unter „Transkripte“:** Rechtsklick auf einen Eintrag (oder Menü-Taste bzw. Umschalt+F10) bietet
+  Öffnen, Umbenennen, Dokument öffnen, Im Explorer zeigen, Zusammenfassung (neu) erstellen, Exportieren,
+  Transkript kopieren, Teilen und Löschen. Was in der jeweiligen Umgebung nicht geht, fehlt; was nur dem Besitzer
+  erlaubt ist, steht bei geteilten Transkripten ausgegraut mit Begründung da. Das Menü lässt sich ganz mit der
+  Tastatur bedienen (Pfeiltasten, Anfangsbuchstabe, Enter, Esc).
+- **Transkripte umbenennen:** mit F2, über das Kontextmenü oder wie im Explorer mit einem Klick auf den Namen des
+  schon ausgewählten Eintrags. Enter speichert, Esc bricht ab. Geändert wird nur der angezeigte Name – Dateien,
+  Freigaben und Verknüpfungen bleiben, wie sie sind.
+- **Transkripte löschen:** mit Entf oder über das Kontextmenü, nach einer Rückfrage. Transkript, Zusammenfassungen
+  und exportierte Dateien landen im Papierkorb (im Servermodus im Ordner `.papierkorb` des Ausgabeordners); die
+  Aufnahme selbst bleibt erhalten. Solange gerade eine Zusammenfassung dafür entsteht, geht Löschen nicht.
+- **Transkript kopieren:** legt den Text mit Zeitmarken und Sprechernamen in die Zwischenablage.
+- Wird ein Transkript in einem anderen Fenster oder Browser umbenannt oder gelöscht, aktualisieren sich die
+  anderen Ansichten von selbst.
+
 ### Security
 
 - Abhängigkeiten der Oberfläche aktualisiert (SvelteKit 3 mit Vite 8, vitest 4.1.12); `npm audit` meldet

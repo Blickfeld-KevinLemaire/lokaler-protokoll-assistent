@@ -3,11 +3,11 @@
   import Users from '@lucide/svelte/icons/users';
   import { beforeNavigate, goto } from '$app/navigation';
   import { page } from '$app/state';
-  import { api } from '#lib/api/client.ts';
+  import { api, ApiFehler } from '#lib/api/client.ts';
   import type { BesprechungDetails } from '#lib/api/typen.ts';
   import { datumText, dauerText } from '#lib/logik/format.ts';
   import { ohneBesitzer, teilenMoeglich } from '#lib/logik/teilen.ts';
-  import { dialog } from '#lib/stores/oberflaeche.svelte.ts';
+  import { dialog, meldungen } from '#lib/stores/oberflaeche.svelte.ts';
   import { personen } from '#lib/stores/personen.svelte.ts';
   import { verbindung } from '#lib/stores/verbindung.svelte.ts';
   import { zustand } from '#lib/stores/zustand.svelte.ts';
@@ -61,7 +61,16 @@
         details = d;
         if (!warUngespeichert) text = d.protokoll?.text ?? '';
       })
-      .catch((e) => dialog.zeigen(e, 'Transkript nicht geladen'));
+      .catch((e) => {
+        // Inzwischen gelöscht (z. B. in einem anderen Fenster): zurück zur Liste statt einer Fehlermeldung.
+        if (details && e instanceof ApiFehler && e.status === 404) {
+          meldungen.zeigen('Dieses Transkript wurde gelöscht.', 'info');
+          verlassenErlaubt = true;
+          void goto('/besprechungen');
+          return;
+        }
+        dialog.zeigen(e, 'Transkript nicht geladen');
+      });
   });
 
   beforeNavigate((nav) => {

@@ -396,6 +396,9 @@ def reexport_with_new_names(json_path: Path, name_overrides: dict[str, str]) -> 
         data.get("sprecher_turns") or [],
         data.get("audio_pfad"),
     )
+    # Der vergebene Name der Besprechung (Umbenennen, siehe ablauf/bibliothek) bleibt erhalten.
+    if "anzeigename" in data:
+        json_result["anzeigename"] = data["anzeigename"]
 
     base = f"{source_stem}_lokal_transkript_{run_timestamp}"
     paths = ExportPaths(

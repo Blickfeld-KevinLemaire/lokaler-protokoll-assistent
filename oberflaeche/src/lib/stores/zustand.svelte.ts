@@ -159,6 +159,10 @@ class ZustandSpeicher {
       case 'einstellungen':
         this.einstellungenStand++;
         break;
+      case 'besprechungen':
+        // Umbenannt oder gelöscht (auch in einem anderen Fenster oder Browser): Listen laden neu.
+        this.besprechungenStand++;
+        break;
       case 'fehler':
         this.fehlermeldung = String(d.text ?? '');
         break;

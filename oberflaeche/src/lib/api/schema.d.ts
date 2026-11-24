@@ -435,7 +435,12 @@ export interface paths {
     get: operations['details_api_besprechungen__kennung__get'];
     put?: never;
     post?: never;
-    delete?: never;
+    /**
+     * Loeschen
+     * @description Alle Dateien der Besprechung in den Papierkorb (Windows-Anwendung: den von Windows; sonst
+     *     ``<Ausgabeordner>/.papierkorb``). Die Aufnahme selbst bleibt, die Freigaben entfallen.
+     */
+    delete: operations['loeschen_api_besprechungen__kennung__delete'];
     options?: never;
     head?: never;
     patch?: never;
@@ -523,6 +528,47 @@ export interface paths {
     put?: never;
     /** Exportieren */
     post: operations['exportieren_api_besprechungen__kennung__export_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/besprechungen/{kennung}/name': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    /**
+     * Umbenennen
+     * @description Nur der Anzeigename aendert sich: Kennung, Dateinamen und Freigaben bleiben.
+     */
+    put: operations['umbenennen_api_besprechungen__kennung__name_put'];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/besprechungen/{kennung}/dokument-oeffnen': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Dokument Oeffnen
+     * @description Das Word-Dokument mit dem Standardprogramm oeffnen -- nur in der Windows-Anwendung. Der Pfad kommt aus der
+     *     Besprechung, nie vom Aufrufer.
+     */
+    post: operations['dokument_oeffnen_api_besprechungen__kennung__dokument_oeffnen_post'];
     delete?: never;
     options?: never;
     head?: never;
@@ -1505,6 +1551,8 @@ export interface components {
       zeit: string;
       /** Transkript */
       transkript: string;
+      /** Dokument */
+      dokument?: string | null;
       /** Dauer Sekunden */
       dauer_sekunden?: number | null;
       /** Anzahl Sprecher */
@@ -1540,6 +1588,8 @@ export interface components {
       zeit: string;
       /** Transkript */
       transkript: string;
+      /** Dokument */
+      dokument?: string | null;
       /** Dauer Sekunden */
       dauer_sekunden?: number | null;
       /** Anzahl Sprecher */
@@ -2022,6 +2072,14 @@ export interface components {
     ModellLaden: {
       /** Modell */
       modell: string;
+    };
+    /**
+     * NameAendern
+     * @description Neuer Anzeigename einer Besprechung (gekuerzt um Leerraum: 1 bis 120 Zeichen, keine Steuerzeichen).
+     */
+    NameAendern: {
+      /** Name */
+      name: string;
     };
     /** NutzerAendern */
     NutzerAendern: {
@@ -2907,6 +2965,39 @@ export interface operations {
       };
     };
   };
+  loeschen_api_besprechungen__kennung__delete: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        kennung: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            [key: string]: unknown;
+          };
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['HTTPValidationError'];
+        };
+      };
+    };
+  };
   protokoll_speichern_api_besprechungen__kennung__protokoll_put: {
     parameters: {
       query?: never;
@@ -3073,6 +3164,76 @@ export interface operations {
         content: {
           'application/json': {
             [key: string]: unknown;
+          };
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['HTTPValidationError'];
+        };
+      };
+    };
+  };
+  umbenennen_api_besprechungen__kennung__name_put: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        kennung: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['NameAendern'];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            [key: string]: string;
+          };
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['HTTPValidationError'];
+        };
+      };
+    };
+  };
+  dokument_oeffnen_api_besprechungen__kennung__dokument_oeffnen_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        kennung: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': {
+            [key: string]: boolean;
           };
         };
       };
