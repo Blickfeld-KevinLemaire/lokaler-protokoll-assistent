@@ -56,6 +56,15 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 - **Update von 0.5 ohne Internet:** Lässt sich die Rechenumgebung beim ersten Start nach dem Update nicht
   aktualisieren, startet VERMERK ohne sie, statt nach drei Versuchen mit „Der Dienst ließ sich nicht starten“
   stehen zu bleiben. Beim nächsten Start mit Internet wird die Aktualisierung nachgeholt.
+- **Einrichtung:** Scheitert ein Download, steht der Grund jetzt dabei – etwa, dass die Nutzungsbedingungen der
+  Sprechererkennung bei Hugging Face noch zu akzeptieren sind, mit anklickbarer Adresse. Scheitert die
+  Sprechererkennung, lässt sich der Zugangsschlüssel neu eingeben; ein falscher blieb bisher gemerkt, und „Erneut
+  versuchen“ scheiterte immer wieder.
+- **Einrichtung:** Spracherkennung und Sprechererkennung lassen sich auch laden, nachdem in derselben Sitzung „Ohne
+  Internet“ transkribiert wurde.
+- **Einrichtung:** Wer die lokale Transkription aus den Einstellungen heraus einrichtet und die App schließt, statt
+  „Jetzt neu starten“ zu wählen, landet beim nächsten Start wieder bei der Spracherkennung.
+- **Einrichtung:** Ein abgebrochener Download von Ollama gilt als abgebrochen, nicht als fehlgeschlagen.
 
 ## [0.6.0-alpha.1] - 2026-11-22
 

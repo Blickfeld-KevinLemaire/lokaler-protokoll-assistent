@@ -19,6 +19,7 @@ Regeln, die hier gelten (CLAUDE.md):
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -492,18 +493,24 @@ def ollama(daten: modelle.EinrichtungZustimmung, d: Dienste = Depends(dienste), 
     def ausfuehren(fortschritt: Fortschritt) -> dict[str, Any]:
         e = ollama_einrichtung_service
         # Die Dienstfunktionen erst hier nachschlagen (nicht als Vorgabe beim Import): So lassen sie sich ersetzen.
-        laeuft = e.installiere_ollama(
-            installer_ordner(),
-            _meldungen(fortschritt, "ollama"),
-            _bytes_fortschritt(fortschritt),
-            status_fn=e.ermittle_status,
-            lade_fn=e.lade_installer,
-            pruef_fn=e.pruefe_signatur,
-            install_fn=e.installiere_still,
-            warte_fn=e.warte_auf_dienst,
-            abbrechen_fn=fortschritt.abbruch_gewuenscht,
-            igpu_fn=e.igpu_freischalten,
-        )
+        try:
+            laeuft = e.installiere_ollama(
+                installer_ordner(),
+                _meldungen(fortschritt, "ollama"),
+                _bytes_fortschritt(fortschritt),
+                status_fn=e.ermittle_status,
+                lade_fn=e.lade_installer,
+                pruef_fn=e.pruefe_signatur,
+                install_fn=e.installiere_still,
+                warte_fn=e.warte_auf_dienst,
+                abbrechen_fn=fortschritt.abbruch_gewuenscht,
+                igpu_fn=e.igpu_freischalten,
+            )
+        except e.OllamaEinrichtungFehler:
+            # Wer den Download abbricht, sah sonst "Hat nicht geklappt" und "Erneut versuchen".
+            if fortschritt.abbruch_gewuenscht():
+                raise AuftragAbgebrochen("Ollama einrichten abgebrochen") from None
+            raise
         if not laeuft:
             raise e.OllamaEinrichtungFehler(
                 "Ollama ist installiert, antwortet aber nicht. Bitte Ollama einmal selbst starten (Startmenü) "
@@ -623,16 +630,38 @@ def modelle_laden(
             except ollama_service.OllamaError as grund:
                 fortschritt.meldung(str(grund))
                 ergebnis(f"modell:{name}", False, str(grund))
-        melden_whisper = _meldungen(fortschritt, "whisper")
+        def melden_mit_grund(stufe: str, gruende: list[str]) -> Any:
+            """Wie ``_meldungen`` -- und merkt sich die Zeilen "FEHLER ...": Sie sagen, was zu tun ist (z. B. die
+            Nutzungsbedingungen von pyannote akzeptieren). Ohne sie stand im Auftrag nur "Nicht geklappt: pyannote"."""
+            melden = _meldungen(fortschritt, stufe)
+
+            def weiter(text: str) -> None:
+                melden(text)
+                if text.startswith("FEHLER"):
+                    gruende.append(text.removeprefix("FEHLER").lstrip(": ").strip())
+
+            return weiter
+
+        if whisper_modell is not None or sprechertrennung:
+            # Ein bewusster Download: Eine Verarbeitung "Ohne Internet" hatte Hugging Face in diesem Prozess
+            # abgeschaltet, das Laden scheiterte dann mit einer irrefuehrenden Meldung.
+            hf_env.disable_offline_mode()
         if whisper_modell is not None:
             abbruch_pruefen()
             fortschritt.stufe("whisper", f"Spracherkennung {whisper_modell} wird geladen …")
-            ergebnis("whisper", bool(model_download_service.download_whisper_and_alignment(melden_whisper, model_name=whisper_modell)))
+            gruende: list[str] = []
+            ok = model_download_service.download_whisper_and_alignment(melden_mit_grund("whisper", gruende), model_name=whisper_modell)
+            ergebnis("whisper", bool(ok), gruende[-1] if gruende else "")
         if sprechertrennung:
             abbruch_pruefen()
             fortschritt.stufe("pyannote", "Sprechererkennung wird geladen …")
-            ok = model_download_service.download_pyannote(_meldungen(fortschritt, "pyannote"), get_token=lambda: token)
-            ergebnis("pyannote", bool(ok))
+            if token is not None and os.environ.get("HF_TOKEN", token) != token:
+                # Ein neu eingegebener Schluessel gilt -- auch wenn ein frueherer (falscher) Versuch ihn in diesem
+                # Prozess schon gesetzt hat: 'download_pyannote' nimmt den uebergebenen nur, wenn noch keiner da ist.
+                os.environ["HF_TOKEN"] = token
+            gruende = []
+            ok = model_download_service.download_pyannote(melden_mit_grund("pyannote", gruende), get_token=lambda: token)
+            ergebnis("pyannote", bool(ok), gruende[-1] if gruende else "")
         if whisper_modell is not None or sprechertrennung:
             # Die Rechenumgebung steht -- ein weiterer Neustart ist nicht noetig. Erst hier: Nach einem Abbruch
             # (oben) wurden Whisper/pyannote gar nicht geladen, dann bleibt die Einrichtung offen.

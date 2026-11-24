@@ -63,6 +63,19 @@ export function ordnerVon(pfad: string): string {
   return i > 0 ? pfad.slice(0, i) : pfad;
 }
 
+/** Text in Stücke zerlegen, damit Adressen darin anklickbar werden (z. B. „Bedingungen akzeptieren: https://…“). */
+export function textMitAdressen(text: string): { text: string; adresse?: string }[] {
+  const teile: { text: string; adresse?: string }[] = [];
+  let rest = 0;
+  for (const m of text.matchAll(/https:\/\/[^\s"'<>]+[^\s"'<>.,;:)]/g)) {
+    if (m.index > rest) teile.push({ text: text.slice(rest, m.index) });
+    teile.push({ text: m[0], adresse: m[0] });
+    rest = m.index + m[0].length;
+  }
+  if (rest < text.length) teile.push({ text: text.slice(rest) });
+  return teile;
+}
+
 /** Anzeigename eines Sprechers: vergebener Name, sonst „Sprecher 3“ statt der Kennung `SPEAKER_02`. */
 export function sprecherName(name: string | null | undefined, kennung: string | null | undefined): string {
   const roh = (name ?? '').trim();

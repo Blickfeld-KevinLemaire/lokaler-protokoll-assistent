@@ -347,6 +347,26 @@ export function einrichtungsAuftraege(auftraege: Auftrag[]): Auftrag[] {
   return auftraege.filter((a) => a.art.startsWith('einrichtung_'));
 }
 
+/** Der jüngste Auftrag je Art (ein früherer, gescheiterter Versuch soll nicht stören). */
+export function juengsteEinrichtungsAuftraege(auftraege: Auftrag[]): Auftrag[] {
+  const jeArt: Record<string, Auftrag> = {};
+  for (const a of einrichtungsAuftraege(auftraege)) {
+    const bisher = jeArt[a.art];
+    if (!bisher || bisher.erstellt <= a.erstellt) jeArt[a.art] = a;
+  }
+  return Object.values(jeArt).sort((a, b) => a.erstellt - b.erstellt);
+}
+
+/**
+ * Ist die Sprechererkennung beim letzten Laden gescheitert? Dann darf der Zugangsschlüssel noch einmal
+ * eingegeben werden – ein falscher blieb sonst gemerkt, und „Erneut versuchen“ scheiterte immer wieder.
+ */
+export function sprechererkennungGescheitert(auftraege: Auftrag[]): boolean {
+  const letzter = juengsteEinrichtungsAuftraege(auftraege).find((a) => a.art === 'einrichtung_modelle');
+  const teile = letzter?.angaben?.teile as Record<string, boolean> | undefined;
+  return letzter?.status === 'fehler' && teile?.pyannote === false;
+}
+
 /** Laufen noch Einrichtungsaufträge (dann wird nicht neu gestartet)? */
 export function einrichtungLaeuft(auftraege: Auftrag[]): boolean {
   return einrichtungsAuftraege(auftraege).some((a) => !ERLEDIGT.has(a.status));

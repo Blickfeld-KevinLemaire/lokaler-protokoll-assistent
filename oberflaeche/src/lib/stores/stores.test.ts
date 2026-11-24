@@ -74,6 +74,15 @@ describe('Ersteinrichtung: Ablauf mit Neustart', () => {
     await einrichtung.pruefen({ ...OFFEN, rolle: 'server' } as Info);
     expect(einrichtung.aktiv).toBe(false);
     expect(abfrage).not.toHaveBeenCalled();
+    const OHNE_RECHENUMGEBUNG = { ...INFO.faehigkeiten, lokale_transkription: false };
+    await einrichtung.pruefen({
+      ...OFFEN,
+      einrichtung_abgeschlossen: true,
+      faehigkeiten: OHNE_RECHENUMGEBUNG
+    } as Info);
+    expect(einrichtung.aktiv).toBe(false);
+    expect(abfrage).not.toHaveBeenCalled();
+    abfrage.mockResolvedValueOnce(stand({ einrichtung_abgeschlossen: true, naechster_schritt: 'fertig' }));
     await einrichtung.pruefen({ ...OFFEN, einrichtung_abgeschlossen: true } as Info);
     expect(einrichtung.aktiv).toBe(false);
     await einrichtung.pruefen(OFFEN);
@@ -94,6 +103,33 @@ describe('Ersteinrichtung: Ablauf mit Neustart', () => {
     expect(einrichtung.nachNeustart).toBe(true);
     expect(einrichtung.schritt).toBe('mitschrift');
     expect(einrichtung.folge).toEqual(['mitschrift', 'fertig']);
+  });
+
+  it('macht mit der Spracherkennung weiter, wenn die App statt „Jetzt neu starten“ geschlossen wurde', async () => {
+    // Einrichtung aus den Einstellungen erneut geöffnet (also schon abgeschlossen), lokal mit Zustimmung – dann das
+    // Fenster geschlossen. Der nächste Start richtet die Rechenumgebung ein; die Spracherkennung fehlt noch.
+    vi.spyOn(api, 'einrichtungStand').mockResolvedValue(
+      stand({ einrichtung_abgeschlossen: true, naechster_schritt: 'mitschrift' })
+    );
+    await einrichtung.pruefen({ ...OFFEN, einrichtung_abgeschlossen: true } as Info);
+    expect(einrichtung.aktiv).toBe(true);
+    expect(einrichtung.schritt).toBe('mitschrift');
+    expect(einrichtung.folge).toEqual(['mitschrift', 'fertig']);
+  });
+
+  it('nimmt beim erneuten Versuch einen neu eingegebenen Zugangsschlüssel mit', async () => {
+    // Die Sprechererkennung scheiterte (z. B. falscher Schlüssel): Der neue Schlüssel geht mit und bleibt nicht stehen.
+    const laden = vi.spyOn(api, 'einrichtungModelle').mockResolvedValue({ id: 'neu' } as never);
+    einrichtung.nachNeustart = true;
+    einrichtung.stand = stand({});
+    einrichtung.zustimmung = { pyannote: true };
+    einrichtung.hfSchluessel = ' hf_neu ';
+    await einrichtung.wiederholen('einrichtung_modelle');
+    expect(laden).toHaveBeenCalledWith(
+      expect.objectContaining({ sprechertrennung: true, hf_token: 'hf_neu' })
+    );
+    expect(einrichtung.hfSchluessel).toBe('');
+    einrichtung.zustimmung = {};
   });
 
   it('schließt nach dem Neustart, wenn nichts mehr offen ist', async () => {

@@ -101,7 +101,11 @@ class Einrichtung {
       return;
     }
     const nachNeustart = this.neustart === 'laeuft';
-    if (!nachNeustart && (this.aktiv || info.einrichtung_abgeschlossen || sitzungLesen())) return;
+    if (!nachNeustart && (this.aktiv || sitzungLesen())) return;
+    // Abgeschlossen – außer die Rechenumgebung ist erst mit diesem Start gekommen (zugestimmt, aber die App wurde
+    // statt „Jetzt neu starten“ geschlossen): Dann geht es wie versprochen mit der Spracherkennung weiter.
+    const mitschriftMoeglich = !!info.faehigkeiten.lokale_transkription;
+    if (!nachNeustart && info.einrichtung_abgeschlossen && !mitschriftMoeglich) return;
     let stand: EinrichtungStand;
     try {
       stand = await api.einrichtungStand();
@@ -126,7 +130,7 @@ class Einrichtung {
       }
       return;
     }
-    if (stand.einrichtung_abgeschlossen) return;
+    if (stand.einrichtung_abgeschlossen && stand.naechster_schritt !== 'mitschrift') return;
     const start = startSchritt(stand);
     this.nachNeustart = start === 'mitschrift';
     this.schritt = start;
@@ -325,7 +329,11 @@ class Einrichtung {
               wahl: this.wahl,
               hfSchluessel: this.hfSchluessel
             }).modelle;
-        if (plan) zustand.auftragAktualisieren(await api.einrichtungModelle(plan));
+        if (plan) {
+          zustand.auftragAktualisieren(await api.einrichtungModelle(plan));
+          // Ein neu eingegebener Zugangsschlüssel ist jetzt beim Dienst (und dort gemerkt).
+          if (plan.hf_token) this.hfSchluessel = '';
+        }
       }
     } catch (e) {
       dialog.zeigen(e, 'Das hat nicht geklappt');
