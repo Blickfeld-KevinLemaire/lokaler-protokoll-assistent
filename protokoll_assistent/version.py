@@ -5,4 +5,4 @@ Muss mit ``pyproject.toml``, ``oberflaeche/package.json`` und
 (``tests/test_version.py``) und der Release-Workflow pruefen das.
 """
 
-VERSION = "0.6.0-alpha.1"
+VERSION = "0.7.0-rc1"

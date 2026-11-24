@@ -1,9 +1,9 @@
 # Architektur der neuen Oberfläche
 
-Stand: November 2026, Branch `feature/neue-oberflaeche`. Dieses Dokument
-beschreibt das Zielbild und die Regeln, nach denen gebaut wird. Was hier steht,
-gilt vor älteren Beschreibungen in `CLAUDE.md`, soweit es die Oberfläche
-betrifft. Nach dem Zusammenführen wird `CLAUDE.md` angepasst.
+Stand: November 2026 (0.7, entstanden auf dem Branch `feature/neue-oberflaeche`).
+Dieses Dokument beschreibt das Zielbild und die Regeln, nach denen gebaut wird.
+Was hier steht, gilt vor älteren Beschreibungen in `CLAUDE.md`, soweit es die
+Oberfläche betrifft.
 
 ## Zielbild
 

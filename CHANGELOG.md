@@ -8,6 +8,11 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [0.7.0-rc1] - 2026-11-24
+
+Release-Kandidat der neuen Oberfläche: Die alte Qt-Oberfläche ist entfernt, dazu zahlreiche Korrekturen aus einer
+Code-Review und einem Fehlersuchlauf über Einrichtung, tägliche Arbeit, Aufnahmegeräte und den Servermodus.
+
 ### Removed
 
 - **Die alte Qt-Oberfläche ist entfernt.** VERMERK besteht nur noch aus dem neuen Fenster und dem Dienst dahinter;

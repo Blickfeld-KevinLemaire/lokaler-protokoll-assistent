@@ -40,9 +40,9 @@ eine Oberfläche (oder Qt) importieren. Seine Pakete stehen in
 `requirements-server.txt` (Regel 8: nicht mit den anderen Listen vermischen).
 Die Tests des Servers laufen überall; das Image baut `.github/workflows/container.yml`.
 
-### Neue Oberfläche (Branch `feature/neue-oberflaeche`, ab 0.6)
+### Neue Oberfläche (ab 0.6, auf `main` seit 0.7)
 
-Auf diesem Branch hat eine SvelteKit-Oberfläche (`oberflaeche/`) in einem
+Seit 0.6 hat eine SvelteKit-Oberfläche (`oberflaeche/`) in einem
 Tauri-Fenster (`oberflaeche/src-tauri/`) die alte Qt-Oberfläche ersetzt; die
 Logik liegt ohne Oberfläche in `ablauf/`, die Programmschnittstelle in `api/`
 (FastAPI, Rollen desktop/server). **Zielbild, Prozessmodell und verbindliche

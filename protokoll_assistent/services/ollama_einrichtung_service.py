@@ -301,8 +301,8 @@ def _lies_signatur(pfad: Path) -> tuple[str, str]:
     if sys.platform != "win32":
         raise OSError("Die Signaturprüfung gibt es nur unter Windows.")
     import ctypes
+    import ctypes.wintypes as wintypes
     import uuid
-    from ctypes import wintypes
 
     class _Guid(ctypes.Structure):
         _fields_ = [

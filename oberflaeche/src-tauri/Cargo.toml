@@ -2,7 +2,7 @@
 name = "vermerk"
 # Muss zu pyproject.toml, protokoll_assistent/version.py, oberflaeche/package.json
 # und tauri.conf.json passen (tools/versionen_pruefen.py prueft das).
-version = "0.6.0-alpha.1"
+version = "0.7.0-rc1"
 description = "VERMERK – Desktop-Fenster (Tauri 2) fuer den Protokoll-Dienst"
 authors = ["Kevin Lemaire"]
 license = "LicenseRef-Proprietaer"

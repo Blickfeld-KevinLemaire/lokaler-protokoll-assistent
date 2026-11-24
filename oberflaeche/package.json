@@ -1,6 +1,6 @@
 {
   "name": "vermerk-oberflaeche",
-  "version": "0.6.0-alpha.1",
+  "version": "0.7.0-rc1",
   "private": true,
   "type": "module",
   "scripts": {
