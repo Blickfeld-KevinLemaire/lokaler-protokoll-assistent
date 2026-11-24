@@ -50,6 +50,16 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 - **Einrichtung:** Ein abgebrochenes Laden der Modelle gilt als abgebrochen, nicht als fertig; die Mitschrift bleibt
   dann zur Einrichtung offen.
 - Der Fortschritt einer laufenden Verarbeitung bleibt nicht mehr minutenlang auf einem alten Stand stehen.
+- **Zusammenfassung:** Klappt sie nicht (Sprachmodell nicht erreichbar, falscher Zugangsschlüssel …), heißt es nicht
+  mehr „Fertig“ ohne Zusammenfassung, sondern „Hat nicht geklappt“ mit dem Grund.
+- **Vorlagen:** Die Vorlage „Standard“ aus den Einstellungen wird wieder benutzt und ist bei „Transkription“ und
+  „Zusammenfassung erstellen“ auswählbar. Bisher kam ohne andere Vorgabe stattdessen die eingebaute Vorlage
+  „Zusammenfassung“ – Änderungen am Standard wirkten nicht.
+- **Bekannte Stimmen:** „Stimme merken“ und die Namensvorschläge funktionieren wieder; bisher hieß es bei jeder
+  Aufnahme, es liege keine Stimme vor.
+- **Sprecher:** Konnten die Sprecher nicht getrennt werden, sagt das die fertige Transkription jetzt (vorher nur
+  „Fertig“ und ein Text ohne Sprecher). Eingetippte, noch nicht gespeicherte Namen gehen nicht mehr verloren, wenn
+  im Hintergrund eine andere Verarbeitung fertig wird.
 
 ## [0.6.0-alpha.1] - 2026-11-22
 
