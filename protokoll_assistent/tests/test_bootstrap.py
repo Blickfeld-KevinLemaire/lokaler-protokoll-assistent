@@ -487,7 +487,7 @@ def test_anwendungsordner_aus_der_umgebung(monkeypatch, tmp_path):
     # Die gebaute EXE richtet sich nach ihrem eigenen Ordner -- ausser das Fenster gibt einen vor (der Dienst
     # der neuen Oberflaeche liegt in '<app>\dienst\', seine Daten aber in '<app>\').
     monkeypatch.setattr(paths.sys, "frozen", True, raising=False)
-    monkeypatch.setattr(paths.sys, "executable", str(tmp_path / "exe" / "VERMERK-Desktop.exe"))
+    monkeypatch.setattr(paths.sys, "executable", str(tmp_path / "exe" / "vermerk-dienst.exe"))
     assert paths.get_app_dir() == tmp_path
     monkeypatch.delenv(paths.ANWENDUNGSORDNER_VARIABLE)
     assert paths.get_app_dir() == (tmp_path / "exe").resolve()

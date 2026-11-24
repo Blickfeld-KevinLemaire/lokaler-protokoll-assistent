@@ -11,34 +11,12 @@ und wird von diesem Text nicht beruehrt.
 
 ---
 
-## 1. Im Programm enthalten (wird mit der EXE ausgeliefert)
+## 1. Im Programm enthalten (wird mit Fenster und Dienst ausgeliefert)
 
-### Qt 6 und PySide6 / shiboken6 (Version 6.11.2)
-
-* Urheber: The Qt Company Ltd. und Mitwirkende
-* Gewaehlte Lizenz: **GNU Lesser General Public License, Version 3**
-  ([`lizenzen/lgpl-3.0.txt`](lizenzen/lgpl-3.0.txt))
-* Die LGPL-3.0 baut auf der GPL-3.0 auf; deren Text liegt ebenfalls bei
-  ([`lizenzen/gpl-3.0.txt`](lizenzen/gpl-3.0.txt)).
-* Bezugsquelle: https://www.qt.io — https://pypi.org/project/PySide6/
-
-PySide6 wird wahlweise unter LGPL-3.0, GPL-2.0 oder GPL-3.0 angeboten. Fuer
-dieses Programm wird ausdruecklich die **LGPL-3.0** gewaehlt.
-
-**Wie die Pflichten der LGPL-3.0 erfuellt werden**
-
-| Pflicht | Umsetzung |
-|---|---|
-| Qt darf nur dynamisch eingebunden werden | Der Build ist ein One-Directory-Build (`exclude_binaries=True` + `COLLECT`). Die Qt-Bibliotheken liegen als eigene `.dll`- und `.pyd`-Dateien neben der EXE, nicht darin. |
-| Anwender muessen Qt austauschen koennen | Die Dateien liegen offen im Programmordner und koennen durch eine andere Qt-Fassung derselben Hauptversion ersetzt werden. Es gibt keine Signatur- oder Integritaetspruefung, die das verhindert. |
-| Qt darf nicht veraendert sein, sonst muessen die Aenderungen offengelegt werden | Qt und PySide6 werden unveraendert aus den offiziellen Paketen uebernommen. |
-| Lizenztext und Hinweis muessen beiliegen | Dieser Text und der Ordner `lizenzen/`. |
-| Kein Komprimieren/Strippen, das den Austausch erschwert | In der Build-Spezifikation sind `upx=False` und `strip=False` gesetzt. |
-
-> Bitte diese vier Punkte nicht unbeabsichtigt aendern. Ein Wechsel auf einen
-> One-File-Build, statisches Linken oder eine Integritaetspruefung der DLLs
-> wuerde die LGPL-Bedingungen verletzen — dann waere eine kommerzielle
-> Qt-Lizenz noetig.
+> **Qt / PySide6 wird nicht mehr ausgeliefert.** Bis 0.6.0-alpha.1 lag die alte
+> Oberflaeche als Qt-Anwendung (PySide6 6.11.2, LGPL-3.0) bei. Sie ist durch das
+> Tauri-Fenster ersetzt und entfernt; damit entfallen auch die LGPL-Auflagen
+> und die Lizenztexte `lgpl-3.0.txt`/`gpl-3.0.txt`.
 
 ### python-docx (1.2.0)
 
@@ -175,8 +153,8 @@ nicht ausgeliefert.
 
 ### Der Dienst `dienst\vermerk-dienst.exe` (ab 0.6.0)
 
-Der Dienst ist wie die bisherige EXE ein PyInstaller-Build (One-Directory,
-siehe unten) und enthaelt **kein** Qt. Zusaetzlich zu den oben genannten
+Der Dienst ist ein PyInstaller-Build (One-Directory, siehe unten) und
+enthaelt **kein** Qt. Zusaetzlich zu den oben genannten
 Paketen (python-docx, sounddevice, keyring, pyserial, truststore, lxml …):
 
 | Paket | Fassung | Lizenz |
@@ -275,9 +253,10 @@ und stimmt dabei den jeweiligen Bedingungen zu.
 Dieser Text ist eine technische Bestandsaufnahme und keine Rechtsberatung.
 Vor einem Verkauf sollten vor allem diese Punkte geklaert werden:
 
-1. **Die vier LGPL-Punkte oben bleiben eingehalten.** Sie sind beim heutigen
-   Build erfuellt; ein Wechsel der Build-Form waere der wahrscheinlichste
-   Weg, das zu verlieren.
+1. **Keine LGPL-Bibliothek ungeprueft einbauen.** Seit Qt entfallen ist,
+   liefert der Build keine LGPL-Bibliothek mehr aus. Kommt wieder eine dazu,
+   muss sie dynamisch eingebunden und austauschbar bleiben (One-Directory,
+   keine Integritaetspruefung), mit Lizenztext in `lizenzen/`.
 2. **FFmpeg bleibt beim Anwender.** Sobald ein GPL-Build mitgeliefert wird,
    stellt sich die Frage der GPL-Wirkung auf das Gesamtpaket neu.
 3. **Modellgewichte einzeln freigeben lassen.** Das ist der Punkt, der am
