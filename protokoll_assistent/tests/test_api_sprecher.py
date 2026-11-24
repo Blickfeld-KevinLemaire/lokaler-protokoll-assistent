@@ -57,6 +57,30 @@ def test_profil_merken_und_wiedererkennen(umgebung: tuple[Umgebung, str]) -> Non
     assert client.delete(f"/api/sprecherprofile/{profil['id']}").status_code == 404
 
 
+def test_stimme_aus_dem_arbeitsordner_der_pipeline(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # So legt die Pipeline es an: 'audio_pfad' ist die normalisierte Fassung IM Arbeitsordner (dessen Name der Hash
+    # der Quelldatei ist), daneben Manifest und Stimmabdruecke. Frueher wurde der Hash der normalisierten Datei
+    # gebildet -- ein anderer, leerer Ordner: "Stimme merken" scheiterte immer mit 409.
+    eigene_konfiguration(monkeypatch, tmp_path)
+    monkeypatch.setattr(paths, "get_work_dir", lambda: tmp_path / "arbeit")
+    monkeypatch.setattr(paths, "get_sprecherprofile_dir", lambda: tmp_path / "profile")
+    routen_sprecher._hash_zwischenspeicher.clear()
+    arbeit = manifest_service.get_work_dir_for_file(tmp_path / "arbeit", "hash-der-quelldatei")
+    (arbeit / manifest_service.MANIFEST_FILENAME).write_text("{}", encoding="utf-8")
+    normalisiert = arbeit / "audio_normalisiert.wav"
+    normalisiert.write_bytes(b"RIFF-normalisiert")
+    sprecherprofil_service.speichere_lauf_embeddings(arbeit, {"SPEAKER_00": STIMME})
+    transkript = transkript_json_schreiben(tmp_path / "aus" / "sitzung_lokal_transkript_20260101_100000.json")
+    daten = json.loads(transkript.read_text(encoding="utf-8"))
+    daten["audio_pfad"] = str(normalisiert)
+    transkript.write_text(json.dumps(daten), encoding="utf-8")
+    client = app_bauen(tmp_path).client
+    kennung = transkript.stem
+    assert client.get(f"/api/besprechungen/{kennung}/sprecher/vorschlaege").json()["stimmen_vorhanden"] is True
+    assert client.post(f"/api/besprechungen/{kennung}/sprecher/SPEAKER_00/profil", json={"name": "Anna"}).status_code == 201
+    assert sorted(p.name for p in (tmp_path / "arbeit").iterdir()) == ["hash-der-quelldatei"]
+
+
 def test_ohne_audiodatei_keine_stimme(umgebung: tuple[Umgebung, str], tmp_path: Path) -> None:
     u, kennung = umgebung
     (tmp_path / "aufnahmen" / "sitzung.wav").unlink()
