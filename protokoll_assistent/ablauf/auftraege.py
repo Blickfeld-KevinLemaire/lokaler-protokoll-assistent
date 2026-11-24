@@ -440,9 +440,13 @@ FREMD_FELDER = ("id", "art", "status", "vorrang", "erstellt", "gestartet", "been
 def fuer_betrachter(daten: dict[str, Any], betrachter: str | None, *, alles_sehen: bool) -> dict[str, Any]:
     """Was ein Nutzer von einem Auftrag sieht. Eigene (und in der Windows-Anwendung alle): vollstaendig.
     Fremde: nur so viel, dass die eigene Position in der Warteschlange und die Wartezeit verstaendlich sind --
-    kein Dateiname, keine Vorschau, kein Ergebnis."""
+    kein Dateiname, keine Vorschau, kein Ergebnis.
+
+    Ein Auftrag ohne Besitzer (Eingangsordner ohne ``PROTOKOLL_EINGANG_NUTZER``, Geraet ohne Besitzer, Modell-
+    Download eines Admins) gehoert im Servermodus niemandem -- fuer Nicht-Admins ist er deshalb fremd. In der
+    Windows-Anwendung gilt ``alles_sehen``."""
     besitzer = daten.get("besitzer")
-    if alles_sehen or besitzer is None or (betrachter is not None and str(besitzer).lower() == betrachter.lower()):
+    if alles_sehen or (besitzer is not None and betrachter is not None and str(besitzer).lower() == betrachter.lower()):
         return daten
     fremd = {k: daten.get(k) for k in FREMD_FELDER if k in daten}
     fremd.update({"titel": "Andere Verarbeitung", "herkunft": "andere", "besitzer": None, "fremd": True})

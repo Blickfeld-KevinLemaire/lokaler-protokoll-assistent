@@ -113,6 +113,24 @@ def test_fremde_auftraege_ohne_inhalt(server: Umgebung) -> None:
     assert zustand["empfang"] is None
 
 
+def test_auftraege_ohne_besitzer_sehen_nur_admins(server: Umgebung) -> None:
+    """Eingangsordner ohne PROTOKOLL_EINGANG_NUTZER, Geraete ohne Besitzer: Die Ergebnisse gehoeren niemandem --
+    Titel, Quellpfad und Ergebnis sehen nur Admins, alle anderen nur "Andere Verarbeitung"."""
+    ben, chef = _client(server, "ben"), _client(server, "chef")
+    quelle = str(server.tmp / "eingang" / "vorstand-geheim.wav")
+    auftrag = server.steuerung.auftraege.einreihen(
+        "verarbeitung", "vorstand-geheim.wav", lambda f: {"ausgabe": "vertraulich"}, herkunft="ordner", angaben={"quelle": quelle}
+    )
+    server.auftraege_ausfuehren()
+    fuer_ben = next(a for a in ben.get("/api/auftraege").json() if a["id"] == auftrag.id)
+    assert fuer_ben["fremd"] is True and fuer_ben["titel"] == "Andere Verarbeitung"
+    assert "geheim" not in str(fuer_ben) and "vertraulich" not in str(fuer_ben)
+    assert "geheim" not in str(ben.get(f"/api/auftraege/{auftrag.id}").json())
+    assert ben.delete(f"/api/auftraege/{auftrag.id}").status_code == 404
+    fuer_chef = next(a for a in chef.get("/api/auftraege").json() if a["id"] == auftrag.id)
+    assert fuer_chef["titel"] == "vorstand-geheim.wav" and fuer_chef["ergebnis"] == {"ausgabe": "vertraulich"}
+
+
 def test_hochladen_in_den_eigenen_ordner(server: Umgebung) -> None:
     anna = _client(server, "anna")
     antwort = anna.post("/api/dateien/hochladen", files={"datei": ("a.wav", b"RIFF", "audio/wav")})
