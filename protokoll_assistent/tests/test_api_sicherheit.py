@@ -112,6 +112,27 @@ def test_sitzung_laeuft_ab() -> None:
     assert zugang.anmelden("", "1.2.3.4") is None
 
 
+def test_entfernter_zugangsschluessel_beendet_die_browser_sitzung() -> None:
+    """Netzfreigabe ohne Nutzerverwaltung: Wird ein Zugangsschluessel entfernt (oder ersetzt), endet auch die damit
+    im Browser angelegte Sitzung -- nicht erst nach Ablauf der 12 Stunden."""
+    zugaenge = {"laptop": sicherheit.schluessel_hash("k"), "tablet": sicherheit.schluessel_hash("t")}
+    zugang = Zugang(ROLLE_SERVER, zugaenge=lambda: dict(zugaenge))
+    ergebnis = zugang.anmelden("k", "1.2.3.4")
+    assert ergebnis is not None
+
+    class Anfrage:
+        headers: dict[str, str] = {}
+        cookies = {sicherheit.COOKIE_NAME: ergebnis[0]}
+        method = "GET"
+
+    assert zugang.wer(Anfrage()) == "laptop"  # type: ignore[arg-type]
+    zugaenge["laptop"] = sicherheit.schluessel_hash("neu")  # neu angelegt: der alte Schluessel gilt nicht mehr
+    assert zugang.wer(Anfrage()) is None  # type: ignore[arg-type]
+    zugaenge["laptop"] = sicherheit.schluessel_hash("k")
+    assert zugang.wer(Anfrage()) is None  # type: ignore[arg-type]  # die Sitzung ist verworfen
+    zugang.sitzung_behalten(ergebnis[0], "laptop")  # ohne Nutzerverwaltung: nichts zu tun
+
+
 def test_zugaenge_aus_konfiguration() -> None:
     zugaenge = zugaenge_aus_konfiguration(
         [{"name": "a", "token_sha256": "A" * 64}, {"name": "", "token_sha256": "b" * 64}, {"name": "c"}, "unsinn"],

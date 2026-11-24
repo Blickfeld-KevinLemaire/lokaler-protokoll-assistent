@@ -227,7 +227,11 @@ class Nutzerverwaltung:
 
     def zugang_pruefen(self, schluessel: str) -> Nutzer | None:
         """Zu welchem aktiven Nutzer gehoert dieser Schluessel? Vergleicht alle (konstante Zeit)."""
-        gesucht = schluessel_hash(schluessel)
+        return self.zugang_hash_pruefen(schluessel_hash(schluessel))
+
+    def zugang_hash_pruefen(self, gesucht: str) -> Nutzer | None:
+        """Wie ``zugang_pruefen``, aber mit dem SHA-256 des Schluessels -- so prueft eine Browser-Sitzung bei jeder
+        Anfrage nach, ob der Schluessel, mit dem sie angelegt wurde, noch gilt (ohne den Klartext aufzuheben)."""
         treffer: Nutzer | None = None
         for nutzer in self.liste():
             for zugang in nutzer.zugaenge:

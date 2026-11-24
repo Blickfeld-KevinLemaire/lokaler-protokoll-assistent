@@ -7,11 +7,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from protokoll_assistent.ablauf.nutzer import NutzerFehler, Nutzerverwaltung, passwort_passt
 from protokoll_assistent.api import modelle
 from protokoll_assistent.api.kontext import Angemeldet, Dienste, angemeldet, dienste, nur_admin
+from protokoll_assistent.api.sicherheit import COOKIE_NAME
 
 router = APIRouter(prefix="/api", tags=["nutzer"])
 
@@ -36,7 +37,10 @@ def ich(d: Dienste = Depends(dienste), wer: Angemeldet = Depends(angemeldet)) ->
 
 
 @router.put("/ich/passwort")
-def eigenes_passwort(daten: modelle.PasswortAendern, d: Dienste = Depends(dienste), wer: Angemeldet = Depends(angemeldet)) -> dict[str, bool]:
+def eigenes_passwort(
+    daten: modelle.PasswortAendern, request: Request, d: Dienste = Depends(dienste), wer: Angemeldet = Depends(angemeldet)
+) -> dict[str, bool]:
+    # Andere mit dem alten Passwort angelegte Sitzungen enden; die, mit der das Passwort geaendert wurde, bleibt.
     verwaltung = _verwaltung(d)
     eintrag = verwaltung.hole(wer.name)
     if eintrag is None:
@@ -47,6 +51,7 @@ def eigenes_passwort(daten: modelle.PasswortAendern, d: Dienste = Depends(dienst
         verwaltung.passwort_setzen(wer.name, daten.neu)
     except NutzerFehler as fehler:
         raise _fehler(fehler) from fehler
+    d.zugang.sitzung_behalten(request.cookies.get(COOKIE_NAME), wer.name)
     return {"gespeichert": True}
 
 

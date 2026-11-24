@@ -47,10 +47,19 @@ def schluessel_hash(schluessel: str) -> str:
     return hashlib.sha256(schluessel.encode("utf-8")).hexdigest()
 
 
+ANMELDUNG_SCHLUESSEL = "schluessel"
+ANMELDUNG_PASSWORT = "passwort"
+
+
 @dataclass
 class _Sitzung:
     name: str
     ablauf: float
+    # Womit angemeldet wurde: mit einem Schluessel (``nachweis`` = sein SHA-256) oder mit dem Passwort (``nachweis``
+    # = der damals gespeicherte Passwort-Hash; er aendert sich mit jedem neuen Passwort, auch wegen des Salzes).
+    # ``wer()`` prueft bei jeder Anfrage nach, ob das noch gilt.
+    art: str = ANMELDUNG_SCHLUESSEL
+    nachweis: str = ""
 
 
 @dataclass
@@ -85,13 +94,16 @@ class Zugang:
         return wert.strip() if art.lower() == "bearer" and wert.strip() else None
 
     def _passender_zugang(self, schluessel: str) -> str | None:
-        if self.start_schluessel and hmac.compare_digest(schluessel, self.start_schluessel):
+        return self._zugang_zum_hash(schluessel_hash(schluessel))
+
+    def _zugang_zum_hash(self, gesucht: str) -> str | None:
+        """Name des Zugangs zum SHA-256 eines Schluessels oder ``None``."""
+        if self.start_schluessel and hmac.compare_digest(gesucht, schluessel_hash(self.start_schluessel)):
             return "desktop"
         if self.nutzer is not None:
-            gefunden = self.nutzer.zugang_pruefen(schluessel)
+            gefunden = self.nutzer.zugang_hash_pruefen(gesucht)
             if gefunden is not None:
                 return gefunden.name
-        gesucht = schluessel_hash(schluessel)
         treffer = None
         for name, hashwert in self.zugaenge().items():
             # Alle vergleichen (konstante Zeit ueber die ganze Liste), nicht beim ersten Treffer aufhoeren.
@@ -115,13 +127,39 @@ class Zugang:
                 del self._sitzungen[token]
                 return None
             name = sitzung.name
-        # Ein inzwischen entfernter oder gesperrter Nutzer verliert auch eine laufende Sitzung.
-        if self.nutzer is not None and name not in {"desktop", *self.zugaenge()}:
-            gefunden = self.nutzer.hole(name)
-            if gefunden is None or not gefunden.aktiv:
-                self.abmelden(token)
-                return None
+        if not self._sitzung_gilt_noch(sitzung):
+            self.abmelden(token)
+            return None
         return name
+
+    def _sitzung_gilt_noch(self, sitzung: _Sitzung) -> bool:
+        """Gilt noch, womit die Sitzung angemeldet wurde? Ein entfernter oder gesperrter Nutzer, ein widerrufener
+        Zugangsschluessel und ein neues Passwort beenden so auch die Browser-Sitzungen, die damit angelegt wurden
+        (sonst liefen sie bis zu ``SITZUNG_SEKUNDEN`` weiter)."""
+        if sitzung.art == ANMELDUNG_PASSWORT:
+            gefunden = self.nutzer.hole(sitzung.name) if self.nutzer is not None else None
+            if gefunden is None or not gefunden.aktiv or not gefunden.passwort:
+                return False
+            return hmac.compare_digest(gefunden.passwort.encode("utf-8"), sitzung.nachweis.encode("utf-8"))
+        return self._zugang_zum_hash(sitzung.nachweis) == sitzung.name
+
+    def sitzung_behalten(self, token: str | None, name: str) -> None:
+        """Nach dem eigenen Passwortwechsel: Die Sitzung, mit der er geschah, bleibt bestehen (wer eben das bisherige
+        Passwort genannt hat, ist es). Alle anderen mit dem alten Passwort angelegten enden bei ihrer naechsten
+        Anfrage -- etwa die auf einem vergessenen Rechner."""
+        if not token or self.nutzer is None:
+            return
+        gefunden = self.nutzer.hole(name)
+        with self._sperre:
+            sitzung = self._sitzungen.get(token)
+            if (
+                sitzung is not None
+                and sitzung.art == ANMELDUNG_PASSWORT
+                and sitzung.name.lower() == name.lower()
+                and gefunden is not None
+                and gefunden.passwort
+            ):
+                sitzung.nachweis = gefunden.passwort
 
     def ist_admin(self, name: str | None) -> bool:
         """Ohne Nutzerverwaltung (ein Rechner, ein Mensch) darf jeder Angemeldete alles. Mit ihr: Admins und
@@ -159,7 +197,9 @@ class Zugang:
             return None
         token = secrets.token_urlsafe(32)
         with self._sperre:
-            self._sitzungen[token] = _Sitzung(name, self.jetzt() + SITZUNG_SEKUNDEN)
+            self._sitzungen[token] = _Sitzung(
+                name, self.jetzt() + SITZUNG_SEKUNDEN, ANMELDUNG_SCHLUESSEL, schluessel_hash(schluessel)
+            )
         return token, name
 
     def anmelden_mit_passwort(self, name: str, passwort: str, adresse: str) -> tuple[str, str] | None:
@@ -171,7 +211,9 @@ class Zugang:
             return None
         token = secrets.token_urlsafe(32)
         with self._sperre:
-            self._sitzungen[token] = _Sitzung(gefunden.name, self.jetzt() + SITZUNG_SEKUNDEN)
+            self._sitzungen[token] = _Sitzung(
+                gefunden.name, self.jetzt() + SITZUNG_SEKUNDEN, ANMELDUNG_PASSWORT, gefunden.passwort or ""
+            )
         return token, gefunden.name
 
     def abmelden(self, token: str | None) -> None:

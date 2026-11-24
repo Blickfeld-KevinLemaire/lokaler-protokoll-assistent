@@ -67,6 +67,33 @@ def test_gesperrter_nutzer_verliert_die_sitzung(server: Umgebung) -> None:
     assert anna.get("/api/info").status_code == 401
 
 
+def test_widerrufener_schluessel_beendet_die_browser_sitzung(server: Umgebung) -> None:
+    anna = _client(server, "anna")
+    schluessel = anna.post("/api/ich/zugaenge", json={"bezeichnung": "Laptop"}).json()["schluessel"]
+    browser = TestClient(server.client.app)
+    assert browser.post("/api/anmelden", json={"schluessel": schluessel}).json() == {"angemeldet_als": "anna"}
+    assert browser.get("/api/info").json()["angemeldet_als"] == "anna"
+    assert anna.delete("/api/ich/zugaenge/Laptop").json() == {"entfernt": True}
+    assert browser.get("/api/info").status_code == 401
+    assert anna.get("/api/info").status_code == 200  # mit dem Passwort angemeldet: nicht betroffen
+
+
+def test_passwortwechsel_beendet_die_anderen_sitzungen(server: Umgebung) -> None:
+    """Die Sitzung, mit der das Passwort geaendert wird, bleibt (dort hat eben jemand das bisherige Passwort
+    genannt); eine andere -- etwa auf einem vergessenen Rechner -- endet. Ein neues Passwort durch einen Admin
+    beendet alle Passwort-Sitzungen des Nutzers."""
+    hier, dort = _client(server, "anna"), _client(server, "anna")
+    neu = "ein-ganz-neues-passwort"
+    antwort = hier.put("/api/ich/passwort", json={"bisher": PASSWORT, "neu": neu})
+    assert antwort.json() == {"gespeichert": True}
+    assert hier.get("/api/info").status_code == 200
+    assert dort.get("/api/info").status_code == 401
+    chef = _client(server, "chef")
+    assert chef.patch("/api/nutzer/anna", json={"passwort": "vom-admin-gesetzt"}).status_code == 200
+    assert hier.get("/api/info").status_code == 401
+    assert chef.get("/api/info").status_code == 200
+
+
 def test_jeder_hat_eigene_besprechungen_und_teilt_gezielt(server: Umgebung) -> None:
     anna, ben = _client(server, "anna"), _client(server, "ben")
     antwort = anna.post("/api/auftraege/transkription", json={"quelle": str(_audio(server, "anna")), "mit_auswertung": True})
