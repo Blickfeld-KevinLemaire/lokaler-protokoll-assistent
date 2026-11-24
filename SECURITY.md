@@ -89,10 +89,27 @@ zugestimmt haben. Entsprechend gelten hier ein paar Punkte besonders:
   `arbeitsdaten/chat_index/`, der nicht versioniert wird. Gespeicherte Chats
   (Fragen, Antworten, Quellen) liegen lokal in `chatverlaeufe/`; sie werden
   nicht versioniert, nicht ausgeliefert und nie uebertragen.
+* **„Löschen“ unter „Transkripte“ loescht nicht endgueltig.** Transkript,
+  Zusammenfassungen und exportierte Dateien wandern in den Papierkorb: in der
+  Windows-Anwendung in den von Windows (nur auf festen Laufwerken; auf
+  Netzlaufwerken und Wechseldatentraegern, wo Windows endgueltig loeschen
+  wuerde, und wenn der Papierkorb ablehnt, stattdessen in den Ordner
+  `.papierkorb` im Ausgabeordner), im Servermodus immer nach
+  `<Ausgabeordner>/.papierkorb/<Zeit>_<Kennung>/`
+  (`ablauf/bibliothek.loeschen`, `services/papierkorb_service.py`). Bestehen
+  bleiben bewusst: die Aufnahme selbst im Aufnahmeordner, gespeicherte
+  Chatverlaeufe (sie gehoeren der Person, nicht der Besprechung, und koennen
+  Textstellen daraus enthalten) und die Suchvektoren des Chats in
+  `arbeitsdaten/`. Wer eine Besprechung vollstaendig entfernen muss, leert
+  zusaetzlich den Papierkorb, loescht die Aufnahme und die betroffenen Chats.
+  Freigaben der Besprechung entfallen beim Loeschen. Umbenennen aendert nur den
+  angezeigten Namen (Feld `anzeigename` im Transkript), keine Datei.
 * **Der Servermodus (Container) speichert Aufnahmen und Ergebnisse im Klartext**
   in den eingebundenen Ordnern (`daten/`, nicht versioniert). Zugriffsschutz,
   Plattenverschluesselung und ein Loeschkonzept sind Sache des Betreibers. Ohne
   `PROTOKOLL_EMPFANG=1` oeffnet der Dienst keinen Port (siehe naechster Punkt).
+  Was Nutzer in der Oberflaeche loeschen, liegt danach in
+  `<Ausgabeordner>/.papierkorb/` (siehe unten) – leeren muss den der Betreiber.
   Der optionale Webhook uebertraegt nur Dateiname,
   Status und Ordnerpfade, nie Inhalte; sein Token und `HF_TOKEN` kommen aus der
   Umgebung (nie ins Image, nie ins Repository, nie ins Log).

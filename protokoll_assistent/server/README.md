@@ -179,6 +179,12 @@ Firmware und Adresse – praktisch für die Fehlersuche.
 * Aufnahmen, Transkripte und Protokolle liegen im Klartext in `./daten`. Zugriff
   auf diese Ordner (und die Freigabe) schützen, die Platte verschlüsseln und ein
   Löschkonzept für alte Aufnahmen festlegen – das ist Sache des Server-Betriebs.
+* Was jemand in der Oberfläche unter „Transkripte“ löscht, ist nicht endgültig weg:
+  Es liegt in `.papierkorb/<Zeit>_<Kennung>/` des jeweiligen Ausgabeordners (je Nutzer
+  unter `nutzer/<name>/`). Zurückholen: den Ordner aus `.papierkorb/` zurück in den
+  Ausgabeordner verschieben (Freigaben müssen danach neu gesetzt werden).
+  Endgültig löschen: den Ordner leeren (z. B. regelmäßig, was älter als 30 Tage ist).
+  Die Aufnahme im Eingang (`verarbeitet/`) bleibt davon unberührt.
 * Der Webhook überträgt **keine Inhalte**, nur Dateiname, Status und Ordnerpfade.
   Das Token kommt aus der Umgebung und wird nicht geloggt.
 * Ohne `PROTOKOLL_EMPFANG=1` werden keine Ports geöffnet und keine Verbindungen
