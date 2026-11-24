@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from protokoll_assistent.utils.json_validation import extract_json_object
-from protokoll_assistent.utils.prozess import KEIN_FENSTER, LOSGELOEST, NEUE_PROZESSGRUPPE
+from protokoll_assistent.utils.prozess import KEIN_FENSTER, LOSGELOEST, NEUE_PROZESSGRUPPE, ausserhalb_des_jobs_starten
 
 
 # Im Container laeuft Ollama als eigener Dienst: Adresse ueber 'OLLAMA_URL'
@@ -317,7 +317,10 @@ def dienst_starten(
         _start.letzter_versuch = jetzt
         starte = popen_fn or subprocess.Popen
         try:
-            starte(
+            # Ausserhalb des Job-Objekts des Fensters: Ollama soll das Schliessen des Fensters und einen Neustart des
+            # Dienstes ueberleben (mitten im Modell-Download).
+            ausserhalb_des_jobs_starten(
+                starte,
                 [str(programm), "serve"],
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,
