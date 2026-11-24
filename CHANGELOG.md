@@ -50,6 +50,12 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 - **Einrichtung:** Ein abgebrochenes Laden der Modelle gilt als abgebrochen, nicht als fertig; die Mitschrift bleibt
   dann zur Einrichtung offen.
 - Der Fortschritt einer laufenden Verarbeitung bleibt nicht mehr minutenlang auf einem alten Stand stehen.
+- **Update von 0.5:** Installationen, die ihre Einstellungen und Daten noch im Unterordner `protokoll_assistent`
+  führen (eingerichtet mit 0.5.0-beta oder älter), behalten sie im lokalen Modus auch mit dem neuen Fenster –
+  Einrichtung, Aufnahmegeräte und bisherige Ergebnisse sind nach dem Update nicht mehr „weg“.
+- **Update von 0.5 ohne Internet:** Lässt sich die Rechenumgebung beim ersten Start nach dem Update nicht
+  aktualisieren, startet VERMERK ohne sie, statt nach drei Versuchen mit „Der Dienst ließ sich nicht starten“
+  stehen zu bleiben. Beim nächsten Start mit Internet wird die Aktualisierung nachgeholt.
 
 ## [0.6.0-alpha.1] - 2026-11-22
 

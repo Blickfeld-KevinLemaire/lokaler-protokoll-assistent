@@ -250,8 +250,13 @@ def _relaunch(python_exe: Path) -> None:
         # von vorn, angemeldete Aufnahmegeraete und API-Einstellungen waren "weg", Ergebnisse lagen in
         # einem zweiten Ausgabeordner. Er bekommt deshalb den Ordner der EXE mit ('paths.get_app_dir').
         # Ausnahme: Installationen, die schon so getrennt arbeiten -- dort liegen die benutzten
-        # Einstellungen und Daten im Unterordner; sie bleiben, wo sie sind.
-        if not (app_dir / "protokoll_assistent" / "konfiguration.json").is_file():
+        # Einstellungen und Daten im Unterordner; sie bleiben, wo sie sind. Die Vorgabe des Fensters
+        # (VERMERK_ANWENDUNGSORDNER in der geerbten Umgebung) wird dafuer entfernt: Geerbt fuehrte der
+        # neue Prozess nach dem Update auf 0.6 den Ordner der EXE -- Einrichtung, Aufnahmegeraete,
+        # Einstellungen und die bisherigen Ergebnisse waren dann "weg".
+        if (app_dir / "protokoll_assistent" / "konfiguration.json").is_file():
+            child_env.pop(ANWENDUNGSORDNER_VARIABLE, None)
+        else:
             child_env[ANWENDUNGSORDNER_VARIABLE] = str(app_dir)
     else:
         cwd = get_paket_dir().parent
@@ -498,6 +503,20 @@ def _richte_ml_umgebung_ein_und_starte_neu(
         splash.log("\nEinrichtung der Python-Pakete abgeschlossen.")
     except Exception as error:
         _sperre_freigeben(sperre)
+        if schon_eingerichtet and not _dienst_pakete_vorhanden(venv_dir) and _dienst_laeuft_ohne_rechenumgebung():
+            # Die vorhandene Umgebung stammt aus einer Fassung vor 0.6 und kann den Dienst nicht starten (FastAPI
+            # & Co. fehlen darin). Der Neustart dort endete sofort -- das Fenster versuchte es dreimal und gab
+            # auf, die Anwendung liess sich ohne Internet gar nicht mehr oeffnen. Dann lieber ohne
+            # Rechenumgebung starten; die Einstellungen bleiben, beim naechsten Start wird erneut aktualisiert.
+            splash.log(f"\nDie Aktualisierung der Rechenumgebung ist fehlgeschlagen: {error}")
+            splash.log(
+                "Das Programm startet jetzt ohne die Rechenumgebung (Transkription auf diesem Computer ist so "
+                "lange nicht moeglich). Beim naechsten Start mit Internetverbindung wird die Aktualisierung "
+                "nachgeholt."
+            )
+            time.sleep(AKTUALISIERUNG_HINWEIS_SEKUNDEN)
+            splash.close()
+            return
         if schon_eingerichtet:
             # Die bisherige Umgebung funktioniert. Frueher endete hier JEDER Start mit einem Fehler, sobald
             # ein Update die Paketliste geaendert hatte und der Rechner gerade kein Netz hatte -- eine
@@ -538,7 +557,22 @@ _OHNE_SPERRE = object()
 
 
 def _pip_vorhanden(venv_dir: Path) -> bool:
-    return (venv_dir / "Lib" / "site-packages" / "pip").is_dir() or any(venv_dir.glob("lib/python*/site-packages/pip"))
+    return _paket_vorhanden(venv_dir, "pip")
+
+
+def _paket_vorhanden(venv_dir: Path, paket: str) -> bool:
+    return (venv_dir / "Lib" / "site-packages" / paket).is_dir() or any(venv_dir.glob(f"lib/python*/site-packages/{paket}"))
+
+
+def _dienst_pakete_vorhanden(venv_dir: Path) -> bool:
+    """Kann der Dienst in dieser Umgebung starten? Umgebungen aus Fassungen vor 0.6 haben FastAPI und uvicorn
+    nicht (damals lief dort die Qt-Oberflaeche)."""
+    return _paket_vorhanden(venv_dir, "fastapi") and _paket_vorhanden(venv_dir, "uvicorn")
+
+
+def _dienst_laeuft_ohne_rechenumgebung() -> bool:
+    """Kann dieser Prozess den Dienst selbst starten (gebaut, oder FastAPI ist da)?"""
+    return bool(getattr(sys, "frozen", False)) or importlib.util.find_spec("fastapi") is not None
 
 
 def _einrichtung_sperren(ordner: Path) -> Any:
@@ -579,7 +613,7 @@ def _ohne_rechenumgebung_weiter() -> bool:
     Ersteinrichtung erscheint beim naechsten Start erneut und bietet beides an: noch einmal versuchen oder
     online arbeiten. Ohne FastAPI (Quelltext-Start mit einem nackten Python) startete der Dienst gar nicht --
     dann bleibt es beim Abbruch."""
-    if not (getattr(sys, "frozen", False) or importlib.util.find_spec("fastapi") is not None):
+    if not _dienst_laeuft_ohne_rechenumgebung():
         return False
     from protokoll_assistent.utils import app_config
 
