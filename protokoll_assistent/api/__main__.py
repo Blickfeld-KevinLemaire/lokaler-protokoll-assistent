@@ -38,7 +38,7 @@ from typing import Any
 
 from protokoll_assistent.ablauf.aufnahme import Aufnahmesteuerung
 from protokoll_assistent.ablauf.geraete_automatik import GeraeteAutomatik
-from protokoll_assistent.ablauf.nutzer import NutzerFehler, Nutzerverwaltung
+from protokoll_assistent.ablauf.nutzer import RESERVIERTE_NAMEN, NutzerFehler, Nutzerverwaltung
 from protokoll_assistent.ablauf.steuerung import Steuerung
 from protokoll_assistent.api.app import TAURI_URSPRUENGE, app_erstellen
 from protokoll_assistent.api.kontext import Dienste
@@ -128,7 +128,7 @@ def dienste_erstellen(
         rolle,
         start_schluessel=schluessel if rolle == ROLLE_DESKTOP else None,
         zugaenge=zugaenge,
-        nutzer=Nutzerverwaltung(nutzer_datei()) if mehrbenutzer else None,
+        nutzer=Nutzerverwaltung(nutzer_datei(), vergebene_namen=lambda: zugaenge().keys()) if mehrbenutzer else None,
     )
     dienste = Dienste(steuerung=steuerung, automatik=automatik, zugang=zugang)
     dienste.nach_einstellungen.append(automatik.anwenden)
@@ -366,6 +366,15 @@ def zugang_anlegen(name: str) -> int:
     if not geraete_empfang_service.geraetename_gueltig(name):
         print("Gerätename: Buchstaben, Ziffern, Leerzeichen, „_“ und „-“, höchstens 32 Zeichen.", file=sys.stderr)
         return 2
+    # Ein Zugang mit dem Namen eines Nutzers (oder einem reservierten) bekaeme dessen Rechte und Ordner.
+    try:
+        vergeben = name.lower() in RESERVIERTE_NAMEN or Nutzerverwaltung(nutzer_datei()).hole(name) is not None
+    except NutzerFehler as fehler:
+        print(str(fehler), file=sys.stderr)
+        return 2
+    if vergeben:
+        print(f"Den Namen „{name}“ trägt schon ein Nutzer oder das Programm selbst. Bitte einen anderen wählen.", file=sys.stderr)
+        return 2
     konfig = app_config.load_config()
     zugaenge = [dict(z) for z in konfig.get("server_zugaenge") or [] if isinstance(z, dict) and z.get("name") != name]
     schluessel = schluessel_erzeugen()
@@ -383,7 +392,10 @@ def nutzer_anlegen(argumente: Sequence[str]) -> int:
     parser.add_argument("--admin", action="store_true")
     parser.add_argument("--anzeigename", default="")
     werte = parser.parse_args(list(argumente))
-    verwaltung = Nutzerverwaltung(nutzer_datei())
+    verwaltung = Nutzerverwaltung(
+        nutzer_datei(),
+        vergebene_namen=lambda: zugaenge_aus_konfiguration(app_config.load_config().get("server_zugaenge") or []).keys(),
+    )
     try:
         verwaltung.anlegen(werte.name, anzeigename=werte.anzeigename, admin=werte.admin)
         schluessel = verwaltung.zugang_anlegen(werte.name, "Erster Zugang")

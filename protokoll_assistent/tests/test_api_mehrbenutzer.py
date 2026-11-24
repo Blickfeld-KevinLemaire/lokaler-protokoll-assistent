@@ -263,11 +263,30 @@ def test_ereignisse_fuer_andere_nutzer(server: Umgebung) -> None:
     assert ereignis_fuer(d, ben, "einstellungen", {"geaendert": []}) is not None
 
 
+@pytest.mark.parametrize("name", ["umgebung", "Umgebung", "desktop", "DESKTOP", "alle", "Alle"])
+def test_reservierte_namen_werden_keine_nutzer(server: Umgebung, name: str) -> None:
+    """Ein Nutzer "umgebung" waere Admin ohne eigenen Ordner, "desktop" der Schluessel des Fensters, "alle" die Freigabe fuer
+    alle -- ein Nutzer dieses Namens bekaeme deren Bedeutung."""
+    chef = _client(server, "chef")
+    antwort = chef.post("/api/nutzer", json={"name": name, "passwort": PASSWORT})
+    assert antwort.status_code == 400 and "Programm selbst" in antwort.json()["detail"]
+    assert server.dienste.nutzer is not None and server.dienste.nutzer.hole(name) is None
+
+
+def test_nutzer_nicht_unter_dem_namen_eines_zugangsschluessels(tmp_path: Path) -> None:
+    v = Nutzerverwaltung(tmp_path / "nutzer.json", vergebene_namen=lambda: ["Laptop"])
+    with pytest.raises(NutzerFehler, match="Zugangsschlüssel"):
+        v.anlegen("laptop", admin=True)
+    assert v.anlegen("tablet").name == "tablet"
+
+
 def test_nutzerverwaltung_regeln(tmp_path: Path) -> None:
     v = Nutzerverwaltung(tmp_path / "nutzer.json")
     assert v.leer()
     with pytest.raises(NutzerFehler, match="Anmeldename"):
         v.anlegen("mit leerzeichen")
+    with pytest.raises(NutzerFehler, match="Anmeldename"):
+        v.anlegen("anna\n")  # "$" bei re.match liesse den Zeilenumbruch durch
     v.anlegen("admin", admin=True, passwort=PASSWORT)
     with pytest.raises(NutzerFehler, match="mindestens einen aktiven Admin"):
         v.aendern("admin", admin=False)
