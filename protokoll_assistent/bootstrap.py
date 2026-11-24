@@ -105,6 +105,11 @@ class _TkSplash:
             pass          # die Einrichtung nicht abbrechen.
 
 
+# Die Oberflaeche nennt diesen Titel, solange sie auf die Einrichtung wartet ("Den Fortschritt zeigt das Fenster
+# ...", oberflaeche/src/lib/komponenten/einrichtung/Einrichtung.svelte).
+SPLASH_TITEL = "VERMERK Desktop – Einrichtung"
+
+
 def _try_create_splash():
     try:
         import tkinter as tk
@@ -114,7 +119,7 @@ def _try_create_splash():
 
     try:
         root = tk.Tk()
-        root.title("VERMERK Desktop -- Einrichtung")
+        root.title(SPLASH_TITEL)
         root.geometry("700x420")
         tk.Label(
             root,
@@ -130,10 +135,25 @@ def _try_create_splash():
         ).pack(anchor="w")
         text_widget = ScrolledText(root, height=18)
         text_widget.pack(fill="both", expand=True, padx=12, pady=8)
-        root.update()
+        _nach_vorn_holen(root)
         return _TkSplash(root, text_widget, tk)
     except Exception:
         return _ConsoleSplash()
+
+
+def _nach_vorn_holen(root: Any) -> None:
+    """Das Fortschrittsfenster vor das Fenster der Anwendung holen: Es oeffnet sich aus dem Dienst heraus und lag
+    sonst oft dahinter -- dort stand waehrenddessen nur "Die App startet kurz neu", minutenlang ohne Fortschritt.
+    Nur kurz "immer oben", damit es danach nicht ueber allen anderen Fenstern klebt."""
+    try:
+        root.lift()
+        root.attributes("-topmost", True)
+        root.update()
+        root.attributes("-topmost", False)
+        root.focus_force()
+        root.update()
+    except Exception:  # noqa: S110 - ein kaputtes Splash-Fenster darf
+        pass          # die Einrichtung nicht abbrechen.
 
 
 def _run_logged(command: list[str], splash) -> None:
@@ -309,12 +329,13 @@ def laufzeit_beim_start_einrichten(konfig: dict[str, Any], fenster_moeglich: boo
         return False
     if laufzeit_vorhanden or not fenster_moeglich:
         return True
-    # Zustimmung heisst: in der Ersteinrichtung zugestimmt ('einrichtung_fortsetzen') oder in den
-    # Einstellungen ausdruecklich auf "Lokal" umgeschaltet. Ohne Zustimmung bleibt die Einrichtung
-    # zurueckgestellt -- sonst lud der naechste Start ungefragt gut 5 GB, ohne die Seite, die sagt, was das
-    # kostet.
-    erster_start = not konfig.get("einrichtung_abgeschlossen") and not konfig.get("einrichtung_fortsetzen")
-    return not (erster_start or konfig.get("lokale_einrichtung_zurueckgestellt"))
+    # Zustimmung heisst: in der Einrichtung auf der Seite "Was noetig ist" zugestimmt ('einrichtung_fortsetzen').
+    # Das Umschalten auf "Auf diesem Computer" in den Einstellungen ist KEINE Zustimmung (anders als frueher
+    # in der Qt-Oberflaeche): Wer anfangs online gewaehlt hatte und spaeter umschaltete, bekam beim naechsten
+    # Start gut 5 GB geladen, ohne die Seite gesehen zu haben, die sagt, was das kostet -- waehrend die
+    # Einstellungen "noch nicht eingerichtet [Einrichten]" zeigten. Wer schon zugestimmt hat, hat entweder die
+    # Umgebung (oben) oder 'einrichtung_fortsetzen' gesetzt und wird nicht erneut gefragt.
+    return bool(konfig.get("einrichtung_fortsetzen")) and not konfig.get("lokale_einrichtung_zurueckgestellt")
 
 
 def laufzeit_eingerichtet() -> bool:

@@ -372,9 +372,17 @@ export function einrichtungLaeuft(auftraege: Auftrag[]): boolean {
   return einrichtungsAuftraege(auftraege).some((a) => !ERLEDIGT.has(a.status));
 }
 
-/** Darf jetzt neu gestartet werden? Nur, wenn nötig und nichts mehr lädt. */
+/**
+ * Wie viele Aufträge laufen oder warten noch – gleich welcher Art (auch Transkriptionen von einem Aufnahmegerät)?
+ * Ein Neustart bräche sie ab; der Dienst lehnt ihn dann ab.
+ */
+export function offeneAuftraege(auftraege: Auftrag[]): number {
+  return auftraege.filter((a) => !ERLEDIGT.has(a.status)).length;
+}
+
+/** Darf jetzt neu gestartet werden? Nur, wenn nötig und nichts mehr läuft oder wartet. */
 export function neustartMoeglich(stand: EinrichtungStand | null, auftraege: Auftrag[]): boolean {
-  return !!stand?.neustart_noetig && !einrichtungLaeuft(auftraege);
+  return !!stand?.neustart_noetig && offeneAuftraege(auftraege) === 0;
 }
 
 // ---------------------------------------------------------------- Zahlen in Worten

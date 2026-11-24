@@ -392,13 +392,39 @@ FRISCH = {"transkription_modus": "lokal", "einrichtung_abgeschlossen": False, "e
         (FRISCH, True, True, True),  # schon eingerichtet: wie immer hineinwechseln
         (FRISCH, False, False, True),  # ohne Oberflaeche, die fragen koennte: direkter Weg
         ({**FRISCH, "einrichtung_fortsetzen": "transkription"}, True, False, True),  # zugestimmt, Neustart
-        ({**FRISCH, "einrichtung_abgeschlossen": True}, True, False, True),  # in den Einstellungen auf "Lokal" gestellt
+        # In den Einstellungen auf "Lokal" gestellt (anfangs online gewaehlt): keine Zustimmung, nichts laden.
+        ({**FRISCH, "einrichtung_abgeschlossen": True}, True, False, False),
+        ({**FRISCH, "einrichtung_abgeschlossen": True}, True, True, True),  # Umgebung schon da: hineinwechseln
         ({**FRISCH, "einrichtung_abgeschlossen": True, "einrichtung_fortsetzen": "transkription"}, True, False, True),
         ({**FRISCH, "einrichtung_abgeschlossen": True, "lokale_einrichtung_zurueckgestellt": True}, True, False, False),
     ],
 )
 def test_rechenumgebung_nur_mit_zustimmung(konfig, fenster, laufzeit, erwartet):
     assert bootstrap.laufzeit_beim_start_einrichten(konfig, fenster, laufzeit) is erwartet
+
+
+class _FensterAttrappe:
+    def __init__(self, kaputt: bool = False) -> None:
+        self.aufrufe: list[tuple] = []
+        self.kaputt = kaputt
+
+    def __getattr__(self, name):
+        def aufruf(*argumente):
+            if self.kaputt:
+                raise RuntimeError("kein Bildschirm")
+            self.aufrufe.append((name, *argumente))
+
+        return aufruf
+
+
+def test_fortschrittsfenster_kommt_nach_vorn():
+    # Es lag sonst oft hinter dem Fenster der Anwendung -- dort stand minutenlang nur "Die App startet kurz neu".
+    fenster = _FensterAttrappe()
+    bootstrap._nach_vorn_holen(fenster)
+    assert ("attributes", "-topmost", True) in fenster.aufrufe
+    assert fenster.aufrufe.index(("attributes", "-topmost", True)) < fenster.aufrufe.index(("attributes", "-topmost", False))
+    assert ("lift",) in fenster.aufrufe and ("focus_force",) in fenster.aufrufe
+    bootstrap._nach_vorn_holen(_FensterAttrappe(kaputt=True))  # bricht die Einrichtung nicht ab
 
 
 def test_pip_aufrufe_der_einrichtung_oeffnen_kein_konsolenfenster(monkeypatch):

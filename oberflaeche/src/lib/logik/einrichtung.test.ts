@@ -15,6 +15,7 @@ import {
   mitschriftPlanen,
   nachbar,
   neustartMoeglich,
+  offeneAuftraege,
   schrittFolge,
   sprechererkennungGescheitert,
   startSchritt,
@@ -338,13 +339,21 @@ describe('Ersteinrichtung: Neustart', () => {
     return { id: art + status, art, status } as Auftrag;
   }
 
-  it('startet nur neu, wenn nötig und nichts mehr lädt', () => {
+  it('startet nur neu, wenn nötig und nichts mehr läuft', () => {
     const noetig = stand({ neustart_noetig: true });
     expect(neustartMoeglich(noetig, [])).toBe(true);
     expect(neustartMoeglich(noetig, [auftrag('laeuft')])).toBe(false);
     expect(neustartMoeglich(noetig, [auftrag('fertig'), auftrag('fehler', 'einrichtung_ffmpeg')])).toBe(true);
-    // Andere Aufträge (Transkription) halten den Neustart nicht auf – sie zählen nicht zur Einrichtung.
-    expect(neustartMoeglich(noetig, [auftrag('laeuft', 'transkription')])).toBe(true);
+    // Auch eine Transkription (etwa von einem Aufnahmegerät) hält den Neustart auf – er bräche sie ab.
+    expect(neustartMoeglich(noetig, [auftrag('laeuft', 'transkription')])).toBe(false);
+    expect(neustartMoeglich(noetig, [auftrag('wartet', 'zusammenfassung')])).toBe(false);
+    expect(
+      offeneAuftraege([
+        auftrag('laeuft', 'transkription'),
+        auftrag('wartet', 'zusammenfassung'),
+        auftrag('fertig')
+      ])
+    ).toBe(2);
     expect(neustartMoeglich(stand(), [])).toBe(false);
     expect(neustartMoeglich(null, [])).toBe(false);
     expect(einrichtungLaeuft([auftrag('wartet', 'einrichtung_ollama')])).toBe(true);

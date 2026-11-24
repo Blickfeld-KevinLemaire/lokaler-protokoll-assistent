@@ -16,6 +16,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
 from fastapi.responses import StreamingResponse
 
+from protokoll_assistent.ablauf.auftraege import ERLEDIGT
 from protokoll_assistent.ablauf.ereignisse import Ereignis
 from protokoll_assistent.ablauf.verarbeitungswege import lokale_laufzeit_verfuegbar
 from protokoll_assistent.api import modelle
@@ -198,9 +199,23 @@ def ordner_oeffnen(daten: modelle.OrdnerOeffnen, d: Dienste = Depends(nur_deskto
 def neustart(d: Dienste = Depends(nur_desktop), _a: Angemeldet = Depends(nur_admin)) -> dict[str, bool]:
     """Den Dienst neu starten (z. B. nach der Ersteinrichtung, damit die Rechenumgebung geladen wird). Der Dienst
     beendet sich mit einem eigenen Exit-Code, und das Fenster startet ihn sofort wieder -- die Prozesse steuert
-    allein das Fenster."""
+    allein das Fenster.
+
+    Solange etwas laeuft oder wartet (Verarbeitung, auch von einem Aufnahmegeraet, oder eine Aufnahme), lehnt der
+    Dienst mit 409 ab: Der Neustart braeche es ab, wartende Auftraege gingen verloren."""
     if d.neustart_anfordern is None:
         raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, "Neu starten ist hier nicht möglich.")
+    offen = [a for a in d.steuerung.auftraege.liste() if a.status not in ERLEDIGT]
+    if offen:
+        anzahl = "Ein Auftrag läuft" if len(offen) == 1 else f"{len(offen)} Aufträge laufen"
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"{anzahl} noch oder warten. Neu starten geht, sobald alles fertig ist – sonst würde es abgebrochen.",
+        )
+    if d.aufnahme is not None and d.aufnahme.stand().get("laeuft"):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "Gerade läuft eine Aufnahme. Bitte erst die Aufnahme beenden, dann neu starten."
+        )
     d.neustart_anfordern()
     return {"neustart": True}
 

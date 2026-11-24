@@ -30,7 +30,8 @@ Wo liegen meine Dateien?
 Ergebnisse und Einstellungen werden im Programmordner abgelegt. Die
 Deinstallation entfernt sie NICHT - sie bleiben erhalten, bis Sie sie
 selbst loeschen. Entfernt werden die selbst eingerichtete Rechenumgebung
-(mehrere Gigabyte), das geladene FFmpeg und die Protokolldateien.
+(mehrere Gigabyte), das geladene FFmpeg und die Protokolldateien - auch
+die des Fensters unter %LOCALAPPDATA%\de.vermerk.desktop.
 
 Lizenzen
 --------

@@ -311,6 +311,33 @@ def test_neustart_auf_wunsch(umgebung: Umgebung) -> None:
     assert gerufen == [True]
 
 
+def test_neustart_bricht_keine_verarbeitung_ab(umgebung: Umgebung) -> None:
+    # "Jetzt neu starten" nach der Einrichtung wartete nur auf Einrichtungsauftraege -- eine Transkription (etwa von
+    # einem Aufnahmegeraet) wurde dabei abgebrochen.
+    gerufen: list[bool] = []
+    umgebung.dienste.neustart_anfordern = lambda: gerufen.append(True)
+    client = umgebung.client
+    assert client.post("/api/auftraege/transkription", json={"quelle": str(umgebung.audio())}).status_code == 201
+    assert client.post("/api/auftraege/transkription", json={"quelle": str(umgebung.audio())}).status_code == 201
+    antwort = client.post("/api/system/neustart")
+    assert antwort.status_code == 409 and "2 Aufträge" in antwort.json()["detail"]
+    assert gerufen == []
+    umgebung.auftraege_ausfuehren()
+    assert client.post("/api/system/neustart").json() == {"neustart": True}
+    assert gerufen == [True]
+
+
+def test_neustart_nicht_waehrend_einer_aufnahme(umgebung: Umgebung, monkeypatch: pytest.MonkeyPatch) -> None:
+    class LaufendeAufnahme:
+        def stand(self) -> dict[str, Any]:
+            return {"laeuft": True}
+
+    umgebung.dienste.neustart_anfordern = lambda: None
+    monkeypatch.setattr(umgebung.dienste, "aufnahme", LaufendeAufnahme())
+    antwort = umgebung.client.post("/api/system/neustart")
+    assert antwort.status_code == 409 and "Aufnahme" in antwort.json()["detail"]
+
+
 def test_exporte_lassen_sich_herunterladen(umgebung: Umgebung) -> None:
     antwort = umgebung.client.post("/api/auftraege/transkription", json={"quelle": str(umgebung.audio())})
     assert antwort.status_code == 201
