@@ -110,12 +110,38 @@ def test_empfang_starten_stoppen_und_neu(umgebung: Umgebung) -> None:
     a.stoppen()
 
 
+def test_neuer_kontakt_meldet_den_empfang(umgebung: Umgebung) -> None:
+    # Die Seite "VERMERK Raum" laedt die Geraeteliste beim Ereignis "empfang" neu: Meldet sich ein Geraet (nach dem
+    # Start oder nach einem Neustart des Empfangs), muss das Ereignis kommen, sonst bleibt es "Noch nicht verbunden".
+    a = umgebung.automatik
+    a.anwenden()
+    ereignisse: list[str] = []
+    umgebung.steuerung.bus.abonnieren(lambda e: ereignisse.append(e.art))
+    umgebung.dienste[0].rueckrufe["bei_kontakt"]("Raum-1")
+    assert ereignisse == ["empfang"]
+
+
 def test_empfang_port_belegt(umgebung: Umgebung) -> None:
     umgebung.konfig["_scheitern"] = True
     umgebung.automatik.anwenden()
     assert not umgebung.automatik.laeuft
     assert umgebung.automatik.fehler is not None and umgebung.automatik.fehler_code == "port_belegt"
     assert umgebung.automatik.beschreibung()["fehler_code"] == "port_belegt"
+
+
+def test_eingangsordner_nicht_erreichbar_ist_nicht_port_belegt(umgebung: Umgebung, tmp_path: Path) -> None:
+    # Eingabeordner auf einem Laufwerk, das gerade fehlt: Das ist kein belegter Anschluss (sonst sucht man am Port).
+    datei = tmp_path / "keine_ordner"
+    datei.write_text("x", encoding="utf-8")
+    umgebung.konfig["eingabeordner"] = str(datei / "eingang")
+    umgebung.automatik.anwenden()
+    assert not umgebung.automatik.laeuft
+    assert umgebung.automatik.fehler_code == "ordner"
+    assert str(datei / "eingang") in (umgebung.automatik.fehler or "")
+    # Ist der Ordner wieder da, startet der Empfang beim naechsten Anwenden.
+    umgebung.konfig["eingabeordner"] = str(tmp_path / "ein")
+    umgebung.automatik.anwenden()
+    assert umgebung.automatik.laeuft and umgebung.automatik.fehler_code is None
 
 
 def test_port_auslegen() -> None:

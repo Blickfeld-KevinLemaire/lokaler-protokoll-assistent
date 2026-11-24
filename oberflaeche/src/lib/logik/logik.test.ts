@@ -226,6 +226,7 @@ describe('Fehler und Hinweise', () => {
 
   it('beschreibt Empfangsfehler über „fehler_code“', () => {
     expect(empfangsFehlerText('port_belegt')).toBe('Empfang: Anschluss belegt');
+    expect(empfangsFehlerText('ordner')).toBe('Empfang: Eingangsordner nicht erreichbar');
     expect(empfangsFehlerText(null)).toBe('Empfang gestört');
   });
 });

@@ -62,5 +62,7 @@ export function hinweisKurz(h: Hinweis): KurzHinweis {
 
 /** Der Empfang der Aufnahmegeräte meldet einen Fehler: kurzer Satz über `fehler_code`. */
 export function empfangsFehlerText(fehlerCode: string | null | undefined): string {
-  return fehlerCode === 'port_belegt' ? 'Empfang: Anschluss belegt' : 'Empfang gestört';
+  if (fehlerCode === 'port_belegt') return 'Empfang: Anschluss belegt';
+  if (fehlerCode === 'ordner') return 'Empfang: Eingangsordner nicht erreichbar';
+  return 'Empfang gestört';
 }

@@ -13,6 +13,7 @@ from protokoll_assistent.ablauf.nutzer import NutzerFehler, Nutzerverwaltung, pa
 from protokoll_assistent.api import modelle
 from protokoll_assistent.api.kontext import Angemeldet, Dienste, angemeldet, dienste, nur_admin
 from protokoll_assistent.api.sicherheit import COOKIE_NAME
+from protokoll_assistent.utils import app_config
 
 router = APIRouter(prefix="/api", tags=["nutzer"])
 
@@ -114,7 +115,19 @@ def entfernen(name: str, d: Dienste = Depends(dienste), wer: Angemeldet = Depend
         _verwaltung(d).entfernen(name)
     except NutzerFehler as fehler:
         raise _fehler(fehler) from fehler
+    _geraete_freigeben(d, name)
     return {"entfernt": True}
+
+
+def _geraete_freigeben(d: Dienste, name: str) -> None:
+    """Geraete des entfernten Nutzers werden "Allgemein" (sichtbar fuer Admins). Sonst landeten ihre Aufnahmen
+    weiter im Ordner eines Nutzers, den es nicht mehr gibt -- und niemand saehe sie."""
+    eintraege = [dict(e) for e in d.steuerung.konfiguration().get("geraete_empfang_geraete") or [] if isinstance(e, dict)]
+    betroffen = [e for e in eintraege if str(e.get("besitzer") or "").lower() == name.lower()]
+    for eintrag in betroffen:
+        eintrag.pop("besitzer", None)
+    if betroffen:
+        app_config.update_config(geraete_empfang_geraete=eintraege)
 
 
 @router.post("/nutzer/{name}/zugaenge", status_code=201)

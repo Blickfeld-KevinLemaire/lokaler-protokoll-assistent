@@ -130,14 +130,15 @@
         {/if}
         <Schalter
           an={!!w?.geraete_live_aktiv}
-          beschriftung="Live mitschreiben"
+          beschriftung="Live mitschreiben und auswerten"
           deaktiviert={!w}
           aendern={(an) => setzen({ geraete_live_aktiv: an })}
         >
           {#snippet info()}
+            <!-- Aus heißt auch: keine automatische Verarbeitung (GERAETE-SCHNITTSTELLE.md) – das muss hier stehen. -->
             <Info
-              frage="Was bedeutet Live mitschreiben?"
-              text="Schon während der Aufnahme erscheint hier der Text. Das Ergebnis ist so früher fertig."
+              frage="Was bedeutet Live mitschreiben und auswerten?"
+              text="Schon während der Aufnahme erscheint hier der Text, nach dem Ende entstehen Transkript und Zusammenfassung von selbst. Ausgeschaltet werden Aufnahmen nur abgelegt."
             />
           {/snippet}
         </Schalter>

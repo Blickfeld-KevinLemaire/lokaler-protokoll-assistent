@@ -90,6 +90,28 @@ class ZustandSpeicher {
     }
   }
 
+  /**
+   * Der Stand einer Geräteaufnahme hat sich geändert. `freigaben` kommt sonst nur mit `/api/zustand`: Ohne das hier
+   * blieb „Wartet auf Freigabe am Gerät“ nach „Ja“/„Nein“ stehen, und eine neue Rückfrage erschien nicht. Der
+   * Live-Text gehört zur laufenden Aufnahme: Ist sie angekommen, verschwindet er (sonst stand er mit rotem Punkt
+   * bis zur nächsten Aufnahme da).
+   */
+  private geraetStatusFolgen(s: GeraetStatus): void {
+    const gleich = (f: Freigabe) => f.geraet === s.geraet && f.datei === s.datei;
+    const wartet = this.freigaben.some(gleich);
+    if (s.zustand === 'transkript' && !wartet) {
+      this.freigaben = [...this.freigaben, { geraet: s.geraet, datei: s.datei, pfad: '' }];
+    } else if (s.zustand !== 'transkript' && wartet) {
+      this.freigaben = this.freigaben.filter((f) => !gleich(f));
+    }
+    const live = this.live[s.geraet];
+    if (live && live.datei === s.datei && s.zustand !== 'empfang') {
+      const rest = { ...this.live };
+      delete rest[s.geraet];
+      this.live = rest;
+    }
+  }
+
   hinweisEntfernen(schluessel: string): void {
     this.hinweise = this.hinweise.filter((x) => x.schluessel !== schluessel);
   }
@@ -120,6 +142,7 @@ class ZustandSpeicher {
       case 'geraet_status': {
         const s = d as unknown as GeraetStatus;
         this.geraeteStatus = { ...this.geraeteStatus, [`${s.geraet}/${s.datei}`]: s };
+        this.geraetStatusFolgen(s);
         break;
       }
       case 'live': {

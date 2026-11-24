@@ -63,6 +63,19 @@ def test_erkennen_und_einrichten(umgebung: tuple[Umgebung, GeraetAttrappe]) -> N
     assert len(app_config.load_config()["geraete_empfang_geraete"]) == 1
 
 
+def test_einrichten_meldet_geaenderte_einstellungen(umgebung: tuple[Umgebung, GeraetAttrappe]) -> None:
+    # Das Einrichten schaltet den Empfang ein. Ohne das Ereignis "einstellungen" zeigte der Schalter "Aufnahmen von
+    # Geräten annehmen" in der Oberflaeche weiter "aus", obwohl der Empfang laeuft.
+    u, _ = umgebung
+    arten: list[str] = []
+    u.steuerung.bus.abonnieren(lambda e: arten.append(e.art))
+    antwort = u.client.post(
+        "/api/geraete/usb/einrichten", json={"port": "COM5", "name": "Raum 1", "wlan_ssid": "Büro", "wlan_passwort": "geheim123"}
+    )
+    assert antwort.status_code == 200, antwort.text
+    assert "einstellungen" in arten
+
+
 def test_einrichten_fehlerfaelle(umgebung: tuple[Umgebung, GeraetAttrappe], monkeypatch: pytest.MonkeyPatch) -> None:
     u, geraet = umgebung
     basis = {"port": "COM5", "wlan_ssid": "Buero", "wlan_passwort": "geheim123"}
