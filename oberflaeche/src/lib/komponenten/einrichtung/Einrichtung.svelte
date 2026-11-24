@@ -8,7 +8,9 @@
   import {
     BEREICHE,
     einrichtungLaeuft,
+    einrichtungsAuftraege,
     neustartMoeglich,
+    offeneAuftraege,
     offeneBausteine,
     SCHRITT_TITEL
   } from '$lib/logik/einrichtung';
@@ -32,6 +34,10 @@
   const stand = $derived(einrichtung.stand);
   const neustartNoetig = $derived(!!stand?.neustart_noetig);
   const laedtNoch = $derived(einrichtungLaeuft(zustand.auftraege));
+  // Andere Aufträge (Transkription, auch von einem Aufnahmegerät): Der Neustart bräche sie ab.
+  const andereOffen = $derived(
+    offeneAuftraege(zustand.auftraege) - offeneAuftraege(einrichtungsAuftraege(zustand.auftraege))
+  );
 
   // Nach jedem Schrittwechsel: Fokus auf die Überschrift (Bildschirmleser, Tastatur).
   $effect(() => {
@@ -158,6 +164,12 @@
         <div class="neustart" role="status">
           <Fortschritt anteil={null} beschriftung="Die App startet neu" />
           <p>Die App startet kurz neu …</p>
+          {#if stand?.rechenumgebung_fehlt}
+            <p class="leise">
+              Dabei wird die Rechenumgebung eingerichtet – das kann viele Minuten dauern. Den Fortschritt
+              zeigt das Fenster „VERMERK Desktop – Einrichtung“.
+            </p>
+          {/if}
         </div>
       {:else}
         <dl class="zusammenfassung karte">
@@ -170,6 +182,12 @@
         </dl>
         {#if neustartNoetig && laedtNoch}
           <SchrittEinrichten />
+        {/if}
+        {#if neustartNoetig && andereOffen > 0}
+          <p class="leise" role="status">
+            {andereOffen === 1 ? 'Eine Verarbeitung läuft' : `${andereOffen} Verarbeitungen laufen`} noch oder warten.
+            Neu starten geht, sobald sie fertig sind.
+          </p>
         {/if}
       {/if}
     {/if}

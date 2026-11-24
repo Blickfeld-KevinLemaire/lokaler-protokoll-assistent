@@ -180,10 +180,13 @@ Grundregel: **Nichts wird ohne `zustimmung: true` im Aufruf geladen.**
 **Rechenumgebung und Neustart.** PyTorch & Co. richtet `bootstrap.py` beim
 nächsten Start des Dienstes ein – nur mit Zustimmung (`entscheidung` mit
 `zustimmung_rechenumgebung: true` setzt `einrichtung_fortsetzen="transkription"`;
-ohne Zustimmung `lokale_einrichtung_zurueckgestellt=true`). Steht in einer
-Antwort `neustart_noetig: true`, sagt die Oberfläche „Die App startet kurz neu";
-den Dienst neu zu starten ist Sache des Fensters. Danach meldet `stand`
-`naechster_schritt: "mitschrift"`.
+ohne Zustimmung `lokale_einrichtung_zurueckgestellt=true`). Das Umschalten auf
+„Auf diesem Computer“ in den Einstellungen (`PATCH /api/einstellungen`) ist
+**keine** Zustimmung; dort steht dann „noch nicht eingerichtet [Einrichten]“.
+Steht in einer Antwort `neustart_noetig: true`, sagt die Oberfläche „Die App
+startet kurz neu"; den Dienst neu zu starten ist Sache des Fensters
+(`POST /api/system/neustart`, 409, solange ein Auftrag läuft oder wartet oder
+eine Aufnahme läuft). Danach meldet `stand` `naechster_schritt: "mitschrift"`.
 
 ## Was bewusst so bleibt
 * Die Geräteschnittstelle (`GERAETE-SCHNITTSTELLE.md`, Port 8765) ändert sich

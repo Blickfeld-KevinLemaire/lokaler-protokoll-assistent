@@ -313,7 +313,7 @@
           "system"
         ],
         "summary": "Neustart",
-        "description": "Den Dienst neu starten (z. B. nach der Ersteinrichtung, damit die Rechenumgebung geladen wird). Der Dienst\nbeendet sich mit einem eigenen Exit-Code, und das Fenster startet ihn sofort wieder -- die Prozesse steuert\nallein das Fenster.",
+        "description": "Den Dienst neu starten (z. B. nach der Ersteinrichtung, damit die Rechenumgebung geladen wird). Der Dienst\nbeendet sich mit einem eigenen Exit-Code, und das Fenster startet ihn sofort wieder -- die Prozesse steuert\nallein das Fenster.\n\nSolange etwas laeuft oder wartet (Verarbeitung, auch von einem Aufnahmegeraet, oder eine Aufnahme), lehnt der\nDienst mit 409 ab: Der Neustart braeche es ab, wartende Auftraege gingen verloren.",
         "operationId": "neustart_api_system_neustart_post",
         "responses": {
           "200": {

@@ -188,6 +188,9 @@ export interface paths {
      * @description Den Dienst neu starten (z. B. nach der Ersteinrichtung, damit die Rechenumgebung geladen wird). Der Dienst
      *     beendet sich mit einem eigenen Exit-Code, und das Fenster startet ihn sofort wieder -- die Prozesse steuert
      *     allein das Fenster.
+     *
+     *     Solange etwas laeuft oder wartet (Verarbeitung, auch von einem Aufnahmegeraet, oder eine Aufnahme), lehnt der
+     *     Dienst mit 409 ab: Der Neustart braeche es ab, wartende Auftraege gingen verloren.
      */
     post: operations['neustart_api_system_neustart_post'];
     delete?: never;

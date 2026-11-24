@@ -196,3 +196,10 @@ Type: filesandordirs; Name: "{app}\protokoll_assistent\ablauf\__pycache__"
 Type: filesandordirs; Name: "{app}\dienst\logs"
 ; Dasselbe fuer die mitgelieferte Python-Laufzeitumgebung.
 Type: filesandordirs; Name: "{app}\python"
+; Das Fenster (Tauri) fuehrt seine Protokolle ('logs': vermerk-*.log, dienst.log), die Handschlag-Dateien
+; ('laufzeit') und den Speicher von WebView2 ('EBWebView') unter %LOCALAPPDATA%\<identifier> -- nicht im
+; Programmordner. Bisher blieb der Ordner nach dem Deinstallieren liegen, obwohl die Hinweise sagen, die
+; Protokolldateien wuerden entfernt. Darin liegen keine Ergebnisse und keine 'konfiguration.json' -- nur
+; das im Fenster gewaehlte Farbschema geht mit.
+; Der Name muss zu "identifier" in oberflaeche\src-tauri\tauri.conf.json passen (ein Test prueft das).
+Type: filesandordirs; Name: "{localappdata}\de.vermerk.desktop"

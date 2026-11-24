@@ -673,6 +673,23 @@ def test_abschliessen_ohne_zustimmung(umgebung: Umgebung) -> None:
     assert umgebung.client.get("/api/info").json()["einrichtung_abgeschlossen"] is True
 
 
+def test_lokal_in_den_einstellungen_ist_keine_zustimmung(umgebung: Umgebung) -> None:
+    # Anfangs online eingerichtet, spaeter in den Einstellungen auf "Auf diesem Computer" umgestellt: Frueher lud
+    # der naechste Start gut 5 GB, ohne dass die Seite mit den Kosten je zu sehen war.
+    client = umgebung.client
+    online = {"transkription": "api", "nachbearbeitung": "api", "chatbot": "api"}
+    client.post("/api/einrichtung/entscheidung", json=online)
+    client.post("/api/einrichtung/abschliessen")
+    assert client.patch("/api/einstellungen", json={"transkription_modus": "lokal"}).status_code == 200
+    konfig = app_config.load_config()
+    assert konfig["transkription_modus"] == "lokal" and not _naechster_start_laedt(konfig)
+    stand = client.get("/api/einrichtung/stand").json()
+    assert stand["rechenumgebung_fehlt"] is True and stand["neustart_noetig"] is False
+    # Die Einrichtung (aus den Einstellungen erneut geoeffnet) mit Zustimmung: dann ja.
+    client.post("/api/einrichtung/entscheidung", json={**online, "transkription": "lokal", "zustimmung_rechenumgebung": True})
+    assert _naechster_start_laedt(app_config.load_config())
+
+
 def test_abschliessen_mit_zustimmung_und_online(umgebung: Umgebung) -> None:
     client = umgebung.client
     client.post(

@@ -167,6 +167,10 @@
             {#if info && !info.faehigkeiten.lokale_transkription}
               <p class="warn">
                 <TriangleAlert size={16} /> Auf diesem Computer noch nicht eingerichtet
+                <Info
+                  frage="Was ist dafür nötig?"
+                  text="Dafür braucht VERMERK einmalig eine Rechenumgebung (mehrere Gigabyte). Die Einrichtung zeigt vorher, was geladen wird – geladen wird erst nach Ihrer Zustimmung, nicht schon durch diese Auswahl."
+                />
                 {#if einrichtung.verfuegbar(info)}
                   <button class="knopf" type="button" onclick={() => einrichtung.oeffnen()}>
                     Einrichten

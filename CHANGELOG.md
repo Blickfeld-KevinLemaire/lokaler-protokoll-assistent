@@ -101,6 +101,17 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 - **Einrichtung:** „Was nötig ist“ rechnet mit dem Sprachmodell, das für diesen Computer empfohlen und danach
   eingetragen wird. War das bisherige Standardmodell schon vorhanden, wurde das empfohlene bisher eingetragen, aber
   nie geladen – Zusammenfassungen scheiterten dann an „Sprachmodell fehlt“.
+- **Einstellungen:** Wer anfangs online gearbeitet hat und die Transkription später auf „Auf diesem Computer“
+  stellt, bekommt beim nächsten Start nicht mehr ungefragt gut 5 GB geladen. Geladen wird erst nach der Zustimmung
+  in der Einrichtung („Einrichten“), die vorher zeigt, was nötig ist. Wer schon zugestimmt hat, wird nicht erneut
+  gefragt.
+- **Einrichtung:** „Jetzt neu starten“ wartet, bis laufende und wartende Verarbeitungen (auch von Aufnahmegeräten)
+  und eine laufende Aufnahme fertig sind, und sagt, wie viele noch laufen. Bisher brach der Neustart sie ab.
+- **Einrichtung:** Während die Rechenumgebung nach dem Neustart eingerichtet wird, sagt das Fenster, dass das dauern
+  kann und wo der Fortschritt steht; das Fortschrittsfenster „VERMERK Desktop – Einrichtung“ kommt nach vorn, statt
+  hinter dem Programm zu liegen.
+- **Deinstallation:** Die Protokolldateien des Fensters (unter `%LOCALAPPDATA%\de.vermerk.desktop`) werden jetzt
+  wie angekündigt mit entfernt.
 
 ## [0.6.0-alpha.1] - 2026-11-22
 
