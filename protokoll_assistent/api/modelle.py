@@ -104,6 +104,8 @@ class Besprechung(BaseModel):
     titel: str
     zeit: str
     transkript: str
+    # Das Word-Dokument (Pfad), falls es eins gibt -- fuer "Dokument oeffnen" und "Im Explorer zeigen".
+    dokument: str | None = None
     dauer_sekunden: float | None = None
     anzahl_sprecher: int | None = None
     sprache: str | None = None
@@ -150,6 +152,12 @@ class ProtokollSpeichern(BaseModel):
 
 class SprecherNamen(BaseModel):
     namen: dict[str, str]
+
+
+class NameAendern(BaseModel):
+    """Neuer Anzeigename einer Besprechung (gekuerzt um Leerraum: 1 bis 120 Zeichen, keine Steuerzeichen)."""
+
+    name: str = Field(max_length=1000)
 
 
 class ExportAnfrage(BaseModel):

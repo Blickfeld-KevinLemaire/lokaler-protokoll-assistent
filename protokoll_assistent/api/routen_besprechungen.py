@@ -1,4 +1,5 @@
-"""Besprechungen: Liste, Einzelansicht, Protokoll bearbeiten, Sprecher umbenennen, Dateien, Export, Teilen.
+"""Besprechungen: Liste, Einzelansicht, Protokoll bearbeiten, Sprecher umbenennen, Dateien, Export, Teilen,
+Umbenennen (nur der Anzeigename), Loeschen (in den Papierkorb) und das Word-Dokument oeffnen.
 
 Windows-Anwendung: Kennung = Dateistamm des Transkripts. Servermodus mit
 mehreren Nutzern: Kennung = ``<besitzer>~<stamm>``; jeder sieht seine eigenen
@@ -7,6 +8,8 @@ und die mit ihm geteilten Besprechungen. Aendern darf nur der Besitzer.
 
 from __future__ import annotations
 
+import logging
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -15,11 +18,18 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import FileResponse
 
 from protokoll_assistent.ablauf import bibliothek, freigaben
+from protokoll_assistent.ablauf.auftraege import ERLEDIGT
 from protokoll_assistent.api import modelle
-from protokoll_assistent.api.kontext import Angemeldet, Dienste, angemeldet, dienste
-from protokoll_assistent.services import dokument_export_service, export_service
+from protokoll_assistent.api.kontext import Angemeldet, Dienste, angemeldet, dienste, nur_desktop
+from protokoll_assistent.services import dokument_export_service, export_service, papierkorb_service
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/besprechungen", tags=["besprechungen"])
+
+# Ereignis nach Umbenennen/Loeschen: Andere Fenster und Browser laden ihre Liste neu. Bewusst ohne Kennung oder
+# Namen -- es geht an alle Angemeldeten, auch an die, die diese Besprechung nicht sehen.
+EREIGNIS_GEAENDERT = "besprechungen"
 
 MEDIENTYPEN = {
     ".txt": "text/plain; charset=utf-8",
@@ -235,3 +245,75 @@ def exportieren(
     except dokument_export_service.ExportFehler as problem:
         raise HTTPException(422, str(problem)) from problem
     return {"dateien": [{"name": p.name, "pfad": str(p)} for p in pfade], "fehler": fehler}
+
+
+def _in_arbeit(d: Dienste, besprechung: bibliothek.Besprechung) -> bool:
+    """Wartet oder laeuft ein Auftrag mit diesem Transkript (z. B. eine Zusammenfassung)?"""
+    ziel = os.path.normcase(str(besprechung.transkript.resolve()))
+    for auftrag in d.steuerung.auftraege.liste():
+        pfad = auftrag.angaben.get("transkript")
+        if auftrag.status not in ERLEDIGT and isinstance(pfad, str) and os.path.normcase(str(Path(pfad).resolve())) == ziel:
+            return True
+    return False
+
+
+@router.put("/{kennung}/name")
+def umbenennen(
+    kennung: str, daten: modelle.NameAendern, d: Dienste = Depends(dienste), wer: Angemeldet = Depends(angemeldet)
+) -> dict[str, str]:
+    """Nur der Anzeigename aendert sich: Kennung, Dateinamen und Freigaben bleiben."""
+    besprechung = besprechung_finden(d, wer, kennung, aendern=True).besprechung
+    try:
+        name = bibliothek.name_pruefen(daten.name)
+    except bibliothek.BibliothekFehler as fehler:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(fehler)) from fehler
+    try:
+        titel = bibliothek.umbenennen(besprechung, name)
+    except bibliothek.BibliothekFehler as fehler:
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, str(fehler)) from fehler
+    d.steuerung.bus.senden(EREIGNIS_GEAENDERT, {"grund": "umbenannt"})
+    return {"titel": titel}
+
+
+@router.delete("/{kennung}")
+def loeschen(kennung: str, d: Dienste = Depends(dienste), wer: Angemeldet = Depends(angemeldet)) -> dict[str, Any]:
+    """Alle Dateien der Besprechung in den Papierkorb (Windows-Anwendung: den von Windows; sonst
+    ``<Ausgabeordner>/.papierkorb``). Die Aufnahme selbst bleibt, die Freigaben entfallen."""
+    g = besprechung_finden(d, wer, kennung, aendern=True)
+    if _in_arbeit(d, g.besprechung):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Für dieses Transkript läuft oder wartet gerade eine Verarbeitung (z. B. eine Zusammenfassung). "
+            "Löschen geht, sobald sie fertig oder abgebrochen ist.",
+        )
+    ordner = d.ausgabe_basis() if g.allgemein else d.ausgabeordner_von(g.besitzer)
+    papierkorb = papierkorb_service.in_papierkorb if d.ist_desktop and d.plattform_windows else None
+    try:
+        ziel = bibliothek.loeschen(g.besprechung, ordner, papierkorb=papierkorb)
+    except bibliothek.BibliothekFehler as fehler:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(fehler)) from fehler
+    if d.mehrbenutzer and g.besitzer:
+        try:
+            d.freigaben().setzen(g.besitzer, g.besprechung.id, [])
+        except OSError:
+            # Die Dateien sind schon weg; eine verwaiste Freigabe zeigt nichts an (die Liste schlaegt nach).
+            logger.warning("Freigabe einer geloeschten Besprechung nicht entfernt", exc_info=True)
+    d.steuerung.bus.senden(EREIGNIS_GEAENDERT, {"grund": "geloescht"})
+    return {"geloescht": True, "papierkorb": "windows" if ziel is None else "ordner"}
+
+
+def _mit_standardprogramm_oeffnen(pfad: Path) -> None:  # pragma: no cover - nur Windows
+    os.startfile(str(pfad))  # type: ignore[attr-defined]  # noqa: S606
+
+
+@router.post("/{kennung}/dokument-oeffnen")
+def dokument_oeffnen(kennung: str, d: Dienste = Depends(nur_desktop), wer: Angemeldet = Depends(angemeldet)) -> dict[str, bool]:
+    """Das Word-Dokument mit dem Standardprogramm oeffnen -- nur in der Windows-Anwendung. Der Pfad kommt aus der
+    Besprechung, nie vom Aufrufer."""
+    dokument = besprechung_finden(d, wer, kennung).besprechung.dokument()
+    if dokument is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Zu diesem Transkript gibt es noch kein Word-Dokument.")
+    if not d.plattform_windows:
+        raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, "Nur unter Windows.")
+    _mit_standardprogramm_oeffnen(dokument)
+    return {"geoeffnet": True}

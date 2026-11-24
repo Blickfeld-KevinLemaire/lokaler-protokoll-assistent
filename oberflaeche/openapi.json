@@ -802,6 +802,49 @@
             }
           }
         }
+      },
+      "delete": {
+        "tags": [
+          "besprechungen"
+        ],
+        "summary": "Loeschen",
+        "description": "Alle Dateien der Besprechung in den Papierkorb (Windows-Anwendung: den von Windows; sonst\n``<Ausgabeordner>/.papierkorb``). Die Aufnahme selbst bleibt, die Freigaben entfallen.",
+        "operationId": "loeschen_api_besprechungen__kennung__delete",
+        "parameters": [
+          {
+            "name": "kennung",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Kennung"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Loeschen Api Besprechungen  Kennung  Delete"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/besprechungen/{kennung}/protokoll": {
@@ -1053,6 +1096,110 @@
                   "type": "object",
                   "additionalProperties": true,
                   "title": "Response Exportieren Api Besprechungen  Kennung  Export Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/besprechungen/{kennung}/name": {
+      "put": {
+        "tags": [
+          "besprechungen"
+        ],
+        "summary": "Umbenennen",
+        "description": "Nur der Anzeigename aendert sich: Kennung, Dateinamen und Freigaben bleiben.",
+        "operationId": "umbenennen_api_besprechungen__kennung__name_put",
+        "parameters": [
+          {
+            "name": "kennung",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Kennung"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NameAendern"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Umbenennen Api Besprechungen  Kennung  Name Put"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/besprechungen/{kennung}/dokument-oeffnen": {
+      "post": {
+        "tags": [
+          "besprechungen"
+        ],
+        "summary": "Dokument Oeffnen",
+        "description": "Das Word-Dokument mit dem Standardprogramm oeffnen -- nur in der Windows-Anwendung. Der Pfad kommt aus der\nBesprechung, nie vom Aufrufer.",
+        "operationId": "dokument_oeffnen_api_besprechungen__kennung__dokument_oeffnen_post",
+        "parameters": [
+          {
+            "name": "kennung",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Kennung"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "boolean"
+                  },
+                  "title": "Response Dokument Oeffnen Api Besprechungen  Kennung  Dokument Oeffnen Post"
                 }
               }
             }
@@ -3545,6 +3692,17 @@
             "type": "string",
             "title": "Transkript"
           },
+          "dokument": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dokument"
+          },
           "dauer_sekunden": {
             "anyOf": [
               {
@@ -3645,6 +3803,17 @@
           "transkript": {
             "type": "string",
             "title": "Transkript"
+          },
+          "dokument": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dokument"
           },
           "dauer_sekunden": {
             "anyOf": [
@@ -4851,6 +5020,21 @@
           "modell"
         ],
         "title": "ModellLaden"
+      },
+      "NameAendern": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 1000,
+            "title": "Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "NameAendern",
+        "description": "Neuer Anzeigename einer Besprechung (gekuerzt um Leerraum: 1 bis 120 Zeichen, keine Steuerzeichen)."
       },
       "NutzerAendern": {
         "properties": {
