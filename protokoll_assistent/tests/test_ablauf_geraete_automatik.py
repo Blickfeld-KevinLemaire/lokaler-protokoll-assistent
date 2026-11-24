@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import io
 from pathlib import Path
 from typing import Any
 
@@ -12,7 +14,11 @@ from protokoll_assistent.ablauf import geraete_automatik as modul
 from protokoll_assistent.ablauf.auftraege import Status
 from protokoll_assistent.ablauf.geraete_automatik import Abhaengigkeiten, GeraeteAutomatik
 from protokoll_assistent.services import geraete_empfang_service, live_service
-from protokoll_assistent.tests.ablauf_hilfen import alle_auftraege_ausfuehren, steuerung_fuer_test
+from protokoll_assistent.tests.ablauf_hilfen import (
+    alle_auftraege_ausfuehren,
+    steuerung_fuer_test,
+    transkript_json_schreiben,
+)
 
 TOKEN_HASH = "a" * 64
 
@@ -23,6 +29,9 @@ class FalscherDienst:
         self.geraete = geraete
         self.port = port
         self.rueckrufe = rueckrufe
+        # Die echte Ablage (ohne HTTP): Dort steht, welche Aufnahmen vollstaendig ankamen und ob ihre Verarbeitung
+        # zu Ende ist.
+        self.ablage = geraete_empfang_service.Ablage(ziel, bei_abschluss=rueckrufe.get("bei_abschluss"))
         self.gestartet = False
         self.gestoppt = False
         self._scheitern = scheitern
@@ -254,6 +263,98 @@ def test_fehlerfaelle(umgebung: Umgebung, tmp_path: Path) -> None:
     a.aufnahme_bereit(umgebung.audio, "Raum-1", "H5_001.opus")
     alle_auftraege_ausfuehren(umgebung.steuerung)
     assert umgebung.status()["meldung"].startswith("Auswertung nicht möglich")
+
+
+def test_keine_sprache_erkannt_wird_dem_geraet_gemeldet(umgebung: Umgebung) -> None:
+    umgebung.pipeline.segmente = []
+    umgebung.automatik.aufnahme_bereit(umgebung.audio, "Raum-1", "H5_001.opus")
+    alle_auftraege_ausfuehren(umgebung.steuerung)
+    assert [(x.art, x.status) for x in umgebung.steuerung.auftraege.liste()] == [("transkription", Status.FEHLER)]
+    assert umgebung.status()["zustand"] == live_service.FEHLER
+    assert umgebung.status()["meldung"] == "Keine Sprache erkannt."
+
+
+def _hochladen(ablage: geraete_empfang_service.Ablage, datei: str, daten: bytes = b"OggS-Aufnahme") -> Path:
+    """Eine Aufnahme so, wie das Geraet sie schickt: ein Stueck und der gepruefte Abschluss."""
+    antwort = ablage.anhaengen(
+        "Raum-1", datei, 0, len(daten), io.BytesIO(daten).read, len(daten), hashlib.sha256(daten).hexdigest()
+    )
+    assert antwort.daten["fertig"] is True, antwort.daten
+    return ablage.ziel / antwort.daten["datei"]
+
+
+def test_nach_neustart_werden_liegengebliebene_aufnahmen_eingereiht(umgebung: Umgebung, tmp_path: Path) -> None:
+    """Software (oder PC) zwischen dem Ende des Uploads und dem Ende der Verarbeitung beendet: Beim naechsten Start
+    werden die vollstaendig angekommenen Aufnahmen ohne Ergebnis wieder eingereiht -- ohne Doppeltes, ohne halbe
+    Uploads, ohne die vor dem Neustart erwuenschte Rueckfrage."""
+    vorher = geraete_empfang_service.Ablage(tmp_path / "ein", bei_abschluss=lambda *_a: None)
+    nichts = _hochladen(vorher, "H5_001.opus", b"eins")  # noch gar nicht verarbeitet
+    nur_transkript = _hochladen(vorher, "H5_002.opus", b"zwei")  # Transkript fertig, Zusammenfassung nicht
+    alles = _hochladen(vorher, "H5_003.opus", b"drei")  # fertig, nur der Vermerk fehlt
+    erledigt = _hochladen(vorher, "H5_004.opus", b"vier")
+    vorher.verarbeitung_erledigt(erledigt)
+    weg = _hochladen(vorher, "H5_005.opus", b"fuenf")
+    weg.unlink()
+    ohne_automatik = geraete_empfang_service.Ablage(tmp_path / "ein")  # Live-Verarbeitung aus: nur abgelegt
+    _hochladen(ohne_automatik, "H5_006.opus", b"sechs")
+    halb = vorher.anhaengen("Raum-1", "H5_007.opus", 0, 4, io.BytesIO(b"halb").read)  # Upload nicht abgeschlossen
+    assert halb.daten["fertig"] is False
+    aus = tmp_path / "aus"
+    for pfad in (nur_transkript, alles):
+        transkript_json_schreiben(aus / f"{pfad.stem}_lokal_transkript_20260101_120000.json")
+    (aus / f"{alles.stem}_protokoll_20260101_120500.json").write_text("{}", encoding="utf-8")
+
+    a = umgebung.automatik
+    a.anwenden()
+    eingereiht = [(x.art, x.titel, x.vorrang) for x in umgebung.steuerung.auftraege.liste()]
+    assert eingereiht == [
+        ("transkription", nichts.name, auftraege.VORRANG_GERAET),
+        ("auswertung", f"{nur_transkript.stem}_lokal_transkript_20260101_120000.json", auftraege.VORRANG_GERAET),
+    ]
+    assert umgebung.status("H5_001.opus")["zustand"] == live_service.TRANSKRIPTION
+    assert umgebung.status("H5_002.opus")["zustand"] == live_service.AUSWERTUNG
+    assert umgebung.status("H5_003.opus")["zustand"] == live_service.FERTIG
+    assert umgebung.status("H5_004.opus") == {} and umgebung.status("H5_006.opus") == {}
+    alle_auftraege_ausfuehren(umgebung.steuerung)
+    arten = sorted((x.art, x.status) for x in umgebung.steuerung.auftraege.liste())
+    assert arten == [("auswertung", Status.FERTIG)] * 2 + [("transkription", Status.FERTIG)]
+    assert umgebung.status("H5_001.opus")["zustand"] == live_service.FERTIG  # ohne Rueckfrage bis zum Ende
+    assert umgebung.status("H5_002.opus")["zustand"] == live_service.FERTIG
+    assert vorher.offene_aufnahmen() == []
+
+    # Noch ein Neustart: nichts mehr zu tun.
+    anzahl = len(umgebung.steuerung.auftraege.liste())
+    GeraeteAutomatik(umgebung.steuerung, a.abh).anwenden()
+    assert len(umgebung.steuerung.auftraege.liste()) == anzahl
+
+
+def test_liegengebliebene_nur_beim_ersten_start_des_empfangs(umgebung: Umgebung, tmp_path: Path) -> None:
+    a = umgebung.automatik
+    a.anwenden()  # erster Start: nichts liegt
+    _hochladen(umgebung.dienste[0].ablage, "H5_001.opus")  # kommt an, wird gerade verarbeitet
+    umgebung.konfig["geraete_empfang_port"] = "9000"
+    a.anwenden()  # Empfang neu gestartet: dieselbe Aufnahme nicht noch einmal einreihen
+    assert len(umgebung.dienste) == 2
+    assert [x.art for x in umgebung.steuerung.auftraege.liste()] == ["transkription"]
+
+
+def test_liegengebliebene_leeres_transkript_und_fehler(umgebung: Umgebung, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    vorher = geraete_empfang_service.Ablage(tmp_path / "ein", bei_abschluss=lambda *_a: None)
+    leer = _hochladen(vorher, "H5_001.opus")
+    (tmp_path / "aus").mkdir()
+    (tmp_path / "aus" / f"{leer.stem}_lokal_transkript_20260101_120000.json").write_text('{"segmente": []}', encoding="utf-8")
+    kaputt = _hochladen(vorher, "H5_002.opus", b"zwei")
+    a = umgebung.automatik
+
+    def scheitert(*_a: Any, **_k: Any) -> None:
+        raise RuntimeError("kaputt")
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(a, "aufnahme_bereit", scheitert)
+        a.anwenden()
+    assert umgebung.status("H5_001.opus")["meldung"] == "Keine Sprache erkannt."
+    assert "konnte nicht wieder eingereiht werden" in caplog.text
+    assert [o[2] for o in vorher.offene_aufnahmen()] == [kaputt]
 
 
 def test_abbruch_wird_dem_geraet_gemeldet(umgebung: Umgebung) -> None:

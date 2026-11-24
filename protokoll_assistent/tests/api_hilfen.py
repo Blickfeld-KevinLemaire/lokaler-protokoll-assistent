@@ -19,7 +19,7 @@ from protokoll_assistent.api import routen_chat, routen_einstellungen
 from protokoll_assistent.api.app import app_erstellen
 from protokoll_assistent.api.kontext import Dienste
 from protokoll_assistent.api.sicherheit import ROLLE_DESKTOP, Zugang, schluessel_hash, zugaenge_aus_konfiguration
-from protokoll_assistent.services import secret_store
+from protokoll_assistent.services import geraete_empfang_service, secret_store
 from protokoll_assistent.tests.ablauf_hilfen import FalschePipeline
 from protokoll_assistent.utils import app_config, paths
 
@@ -30,6 +30,8 @@ ZUGANG = "zugang-fuer-den-browser"
 class FalscherEmpfang:
     def __init__(self, *args: Any, **kwargs: Any):
         self.args = args
+        # Die echte Ablage (ohne HTTP): Nach dem Start sucht die Automatik dort liegengebliebene Aufnahmen.
+        self.ablage = geraete_empfang_service.Ablage(Path(args[0]))
 
     def starten(self) -> None:
         pass

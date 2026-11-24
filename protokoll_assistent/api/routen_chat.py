@@ -51,6 +51,10 @@ def verlaeufe_ordner(wer: Angemeldet) -> Path:
     return basis / "nutzer" / wer.besitzer if wer.besitzer else basis
 
 
+class _Abgebrochen(Exception):
+    """Die Oberflaeche hat die Antwort abgebrochen ("Stopp") oder die Verbindung ist weg."""
+
+
 def _sse(art: str, daten: dict[str, Any]) -> str:
     return f"event: {art}\ndata: {json.dumps(daten, ensure_ascii=False, separators=(',', ':'))}\n\n"
 
@@ -69,9 +73,18 @@ async def fragen(
     einstellungen = chat_einstellungen(d)
     schlange: asyncio.Queue[Any] = asyncio.Queue()
     schleife = asyncio.get_running_loop()
+    # Gesetzt, sobald niemand mehr zuhoert ("Stopp" in der Oberflaeche). Dann rechnet das Sprachmodell nicht
+    # weiter, und es wird kein Verlauf gespeichert: Die Oberflaeche erfuhre dessen Kennung nie und legte mit der
+    # naechsten Frage einen zweiten an.
+    abgebrochen = threading.Event()
 
     def senden(art: str, inhalt: dict[str, Any]) -> None:
         schleife.call_soon_threadsafe(schlange.put_nowait, _sse(art, inhalt))
+
+    def zwischenstand(art: str, inhalt: dict[str, Any]) -> None:
+        if abgebrochen.is_set():
+            raise _Abgebrochen
+        senden(art, inhalt)
 
     def arbeiten() -> None:
         nonlocal verlauf
@@ -90,10 +103,12 @@ async def fragen(
                 get_work_dir() / "chat_vektoren",
                 einstellungen.modell_kennung,
                 einstellungen.chat_modell,
-                on_status=lambda text: senden("status", {"text": text}),
-                on_token=lambda stueck: senden("token", {"text": stueck}),
+                on_status=lambda text: zwischenstand("status", {"text": text}),
+                on_token=lambda stueck: zwischenstand("token", {"text": stueck}),
                 kontext=einstellungen.kontext,
             )
+            if abgebrochen.is_set():
+                raise _Abgebrochen
             if verlauf is None:
                 verlauf = chat_verlauf_service.neuer_verlauf(ordner, daten.frage)
             verlauf.nachrichten = [
@@ -104,6 +119,8 @@ async def fragen(
             verlauf.dokumente = [str(p) for p in pfade]
             chat_verlauf_service.speichern(ordner, verlauf)
             senden("fertig", {"antwort": antwort, "quellen": quellen, "verlauf_id": verlauf.id})
+        except _Abgebrochen:
+            logger.info("Chat-Antwort abgebrochen; nichts gespeichert.")
         except (chat_service.ChatFehler, ollama_service.OllamaError, api_chat_service.ApiChatError) as fehler:
             senden("fehler", {"text": str(fehler)})
         except Exception as fehler:  # keine Tracebacks in die Oberflaeche, aber ins Protokoll
@@ -115,11 +132,15 @@ async def fragen(
     threading.Thread(target=arbeiten, name="chat", daemon=True).start()
 
     async def strom() -> AsyncIterator[str]:
-        while True:
-            stueck = await schlange.get()
-            if stueck is _ENDE:
-                return
-            yield stueck
+        try:
+            while True:
+                stueck = await schlange.get()
+                if stueck is _ENDE:
+                    return
+                yield stueck
+        finally:
+            # Endet der Strom vor _ENDE, hat die Oberflaeche abgebrochen (oder die Verbindung ist weg).
+            abgebrochen.set()
 
     return StreamingResponse(strom(), media_type="text/event-stream", headers={"Cache-Control": "no-cache"})
 

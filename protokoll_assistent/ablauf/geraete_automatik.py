@@ -23,6 +23,8 @@ Empfangs, Arbeitsfaden der Auftraege).
 
 from __future__ import annotations
 
+import glob
+import logging
 import threading
 import time
 from collections.abc import Callable
@@ -30,9 +32,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from protokoll_assistent.ablauf import auftraege
+from protokoll_assistent.ablauf import auftraege, bibliothek
 from protokoll_assistent.ablauf.auftraege import Auftrag, Status
-from protokoll_assistent.ablauf.steuerung import Steuerung
+from protokoll_assistent.ablauf.steuerung import KEINE_SPRACHE, Steuerung
 from protokoll_assistent.ablauf.verarbeitungswege import (
     Ablauffehler,
     AuswertungsWunsch,
@@ -61,6 +63,8 @@ OLLAMA_WACHE_SEKUNDEN = 30.0
 MAX_ERGEBNISSE = 50
 
 Schluessel = tuple[str, str]  # (Geraet, Dateiname des Geraets)
+
+logger = logging.getLogger(__name__)
 
 
 class MeldendesStatusRegister(live_service.StatusRegister):
@@ -127,6 +131,9 @@ class GeraeteAutomatik:
             bereit=self._frage_bereit,
         )
         self._dienst: geraete_empfang_service.GeraeteEmpfang | None = None
+        # Liegengebliebene Aufnahmen (siehe ``_liegengebliebene_einreihen``) nur beim ersten Start des Empfangs
+        # suchen: Bei einem spaeteren Neustart (Einstellungen geaendert) laufen sie womoeglich gerade.
+        self._liegengebliebene_gesucht = False
         self._stand: tuple[Any, ...] | None = None
         self.fehler: str | None = None
         self.fehler_code: str | None = None
@@ -160,6 +167,7 @@ class GeraeteAutomatik:
         ziel = Path(ziel_text) if ziel_text else self.abh.standard_ziel()
         live_aktiv = bool(config.get("geraete_live_aktiv", True))
         stand = (aktiv, port, geraete, ziel, live_aktiv)
+        nachholen: geraete_empfang_service.GeraeteEmpfang | None = None
         with self._sperre:
             if stand == self._stand and (self._dienst is not None or not aktiv):
                 return
@@ -205,7 +213,12 @@ class GeraeteAutomatik:
                 self._empfang_melden()
                 return
             self._dienst = dienst
+            if live_aktiv and not self._liegengebliebene_gesucht:
+                self._liegengebliebene_gesucht = True
+                nachholen = dienst
         self._empfang_melden()
+        if nachholen is not None:
+            self._liegengebliebene_einreihen(nachholen)
 
     def _empfang_stoppen(self) -> None:
         dienst, self._dienst = self._dienst, None
@@ -360,6 +373,63 @@ class GeraeteAutomatik:
             self.steuerung.hinweis(f"{fehler.titel}: {fehler.text}", stufe="fehler", quelle=geraet, code=fehler.code, bereich=fehler.bereich)
             return None
 
+    def _liegengebliebene_einreihen(self, dienst: geraete_empfang_service.GeraeteEmpfang) -> None:
+        """Beim Start: Aufnahmen, die vollstaendig ankamen, deren Verarbeitung aber nie zu Ende kam (Software oder
+        Rechner wurden dazwischen beendet), wieder einreihen. Die Warteschlange ueberlebt keinen Neustart, und das
+        Geraet hoert nach dreimal "unbekannt" auf zu fragen -- die Aufnahme bliebe sonst unbearbeitet liegen.
+
+        Eine Rueckfrage am Geraet gilt danach nicht mehr (der Wunsch lag nur im Speicher): Es geht ohne Rueckfrage
+        mit dem eingestellten Auftrag weiter. Das Geraet sieht den Stand wieder ueber ``…/status``."""
+        try:
+            offen = dienst.ablage.offene_aufnahmen()
+        except Exception:  # der Empfang laeuft trotzdem
+            logger.exception("Liegengebliebene Aufnahmen nicht gefunden")
+            return
+        for geraet, datei, pfad in offen:
+            try:
+                self._liegengebliebene_aufnahme(dienst, geraet, datei, pfad)
+            except Exception:  # eine Aufnahme darf die anderen nicht aufhalten
+                logger.exception("Aufnahme %s konnte nicht wieder eingereiht werden", pfad.name)
+
+    def _liegengebliebene_aufnahme(
+        self, dienst: geraete_empfang_service.GeraeteEmpfang, geraet: str, datei: str, pfad: Path
+    ) -> None:
+        if not pfad.is_file():  # verschoben oder geloescht: nichts mehr zu tun
+            dienst.ablage.verarbeitung_erledigt(pfad)
+            return
+        ausgabe = self.steuerung.ausgabeordner(self.besitzer_von(geraet))
+        transkripte = sorted(ausgabe.glob(f"{glob.escape(pfad.stem)}_lokal_transkript_*.json"))
+        if not transkripte:
+            logger.info("Nach dem Neustart wieder eingereiht: %s von %s", pfad.name, geraet)
+            self.aufnahme_bereit(pfad, geraet, datei)
+            return
+        # Das Transkript steht schon: nicht noch einmal transkribieren.
+        transkript = transkripte[-1]
+        besprechung = next((b for b in bibliothek.besprechungen(ausgabe) if b.transkript == transkript), None)
+        if besprechung is None:  # leeres Transkript
+            self._abschliessen(geraet, datei, pfad, live_service.FEHLER, f"{KEINE_SPRACHE}.")
+            return
+        self._ergebnis_merken(geraet, datei, transkript=transkript)
+        if besprechung.protokolle:
+            self._abschliessen(geraet, datei, pfad, live_service.FERTIG, "Transkription erfolgreich")
+            return
+        config = self.steuerung.konfiguration()
+        auftrag_text = alle_vorlagen().get(str(config.get("geraete_live_auftrag") or ""), "")
+        logger.info("Nach dem Neustart: Zusammenfassung fuer %s von %s eingereiht", pfad.name, geraet)
+        self._auswertung_einreihen(
+            geraet, datei, pfad, transkript, auftrag_text, rueckfrage=False, vorrang=auftraege.VORRANG_GERAET
+        )
+
+    def _verarbeitung_erledigt(self, pfad: Path) -> None:
+        """Im Empfang vermerken, dass die Verarbeitung zu Ende ist -- nach einem Neustart nicht wieder einreihen."""
+        dienst = self._dienst
+        if dienst is None:
+            return
+        try:
+            dienst.ablage.verarbeitung_erledigt(pfad)
+        except Exception:  # nur Buchfuehrung: schlimmstenfalls prueft der naechste Start die Aufnahme noch einmal
+            logger.exception("Ende der Verarbeitung von %s nicht vermerkt", pfad.name)
+
     def _spiegel(self, geraet: str, datei: str, zustand: str) -> Callable[[str, float | None, str], None]:
         def spiegeln(_stufe: str, anteil: float | None, text: str) -> None:
             if anteil is None:
@@ -373,8 +443,14 @@ class GeraeteAutomatik:
         self, auftrag: Auftrag, pfad: Path, geraet: str, datei: str, auftrag_text: str, rueckfrage: bool
     ) -> None:
         if auftrag.status is not Status.FERTIG or not auftrag.ergebnis:
-            text = "Die Transkription wurde abgebrochen." if auftrag.status is Status.ABGEBROCHEN else "Die Transkription ist fehlgeschlagen."
+            if auftrag.status is Status.ABGEBROCHEN:
+                text = "Die Transkription wurde abgebrochen."
+            elif (auftrag.fehler or "").startswith(KEINE_SPRACHE):
+                text = f"{KEINE_SPRACHE}."
+            else:
+                text = "Die Transkription ist fehlgeschlagen."
             self.status.setze(geraet, datei, live_service.FEHLER, None, text)
+            self._verarbeitung_erledigt(pfad)
             self._zuletzt(f"{text} {pfad.name} von {geraet}")
             return
         transkript = Path(auftrag.ergebnis["transkript_json"])
@@ -442,6 +518,7 @@ class GeraeteAutomatik:
         self.status.setze(geraet, datei, zustand, 1.0 if zustand == live_service.FERTIG else None, meldung)
         if zustand == live_service.FERTIG:
             self.live.freigeben(pfad)
+        self._verarbeitung_erledigt(pfad)
         self._zuletzt(f"{meldung}: {pfad.name} von {geraet}")
 
     # ------------------------------------------------------------------
@@ -505,6 +582,7 @@ class GeraeteAutomatik:
             return
         self.status.setze(geraet, datei, live_service.FERTIG, 1.0, "Transkription erfolgreich")
         self.live.freigeben(freigabe.pfad)
+        self._verarbeitung_erledigt(freigabe.pfad)
         self._zuletzt(f"Transkript fertig, {grund}: {freigabe.pfad.name} von {geraet}")
 
     def _nebenher_moeglich(self) -> bool:

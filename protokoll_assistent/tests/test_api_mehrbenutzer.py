@@ -97,6 +97,15 @@ def test_passwortwechsel_beendet_die_anderen_sitzungen(server: Umgebung) -> None
     assert chef.get("/api/info").status_code == 200
 
 
+def test_admin_aendert_eigenes_passwort_in_der_nutzerliste(server: Umgebung) -> None:
+    """Wie unter "Konto": Die Sitzung, mit der der Admin sein eigenes Passwort ueber die Nutzerliste aendert,
+    bleibt; seine anderen Sitzungen enden."""
+    hier, dort = _client(server, "chef"), _client(server, "chef")
+    assert hier.patch("/api/nutzer/Chef", json={"passwort": "ein-ganz-neues-passwort"}).status_code == 200
+    assert hier.get("/api/info").status_code == 200
+    assert dort.get("/api/info").status_code == 401
+
+
 def test_jeder_hat_eigene_besprechungen_und_teilt_gezielt(server: Umgebung) -> None:
     anna, ben = _client(server, "anna"), _client(server, "ben")
     antwort = anna.post("/api/auftraege/transkription", json={"quelle": str(_audio(server, "anna")), "mit_auswertung": True})

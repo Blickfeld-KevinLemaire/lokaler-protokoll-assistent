@@ -52,6 +52,13 @@ class AuswertungGescheitert(RuntimeError):
     """Die Auswertung lief durch, aber das Sprachmodell hat keine Zusammenfassung geliefert."""
 
 
+KEINE_SPRACHE = "Keine Sprache erkannt"
+
+
+class KeineSpracheErkannt(RuntimeError):
+    """Die Transkription lief durch, hat aber nichts Gesprochenes gefunden (stummes oder falsches Mikrofon, Stille)."""
+
+
 def transkriptions_ergebnis(ergebnis: pipeline_service.TranscriptionResult) -> dict[str, Any]:
     pfade = ergebnis.export_paths
     return {
@@ -142,6 +149,13 @@ class Steuerung:
             if fortschritt_spiegeln is not None:
                 callbacks = _gespiegelt(callbacks, fortschritt_spiegeln)
             ergebnis = self.abh.run_transcription(lauf.einstellungen, callbacks, lauf.transcribe_fn, lauf.diarize_fn)
+            if not any(str(s.get("text") or "").strip() for s in ergebnis.segments if isinstance(s, dict)):
+                # Ein leeres Transkript erscheint in keiner Besprechungsliste; als "Fertig" fuehrte "Öffnen" ins
+                # Leere, und eine angeschlossene Auswertung scheiterte mit einer technischen Meldung.
+                raise KeineSpracheErkannt(
+                    f"{KEINE_SPRACHE}: In der Aufnahme wurde nichts Gesprochenes gefunden. Bitte prüfen, ob das "
+                    "richtige Mikrofon gewählt und nicht stummgeschaltet ist."
+                )
             return transkriptions_ergebnis(ergebnis)
 
         def danach(auftrag: Auftrag) -> None:

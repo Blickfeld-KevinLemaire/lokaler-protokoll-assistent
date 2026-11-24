@@ -108,7 +108,9 @@ def anlegen(daten: modelle.NutzerAnlegen, d: Dienste = Depends(dienste), _a: Ang
 
 
 @router.patch("/nutzer/{name}")
-def aendern(name: str, daten: modelle.NutzerAendern, d: Dienste = Depends(dienste), _a: Angemeldet = Depends(nur_admin)) -> dict[str, Any]:
+def aendern(
+    name: str, daten: modelle.NutzerAendern, request: Request, d: Dienste = Depends(dienste), wer: Angemeldet = Depends(nur_admin)
+) -> dict[str, Any]:
     verwaltung = _verwaltung(d)
     try:
         if daten.passwort is not None:
@@ -116,6 +118,9 @@ def aendern(name: str, daten: modelle.NutzerAendern, d: Dienste = Depends(dienst
         geaendert = verwaltung.aendern(name, anzeigename=daten.anzeigename, admin=daten.admin, aktiv=daten.aktiv)
     except NutzerFehler as fehler:
         raise _fehler(fehler) from fehler
+    if daten.passwort and name.lower() == wer.name.lower():
+        # Das eigene Passwort ueber die Nutzerliste: wie unter "Konto" bleibt diese Sitzung, andere enden.
+        d.zugang.sitzung_behalten(request.cookies.get(COOKIE_NAME), wer.name)
     return geaendert.oeffentlich()
 
 
