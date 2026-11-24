@@ -1,20 +1,12 @@
 <script lang="ts">
   import type { Segment } from '$lib/api/typen';
-  import { sprecherName, zeitmarke } from '$lib/logik/format';
+  import { zeitmarke } from '$lib/logik/format';
+  import { transkriptBloecke } from '$lib/logik/transkript';
 
   let { segmente }: { segmente: Segment[] } = $props();
 
   /** Aufeinanderfolgende Stücke derselben Person zusammenfassen – liest sich wie ein Gespräch. */
-  const bloecke = $derived.by(() => {
-    const ergebnis: { sprecher: string; id: string; start: number | null; text: string }[] = [];
-    for (const s of segmente) {
-      const name = sprecherName(s.sprecher, s.sprecher_id);
-      const letzter = ergebnis.at(-1);
-      if (letzter && letzter.id === (s.sprecher_id ?? name)) letzter.text += ` ${s.text ?? ''}`;
-      else ergebnis.push({ sprecher: name, id: s.sprecher_id ?? name, start: s.start, text: s.text ?? '' });
-    }
-    return ergebnis;
-  });
+  const bloecke = $derived(transkriptBloecke(segmente));
 
   const FARBEN = 6;
   const reihenfolge = $derived([...new Set(bloecke.map((b) => b.id))]);
