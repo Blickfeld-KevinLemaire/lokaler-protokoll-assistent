@@ -424,13 +424,17 @@ export const api = {
   einrichtungStand: () => json<EinrichtungStand>('GET', '/api/einrichtung/stand'),
   einrichtungRechner: (neu = false) =>
     json<EinrichtungRechner>('GET', `/api/einrichtung/rechner${neu ? '?neu=true' : ''}`),
+  /** `modelle`: die Modelle, die `einrichtungEntscheidung` gleich einträgt (sonst rechnet der Dienst mit den bisherigen). */
   einrichtungKosten: (
-    wahl?: Pick<EinrichtungEntscheidung, 'transkription' | 'nachbearbeitung' | 'chatbot'>
-  ) =>
-    json<EinrichtungKosten>(
-      'GET',
-      `/api/einrichtung/kosten${wahl ? `?${new URLSearchParams(wahl).toString()}` : ''}`
-    ),
+    wahl?: Pick<EinrichtungEntscheidung, 'transkription' | 'nachbearbeitung' | 'chatbot'>,
+    modelle?: Pick<EinrichtungEntscheidung, 'sprachmodell' | 'whisper_modell'>
+  ) => {
+    const werte: Record<string, string> = { ...wahl };
+    if (modelle?.sprachmodell) werte.sprachmodell = modelle.sprachmodell;
+    if (modelle?.whisper_modell) werte.whisper_modell = modelle.whisper_modell;
+    const abfrage = new URLSearchParams(werte).toString();
+    return json<EinrichtungKosten>('GET', `/api/einrichtung/kosten${abfrage ? `?${abfrage}` : ''}`);
+  },
   einrichtungEntscheidung: (daten: EinrichtungEntscheidung) =>
     json<EinrichtungStand>('POST', '/api/einrichtung/entscheidung', { json: daten }),
   einrichtungFfmpeg: () => json<Auftrag>('POST', '/api/einrichtung/ffmpeg', { json: { zustimmung: true } }),

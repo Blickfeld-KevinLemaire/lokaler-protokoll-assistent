@@ -3,6 +3,7 @@
   import Check from '@lucide/svelte/icons/check';
   import CircleAlert from '@lucide/svelte/icons/circle-alert';
   import type { Auftrag } from '$lib/api/typen';
+  import { textMitAdressen } from '$lib/logik/format';
   import { zeitenFuerAuftrag } from '$lib/logik/restzeit';
   import { stufenText } from '$lib/logik/stufen';
   import { auftragTitel } from '$lib/logik/warteschlange';
@@ -50,6 +51,19 @@
       </div>
     {/if}
   {/if}
+  {#if auftrag.status === 'fehler' && auftrag.fehler}
+    <!-- Der Grund sagt, was zu tun ist (z. B. die Nutzungsbedingungen akzeptieren) – ohne ihn half auch
+         „Erneut versuchen“ nicht weiter. -->
+    <p class="grund">
+      {#each textMitAdressen(auftrag.fehler) as teil, i (i)}{#if teil.adresse}<a
+            href={teil.adresse}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            {teil.text}
+          </a>{:else}{teil.text}{/if}{/each}
+    </p>
+  {/if}
   {#if auftrag.status === 'fehler' && wiederholen}
     <div><button class="knopf" type="button" onclick={wiederholen}>Erneut versuchen</button></div>
   {/if}
@@ -93,6 +107,13 @@
 
   .fehler .zustand {
     color: var(--fehler);
+  }
+
+  .grund {
+    margin: 0;
+    font-size: 13px;
+    color: var(--text-2);
+    overflow-wrap: anywhere;
   }
 
   .fuss {

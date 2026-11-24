@@ -4,6 +4,7 @@ Jeder Dienstaufruf, der so etwas taete, ist hier ersetzt."""
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +16,7 @@ from protokoll_assistent.api.sicherheit import ROLLE_SERVER
 from protokoll_assistent.services import (
     ffmpeg_service,
     model_download_service,
+    model_service,
     ollama_einrichtung_service,
     ollama_service,
     rechner_analyse_service,
@@ -23,7 +25,7 @@ from protokoll_assistent.services import (
 from protokoll_assistent.services.ollama_einrichtung_service import OllamaStatus, SignaturErgebnis
 from protokoll_assistent.services.rechner_analyse_service import RechnerProfil
 from protokoll_assistent.tests.api_hilfen import Umgebung, app_bauen, eigene_konfiguration
-from protokoll_assistent.utils import app_config
+from protokoll_assistent.utils import app_config, hf_env
 
 # Laptop mit NVIDIA-Karte (8 GB) und 32 GB Arbeitsspeicher: Mitschrift und Protokoll laufen hier gut.
 PROFIL = RechnerProfil(ram_gb=32.0, cpu_kerne=16, gpu_name="NVIDIA GeForce RTX 4060 Laptop GPU", vram_gb=8.0, freier_platz_gb=200.0)
@@ -172,6 +174,25 @@ def test_kosten_fuer_alles_lokal_und_als_vorschau(umgebung: Umgebung, rechner: R
     nichts = client.get("/api/einrichtung/kosten?transkription=api&nachbearbeitung=api&chatbot=api").json()
     assert nichts["download_gb"] == 0 and nichts["zustimmung_noetig"] is False
     assert client.get("/api/einrichtung/kosten?transkription=irgendwo").status_code == 422
+
+
+def test_kosten_mit_dem_empfohlenen_sprachmodell(umgebung: Umgebung, rechner: Rechner) -> None:
+    """Ollama und das Standardmodell sind schon da (z. B. nach einer Neuinstallation), empfohlen ist aber ein anderes
+    Modell. "Was noetig ist" rechnete mit dem bisher eingetragenen Standard -- das empfohlene Modell wurde dann
+    eingetragen, aber nie angeboten und nie geladen; jede Zusammenfassung scheiterte an "Sprachmodell fehlt"."""
+    empfohlen = "qwen3.5:9b-q4_K_M"
+    rechner.ffmpeg = umgebung.tmp / "ffmpeg.exe"
+    rechner.ollama = OllamaStatus(installiert=True, dienst_laeuft=True)
+    rechner.ollama_modelle = [ollama_service.DEFAULT_MODEL, "bge-m3"]
+    client = umgebung.client
+    lokal = "transkription=api&nachbearbeitung=lokal&chatbot=lokal"
+    assert client.get(f"/api/einrichtung/kosten?{lokal}").json()["zustimmung_noetig"] is False
+    kosten = client.get(f"/api/einrichtung/kosten?{lokal}&sprachmodell={empfohlen}").json()
+    sprachmodell = next(b for b in kosten["bausteine"] if b["kennung"] == "sprachmodell")
+    assert sprachmodell["vorhanden"] is False and kosten["zustimmung_noetig"] is True
+    assert sprachmodell["download_gb"] == ollama_service.get_modell_option(empfohlen).groesse_gb  # type: ignore[union-attr]
+    # Nur Vorschau: eingetragen wird erst mit der Entscheidung.
+    assert app_config.load_config()["ollama_modell"] == ollama_service.DEFAULT_MODEL
 
 
 def test_kosten_warnt_bei_knappem_platz(umgebung: Umgebung, rechner: Rechner) -> None:
@@ -334,6 +355,25 @@ def test_ollama_download_scheitert(umgebung: Umgebung, monkeypatch: pytest.Monke
     auftrag = umgebung.client.post("/api/einrichtung/ollama", json={"zustimmung": True}).json()
     umgebung.auftraege_ausfuehren()
     assert _auftrag(umgebung, auftrag["id"])["fehler"] == "Keine Verbindung zu ollama.com."
+
+
+def test_abgebrochener_ollama_download_endet_als_abgebrochen(umgebung: Umgebung, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Wer den Download abbricht (Abbrechen in der Seitenleiste), sah "Fehlgeschlagen" bzw. "Hat nicht geklappt"."""
+    installer = FalscherInstaller(umgebung.tmp)
+    installer.einbauen(monkeypatch)
+
+    def laden(ziel: Path, fortschritt: Any = None, *, abbrechen_fn: Any, **_k: Any) -> Path:
+        laufend = umgebung.steuerung.auftraege.laufender()
+        assert laufend is not None
+        umgebung.steuerung.auftraege.abbrechen(laufend.id)
+        assert abbrechen_fn()
+        raise ollama_einrichtung_service.OllamaEinrichtungFehler("Der Download wurde abgebrochen.")
+
+    monkeypatch.setattr(ollama_einrichtung_service, "lade_installer", laden)
+    auftrag = umgebung.client.post("/api/einrichtung/ollama", json={"zustimmung": True}).json()
+    umgebung.auftraege_ausfuehren()
+    assert _auftrag(umgebung, auftrag["id"])["status"] == "abgebrochen"
+    assert installer.installiert == []
 
 
 def test_ollama_installiert_aber_ohne_dienst(umgebung: Umgebung, monkeypatch: pytest.MonkeyPatch, rechner: Rechner) -> None:
@@ -500,6 +540,66 @@ def test_mitschrift_ohne_schluesselspeicher_und_mit_fehlschlag(umgebung: Umgebun
     assert auftrag["angaben"]["hf_token_gemerkt"] is False  # kein Schluesselspeicher: nur fuer diese Sitzung
     umgebung.auftraege_ausfuehren()
     assert _auftrag(umgebung, auftrag["id"])["fehler"] == "Nicht geklappt: pyannote"
+
+
+def test_fehlschlag_der_sprechererkennung_nennt_den_grund(umgebung: Umgebung, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Der haeufigste Fall: Die Nutzungsbedingungen von pyannote sind noch nicht akzeptiert. Was zu tun ist, stand
+    nur in den Meldungen -- im Auftrag (und damit in der Einrichtung) nur "Nicht geklappt: pyannote"."""
+    umgebung.steuerung.abh.laufzeit_verfuegbar = lambda: True
+    monkeypatch.setenv("HF_TOKEN", "hf_x")  # 'download_pyannote' setzt ihn sonst fuer alle folgenden Tests
+
+    def abgelehnt(device: str = "cuda") -> Any:
+        raise RuntimeError("401 Client Error: gated repo")
+
+    monkeypatch.setattr(model_service, "load_pyannote_pipeline", abgelehnt)
+    auftrag = umgebung.client.post(
+        "/api/einrichtung/modelle", json={"zustimmung": True, "sprachmodelle": [], "sprechertrennung": True, "hf_token": "hf_x"}
+    ).json()
+    umgebung.auftraege_ausfuehren()
+    fehler = _auftrag(umgebung, auftrag["id"])["fehler"]
+    assert "Nutzungsbedingungen" in fehler and model_service.PYANNOTE_LICENSE_URL in fehler
+
+
+def test_neuer_hf_schluessel_gilt_nach_einem_falschen(umgebung: Umgebung, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ohne Schluesselspeicher setzte der erste (falsche) Versuch HF_TOKEN fuer den Prozess. Ein neu eingegebener
+    Schluessel wurde danach nie benutzt -- "Erneut versuchen" scheiterte bis zum Neustart immer wieder."""
+    umgebung.steuerung.abh.laufzeit_verfuegbar = lambda: True
+    monkeypatch.setenv("HF_TOKEN", "hf_frueher_falsch")
+    benutzt: list[str | None] = []
+
+    def laden(device: str = "cuda") -> Any:
+        benutzt.append(hf_env.get_hf_token_for_download())
+        return object()
+
+    monkeypatch.setattr(model_service, "load_pyannote_pipeline", laden)
+    auftrag = umgebung.client.post(
+        "/api/einrichtung/modelle",
+        json={"zustimmung": True, "sprachmodelle": [], "sprechertrennung": True, "hf_token": "hf_neu_richtig"},
+    ).json()
+    umgebung.auftraege_ausfuehren()
+    assert _auftrag(umgebung, auftrag["id"])["status"] == "fertig"
+    assert benutzt == ["hf_neu_richtig"]
+
+
+def test_mitschrift_laedt_auch_nach_einer_verarbeitung_ohne_internet(umgebung: Umgebung, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Eine Verarbeitung mit "Ohne Internet" schaltet Hugging Face im Prozess ab (HF_HUB_OFFLINE). Das bewusste
+    Laden in der Einrichtung scheiterte danach -- mit dem Hinweis, das Modell sei "nicht auf diesem Computer"."""
+    umgebung.steuerung.abh.laufzeit_verfuegbar = lambda: True
+    monkeypatch.setenv("HF_HUB_OFFLINE", "1")
+    monkeypatch.setenv("TRANSFORMERS_OFFLINE", "1")
+    offline: list[str | None] = []
+
+    def whisper(log: Any, model_name: str | None = None) -> bool:
+        offline.append(os.environ.get("HF_HUB_OFFLINE"))
+        return True
+
+    monkeypatch.setattr(model_download_service, "download_whisper_and_alignment", whisper)
+    auftrag = umgebung.client.post(
+        "/api/einrichtung/modelle", json={"zustimmung": True, "sprachmodelle": [], "whisper": True, "whisper_modell": "small"}
+    ).json()
+    umgebung.auftraege_ausfuehren()
+    assert _auftrag(umgebung, auftrag["id"])["status"] == "fertig"
+    assert offline == [None]
 
 
 # ---------------------------------------------------------------- Anbieter

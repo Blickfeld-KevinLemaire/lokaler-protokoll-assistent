@@ -862,7 +862,8 @@ export interface paths {
      * Kosten
      * @description Seite "Was noetig ist": Bausteine mit Download und Platz (GB), Summe, ungefaehre Downloaddauer. Ohne
      *     Angaben fuer die gespeicherte Arbeitsweise; mit ``transkription``/``nachbearbeitung``/``chatbot`` als
-     *     Vorschau, ohne etwas zu speichern.
+     *     Vorschau, ohne etwas zu speichern. ``sprachmodell``/``whisper_modell``: die Modelle, die ``entscheidung``
+     *     gleich eintragen wird -- sonst stuende hier das bisher eingetragene Modell (Groesse, und ob es schon da ist).
      */
     get: operations['kosten_api_einrichtung_kosten_get'];
     put?: never;
@@ -3709,6 +3710,8 @@ export interface operations {
         transkription?: ('lokal' | 'api') | null;
         nachbearbeitung?: ('lokal' | 'api') | null;
         chatbot?: ('lokal' | 'api') | null;
+        sprachmodell?: string | null;
+        whisper_modell?: string | null;
       };
       header?: never;
       path?: never;

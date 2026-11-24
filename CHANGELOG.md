@@ -83,6 +83,24 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 - **Sprecher:** Konnten die Sprecher nicht getrennt werden, sagt das die fertige Transkription jetzt (vorher nur
   „Fertig“ und ein Text ohne Sprecher). Eingetippte, noch nicht gespeicherte Namen gehen nicht mehr verloren, wenn
   im Hintergrund eine andere Verarbeitung fertig wird.
+- **Update von 0.5:** Installationen, die ihre Einstellungen und Daten noch im Unterordner `protokoll_assistent`
+  führen (eingerichtet mit 0.5.0-beta oder älter), behalten sie im lokalen Modus auch mit dem neuen Fenster –
+  Einrichtung, Aufnahmegeräte und bisherige Ergebnisse sind nach dem Update nicht mehr „weg“.
+- **Update von 0.5 ohne Internet:** Lässt sich die Rechenumgebung beim ersten Start nach dem Update nicht
+  aktualisieren, startet VERMERK ohne sie, statt nach drei Versuchen mit „Der Dienst ließ sich nicht starten“
+  stehen zu bleiben. Beim nächsten Start mit Internet wird die Aktualisierung nachgeholt.
+- **Einrichtung:** Scheitert ein Download, steht der Grund jetzt dabei – etwa, dass die Nutzungsbedingungen der
+  Sprechererkennung bei Hugging Face noch zu akzeptieren sind, mit anklickbarer Adresse. Scheitert die
+  Sprechererkennung, lässt sich der Zugangsschlüssel neu eingeben; ein falscher blieb bisher gemerkt, und „Erneut
+  versuchen“ scheiterte immer wieder.
+- **Einrichtung:** Spracherkennung und Sprechererkennung lassen sich auch laden, nachdem in derselben Sitzung „Ohne
+  Internet“ transkribiert wurde.
+- **Einrichtung:** Wer die lokale Transkription aus den Einstellungen heraus einrichtet und die App schließt, statt
+  „Jetzt neu starten“ zu wählen, landet beim nächsten Start wieder bei der Spracherkennung.
+- **Einrichtung:** Ein abgebrochener Download von Ollama gilt als abgebrochen, nicht als fehlgeschlagen.
+- **Einrichtung:** „Was nötig ist“ rechnet mit dem Sprachmodell, das für diesen Computer empfohlen und danach
+  eingetragen wird. War das bisherige Standardmodell schon vorhanden, wurde das empfohlene bisher eingetragen, aber
+  nie geladen – Zusammenfassungen scheiterten dann an „Sprachmodell fehlt“.
 
 ## [0.6.0-alpha.1] - 2026-11-22
 

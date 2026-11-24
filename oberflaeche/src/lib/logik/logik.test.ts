@@ -254,3 +254,15 @@ describe('Teilen (Servermodus)', () => {
     expect(teilenMoeglich(null, true)).toBe(false);
   });
 });
+
+describe('Adressen in Meldungen', () => {
+  it('macht https-Adressen anklickbar, ohne Satzzeichen am Ende', async () => {
+    const { textMitAdressen } = await import('./format');
+    expect(textMitAdressen('Bitte öffnen: https://hf.co/pyannote/x. Danach erneut.')).toEqual([
+      { text: 'Bitte öffnen: ' },
+      { text: 'https://hf.co/pyannote/x', adresse: 'https://hf.co/pyannote/x' },
+      { text: '. Danach erneut.' }
+    ]);
+    expect(textMitAdressen('Ohne Adresse')).toEqual([{ text: 'Ohne Adresse' }]);
+  });
+});

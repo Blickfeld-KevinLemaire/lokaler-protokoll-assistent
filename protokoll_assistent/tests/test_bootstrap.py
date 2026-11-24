@@ -468,6 +468,19 @@ def test_bestehende_getrennte_ablage_bleibt_wo_sie_ist(monkeypatch, tmp_path):
     assert paths.ANWENDUNGSORDNER_VARIABLE not in _relaunch_umgebung(monkeypatch, tmp_path)
 
 
+def test_getrennte_ablage_bleibt_auch_hinter_dem_neuen_fenster(monkeypatch, tmp_path):
+    # Das Tauri-Fenster gibt dem Dienst VERMERK_ANWENDUNGSORDNER mit. Geerbt hielt der Prozess des lokalen
+    # Modus nach dem Update auf 0.6 den Programmordner fuer den Anwendungsordner -- bei Installationen, die
+    # ihre Daten seit 0.5.0-beta im Unterordner fuehren, waren Einrichtung, Geraete und Ergebnisse "weg".
+    from protokoll_assistent.utils import paths
+
+    (tmp_path / "protokoll_assistent").mkdir()
+    (tmp_path / "protokoll_assistent" / "konfiguration.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setenv(paths.ANWENDUNGSORDNER_VARIABLE, str(tmp_path))
+    # Ohne Vorgabe ist der Anwendungsordner des Quelltext-Prozesses der Paketordner, also der Unterordner.
+    assert paths.ANWENDUNGSORDNER_VARIABLE not in _relaunch_umgebung(monkeypatch, tmp_path)
+
+
 def test_anwendungsordner_aus_der_umgebung(monkeypatch, tmp_path):
     from protokoll_assistent.utils import paths
 
@@ -539,6 +552,8 @@ def test_gescheiterte_aktualisierung_startet_mit_der_vorhandenen_umgebung(monkey
     from protokoll_assistent.utils import paths
 
     venv_dir = _umgebung(monkeypatch, tmp_path, python=True, kennung=True, pip=True)
+    for paket in ("fastapi", "uvicorn"):
+        (venv_dir / "Lib" / "site-packages" / paket).mkdir(parents=True)
 
     def kein_netz(cmd, splash):
         raise RuntimeError("Simulierter Netzwerkfehler")
@@ -552,6 +567,35 @@ def test_gescheiterte_aktualisierung_startet_mit_der_vorhandenen_umgebung(monkey
     assert neustarts == [paths.venv_python_path(venv_dir)]
     # Die Kennung bleibt die alte: Beim naechsten Start (mit Netz) wird die Aktualisierung nachgeholt.
     assert environment_service.kennungsdatei(venv_dir).read_text(encoding="utf-8") == "alte-kennung"
+
+
+def test_gescheiterte_aktualisierung_einer_umgebung_ohne_dienstpakete_startet_ohne_sie(monkeypatch, tmp_path):
+    # Update von 0.5 auf 0.6: Die vorhandene Umgebung kennt FastAPI & Co. nicht (dort lief die Qt-Oberflaeche).
+    # Scheiterte die Aktualisierung (kein Netz), startete der Dienst trotzdem darin -- und endete sofort; das
+    # Fenster gab nach drei Versuchen auf, die Anwendung liess sich nicht mehr oeffnen.
+    from protokoll_assistent.utils import app_config, paths
+
+    monkeypatch.setattr(app_config, "get_config_file", lambda: tmp_path / "konfiguration.json")
+    app_config.update_config(transkription_modus="lokal", einrichtung_abgeschlossen=True)
+    venv_dir = _umgebung(monkeypatch, tmp_path, python=True, kennung=True, pip=True)
+    monkeypatch.setattr(bootstrap.sys, "frozen", True, raising=False)
+
+    def kein_netz(cmd, splash):
+        raise RuntimeError("Simulierter Netzwerkfehler")
+
+    monkeypatch.setattr(bootstrap, "_run_logged", kein_netz)
+    neustarts = []
+    monkeypatch.setattr(bootstrap, "_relaunch", lambda python_exe: neustarts.append(python_exe))
+
+    bootstrap._richte_ml_umgebung_ein_und_starte_neu(
+        venv_dir=venv_dir, python_exe=paths.venv_python_path(venv_dir), base_python=None, hinweis_basis_python=None
+    )  # kehrt zurueck: der Dienst startet ohne Rechenumgebung
+
+    assert neustarts == []
+    # Nichts zurueckgestellt: Beim naechsten Start wird die Aktualisierung erneut versucht.
+    assert environment_service.kennungsdatei(venv_dir).read_text(encoding="utf-8") == "alte-kennung"
+    assert app_config.load_config()["lokale_einrichtung_zurueckgestellt"] is False
+    assert bootstrap.laufzeit_beim_start_einrichten(app_config.load_config(), True, True) is True
 
 
 def test_gescheiterte_ersteinrichtung_fuehrt_zurueck_ins_programm(monkeypatch, tmp_path):

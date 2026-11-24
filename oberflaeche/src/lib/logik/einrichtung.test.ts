@@ -16,6 +16,7 @@ import {
   nachbar,
   neustartMoeglich,
   schrittFolge,
+  sprechererkennungGescheitert,
   startSchritt,
   urteil,
   vorauswahl,
@@ -347,6 +348,18 @@ describe('Ersteinrichtung: Neustart', () => {
     expect(neustartMoeglich(stand(), [])).toBe(false);
     expect(neustartMoeglich(null, [])).toBe(false);
     expect(einrichtungLaeuft([auftrag('wartet', 'einrichtung_ollama')])).toBe(true);
+  });
+
+  it('erkennt eine gescheiterte Sprechererkennung am jüngsten Laden der Modelle', () => {
+    const modelle = (status: string, erstellt: number, pyannote: boolean) =>
+      ({ ...auftrag(status), id: `m${erstellt}`, erstellt, angaben: { teile: { pyannote } } }) as Auftrag;
+    expect(sprechererkennungGescheitert([modelle('fehler', 1, false)])).toBe(true);
+    // Der neuere Versuch gelang: nichts mehr abfragen.
+    expect(sprechererkennungGescheitert([modelle('fehler', 1, false), modelle('fertig', 2, true)])).toBe(
+      false
+    );
+    expect(sprechererkennungGescheitert([modelle('fehler', 1, true)])).toBe(false);
+    expect(sprechererkennungGescheitert([])).toBe(false);
   });
 });
 
