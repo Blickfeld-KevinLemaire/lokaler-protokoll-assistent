@@ -1,6 +1,6 @@
 <script lang="ts">
   /** Die eine Rückfrage der Oberfläche (siehe `rueckfrage` in stores/oberflaeche.svelte.ts). */
-  import { rueckfrage } from '$lib/stores/oberflaeche.svelte';
+  import { rueckfrage } from '#lib/stores/oberflaeche.svelte.ts';
   import Bestaetigen from './Bestaetigen.svelte';
 
   const f = $derived(rueckfrage.frage);

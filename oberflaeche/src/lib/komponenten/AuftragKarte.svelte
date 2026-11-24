@@ -1,13 +1,13 @@
 <script lang="ts">
   /** Ein Auftrag mit Fortschritt und Live-Text; bei Fehlern die Meldungen eingeklappt unter „Details“. */
   import X from '@lucide/svelte/icons/x';
-  import { api } from '$lib/api/client';
-  import type { Auftrag } from '$lib/api/typen';
-  import { zeitenFuerAuftrag } from '$lib/logik/restzeit';
-  import { stufenText } from '$lib/logik/stufen';
-  import { auftragHinweis, auftragTitel, platzInReihe } from '$lib/logik/warteschlange';
-  import { dialog, uhr } from '$lib/stores/oberflaeche.svelte';
-  import { zustand } from '$lib/stores/zustand.svelte';
+  import { api } from '#lib/api/client.ts';
+  import type { Auftrag } from '#lib/api/typen.ts';
+  import { zeitenFuerAuftrag } from '#lib/logik/restzeit.ts';
+  import { stufenText } from '#lib/logik/stufen.ts';
+  import { auftragHinweis, auftragTitel, platzInReihe } from '#lib/logik/warteschlange.ts';
+  import { dialog, uhr } from '#lib/stores/oberflaeche.svelte.ts';
+  import { zustand } from '#lib/stores/zustand.svelte.ts';
   import Erweitert from './Erweitert.svelte';
   import Fortschritt from './Fortschritt.svelte';
 

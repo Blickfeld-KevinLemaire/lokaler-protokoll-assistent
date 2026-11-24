@@ -1,8 +1,8 @@
 <script lang="ts">
   /** Aufnahmegerät per USB-Kabel einrichten: anschließen → Name und WLAN → fertig. */
   import Check from '@lucide/svelte/icons/check';
-  import { api, ApiFehler } from '$lib/api/client';
-  import type { UsbAnschluss, UsbGeraet } from '$lib/api/typen';
+  import { api, ApiFehler } from '#lib/api/client.ts';
+  import type { UsbAnschluss, UsbGeraet } from '#lib/api/typen.ts';
   import Dialog from '../Dialog.svelte';
   import Erweitert from '../Erweitert.svelte';
   import Fortschritt from '../Fortschritt.svelte';

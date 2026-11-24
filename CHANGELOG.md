@@ -8,6 +8,13 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+### Security
+
+- Abhängigkeiten der Oberfläche aktualisiert (SvelteKit 3 mit Vite 8, vitest 4.1.12); `npm audit` meldet
+  keine bekannten Lücken mehr. Die behobenen Lücken betrafen Entwicklungswerkzeuge (Testserver von vitest)
+  bzw. Server-Funktionen von SvelteKit (Formular- und Remote-Funktionen, Cookies), die VERMERK nicht nutzt:
+  Die Oberfläche wird rein statisch gebaut. Für Anwender ändert sich nichts.
+
 ## [0.7.0-rc1] - 2026-11-24
 
 Release-Kandidat der neuen Oberfläche: Die alte Qt-Oberfläche ist entfernt, dazu zahlreiche Korrekturen aus einer

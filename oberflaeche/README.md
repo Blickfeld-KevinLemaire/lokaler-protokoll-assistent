@@ -13,6 +13,17 @@ npm run build        # nach build/
 npm run api:typen    # src/lib/api/schema.d.ts aus openapi.json neu erzeugen
 ```
 
+SvelteKit 3: Die Einstellungen stehen im `sveltekit(...)`-Aufruf in `vite.config.ts` (eine
+`svelte.config.js` gibt es nicht mehr), `src/lib` wird als `#lib/…` mit Dateiendung importiert
+(`imports` in `package.json`).
+
+`openapi-typescript` verlangt als Peer noch TypeScript 5, SvelteKit 3 aber TypeScript 6; die
+`overrides` in `package.json` lassen es mit TypeScript 6 laufen (die erzeugte `schema.d.ts` ist
+dieselbe). npm 10 stürzt beim Neuauflösen dieser Kombination ab („Cannot read properties of null
+(reading 'edgesOut')“); `npm ci` ist davon nicht betroffen. Muss die Lockdatei neu aufgelöst werden,
+das mit npm 11 tun (`npx npm@11 install --package-lock-only`) und danach einmal `npm install` mit dem
+npm von Node 22 laufen lassen, damit das Format zur CI passt.
+
 ## Gegen einen laufenden Dienst entwickeln
 
 Sind `VERMERK_DIENST_URL` und `VERMERK_API_SCHLUESSEL` gesetzt (Umgebung oder `.env`, Vorlage

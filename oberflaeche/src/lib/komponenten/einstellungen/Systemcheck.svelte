@@ -2,10 +2,10 @@
   import Check from '@lucide/svelte/icons/check';
   import CircleAlert from '@lucide/svelte/icons/circle-alert';
   import CircleX from '@lucide/svelte/icons/circle-x';
-  import { api } from '$lib/api/client';
-  import type { DiagnosePunkt } from '$lib/api/typen';
+  import { api } from '#lib/api/client.ts';
+  import type { DiagnosePunkt } from '#lib/api/typen.ts';
   import Erweitert from '../Erweitert.svelte';
-  import { dialog } from '$lib/stores/oberflaeche.svelte';
+  import { dialog } from '#lib/stores/oberflaeche.svelte.ts';
 
   /** Prüfungen aus `utils/diagnostics.py` mit verständlichen Namen. */
   const NAMEN: Record<string, string> = {

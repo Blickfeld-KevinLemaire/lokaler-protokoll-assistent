@@ -1,7 +1,7 @@
 <script lang="ts">
   /** Ein neuer Zugangsschlüssel – genau einmal sichtbar, mit Kopierknopf. */
-  import type { NeuerZugang } from '$lib/api/typen';
-  import { meldungen } from '$lib/stores/oberflaeche.svelte';
+  import type { NeuerZugang } from '#lib/api/typen.ts';
+  import { meldungen } from '#lib/stores/oberflaeche.svelte.ts';
   import Dialog from '../Dialog.svelte';
 
   let { zugang, schliessen }: { zugang: NeuerZugang | null; schliessen: () => void } = $props();

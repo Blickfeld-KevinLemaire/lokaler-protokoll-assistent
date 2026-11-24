@@ -4,11 +4,11 @@
   import Download from '@lucide/svelte/icons/download';
   import FolderOpen from '@lucide/svelte/icons/folder-open';
   import { untrack } from 'svelte';
-  import { api } from '$lib/api/client';
-  import type { BesprechungDetails, ExportErgebnis, ExportFormat } from '$lib/api/typen';
-  import { einstellungen } from '$lib/stores/einstellungen.svelte';
-  import { dialog } from '$lib/stores/oberflaeche.svelte';
-  import { verbindung } from '$lib/stores/verbindung.svelte';
+  import { api } from '#lib/api/client.ts';
+  import type { BesprechungDetails, ExportErgebnis, ExportFormat } from '#lib/api/typen.ts';
+  import { einstellungen } from '#lib/stores/einstellungen.svelte.ts';
+  import { dialog } from '#lib/stores/oberflaeche.svelte.ts';
+  import { verbindung } from '#lib/stores/verbindung.svelte.ts';
   import Dialog from '../Dialog.svelte';
 
   let {

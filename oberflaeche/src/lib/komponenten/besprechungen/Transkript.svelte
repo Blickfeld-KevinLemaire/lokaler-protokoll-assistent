@@ -1,6 +1,6 @@
 <script lang="ts">
-  import type { Segment } from '$lib/api/typen';
-  import { sprecherName, zeitmarke } from '$lib/logik/format';
+  import type { Segment } from '#lib/api/typen.ts';
+  import { sprecherName, zeitmarke } from '#lib/logik/format.ts';
 
   let { segmente }: { segmente: Segment[] } = $props();
 

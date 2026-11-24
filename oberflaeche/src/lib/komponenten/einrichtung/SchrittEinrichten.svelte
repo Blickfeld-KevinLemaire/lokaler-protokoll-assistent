@@ -5,9 +5,9 @@
     einrichtungLaeuft,
     juengsteEinrichtungsAuftraege,
     sprechererkennungGescheitert
-  } from '$lib/logik/einrichtung';
-  import { einrichtung } from '$lib/stores/einrichtung.svelte';
-  import { zustand } from '$lib/stores/zustand.svelte';
+  } from '#lib/logik/einrichtung.ts';
+  import { einrichtung } from '#lib/stores/einrichtung.svelte.ts';
+  import { zustand } from '#lib/stores/zustand.svelte.ts';
   import Info from '../Info.svelte';
   import AuftragZeile from './AuftragZeile.svelte';
 

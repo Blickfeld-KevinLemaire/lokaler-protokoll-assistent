@@ -4,7 +4,7 @@
   import CircleCheck from '@lucide/svelte/icons/circle-check';
   import Info from '@lucide/svelte/icons/info';
   import X from '@lucide/svelte/icons/x';
-  import { meldungen } from '$lib/stores/oberflaeche.svelte';
+  import { meldungen } from '#lib/stores/oberflaeche.svelte.ts';
 </script>
 
 <div class="meldungen" role="status" aria-live="polite">

@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
-import { api } from '$lib/api/client';
+import { api } from '#lib/api/client.ts';
 import GeraetHinzufuegen from './GeraetHinzufuegen.svelte';
 
 describe('Gerät ohne USB hinzufügen', () => {

@@ -4,11 +4,11 @@
    * Der Name darf Leerzeichen und Umlaute haben („Besprechungsraum 3“); die Regeln prüft der Dienst und nennt sie.
    */
   import Copy from '@lucide/svelte/icons/copy';
-  import { api } from '$lib/api/client';
-  import type { GeraetAngelegt } from '$lib/api/typen';
-  import { dialog, meldungen } from '$lib/stores/oberflaeche.svelte';
-  import { personen } from '$lib/stores/personen.svelte';
-  import { verbindung } from '$lib/stores/verbindung.svelte';
+  import { api } from '#lib/api/client.ts';
+  import type { GeraetAngelegt } from '#lib/api/typen.ts';
+  import { dialog, meldungen } from '#lib/stores/oberflaeche.svelte.ts';
+  import { personen } from '#lib/stores/personen.svelte.ts';
+  import { verbindung } from '#lib/stores/verbindung.svelte.ts';
   import Dialog from '../Dialog.svelte';
   import Erweitert from '../Erweitert.svelte';
 
