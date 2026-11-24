@@ -28,6 +28,7 @@ Diesen Ordner liest die Bibliothek nie.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
@@ -386,10 +387,9 @@ def _in_ordner_verschieben(dateien: list[Path], ordner: Path, kennung: str, jetz
                     _verschieben(neu, alt)
                 except OSError:
                     continue
-            try:
-                ziel.rmdir()  # nur, wenn leer: Was nicht zurueck ging, bleibt im Papierkorb erhalten
-            except OSError:
-                pass
+            # Nur, wenn leer: Was nicht zurueck ging, bleibt im Papierkorb erhalten.
+            with contextlib.suppress(OSError):
+                ziel.rmdir()
             raise BibliothekFehler(
                 f"„{quelle.name}“ ließ sich nicht löschen. Ist die Datei noch in einem anderen Programm geöffnet?"
             ) from fehler

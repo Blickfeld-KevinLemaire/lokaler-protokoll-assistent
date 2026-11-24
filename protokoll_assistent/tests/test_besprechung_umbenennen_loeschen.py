@@ -331,7 +331,8 @@ def test_loeschen_unter_windows_in_den_papierkorb(umgebung: Umgebung, monkeypatc
     assert umgebung.client.get(f"/api/besprechungen/{eintrag['id']}").status_code == 404
     assert audio.is_file()  # Die Aufnahme selbst bleibt.
     assert [(e.art, e.daten) for e in gesehen] == [("besprechungen", {"grund": "geloescht"})]
-    assert umgebung.client.delete(f"/api/besprechungen/{eintrag['id']}").status_code == 404
+    antwort = umgebung.client.delete(f"/api/besprechungen/{eintrag['id']}")
+    assert antwort.status_code == 404
 
 
 def test_loeschen_ohne_windows_in_den_ordner(umgebung: Umgebung, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -359,7 +360,8 @@ def test_loeschen_waehrend_einer_zusammenfassung(umgebung: Umgebung) -> None:
     assert umgebung.client.put(f"/api/besprechungen/{eintrag['id']}/name", json={"name": "Neu"}).status_code == 200
     umgebung.auftraege_ausfuehren()
     umgebung.dienste.plattform_windows = False
-    assert umgebung.client.delete(f"/api/besprechungen/{eintrag['id']}").status_code == 200
+    antwort = umgebung.client.delete(f"/api/besprechungen/{eintrag['id']}")
+    assert antwort.status_code == 200
 
 
 def test_loeschen_scheitert_an_geoeffneter_datei(umgebung: Umgebung, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -440,16 +442,19 @@ def test_umbenennen_und_loeschen_nur_durch_den_besitzer(server: Umgebung, monkey
 
     # Geteilt: lesen ja, umbenennen und loeschen nein. Nicht geteilt: gibt es gar nicht.
     assert ben.put(f"/api/besprechungen/{kennung}/name", json={"name": "Fremd"}).status_code == 403
-    assert ben.delete(f"/api/besprechungen/{kennung}").status_code == 403
+    antwort = ben.delete(f"/api/besprechungen/{kennung}")
+    assert antwort.status_code == 403
     assert chef.put(f"/api/besprechungen/{kennung}/name", json={"name": "Fremd"}).status_code == 404
-    assert chef.delete(f"/api/besprechungen/{kennung}").status_code == 404
+    antwort = chef.delete(f"/api/besprechungen/{kennung}")
+    assert antwort.status_code == 404
 
     assert anna.put(f"/api/besprechungen/{kennung}/name", json={"name": "Vorstand"}).status_code == 200
     [geteilt] = ben.get("/api/besprechungen").json()
     assert (geteilt["id"], geteilt["titel"], geteilt["eigen"]) == (kennung, "Vorstand", False)
     assert anna.get("/api/besprechungen").json()[0]["geteilt_mit"] == ["ben"]
 
-    assert anna.delete(f"/api/besprechungen/{kennung}").json() == {"geloescht": True, "papierkorb": "ordner"}
+    antwort = anna.delete(f"/api/besprechungen/{kennung}")
+    assert antwort.json() == {"geloescht": True, "papierkorb": "ordner"}
     assert ben.get("/api/besprechungen").json() == [] and anna.get("/api/besprechungen").json() == []
     assert Freigaben(server.tmp / "aus" / "freigaben.json").mit_wem("anna", STAMM) == []
     assert not unter.exists() and not transkript.exists()
@@ -461,8 +466,10 @@ def test_admin_loescht_ergebnis_ohne_besitzer(server: Umgebung) -> None:
     transkript = transkript_json_schreiben(server.tmp / "aus" / "vorstand_20260101_100000" / f"{STAMM}.json")
     chef, anna = _client(server, "chef"), _client(server, "anna")
     kennung = f"~{STAMM}"
-    assert anna.delete(f"/api/besprechungen/{kennung}").status_code == 404
+    antwort = anna.delete(f"/api/besprechungen/{kennung}")
+    assert antwort.status_code == 404
     assert chef.put(f"/api/besprechungen/{kennung}/name", json={"name": "Vorstand"}).json() == {"titel": "Vorstand"}
-    assert chef.delete(f"/api/besprechungen/{kennung}").status_code == 200
+    antwort = chef.delete(f"/api/besprechungen/{kennung}")
+    assert antwort.status_code == 200
     assert not transkript.exists() and chef.get("/api/besprechungen").json() == []
     assert (server.tmp / "aus" / ".papierkorb").is_dir()

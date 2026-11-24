@@ -63,7 +63,7 @@ def _laufwerk_mit_papierkorb(pfad: Path) -> bool:  # pragma: no cover - nur Wind
 
 def _shell_loeschen(quelle: str) -> None:  # pragma: no cover - nur Windows
     import ctypes
-    from ctypes import wintypes
+    import ctypes.wintypes as wintypes
 
     class SHFILEOPSTRUCTW(ctypes.Structure):
         _fields_ = [
