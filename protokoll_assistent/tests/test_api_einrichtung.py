@@ -413,6 +413,35 @@ def test_modelle_einzelne_fehlschlaege(umgebung: Umgebung, monkeypatch: pytest.M
     assert len(neustarts) == 2  # drei Versuche, dazwischen je ein Neustart von Ollama
 
 
+def test_abgebrochenes_modelle_laden_endet_als_abgebrochen(umgebung: Umgebung, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Abbruch waehrend des ersten Sprachmodells: Der Auftrag endet als "abgebrochen" (nicht "fertig"), Whisper und
+    pyannote werden nicht geladen -- und die Einrichtung der Mitschrift bleibt deshalb offen."""
+    umgebung.steuerung.abh.laufzeit_verfuegbar = lambda: True
+    app_config.update_config(einrichtung_fortsetzen="transkription")
+    geladen: list[str] = []
+
+    def ziehen(name: str, progress_cb: Any = None, **_k: Any) -> None:
+        geladen.append(name)
+        laufend = umgebung.steuerung.auftraege.laufender()
+        assert laufend is not None
+        umgebung.steuerung.auftraege.abbrechen(laufend.id)
+
+    monkeypatch.setattr(ollama_service, "pull_model", ziehen)
+    monkeypatch.setattr(ollama_service, "is_model_available", lambda name, *a, **k: True)
+    monkeypatch.setattr(model_download_service, "download_whisper_and_alignment", lambda *a, **k: geladen.append("whisper"))
+    monkeypatch.setattr(model_download_service, "download_pyannote", lambda *a, **k: geladen.append("pyannote"))
+    auftrag = umgebung.client.post(
+        "/api/einrichtung/modelle",
+        json={"zustimmung": True, "sprachmodelle": ["erstes", "zweites"], "whisper": True, "whisper_modell": "small",
+              "sprechertrennung": True, "hf_token": "hf_x"},
+    ).json()
+    umgebung.auftraege_ausfuehren()
+    abgebrochen = _auftrag(umgebung, auftrag["id"])
+    assert abgebrochen["status"] == "abgebrochen" and abgebrochen["ergebnis"] is None
+    assert geladen == ["erstes"]
+    assert app_config.load_config()["einrichtung_fortsetzen"] == "transkription"
+
+
 def test_mitschrift_braucht_die_rechenumgebung(umgebung: Umgebung) -> None:
     antwort = umgebung.client.post("/api/einrichtung/modelle", json={"zustimmung": True, "sprachmodelle": [], "whisper": True})
     assert antwort.status_code == 409 and "neu starten" in antwort.json()["detail"]

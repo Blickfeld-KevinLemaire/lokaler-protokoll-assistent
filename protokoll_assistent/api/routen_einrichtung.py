@@ -24,7 +24,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
-from protokoll_assistent.ablauf.auftraege import ERLEDIGT, Fortschritt
+from protokoll_assistent.ablauf.auftraege import ERLEDIGT, AuftragAbgebrochen, Fortschritt
 from protokoll_assistent.api import modelle
 from protokoll_assistent.api.kontext import Angemeldet, Dienste, dienste, nur_admin, nur_desktop
 from protokoll_assistent.services import (
@@ -609,9 +609,13 @@ def modelle_laden(
                 fehler.append(f"{kennung.removeprefix('modell:')}: {grund}" if grund else kennung.removeprefix("modell:"))
             fortschritt.angaben(teile=dict(teile))
 
-        for name in ollama_modelle:
+        def abbruch_pruefen() -> None:
+            # Ein Ergebnis zurueckzugeben hiesse "fertig" -- obwohl der Rest nicht geladen wurde.
             if fortschritt.abbruch_gewuenscht():
-                return {"teile": teile}
+                raise AuftragAbgebrochen("Modelle laden abgebrochen")
+
+        for name in ollama_modelle:
+            abbruch_pruefen()
             fortschritt.stufe(f"modell:{name}", f"{name} wird geladen …")
             try:
                 _ollama_modell_laden(name, fortschritt)
@@ -620,15 +624,18 @@ def modelle_laden(
                 fortschritt.meldung(str(grund))
                 ergebnis(f"modell:{name}", False, str(grund))
         melden_whisper = _meldungen(fortschritt, "whisper")
-        if whisper_modell is not None and not fortschritt.abbruch_gewuenscht():
+        if whisper_modell is not None:
+            abbruch_pruefen()
             fortschritt.stufe("whisper", f"Spracherkennung {whisper_modell} wird geladen …")
             ergebnis("whisper", bool(model_download_service.download_whisper_and_alignment(melden_whisper, model_name=whisper_modell)))
-        if sprechertrennung and not fortschritt.abbruch_gewuenscht():
+        if sprechertrennung:
+            abbruch_pruefen()
             fortschritt.stufe("pyannote", "Sprechererkennung wird geladen …")
             ok = model_download_service.download_pyannote(_meldungen(fortschritt, "pyannote"), get_token=lambda: token)
             ergebnis("pyannote", bool(ok))
         if whisper_modell is not None or sprechertrennung:
-            # Die Rechenumgebung steht -- ein weiterer Neustart ist nicht noetig.
+            # Die Rechenumgebung steht -- ein weiterer Neustart ist nicht noetig. Erst hier: Nach einem Abbruch
+            # (oben) wurden Whisper/pyannote gar nicht geladen, dann bleibt die Einrichtung offen.
             app_config.update_config(einrichtung_fortsetzen="")
         if fehler:
             raise RuntimeError("Nicht geklappt: " + "; ".join(fehler))
