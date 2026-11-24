@@ -8,6 +8,8 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
+from protokoll_assistent.ablauf import freigaben as freigaben_modul
+from protokoll_assistent.ablauf.freigaben import Freigaben
 from protokoll_assistent.ablauf.nutzer import NutzerFehler, Nutzerverwaltung, passwort_hash, passwort_passt
 from protokoll_assistent.api.sicherheit import ROLLE_SERVER
 from protokoll_assistent.tests.api_hilfen import Umgebung, app_bauen, eigene_konfiguration
@@ -236,3 +238,39 @@ def test_nutzerverwaltung_regeln(tmp_path: Path) -> None:
     assert not passwort_passt("x", "md5$abc")
     assert not passwort_passt("x", "unsinn")
     assert passwort_passt("geheim", passwort_hash("geheim"))
+
+
+# ---------------------------------------------------------------- Freigaben (freigaben.json)
+def test_freigaben_teilen_sich_eine_sperre_je_datei(tmp_path: Path) -> None:
+    """Jede Anfrage baut ihr eigenes ``Freigaben`` (``Dienste.freigaben()``), und FastAPI fuehrt Anfragen parallel
+    aus. Geschuetzt ist das Lesen-Aendern-Schreiben nur, wenn alle Objekte derselben Datei dieselbe Sperre haben."""
+    datei = tmp_path / "freigaben.json"
+    assert Freigaben(datei)._sperre is Freigaben(tmp_path / "." / "freigaben.json")._sperre
+    assert Freigaben(datei)._sperre is not Freigaben(tmp_path / "andere.json")._sperre
+
+
+def test_freigaben_schreiben_unter_eindeutigem_arbeitsnamen(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    datei = tmp_path / "freigaben.json"
+    arbeitsnamen: list[Path] = []
+    echt = freigaben_modul._ersetzen_mit_wiederholung
+
+    def ersetzen(quelle: Path, ziel: Path) -> None:
+        arbeitsnamen.append(quelle)
+        echt(quelle, ziel)
+
+    monkeypatch.setattr(freigaben_modul, "_ersetzen_mit_wiederholung", ersetzen)
+    freigaben = Freigaben(datei)
+    freigaben.setzen("anna", "sitzung", ["ben"])
+    freigaben.setzen("anna", "andere", [freigaben_modul.ALLE])
+    assert len(set(arbeitsnamen)) == 2 and datei.with_name("freigaben.json.tmp") not in arbeitsnamen
+    assert freigaben.mit_wem("anna", "sitzung") == ["ben"] and freigaben.darf_lesen("ben", "anna", "andere")
+    assert list(tmp_path.glob("*.tmp")) == []
+
+    def scheitern(quelle: Path, ziel: Path) -> None:
+        raise PermissionError("gesperrt")
+
+    monkeypatch.setattr(freigaben_modul, "_ersetzen_mit_wiederholung", scheitern)
+    with pytest.raises(PermissionError):
+        freigaben.setzen("anna", "dritte", ["ben"])
+    assert list(tmp_path.glob("*.tmp")) == []  # kein liegengebliebener Arbeitsstand
+    assert freigaben.mit_wem("anna", "dritte") == []

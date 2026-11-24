@@ -12,6 +12,8 @@ Gespeichert in ``freigaben.json`` im gemeinsamen Ausgabeordner:
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 import threading
 from pathlib import Path
 
@@ -30,10 +32,23 @@ def zerlegen(wert: str) -> tuple[str, str] | None:
     return (besitzer, stamm) if trenner and besitzer and stamm else None
 
 
+_SPERREN: dict[str, threading.Lock] = {}
+_SPERREN_SPERRE = threading.Lock()
+
+
+def _sperre_fuer(datei: Path) -> threading.Lock:
+    """Eine Sperre je Datei, nicht je Objekt: Die Endpunkte bauen bei jeder Anfrage ein neues ``Freigaben``, und
+    FastAPI fuehrt sie parallel in einem Threadpool aus. Eine Sperre im Objekt schuetzte dann nichts -- zwei
+    gleichzeitige Aenderungen laesen denselben Stand, und eine Freigabe ginge verloren."""
+    schluessel = os.path.normcase(str(datei.resolve()))
+    with _SPERREN_SPERRE:
+        return _SPERREN.setdefault(schluessel, threading.Lock())
+
+
 class Freigaben:
     def __init__(self, datei: Path):
         self.datei = datei
-        self._sperre = threading.Lock()
+        self._sperre = _sperre_fuer(datei)
 
     def _lesen(self) -> dict[str, list[str]]:
         try:
@@ -46,9 +61,18 @@ class Freigaben:
 
     def _schreiben(self, daten: dict[str, list[str]]) -> None:
         self.datei.parent.mkdir(parents=True, exist_ok=True)
-        temp = self.datei.with_name(self.datei.name + ".tmp")
-        temp.write_text(json.dumps(daten, ensure_ascii=False, indent=2), encoding="utf-8")
-        _ersetzen_mit_wiederholung(temp, self.datei)
+        # Eindeutiger Arbeitsname: Ein fester ("freigaben.json.tmp") wuerde von einem zweiten Schreiber (anderer
+        # Prozess, gleicher Ordner) ueberschrieben oder ihm unter den Fuessen weggeschoben.
+        with tempfile.NamedTemporaryFile(
+            "w", encoding="utf-8", dir=self.datei.parent, prefix=self.datei.name + ".", suffix=".tmp", delete=False
+        ) as handle:
+            json.dump(daten, handle, ensure_ascii=False, indent=2)
+            temp = Path(handle.name)
+        try:
+            _ersetzen_mit_wiederholung(temp, self.datei)
+        except OSError:
+            temp.unlink(missing_ok=True)
+            raise
 
     def mit_wem(self, besitzer: str, stamm: str) -> list[str]:
         with self._sperre:
