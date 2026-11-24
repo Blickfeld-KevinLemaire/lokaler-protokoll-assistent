@@ -171,8 +171,10 @@ nicht zurückgenommen.
 ### `GET /api/v1/auftraege`
 
 Die Namen der Vorlagen (Systemprompts), aus denen das Gerät **vor der Aufnahme** einen Auftrag wählen lässt
-(Auswahlliste am Display). Es sind höchstens 12 Namen mit je höchstens 60 Zeichen und höchstens 63 Byte UTF-8
-(so passt jeder Name ungekürzt in die Liste der Firmware; längere Vorlagen bietet die Software nicht an).
+(Auswahlliste am Display). Es sind höchstens 20 Namen mit je höchstens 60 Zeichen und höchstens 63 Byte UTF-8
+(so passt jeder Name ungekürzt in die Liste der Firmware; längere Vorlagen bietet die Software nicht an). Firmware
+vor November 2026 fasst nur 12 Einträge und übernimmt die ersten 12; die ganze Antwort bleibt unter 3 KB und passt
+in den Antwortpuffer jeder Firmware (6 KB).
 
 ```json
 {"auftraege":["Aufgaben und Zuständigkeiten","Entscheidungen","Meetingprotokoll"],

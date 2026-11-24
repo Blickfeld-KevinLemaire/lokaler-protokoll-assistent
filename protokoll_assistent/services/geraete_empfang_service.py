@@ -609,8 +609,9 @@ AUFTRAG_MAX_ZEICHEN = 60
 # der Name kaeme gekuerzt zurueck und passte zu keiner Vorlage mehr.
 AUFTRAG_MAX_BYTES = 63
 AUFTRAG_ANZEIGE_MAX = 38
-# So viele Eintraege fasst die Liste der Firmware (VERMERK_AUFTRAEGE_MAX)
-MAX_AUFTRAEGE = 12
+# So viele Eintraege fasst die Liste der Firmware (VERMERK_AUFTRAEGE_MAX, seit November 2026 20; vorher 12 --
+# aeltere Geraete lesen nur die ersten 12, die Antwort passt bei allen in den 6-KB-Puffer)
+MAX_AUFTRAEGE = 20
 # Eine Anfrage ohne Aufnahme (Freigabe der Zusammenfassung) ist klein
 POST_MAX_BYTES = 1024
 

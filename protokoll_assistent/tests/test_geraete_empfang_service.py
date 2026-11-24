@@ -839,10 +839,11 @@ def test_auftraege_ueber_http(tmp_path):
 
 def test_hoechstens_so_viele_auftraege_wie_die_firmware_fasst(tmp_path):
     geraete = (Geraet("S3-Audio", empfang.token_hash(TOKEN)),)
-    namen = [f"Vorlage {i}" for i in range(20)]
+    namen = [f"Vorlage {i}" for i in range(30)]
     dienst = GeraeteEmpfang(tmp_path / "eingang", geraete, port=0, adresse="127.0.0.1", auftraege_fn=lambda: namen)
     dienst.starten()
     try:
+        assert empfang.MAX_AUFTRAEGE == 20  # VERMERK_AUFTRAEGE_MAX in firmware/components/vermerk_upload
         assert anfrage(dienst, "GET", "/api/v1/auftraege")[1]["auftraege"] == namen[: empfang.MAX_AUFTRAEGE]
     finally:
         dienst.stoppen()
