@@ -5,7 +5,7 @@
   import type { Auftrag } from '$lib/api/typen';
   import { zeitenFuerAuftrag } from '$lib/logik/restzeit';
   import { stufenText } from '$lib/logik/stufen';
-  import { auftragTitel, platzInReihe } from '$lib/logik/warteschlange';
+  import { auftragHinweis, auftragTitel, platzInReihe } from '$lib/logik/warteschlange';
   import { dialog, uhr } from '$lib/stores/oberflaeche.svelte';
   import { zustand } from '$lib/stores/zustand.svelte';
   import Erweitert from './Erweitert.svelte';
@@ -23,6 +23,7 @@
   );
   const restzeit = $derived(zeiten?.text ? [zeiten.text, zeiten.fertig].filter(Boolean).join(' · ') : '');
   const platz = $derived(platzInReihe(zustand.auftraege, auftrag.id));
+  const hinweis = $derived(auftragHinweis(auftrag));
   const ergebnis = $derived(
     (auftrag.ergebnis?.transkript_json as string | undefined) ??
       (auftrag.angaben?.transkript as string | undefined)
@@ -86,6 +87,15 @@
 
   {#if auftrag.vorschau && auftrag.status !== 'fehler'}
     <div class="vorschau" bind:this={textfeld} aria-live="off">{auftrag.vorschau}</div>
+  {/if}
+
+  {#if hinweis}
+    <p class="hinweis">{hinweis}</p>
+    <Erweitert titel="Details">
+      {#snippet kinder()}
+        <pre>{String(auftrag.ergebnis?.diarisierung_fehler ?? '')}</pre>
+      {/snippet}
+    </Erweitert>
   {/if}
 
   {#if auftrag.status === 'fehler'}
@@ -159,6 +169,10 @@
     white-space: pre-wrap;
     line-height: 1.55;
     color: var(--text);
+  }
+
+  .hinweis {
+    color: var(--warn);
   }
 
   pre {

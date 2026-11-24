@@ -84,6 +84,15 @@ export function auftragTitel(a: Auftrag): string {
   return titel;
 }
 
+/**
+ * Hinweis zu einem fertigen Auftrag, dem etwas fehlt: Die Sprechertrennung kann scheitern (Zugang zum Modell
+ * fehlt, zu wenig Speicher), der Text entsteht dann trotzdem – nur ohne Sprecher. `null`, wenn alles da ist.
+ */
+export function auftragHinweis(a: Auftrag): string | null {
+  if (a.status !== 'fertig' || !a.ergebnis?.diarisierung_fehler) return null;
+  return 'Die Sprecher ließen sich nicht unterscheiden. Der Text ist vollständig, aber ohne Sprecher.';
+}
+
 /** Meldung nach dem Start: bevorzugt `platz` aus der Antwort, sonst aus der eigenen Liste. */
 export function startMeldung(auftrag: Auftrag, auftraege: Auftrag[]): string | null {
   if (auftrag.platz !== undefined && auftrag.platz !== null) return startHinweisAusPlatz(auftrag.platz);

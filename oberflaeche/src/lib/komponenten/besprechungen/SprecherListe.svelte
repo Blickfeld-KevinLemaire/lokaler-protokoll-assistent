@@ -7,7 +7,7 @@
   import FileDown from '@lucide/svelte/icons/file-down';
   import Pause from '@lucide/svelte/icons/pause';
   import Play from '@lucide/svelte/icons/play';
-  import { onDestroy } from 'svelte';
+  import { onDestroy, untrack } from 'svelte';
   import { api } from '$lib/api/client';
   import type { Sprecher, SprecherVorschlaege } from '$lib/api/typen';
   import { dauerText, sprecherName } from '$lib/logik/format';
@@ -29,8 +29,7 @@
     zuDateien?: () => void;
   } = $props();
 
-  // Tief reaktiv (bind:value auf einzelne Einträge); neu gesetzt, sobald die Besprechung neu geladen wird.
-  // eslint-disable-next-line svelte/prefer-writable-derived -- $derived wäre nicht tief reaktiv
+  // Tief reaktiv (bind:value auf einzelne Einträge); abgeglichen, sobald die Besprechung neu geladen wird.
   let namen = $state<Record<string, string>>({});
   let speichert = $state(false);
   let vorschlaege = $state<SprecherVorschlaege | null>(null);
@@ -41,8 +40,21 @@
   /** Geladene Hörproben (Blob-Adressen) je Sprecher – nur zum Wiederverwenden, nicht reaktiv. */
   const proben: Record<string, string> = {};
 
+  /** Die Namen, wie sie zuletzt vom Dienst kamen – um eigene, noch nicht gespeicherte Eingaben zu erkennen. */
+  let bisher: Record<string, string> = {};
+
+  // Die Besprechung lädt neu, sobald irgendein Auftrag fertig wird (auch ein ganz anderer). Was hier schon
+  // eingetippt, aber noch nicht gespeichert ist, bleibt dabei stehen.
   $effect(() => {
-    namen = Object.fromEntries(sprecher.filter((s) => s.id).map((s) => [s.id!, s.name ?? '']));
+    const neu = Object.fromEntries(sprecher.filter((s) => s.id).map((s) => [s.id!, s.name ?? '']));
+    const eingegeben = untrack(() => namen);
+    namen = Object.fromEntries(
+      Object.entries(neu).map(([sid, name]) => [
+        sid,
+        sid in eingegeben && eingegeben[sid] !== bisher[sid] ? eingegeben[sid]! : name
+      ])
+    );
+    bisher = neu;
   });
 
   $effect(() => {
@@ -64,6 +76,9 @@
     speichert = true;
     try {
       const antwort = await api.sprecherUmbenennen(id, neu);
+      // Gespeichert ist keine offene Eingabe mehr: Beim Neuladen gilt wieder, was der Dienst daraus gemacht hat
+      // (ein geleertes Feld heißt danach wieder „Sprecher n“).
+      bisher = { ...bisher, ...neu };
       meldungen.zeigen(antwort.word_hinweis ? 'Gespeichert (Word-Datei nicht aktualisiert)' : 'Gespeichert');
       gespeichert();
     } catch (e) {
