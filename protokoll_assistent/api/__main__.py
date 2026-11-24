@@ -215,7 +215,7 @@ async def _laufen(server: list[tuple[Any, socket.socket]]) -> None:
 
 
 def rechenumgebung_vorbereiten(rolle: str, argv: Sequence[str]) -> None:
-    """Wie ``app.py``: Steht die Transkription auf "lokal" und ist zugestimmt, wechselt der Dienst vor dem
+    """Steht die Transkription auf "lokal" und ist zugestimmt, wechselt der Dienst vor dem
     Start in die Rechenumgebung mit Torch & Co. (und richtet sie beim ersten Mal ein). Der Servermodus
     (Container) bringt seine Pakete selbst mit; dort und wenn die Pakete schon da sind, geschieht nichts."""
     from protokoll_assistent import bootstrap

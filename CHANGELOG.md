@@ -22,8 +22,17 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 
 - Weil die Paketliste der Rechenumgebung kleiner geworden ist (ohne PySide6), gleicht der lokale Modus sie beim
   ersten Start nach dem Update einmal ab (braucht Internet; ohne Netz läuft die vorhandene Umgebung weiter).
+- **Aufnahmegeräte:** Bis zu 20 Aufträge stehen am Gerät zur Auswahl (bisher 12). Geräte mit älterer Firmware zeigen
+  weiterhin die ersten 12.
+- **Firmware VERMERK Raum (ESP32-S3 mit Display 1.85C):** Strom sparen (rund doppelte Laufzeit ohne Kabel), Akku als
+  Balken, sauberes Abschalten bei leerem Akku, Sprachausgabe („Transkription erfolgreich“, „Möchten Sie eine
+  Zusammenfassung erstellen?“, „Protokoll erfolgreich“), Anzeige „WIRD HOCHGELADEN“; eine Aufnahme bleibt nach dem
+  Senden während der Aufnahme nicht mehr dauerhaft „offen“.
 
 ### Fixed
+
+- **Firmware VERMERK Raum:** Nach „Nein“ auf die Frage nach der Zusammenfassung zeigt das Gerät nicht mehr
+  „Zusammenfassung fertig“ und sagt nicht „Protokoll erfolgreich“.
 
 - **Im Netz anbieten:** Einstellungen, die über das Netz gespeichert werden, starten keinen zweiten Empfang für
   Aufnahmegeräte mehr (der Port war dann belegt).
