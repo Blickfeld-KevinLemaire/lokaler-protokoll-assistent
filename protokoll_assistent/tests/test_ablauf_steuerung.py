@@ -52,6 +52,18 @@ def test_anschliessende_auswertung_scheitert_mit_hinweis(tmp_path: Path) -> None
     assert [a.art for a in steuerung.auftraege.liste()] == [ART_TRANSKRIPTION]
 
 
+def test_auswertung_ohne_ergebnis_endet_als_fehler_mit_grund(tmp_path: Path) -> None:
+    # Ollama nicht erreichbar oder falscher Zugangsschluessel: Die Pipeline meldet das nur im Ergebnis. Frueher
+    # stand der Auftrag dann auf "fertig" -- die Oberflaeche zeigte "Fertig", aber keine Zusammenfassung.
+    steuerung, pipeline = steuerung_fuer_test({})
+    pipeline.protokoll_fehler = "Ollama ist nicht erreichbar"
+    steuerung.transkription_starten(TranskriptionsWunsch(_audio(tmp_path), tmp_path / "aus", mit_auswertung=True))
+    alle_auftraege_ausfuehren(steuerung)
+    auswertung = [a for a in steuerung.auftraege.liste() if a.art == ART_AUSWERTUNG]
+    assert len(auswertung) == 1 and auswertung[0].status is Status.FEHLER
+    assert "Ollama ist nicht erreichbar" in (auswertung[0].fehler or "")
+
+
 def test_fehlgeschlagene_transkription_ohne_auswertung(tmp_path: Path) -> None:
     steuerung, pipeline = steuerung_fuer_test({})
     pipeline.transkription_fehler = RuntimeError("GPU weg")

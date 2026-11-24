@@ -48,6 +48,10 @@ class Abhaengigkeiten:
     modell_fehlt: Callable[[str], bool] = ollama_service.modell_fehlt
 
 
+class AuswertungGescheitert(RuntimeError):
+    """Die Auswertung lief durch, aber das Sprachmodell hat keine Zusammenfassung geliefert."""
+
+
 def transkriptions_ergebnis(ergebnis: pipeline_service.TranscriptionResult) -> dict[str, Any]:
     pfade = ergebnis.export_paths
     return {
@@ -189,6 +193,11 @@ class Steuerung:
             if fortschritt_spiegeln is not None:
                 callbacks = _gespiegelt(callbacks, fortschritt_spiegeln)
             ergebnis = self.abh.run_protocol(lauf.einstellungen, callbacks, lauf.generate_fn)
+            if ergebnis.protokoll_fehler:
+                # Die Pipeline faengt Fehler des Sprachmodells ab (Transkript bleibt ja erhalten) und meldet sie nur
+                # im Ergebnis. Als "fertig" hiess es in der Oberflaeche "Fertig" -- ohne Zusammenfassung und ohne
+                # Grund (Modell nicht erreichbar, falscher Zugangsschluessel ...).
+                raise AuswertungGescheitert(f"Die Zusammenfassung konnte nicht erstellt werden: {ergebnis.protokoll_fehler}")
             return auswertungs_ergebnis(ergebnis)
 
         return self.auftraege.einreihen(
