@@ -16,84 +16,36 @@ Verarbeitung dauert nur ein Vielfaches. Deshalb gilt im Container:
 
 Ohne ``PROTOKOLL_GRAFIKKARTE`` (Windows-Anwendung, Tests) ist nichts Pflicht und alles bleibt wie bisher.
 
-Die eigentlichen Pruefungen werden als Funktionen uebergeben, damit die Tests ohne Grafikkarte laufen.
+Die Regeln und die Pruefungen zur Laufzeit stehen in ``grafikkarte_vorgabe`` (ohne Importe aus ``services/``,
+damit ``ollama_service`` sie benutzen kann, ohne einen Importkreis zu bilden); hier sind sie nur weitergereicht.
+Dieses Modul enthaelt die Startpruefung. Die eigentlichen Pruefungen werden als Funktionen uebergeben, damit die
+Tests ohne Grafikkarte laufen.
 """
 
 from __future__ import annotations
 
-import os
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
-ART_VARIABLE = "PROTOKOLL_GRAFIKKARTE"
-PFLICHT_VARIABLE = "PROTOKOLL_GRAFIKKARTE_PFLICHT"
-KEINE = "keine"
-ARTEN = (KEINE, "nvidia", "amd", "intel")
-
-
-@dataclass(frozen=True)
-class Erwartung:
-    """Welche Schritte muessen auf der Karte laufen?"""
-
-    transkription: bool = False
-    sprechertrennung: bool = False
-    sprachmodell: bool = False
-
-    @property
-    def irgendeine(self) -> bool:
-        return self.transkription or self.sprechertrennung or self.sprachmodell
-
-
-ERWARTUNGEN: dict[str, Erwartung] = {
-    KEINE: Erwartung(),
-    "nvidia": Erwartung(transkription=True, sprechertrennung=True, sprachmodell=True),
-    "amd": Erwartung(transkription=True, sprechertrennung=True, sprachmodell=True),
-    # CTranslate2 (Whisper) hat kein Rechenwerk fuer Intel-Karten; pyannote bleibt mit Whisper auf dem Prozessor.
-    "intel": Erwartung(sprachmodell=True),
-}
-
-
-class GrafikkarteFehlt(RuntimeError):
-    """Ein Schritt, der auf der Grafikkarte laufen muss, kann sie nicht nutzen."""
-
-
-class EinstellungFalsch(ValueError):
-    """``PROTOKOLL_GRAFIKKARTE`` oder ``PROTOKOLL_GRAFIKKARTE_PFLICHT`` hat einen unbekannten Wert."""
-
-
-def _umgebung(umgebung: Mapping[str, str] | None) -> Mapping[str, str]:
-    return os.environ if umgebung is None else umgebung
-
-
-def art(umgebung: Mapping[str, str] | None = None) -> str:
-    """Fuer welche Karte das Image gebaut ist. Ohne Angabe: ``keine``."""
-    wert = (_umgebung(umgebung).get(ART_VARIABLE) or "").strip().lower() or KEINE
-    if wert not in ARTEN:
-        raise EinstellungFalsch(f"{ART_VARIABLE}: '{wert}' ist unbekannt (erlaubt: {', '.join(ARTEN)}).")
-    return wert
-
-
-def pflicht(umgebung: Mapping[str, str] | None = None) -> bool:
-    """Muss die Karte genutzt werden? Vorgabe: ja, sobald das Image fuer eine Karte gebaut ist."""
-    if art(umgebung) == KEINE:
-        return False
-    roh = (_umgebung(umgebung).get(PFLICHT_VARIABLE) or "").strip().lower()
-    if not roh or roh in ("1", "true", "ja", "an", "yes", "on"):
-        return True
-    if roh in ("0", "false", "nein", "aus", "no", "off"):
-        return False
-    raise EinstellungFalsch(f"{PFLICHT_VARIABLE}: '{roh}' ist weder an noch aus (erlaubt: 1/0, ja/nein, an/aus).")
-
-
-def erwartet(umgebung: Mapping[str, str] | None = None) -> Erwartung:
-    """Was zur Laufzeit erzwungen wird: die Erwartung der Kartenart, aber nur mit Pflicht. Ein unbekannter Wert
-    erzwingt hier nichts -- er faellt schon beim Start auf (``startpruefung``), und ein laufender Auftrag soll
-    daran nicht scheitern."""
-    try:
-        return ERWARTUNGEN[art(umgebung)] if pflicht(umgebung) else Erwartung()
-    except EinstellungFalsch:
-        return Erwartung()
+from protokoll_assistent.services.grafikkarte_vorgabe import ABHILFE as ABHILFE
+from protokoll_assistent.services.grafikkarte_vorgabe import ART_VARIABLE as ART_VARIABLE
+from protokoll_assistent.services.grafikkarte_vorgabe import ARTEN as ARTEN
+from protokoll_assistent.services.grafikkarte_vorgabe import ERWARTUNGEN as ERWARTUNGEN
+from protokoll_assistent.services.grafikkarte_vorgabe import KEINE as KEINE
+from protokoll_assistent.services.grafikkarte_vorgabe import PFLICHT_VARIABLE as PFLICHT_VARIABLE
+from protokoll_assistent.services.grafikkarte_vorgabe import EinstellungFalsch as EinstellungFalsch
+from protokoll_assistent.services.grafikkarte_vorgabe import Erwartung as Erwartung
+from protokoll_assistent.services.grafikkarte_vorgabe import GrafikkarteFehlt as GrafikkarteFehlt
+from protokoll_assistent.services.grafikkarte_vorgabe import abhilfe as abhilfe
+from protokoll_assistent.services.grafikkarte_vorgabe import art as art
+from protokoll_assistent.services.grafikkarte_vorgabe import erwartet as erwartet
+from protokoll_assistent.services.grafikkarte_vorgabe import pflicht as pflicht
+from protokoll_assistent.services.grafikkarte_vorgabe import pflichttext as pflichttext
+from protokoll_assistent.services.grafikkarte_vorgabe import sprachmodell_nachpruefen as sprachmodell_nachpruefen
+from protokoll_assistent.services.grafikkarte_vorgabe import sprachmodell_text as sprachmodell_text
+from protokoll_assistent.services.grafikkarte_vorgabe import sprechertrennung_pruefen as sprechertrennung_pruefen
+from protokoll_assistent.services.grafikkarte_vorgabe import transkription_pruefen as transkription_pruefen
 
 
 # ---------------------------------------------------------------- Pruefpunkte
@@ -115,38 +67,6 @@ class Pruefpunkt:
 TRANSKRIPTION = "Transkription"
 SPRECHERTRENNUNG = "Sprechertrennung"
 SPRACHMODELL = "Sprachmodell"
-
-# Hinweise je Kartenart, was auf dem Rechner fehlen kann. Sie stehen in jeder Fehlermeldung, damit niemand die
-# README suchen muss.
-ABHILFE: dict[str, str] = {
-    "nvidia": (
-        "Auf dem Rechner muessen der NVIDIA-Treiber und das NVIDIA Container Toolkit installiert sein, und der "
-        "Container muss mit 'docker-compose.gpu.yml' gestartet werden (auf ARM64 zusaetzlich "
-        "'docker-compose.gpu-arm.yml'). Test: 'docker run --rm --gpus all nvidia/cuda:12.6.3-base-ubuntu22.04 "
-        "nvidia-smi'."
-    ),
-    "amd": (
-        "Auf dem Rechner muss der amdgpu-Treiber geladen sein (/dev/kfd und /dev/dri vorhanden), und der Container "
-        "muss mit 'docker-compose.amd.yml' gestartet werden; in der .env stehen VIDEO_GID und RENDER_GID "
-        "('getent group video render'). Mit SELinux (Fedora, RHEL) braucht der Container "
-        "'security_opt: label:disable'."
-    ),
-    "intel": (
-        "Auf dem Rechner muss der Intel-Grafiktreiber (i915 oder xe) geladen sein (/dev/dri vorhanden), und der "
-        "Container muss mit 'docker-compose.intel.yml' gestartet werden."
-    ),
-}
-
-
-def abhilfe(kartenart: str) -> str:
-    return ABHILFE.get(kartenart, "")
-
-
-def _pflichttext(kartenart: str) -> str:
-    return (
-        f"Dieses Image ist fuer eine Grafikkarte ({kartenart}) gebaut, und {PFLICHT_VARIABLE} ist an. "
-        f"{abhilfe(kartenart)} Wer bewusst auf dem Prozessor rechnen will, setzt {PFLICHT_VARIABLE}=0."
-    )
 
 
 def startpruefung(
@@ -195,10 +115,25 @@ def fehlertext(punkte: list[Pruefpunkt], kartenart: str) -> str | None:
     fehlend = [p.schritt for p in punkte if p.fehler]
     if not fehlend:
         return None
-    return f"Die Grafikkarte ist fuer {', '.join(fehlend)} nicht nutzbar. {_pflichttext(kartenart)}"
+    return f"Die Grafikkarte ist fuer {', '.join(fehlend)} nicht nutzbar. {pflichttext(kartenart)}"
 
 
 HERSTELLER_IDS = {"0x10de": "NVIDIA", "0x1002": "AMD", "0x8086": "Intel"}
+
+
+def _lesen(datei: Path) -> str:
+    try:
+        return datei.read_text(encoding="ascii", errors="replace").strip().lower()
+    except OSError:
+        return ""
+
+
+def _eintraege(ordner: Path) -> list[Path]:
+    """Inhalt eines Ordners unter ``/sys``; fehlt er (Windows, kein PCI-Bus), ist er leer."""
+    try:
+        return list(ordner.iterdir())
+    except OSError:
+        return []
 
 
 def karten_des_rechners(sys_ordner: Path = Path("/sys")) -> list[str]:
@@ -206,26 +141,16 @@ def karten_des_rechners(sys_ordner: Path = Path("/sys")) -> list[str]:
     Klasse "Anzeige" und die Karten unter ``/sys/class/drm``. ``/sys`` ist auch im Container sichtbar (nur
     lesend), deshalb bemerkt das Prozessor-Image, wenn die Erkennung vergessen wurde. Ohne ``/sys`` (Windows):
     leer."""
-    gefunden: set[str] = set()
-
-    def lesen(datei: Path) -> str:
-        try:
-            return datei.read_text(encoding="ascii", errors="replace").strip().lower()
-        except OSError:
-            return ""
-
-    try:
-        for geraet in (sys_ordner / "bus" / "pci" / "devices").iterdir():
-            if lesen(geraet / "class").startswith("0x03"):
-                gefunden.add(lesen(geraet / "vendor"))
-    except OSError:
-        pass
-    try:
-        for karte in (sys_ordner / "class" / "drm").iterdir():
-            if karte.name.startswith("card") and "-" not in karte.name:
-                gefunden.add(lesen(karte / "device" / "vendor"))
-    except OSError:
-        pass
+    gefunden = {
+        _lesen(geraet / "vendor")
+        for geraet in _eintraege(sys_ordner / "bus" / "pci" / "devices")
+        if _lesen(geraet / "class").startswith("0x03")
+    }
+    gefunden |= {
+        _lesen(karte / "device" / "vendor")
+        for karte in _eintraege(sys_ordner / "class" / "drm")
+        if karte.name.startswith("card") and "-" not in karte.name
+    }
     return [name for kennung, name in HERSTELLER_IDS.items() if kennung in gefunden]
 
 
@@ -307,58 +232,3 @@ def pruefen_und_melden(
         return False
     ausgabe(f"{PFLICHT_VARIABLE}=0: Der Dienst startet trotzdem, die genannten Schritte rechnen auf dem Prozessor.")
     return True
-
-
-# ---------------------------------------------------------------- Laufzeit
-def transkription_pruefen(geraet: str, umgebung: Mapping[str, str] | None = None) -> None:
-    """Vor dem Laden von Whisper: Faellt die Transkription auf den Prozessor zurueck, obwohl sie auf der Karte
-    laufen muss, bricht der Auftrag ab (die fertigen Abschnitte bleiben fuer "Fortsetzen" erhalten)."""
-    if geraet != "cuda" and erwartet(umgebung).transkription:
-        kartenart = art(umgebung)
-        raise GrafikkarteFehlt(
-            f"Die Transkription wuerde auf dem Prozessor laufen, die Grafikkarte ist nicht nutzbar. "
-            f"{_pflichttext(kartenart)}"
-        )
-
-
-def sprechertrennung_pruefen(geraet: str, umgebung: Mapping[str, str] | None = None, grund: str = "") -> None:
-    """Wie ``transkription_pruefen`` fuer pyannote. ``grund``: warum es nicht die Karte ist (z. B. der Fehler des
-    eigenen Prozesses auf der Karte)."""
-    if geraet != "cuda" and erwartet(umgebung).sprechertrennung:
-        kartenart = art(umgebung)
-        zusatz = f" ({grund})" if grund else ""
-        raise GrafikkarteFehlt(
-            f"Die Sprechertrennung wuerde auf dem Prozessor laufen{zusatz}. {_pflichttext(kartenart)}"
-        )
-
-
-def sprachmodell_text(modell: str, groesse: int, auf_karte: int) -> tuple[bool, str]:
-    """Bewertet einen Eintrag aus Ollamas ``/api/ps``: ganz, teilweise oder gar nicht im Grafikspeicher."""
-    gb = 1024**3
-    if auf_karte <= 0:
-        return False, f"{modell} liegt ganz im Arbeitsspeicher (Ollama rechnet auf dem Prozessor)"
-    if groesse > 0 and auf_karte < groesse:
-        anteil = auf_karte / groesse * 100
-        return True, (
-            f"{modell}: {auf_karte / gb:.1f} von {groesse / gb:.1f} GB im Grafikspeicher ({anteil:.0f} %, der Rest "
-            "rechnet auf dem Prozessor -- ein kleineres Modell oder eine kleinere Kontextgroesse waere schneller)"
-        )
-    return True, f"{modell}: {auf_karte / gb:.1f} GB im Grafikspeicher"
-
-
-def sprachmodell_nachpruefen(
-    modell: str,
-    belegung: Callable[[str], tuple[int, int] | None],
-    umgebung: Mapping[str, str] | None = None,
-) -> None:
-    """Nach einer Antwort von Ollama: Liegt das Modell ganz im Arbeitsspeicher, obwohl es auf der Karte laufen
-    muss, ist das ein Fehler (``belegung`` liefert ``(groesse, im_grafikspeicher)`` oder ``None``, wenn das Modell
-    nicht mehr geladen ist -- dann laesst sich nichts sagen)."""
-    if not erwartet(umgebung).sprachmodell:
-        return
-    werte = belegung(modell)
-    if werte is None:
-        return
-    ok, text = sprachmodell_text(modell, *werte)
-    if not ok:
-        raise GrafikkarteFehlt(f"{text}. {_pflichttext(art(umgebung))}")

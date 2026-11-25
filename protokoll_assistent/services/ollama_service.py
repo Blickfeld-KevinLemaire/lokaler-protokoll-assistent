@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from protokoll_assistent.services import grafikkarte_service
+from protokoll_assistent.services import grafikkarte_vorgabe
 from protokoll_assistent.utils.json_validation import extract_json_object
 from protokoll_assistent.utils.prozess import KEIN_FENSTER, LOSGELOEST, NEUE_PROZESSGRUPPE, ausserhalb_des_jobs_starten
 
@@ -458,8 +458,8 @@ def _grafikkarte_nachpruefen(modell: str, base_url: str) -> None:
     """Im Container mit Grafikkarte (``grafikkarte_service``): Rechnet das Modell ganz auf dem Prozessor, ist das
     ein Fehler der Auswertung -- das Transkript bleibt, das Protokoll nennt den Grund."""
     try:
-        grafikkarte_service.sprachmodell_nachpruefen(modell, lambda name: modell_belegung(name, base_url))
-    except grafikkarte_service.GrafikkarteFehlt as fehler:
+        grafikkarte_vorgabe.sprachmodell_nachpruefen(modell, lambda name: modell_belegung(name, base_url))
+    except grafikkarte_vorgabe.GrafikkarteFehlt as fehler:
         raise OllamaError(str(fehler)) from fehler
 
 

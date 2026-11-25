@@ -30,7 +30,7 @@ from protokoll_assistent.services import (
     dokument_export_service,
     export_service,
     ffmpeg_service,
-    grafikkarte_service,
+    grafikkarte_vorgabe,
     manifest_service,
     merge_service,
     model_service,
@@ -389,7 +389,7 @@ def _sprechertrennung(
     geraet = model_service.geraet_fuer_sprechertrennung(device)
     bewusst_cpu = model_service.sprechertrennung_cpu_erzwungen()
     if geraet != "cuda" and not bewusst_cpu:
-        grafikkarte_service.sprechertrennung_pruefen(geraet)
+        grafikkarte_vorgabe.sprechertrennung_pruefen(geraet)
     if geraet == "cuda":
         callbacks.on_log("Sprechertrennung laeuft in einem eigenen Prozess auf der Grafikkarte.")
         try:
@@ -397,7 +397,7 @@ def _sprechertrennung(
                 audio, settings.min_speakers, settings.max_speakers, "cuda"
             )
         except diarisierung_prozess.DiarisierungsprozessFehler as fehler:
-            grafikkarte_service.sprechertrennung_pruefen("cpu", grund=str(fehler))
+            grafikkarte_vorgabe.sprechertrennung_pruefen("cpu", grund=str(fehler))
             callbacks.on_log(f"{fehler} -- die Sprechertrennung laeuft stattdessen auf der CPU.")
     pipeline = model_service.load_pyannote_pipeline("cpu")
     waveform_dict = diarization_service.build_waveform_dict(transcription_service.load_audio_array(audio))
@@ -582,7 +582,7 @@ def _run_transcription_stage(
     laufender_chunk = {"index": 0}
     if transcribe_chunk_fn is None and chunks_offen:
         # Container mit Grafikkarte: nicht still auf dem Prozessor weiterrechnen (siehe grafikkarte_service).
-        grafikkarte_service.transkription_pruefen(device)
+        grafikkarte_vorgabe.transkription_pruefen(device)
         _grafikspeicher_fuer_whisper_freimachen(device, callbacks)
         whisper_model = transcription_service.load_whisper_model(
             settings.whisper_model, device, compute_type, settings.language
@@ -707,7 +707,7 @@ def _run_transcription_stage(
                 sprecherprofil_service.speichere_lauf_embeddings(work_dir, sprecher_embeddings)
             else:
                 diarization_turns = diarize_fn(normalized_path, settings.min_speakers, settings.max_speakers)
-        except (PipelineCancelled, grafikkarte_service.GrafikkarteFehlt):
+        except (PipelineCancelled, grafikkarte_vorgabe.GrafikkarteFehlt):
             # Ohne Karte (wo sie Pflicht ist) kein Transkript ohne Sprecher: Der Auftrag bricht ab und laesst
             # sich fortsetzen, sobald die Karte wieder geht -- die transkribierten Abschnitte bleiben erhalten.
             raise
