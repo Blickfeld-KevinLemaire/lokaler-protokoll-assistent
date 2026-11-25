@@ -16,11 +16,12 @@ from protokoll_assistent.services import (
     diarisierung_prozess,
     grafikkarte_probe,
     grafikkarte_service,
+    grafikkarte_vorgabe,
     model_service,
     ollama_service,
     pipeline_service,
 )
-from protokoll_assistent.services.grafikkarte_service import (
+from protokoll_assistent.services.grafikkarte_vorgabe import (
     ART_VARIABLE,
     PFLICHT_VARIABLE,
     Erwartung,
@@ -40,38 +41,38 @@ def ohne_vorgabe(monkeypatch):
 # Einstellungen
 # --------------------------------------------------------------------------
 def test_ohne_angabe_ist_nichts_pflicht():
-    assert grafikkarte_service.art({}) == "keine"
-    assert grafikkarte_service.pflicht({}) is False
-    assert grafikkarte_service.erwartet({}) == Erwartung()
+    assert grafikkarte_vorgabe.art({}) == "keine"
+    assert grafikkarte_vorgabe.pflicht({}) is False
+    assert grafikkarte_vorgabe.erwartet({}) == Erwartung()
 
 
 @pytest.mark.parametrize("wert", ["", "1", "ja", "AN", "true"])
 def test_mit_karte_ist_die_pflicht_vorgabe(wert):
     umgebung = {ART_VARIABLE: " NVIDIA ", PFLICHT_VARIABLE: wert}
-    assert grafikkarte_service.art(umgebung) == "nvidia"
-    assert grafikkarte_service.pflicht(umgebung) is True
-    assert grafikkarte_service.erwartet(umgebung) == Erwartung(True, True, True)
+    assert grafikkarte_vorgabe.art(umgebung) == "nvidia"
+    assert grafikkarte_vorgabe.pflicht(umgebung) is True
+    assert grafikkarte_vorgabe.erwartet(umgebung) == Erwartung(True, True, True)
 
 
 @pytest.mark.parametrize("wert", ["0", "nein", "aus", "off"])
 def test_pflicht_laesst_sich_abschalten(wert):
     umgebung = {ART_VARIABLE: "amd", PFLICHT_VARIABLE: wert}
-    assert grafikkarte_service.pflicht(umgebung) is False
-    assert not grafikkarte_service.erwartet(umgebung).irgendeine
+    assert grafikkarte_vorgabe.pflicht(umgebung) is False
+    assert not grafikkarte_vorgabe.erwartet(umgebung).irgendeine
 
 
 def test_intel_verlangt_nur_das_sprachmodell_auf_der_karte():
-    assert grafikkarte_service.erwartet({ART_VARIABLE: "intel"}) == Erwartung(sprachmodell=True)
+    assert grafikkarte_vorgabe.erwartet({ART_VARIABLE: "intel"}) == Erwartung(sprachmodell=True)
 
 
 @pytest.mark.parametrize(
     "umgebung", [{ART_VARIABLE: "tpu"}, {ART_VARIABLE: "nvidia", PFLICHT_VARIABLE: "vielleicht"}]
 )
 def test_unbekannte_werte_fallen_auf(umgebung):
-    with pytest.raises(grafikkarte_service.EinstellungFalsch):
-        grafikkarte_service.pflicht(umgebung)
+    with pytest.raises(grafikkarte_vorgabe.EinstellungFalsch):
+        grafikkarte_vorgabe.pflicht(umgebung)
     # Zur Laufzeit erzwingt ein unbekannter Wert nichts (er faellt schon beim Start auf).
-    assert grafikkarte_service.erwartet(umgebung) == Erwartung()
+    assert grafikkarte_vorgabe.erwartet(umgebung) == Erwartung()
 
 
 # --------------------------------------------------------------------------
@@ -235,19 +236,19 @@ def test_sprachmodell_pruefer(ollama, aenderung, erwartet):
 
 def test_sprachmodell_text_unterscheidet_ganz_teilweise_gar_nicht():
     gb = 1024**3
-    assert grafikkarte_service.sprachmodell_text("m", 4 * gb, 0)[0] is False
-    ok, text = grafikkarte_service.sprachmodell_text("m", 4 * gb, 2 * gb)
+    assert grafikkarte_vorgabe.sprachmodell_text("m", 4 * gb, 0)[0] is False
+    ok, text = grafikkarte_vorgabe.sprachmodell_text("m", 4 * gb, 2 * gb)
     assert ok and "50 %" in text
-    assert grafikkarte_service.sprachmodell_text("m", 4 * gb, 4 * gb) == (True, "m: 4.0 GB im Grafikspeicher")
+    assert grafikkarte_vorgabe.sprachmodell_text("m", 4 * gb, 4 * gb) == (True, "m: 4.0 GB im Grafikspeicher")
 
 
 def test_sprachmodell_nachpruefen():
     umgebung = {ART_VARIABLE: "intel"}
     with pytest.raises(GrafikkarteFehlt, match="Prozessor"):
-        grafikkarte_service.sprachmodell_nachpruefen("m", lambda name: (10, 0), umgebung)
-    grafikkarte_service.sprachmodell_nachpruefen("m", lambda name: (10, 10), umgebung)
-    grafikkarte_service.sprachmodell_nachpruefen("m", lambda name: None, umgebung)  # nicht mehr geladen
-    grafikkarte_service.sprachmodell_nachpruefen("m", lambda name: pytest.fail("nicht fragen"), {})
+        grafikkarte_vorgabe.sprachmodell_nachpruefen("m", lambda name: (10, 0), umgebung)
+    grafikkarte_vorgabe.sprachmodell_nachpruefen("m", lambda name: (10, 10), umgebung)
+    grafikkarte_vorgabe.sprachmodell_nachpruefen("m", lambda name: None, umgebung)  # nicht mehr geladen
+    grafikkarte_vorgabe.sprachmodell_nachpruefen("m", lambda name: pytest.fail("nicht fragen"), {})
 
 
 def test_ollama_antwort_auf_dem_prozessor_wird_zum_fehler_der_auswertung(monkeypatch):
@@ -303,17 +304,17 @@ def test_modell_laden(monkeypatch):
 # Laufzeit: Transkription und Sprechertrennung
 # --------------------------------------------------------------------------
 def test_transkription_pruefen():
-    grafikkarte_service.transkription_pruefen("cuda", {ART_VARIABLE: "nvidia"})
-    grafikkarte_service.transkription_pruefen("cpu", {ART_VARIABLE: "intel"})
-    grafikkarte_service.transkription_pruefen("cpu", {})
+    grafikkarte_vorgabe.transkription_pruefen("cuda", {ART_VARIABLE: "nvidia"})
+    grafikkarte_vorgabe.transkription_pruefen("cpu", {ART_VARIABLE: "intel"})
+    grafikkarte_vorgabe.transkription_pruefen("cpu", {})
     with pytest.raises(GrafikkarteFehlt, match="Transkription"):
-        grafikkarte_service.transkription_pruefen("cpu", {ART_VARIABLE: "amd"})
+        grafikkarte_vorgabe.transkription_pruefen("cpu", {ART_VARIABLE: "amd"})
 
 
 def test_sprechertrennung_pruefen_nennt_den_grund():
     with pytest.raises(GrafikkarteFehlt, match=r"\(Prozess weg\)"):
-        grafikkarte_service.sprechertrennung_pruefen("cpu", {ART_VARIABLE: "nvidia"}, grund="Prozess weg")
-    grafikkarte_service.sprechertrennung_pruefen("cpu", {ART_VARIABLE: "intel"})
+        grafikkarte_vorgabe.sprechertrennung_pruefen("cpu", {ART_VARIABLE: "nvidia"}, grund="Prozess weg")
+    grafikkarte_vorgabe.sprechertrennung_pruefen("cpu", {ART_VARIABLE: "intel"})
 
 
 def _settings(tmp_path):

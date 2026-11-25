@@ -17,7 +17,7 @@ Verarbeitung dauert nur ein Vielfaches. Deshalb gilt im Container:
 Ohne ``PROTOKOLL_GRAFIKKARTE`` (Windows-Anwendung, Tests) ist nichts Pflicht und alles bleibt wie bisher.
 
 Die Regeln und die Pruefungen zur Laufzeit stehen in ``grafikkarte_vorgabe`` (ohne Importe aus ``services/``,
-damit ``ollama_service`` sie benutzen kann, ohne einen Importkreis zu bilden); hier sind sie nur weitergereicht.
+damit ``ollama_service`` und ``pipeline_service`` sie benutzen koennen, ohne einen Importkreis zu bilden).
 Dieses Modul enthaelt die Startpruefung. Die eigentlichen Pruefungen werden als Funktionen uebergeben, damit die
 Tests ohne Grafikkarte laufen.
 """
@@ -28,24 +28,17 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
-from protokoll_assistent.services.grafikkarte_vorgabe import ABHILFE as ABHILFE
-from protokoll_assistent.services.grafikkarte_vorgabe import ART_VARIABLE as ART_VARIABLE
-from protokoll_assistent.services.grafikkarte_vorgabe import ARTEN as ARTEN
-from protokoll_assistent.services.grafikkarte_vorgabe import ERWARTUNGEN as ERWARTUNGEN
-from protokoll_assistent.services.grafikkarte_vorgabe import KEINE as KEINE
-from protokoll_assistent.services.grafikkarte_vorgabe import PFLICHT_VARIABLE as PFLICHT_VARIABLE
-from protokoll_assistent.services.grafikkarte_vorgabe import EinstellungFalsch as EinstellungFalsch
-from protokoll_assistent.services.grafikkarte_vorgabe import Erwartung as Erwartung
-from protokoll_assistent.services.grafikkarte_vorgabe import GrafikkarteFehlt as GrafikkarteFehlt
-from protokoll_assistent.services.grafikkarte_vorgabe import abhilfe as abhilfe
-from protokoll_assistent.services.grafikkarte_vorgabe import art as art
-from protokoll_assistent.services.grafikkarte_vorgabe import erwartet as erwartet
-from protokoll_assistent.services.grafikkarte_vorgabe import pflicht as pflicht
-from protokoll_assistent.services.grafikkarte_vorgabe import pflichttext as pflichttext
-from protokoll_assistent.services.grafikkarte_vorgabe import sprachmodell_nachpruefen as sprachmodell_nachpruefen
-from protokoll_assistent.services.grafikkarte_vorgabe import sprachmodell_text as sprachmodell_text
-from protokoll_assistent.services.grafikkarte_vorgabe import sprechertrennung_pruefen as sprechertrennung_pruefen
-from protokoll_assistent.services.grafikkarte_vorgabe import transkription_pruefen as transkription_pruefen
+from protokoll_assistent.services.grafikkarte_vorgabe import (
+    ART_VARIABLE,
+    ERWARTUNGEN,
+    KEINE,
+    PFLICHT_VARIABLE,
+    EinstellungFalsch,
+    art,
+    pflicht,
+    pflichttext,
+    sprachmodell_text,
+)
 
 
 # ---------------------------------------------------------------- Pruefpunkte
