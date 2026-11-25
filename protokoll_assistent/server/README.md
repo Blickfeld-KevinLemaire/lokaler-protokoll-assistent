@@ -49,30 +49,65 @@ Ohne Anmeldung geht nichts außer der Gesundheitsabfrage.
 
 ## Schnellstart
 
-Voraussetzung: ein Linux-Rechner mit Docker und Docker Compose. Für eine
-Grafikkarte zusätzlich die Voraussetzungen aus dem Abschnitt
-[Grafikkarten](#grafikkarten).
+Dieselben Schritte auf jedem Rechner – mit NVIDIA-, AMD- oder Intel-Grafik oder
+ganz ohne Karte, auf x86-64 wie auf ARM64. Welche Karte da ist, erkennt das
+Skript selbst.
+
+Voraussetzung: ein Linux-Rechner mit Docker und Docker Compose, für eine
+Grafikkarte dazu deren Treiber (siehe [Grafikkarten](#grafikkarten); bei NVIDIA
+auch das NVIDIA Container Toolkit).
 
 ```bash
-cp .env.beispiel .env          # HF_TOKEN eintragen, Einstellungen prüfen
+# 1. Im Projektordner: Grafikkarte erkennen. Legt die .env an (aus .env.beispiel)
+#    und traegt dort die passenden Compose-Dateien ein (COMPOSE_FILE).
+./grafikkarte-erkennen.sh
+
+# 2. In der .env den HF_TOKEN eintragen (fuer die Sprechertrennung).
+
+# 3. Starten -- Compose nimmt die Dateien aus der .env.
 mkdir -p daten/eingang daten/ausgang
-
-# nur Prozessor
 docker compose up -d --build
-# mit Grafikkarte: die Zusatzdatei des Herstellers (siehe "Grafikkarten")
-docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
 
-# Umgebung prüfen (FFmpeg, Pakete, Ordner, Ollama)
-docker compose run --rm protokoll python3 -m protokoll_assistent.server --pruefen
-# Rechnet alles auf der Grafikkarte?
+# 4. Pruefen: Rechnet jeder Schritt dort, wo er soll?
 docker compose exec protokoll python3 -m protokoll_assistent.api grafikkarte-pruefen
 docker compose logs -f protokoll
+
+# 5. Ersten Admin anlegen (gibt einen Zugangsschluessel einmal aus) und im Browser
+#    http://<server>:8780 oeffnen.
+docker compose exec protokoll python3 -m protokoll_assistent.api nutzer-anlegen <Name> --admin
 ```
+
+Was das Skript tut und wann es scheitert:
+
+* **Erkennung:** Es liest die Grafikkarten des Rechners aus `/sys`
+  (PCI-Geräte der Klasse „Anzeige“ und `/sys/class/drm`), bei NVIDIA zur Not
+  über `nvidia-smi`, dazu die Prozessor-Architektur. Bei mehreren Karten hat
+  NVIDIA Vorrang, dann AMD, dann Intel.
+* **Ergebnis:** In der `.env` stehen danach `COMPOSE_FILE` (z. B.
+  `docker-compose.yml:docker-compose.amd.yml`) und bei AMD `VIDEO_GID` und
+  `RENDER_GID` – die Gruppen genau der Geräte `/dev/kfd` und `/dev/dri/renderD*`.
+  Alles andere in der `.env` bleibt, wie es ist.
+* **Fehler statt Prozessor:** Ist eine Karte da, aber nicht nutzbar (bei NVIDIA
+  fehlt das Container Toolkit, bei AMD `/dev/kfd`), bricht das Skript mit einer
+  Erklärung ab und ändert die `.env` nicht.
+* `--anzeigen` zeigt nur, was es eintragen würde; `--karte nvidia|amd|intel|keine`
+  gibt die Wahl vor (z. B. `keine`, um bewusst auf dem Prozessor zu rechnen).
+* Nach einem Wechsel der Karte: Skript erneut ausführen und
+  `docker compose up -d --build`.
+* Vergessen? Das Prozessor-Image warnt beim Start, wenn der Rechner eine Karte
+  hat, die ungenutzt bleibt.
+
+Ohne Skript geht es weiter wie bisher: die Zusatzdatei von Hand angeben, z. B.
+`docker compose -f docker-compose.yml -f docker-compose.amd.yml up -d --build`.
+
+Weitere Prüfungen: `docker compose run --rm protokoll python3 -m
+protokoll_assistent.server --pruefen` (FFmpeg, Pakete, Ordner, Ollama).
 
 ## Grafikkarten
 
 Je Hersteller gibt es eine Zusatzdatei. Sie baut das Image mit den passenden
-Paketen und reicht die Karte in die Container:
+Paketen und reicht die Karte in die Container. `./grafikkarte-erkennen.sh`
+(siehe [Schnellstart](#schnellstart)) wählt sie selbst; von Hand:
 
 | Karte | Zusatzdatei(en) | Transkription | Sprechertrennung | Zusammenfassung |
 |---|---|---|---|---|

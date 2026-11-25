@@ -43,7 +43,9 @@ Die Tests des Servers laufen überall; das Image baut `.github/workflows/contain
 **Grafikkarte im Container ist Pflicht.** Je Hersteller gibt es eine Zusatzdatei
 (`docker-compose.gpu.yml`, dazu `.gpu-arm.yml` für NVIDIA auf ARM64,
 `.amd.yml`, `.intel.yml`); das `Dockerfile` baut über `GRAFIKKARTE` die
-passenden Pakete. Ein solches Image startet nur, wenn jeder erwartete Schritt
+passenden Pakete. `./grafikkarte-erkennen.sh` wählt sie auf dem Rechner und
+schreibt `COMPOSE_FILE` in die `.env` – der dokumentierte Start ist überall
+dasselbe `docker compose up -d --build`. Ein solches Image startet nur, wenn jeder erwartete Schritt
 die Karte wirklich nutzen kann (`services/grafikkarte_service.py`, Proben im
 eigenen Prozess in `grafikkarte_probe.py`), und ein Auftrag bricht ab, statt
 still auf den Prozessor auszuweichen. Dieses Ausweichen bitte nicht wieder

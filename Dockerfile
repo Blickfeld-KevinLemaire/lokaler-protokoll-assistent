@@ -3,7 +3,8 @@
 #
 # Standard ist ein reiner Prozessor-Build (klein, laeuft ueberall). Fuer eine
 # Grafikkarte gibt es je Hersteller eine Zusatzdatei, die dieses Image mit den
-# passenden Build-Argumenten baut und die Karte in die Container reicht:
+# passenden Build-Argumenten baut und die Karte in die Container reicht.
+# './grafikkarte-erkennen.sh' waehlt sie selbst (COMPOSE_FILE in der .env); von Hand:
 #   NVIDIA: docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
 #   AMD:    docker compose -f docker-compose.yml -f docker-compose.amd.yml up -d --build
 #   Intel:  docker compose -f docker-compose.yml -f docker-compose.intel.yml up -d --build

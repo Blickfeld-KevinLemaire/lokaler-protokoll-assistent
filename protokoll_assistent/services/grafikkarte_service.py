@@ -24,6 +24,7 @@ from __future__ import annotations
 import os
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from pathlib import Path
 
 ART_VARIABLE = "PROTOKOLL_GRAFIKKARTE"
 PFLICHT_VARIABLE = "PROTOKOLL_GRAFIKKARTE_PFLICHT"
@@ -197,6 +198,37 @@ def fehlertext(punkte: list[Pruefpunkt], kartenart: str) -> str | None:
     return f"Die Grafikkarte ist fuer {', '.join(fehlend)} nicht nutzbar. {_pflichttext(kartenart)}"
 
 
+HERSTELLER_IDS = {"0x10de": "NVIDIA", "0x1002": "AMD", "0x8086": "Intel"}
+
+
+def karten_des_rechners(sys_ordner: Path = Path("/sys")) -> list[str]:
+    """Hersteller der Grafikkarten des Rechners, so wie ``grafikkarte-erkennen.sh`` sie findet: PCI-Geraete der
+    Klasse "Anzeige" und die Karten unter ``/sys/class/drm``. ``/sys`` ist auch im Container sichtbar (nur
+    lesend), deshalb bemerkt das Prozessor-Image, wenn die Erkennung vergessen wurde. Ohne ``/sys`` (Windows):
+    leer."""
+    gefunden: set[str] = set()
+
+    def lesen(datei: Path) -> str:
+        try:
+            return datei.read_text(encoding="ascii", errors="replace").strip().lower()
+        except OSError:
+            return ""
+
+    try:
+        for geraet in (sys_ordner / "bus" / "pci" / "devices").iterdir():
+            if lesen(geraet / "class").startswith("0x03"):
+                gefunden.add(lesen(geraet / "vendor"))
+    except OSError:
+        pass
+    try:
+        for karte in (sys_ordner / "class" / "drm").iterdir():
+            if karte.name.startswith("card") and "-" not in karte.name:
+                gefunden.add(lesen(karte / "device" / "vendor"))
+    except OSError:
+        pass
+    return [name for kennung, name in HERSTELLER_IDS.items() if kennung in gefunden]
+
+
 def sprachmodell_pruefer(modell: str) -> Callable[[], tuple[bool | None, str]]:
     """Laedt das Sprachmodell bei Ollama und sieht nach, ob es im Grafikspeicher liegt. ``None`` als Ergebnis:
     jetzt nicht pruefbar (Ollama nicht erreichbar, Modell noch nicht heruntergeladen -- ``ollama-modell`` laeuft
@@ -243,6 +275,13 @@ def pruefen_und_melden(
     if kartenart == KEINE:
         ausgabe(f"Grafikkarte: Dieses Image ist ohne Grafikkarte gebaut ({ART_VARIABLE}={KEINE}); alles rechnet "
                 "auf dem Prozessor.")
+        vorhanden = karten_des_rechners()
+        if vorhanden:
+            ausgabe(
+                f"WARNUNG: Auf diesem Rechner steckt eine Grafikkarte ({', '.join(vorhanden)}), die ungenutzt "
+                "bleibt. Im Projektordner './grafikkarte-erkennen.sh' ausfuehren und mit "
+                "'docker compose up -d --build' neu starten."
+            )
         return True
     punkte = startpruefung(
         umgebung,

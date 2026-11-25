@@ -29,6 +29,10 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 - **Servermodus auf NVIDIA mit ARM64** (z. B. DGX Spark): `docker-compose.gpu-arm.yml` baut CTranslate2 mit CUDA
   aus dem Quelltext – PyPI hat dafür nur eine Prozessor-Fassung, die Transkription lief dort bisher still auf der
   CPU.
+- **Servermodus startet auf jedem Rechner gleich:** `./grafikkarte-erkennen.sh` erkennt die Grafikkarte (NVIDIA,
+  AMD, Intel oder keine, x86-64 oder ARM64) und trägt die passenden Compose-Dateien in die `.env` ein; danach
+  genügt `docker compose up -d --build`. Ist eine Karte da, aber nicht nutzbar, bricht das Skript mit einer
+  Erklärung ab. Das Prozessor-Image warnt beim Start, wenn der Rechner eine ungenutzte Karte hat.
 - **Grafikkarte ist im Container Pflicht:** Ein Image für eine Grafikkarte startet nur, wenn jeder Schritt sie
   nutzen kann, und nennt sonst Grund und Abhilfe im Log. Fällt die Karte im Betrieb aus, bricht ein Auftrag ab,
   statt auf dem Prozessor weiterzurechnen. Abschaltbar mit `PROTOKOLL_GRAFIKKARTE_PFLICHT=0`. Neuer Befehl
