@@ -290,12 +290,18 @@ def test_ausfuehren_verliert_keine_meldung_in_fremder_codepage():
     assert ergebnis.stderr.startswith("Pr") and ergebnis.stderr.endswith("fung gescheitert")
 
 
+# Der echte Interpreter, nicht der Starter der virtuellen Umgebung: '.venv\Scripts\python.exe' (uv) startet Python
+# als Kindprozess. 'kill()' traf dann gelegentlich nur den Starter, das Kind hielt die Pipes offen, und
+# 'communicate()' wartete bis zum Timeout der Testsuite (lokal mehrfach am 25.11.2026, in der CI nie).
+SCHLAEFER = [getattr(sys, "_base_executable", sys.executable), "-c", "import time; time.sleep(60)"]
+
+
 def test_ausfuehren_laesst_sich_abbrechen(monkeypatch):
     monkeypatch.setattr(netz, "_TAKT_SEKUNDEN", 0.05)
     takte: list[int] = []
     with pytest.raises(netz.Abgebrochen):
         netz._ausfuehren(
-            [sys.executable, "-c", "import time; time.sleep(60)"],
+            SCHLAEFER,
             abbrechen_fn=lambda: len(takte) >= 2,
             takt_fn=lambda: takte.append(1),
         )
@@ -305,7 +311,7 @@ def test_ausfuehren_laesst_sich_abbrechen(monkeypatch):
 def test_ausfuehren_hoechstdauer_ohne_befehlszeile_in_der_meldung(monkeypatch):
     monkeypatch.setattr(netz, "_TAKT_SEKUNDEN", 0.05)
     with pytest.raises(OSError, match="Zeitüberschreitung") as fehler:
-        netz._ausfuehren([sys.executable, "-c", "import time; time.sleep(60)"], hoechstdauer=0.1)
+        netz._ausfuehren(SCHLAEFER, hoechstdauer=0.1)
     assert not isinstance(fehler.value, netz.Abgebrochen)
     assert "sleep" not in str(fehler.value)
 

@@ -3,8 +3,11 @@
 # Bewusst ohne sounddevice und keyring: Der Server hat keinen
 # Bildschirm, kein Mikrofon und keine Windows-Anmeldeinformationsverwaltung.
 # Die uebrigen Versionen entsprechen 'requirements-laufzeit.txt'.
+# torchaudio auf genau 2.11.0 (wie in 'requirements-torch.txt'): 2.11.1 von PyPI ist gegen ein neueres
+# torch gebaut und laedt neben torch 2.11.0 nicht ('undefined symbol'). Im NVIDIA-Image scheiterte daran die
+# Sprechertrennung auf der Karte -- frueher still auf den Prozessor ausgewichen, gemessen am 25.11.2026.
 torch~=2.11.0
-torchaudio~=2.11.0
+torchaudio==2.11.0
 faster-whisper>=1.2.1
 pyannote.audio>=4.0.7
 huggingface_hub>=1.32.0

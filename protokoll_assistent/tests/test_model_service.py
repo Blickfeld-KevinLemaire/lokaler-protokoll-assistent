@@ -140,3 +140,31 @@ def test_pyannote_ohne_zugang_meldet_den_grund_statt_nonetype(monkeypatch):
     monkeypatch.setattr(model_service, "get_hf_token_for_download", lambda: None)
     with pytest.raises(RuntimeError, match="Hugging-Face-Token"):
         model_service.load_pyannote_pipeline("cpu")
+
+
+@pytest.mark.parametrize(("hip", "geraet", "miopen"), [("7.2", "cuda", False), (None, "cuda", True), ("7.2", "cpu", True)])
+def test_pyannote_auf_amd_ohne_miopen(monkeypatch, hip, geraet, miopen):
+    # MIOpen uebersetzte im Container Kernel zur Laufzeit und fand die ROCm-Kopfdateien nicht
+    # ("miopenStatusUnknownError" in der Sprechertrennung, gfx1151). Nur auf AMD mit der Karte abschalten.
+    import types
+
+    torch = types.ModuleType("torch")
+    torch.device = lambda name: name
+    torch.version = types.SimpleNamespace(hip=hip)
+    torch.backends = types.SimpleNamespace(cudnn=types.SimpleNamespace(enabled=True))
+    audio = types.ModuleType("pyannote.audio")
+    verschoben = []
+
+    class Pipeline:
+        @staticmethod
+        def from_pretrained(name, token=None):
+            return types.SimpleNamespace(to=verschoben.append)
+
+    audio.Pipeline = Pipeline
+    monkeypatch.setitem(sys.modules, "torch", torch)
+    monkeypatch.setitem(sys.modules, "pyannote", types.ModuleType("pyannote"))
+    monkeypatch.setitem(sys.modules, "pyannote.audio", audio)
+    monkeypatch.setattr(model_service, "get_hf_token_for_download", lambda: None)
+    model_service.load_pyannote_pipeline(geraet)
+    assert torch.backends.cudnn.enabled is miopen
+    assert verschoben == [geraet]

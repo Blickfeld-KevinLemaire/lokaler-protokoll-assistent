@@ -12,6 +12,7 @@ geht (schreibgeschuetzte Freigabe).
 from __future__ import annotations
 
 import json
+import logging
 import tempfile
 import time
 from collections.abc import Callable
@@ -19,6 +20,8 @@ from pathlib import Path
 from typing import Any
 
 from protokoll_assistent.services.manifest_service import _ersetzen_mit_wiederholung
+
+logger = logging.getLogger("protokoll_assistent.server")
 
 AUDIO_ENDUNGEN = frozenset(
     {".mp3", ".mp4", ".m4a", ".wav", ".aac", ".flac", ".ogg", ".opus", ".mov", ".mkv", ".webm", ".wma", ".amr"}
@@ -83,6 +86,8 @@ class Beobachter:
         self._stabil = stabil_sekunden
         self._zustand = zustand
         self._jetzt = jetzt
+        # Zuletzt gemeldeter Lesefehler des Eingangs: jeder neue Fehler einmal ins Log, nicht bei jeder Abfrage.
+        self._lesefehler: str | None = None
         # Pfad -> (Groesse, mtime_ns) bei der letzten Abfrage
         self._gesehen: dict[Path, tuple[int, int]] = {}
 
@@ -97,8 +102,20 @@ class Beobachter:
         gefunden: list[Path] = []
         try:
             eintraege = sorted(self._eingang.rglob("*"))
-        except OSError:
+        except OSError as fehler:
+            # Frueher still "keine Dateien": Unter SELinux (Fedora, RHEL) ohne ':z' am Ordner lag eine Aufnahme
+            # im Eingang, und im Log stand nur "Beobachte /daten/eingang" (gemessen am 25.11.2026).
+            text = str(fehler)
+            if text != self._lesefehler:
+                self._lesefehler = text
+                logger.warning(
+                    "Der Eingangsordner %s ist nicht lesbar: %s -- Rechte des Ordners pruefen; auf Rechnern mit "
+                    "SELinux braucht der Ordner in der docker-compose.yml ':z'.",
+                    self._eingang,
+                    text,
+                )
             return []
+        self._lesefehler = None
         for pfad in eintraege:
             teile = pfad.relative_to(self._eingang).parts
             if teile[0] in (ORDNER_VERARBEITET, ORDNER_FEHLER) or any(t.startswith(".") for t in teile):

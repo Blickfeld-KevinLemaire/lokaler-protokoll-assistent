@@ -176,7 +176,14 @@ Fuer sie gibt es Nachbearbeitung und Chatbot.
 Fuer den Dauerbetrieb auf einem Linux-Server (z. B. gekoppelt mit einem
 Aufnahmegeraet) gibt es einen Betrieb **ohne Oberflaeche**: Aufnahmen im
 Eingangsordner werden automatisch transkribiert und zusammengefasst, die
-Ergebnisse liegen im Ausgangsordner. Start mit `docker compose up -d --build`;
+Ergebnisse liegen im Ausgangsordner. Start auf jedem Rechner gleich – die
+Grafikkarte (NVIDIA, AMD, Intel oder keine) erkennt das Skript selbst:
+
+```bash
+./grafikkarte-erkennen.sh      # traegt die passenden Compose-Dateien in die .env ein
+docker compose up -d --build
+```
+
 Einzelheiten, Einstellungen und die Kopplung mit dem Geraet stehen in
 [`protokoll_assistent/server/README.md`](protokoll_assistent/server/README.md).
 

@@ -1,6 +1,9 @@
 # Servermodus: Aufnahmen kommen in ./daten/eingang an, die Ergebnisse liegen
 # danach in ./daten/ausgang. Einstellungen stehen in der Datei '.env'
-# (Vorlage: '.env.beispiel'). Mit NVIDIA-Grafikkarte zusaetzlich:
+# (Vorlage: '.env.beispiel'). Mit Grafikkarte zusaetzlich die Datei des
+# Herstellers (NVIDIA: docker-compose.gpu.yml, auf ARM64 dazu
+# docker-compose.gpu-arm.yml; AMD: docker-compose.amd.yml; Intel:
+# docker-compose.intel.yml), z. B.:
 #   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
 
 services:
@@ -39,6 +42,8 @@ services:
       OLLAMA_URL: http://ollama:11434
       HF_TOKEN: ${HF_TOKEN:-}
       PROTOKOLL_GERAET: ${PROTOKOLL_GERAET:-cpu}
+      # Image fuer eine Grafikkarte: nicht still auf den Prozessor ausweichen (siehe server/README.md, "Grafikkarten").
+      PROTOKOLL_GRAFIKKARTE_PFLICHT: ${PROTOKOLL_GRAFIKKARTE_PFLICHT:-1}
       PROTOKOLL_SPRACHE: ${PROTOKOLL_SPRACHE:-de}
       PROTOKOLL_WHISPER_MODELL: ${PROTOKOLL_WHISPER_MODELL:-large-v3-turbo}
       PROTOKOLL_OLLAMA_MODELL: ${PROTOKOLL_OLLAMA_MODELL:-qwen3.5:4b-q4_K_M}
@@ -64,9 +69,11 @@ services:
     # bleibt der Port zu.
     # ports:
     #   - "8765:8765"
+    # ':z': Auf Rechnern mit SELinux (Fedora, RHEL, Rocky, Alma) bekommen die Ordner das Etikett fuer Container --
+    # sonst darf der Dienst den Eingang nicht lesen. Ohne SELinux wirkungslos.
     volumes:
-      - ./daten/eingang:/daten/eingang
-      - ./daten/ausgang:/daten/ausgang
+      - ./daten/eingang:/daten/eingang:z
+      - ./daten/ausgang:/daten/ausgang:z
       - modelle:/daten/modelle
       - intern:/daten/intern
 

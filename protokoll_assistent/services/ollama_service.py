@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from protokoll_assistent.services import grafikkarte_vorgabe
 from protokoll_assistent.utils.json_validation import extract_json_object
 from protokoll_assistent.utils.prozess import KEIN_FENSTER, LOSGELOEST, NEUE_PROZESSGRUPPE, ausserhalb_des_jobs_starten
 
@@ -419,6 +420,49 @@ def belegter_grafikspeicher(base_url: str = OLLAMA_BASE_URL, timeout: float = 5)
     return belegt
 
 
+def _gleiches_modell(eintrag: dict[str, Any], modell: str) -> bool:
+    """Nennt ein Eintrag aus ``/api/ps`` dieses Modell? Ohne Fassung im Namen meint Ollama ``:latest``."""
+    gesucht = {modell, modell if ":" in modell else f"{modell}:latest"}
+    return bool(gesucht & {str(eintrag.get("name") or ""), str(eintrag.get("model") or "")})
+
+
+def modell_belegung(modell: str, base_url: str = OLLAMA_BASE_URL, timeout: float = 5) -> tuple[int, int] | None:
+    """``(groesse, im_grafikspeicher)`` des geladenen Modells in Bytes (aus ``/api/ps``), oder ``None``, wenn es
+    nicht geladen oder Ollama nicht erreichbar ist."""
+    try:
+        modelle = _get_json(f"{base_url}/api/ps", timeout=timeout).get("models", [])
+    except (urllib.error.URLError, OSError, ValueError, TimeoutError):
+        return None
+    for eintrag in modelle:
+        if isinstance(eintrag, dict) and _gleiches_modell(eintrag, modell):
+            try:
+                return max(int(eintrag.get("size") or 0), 0), max(int(eintrag.get("size_vram") or 0), 0)
+            except (TypeError, ValueError):
+                return None
+    return None
+
+
+def modell_laden(
+    modell: str, base_url: str = OLLAMA_BASE_URL, opener: OeffneFn | None = None, timeout: float = 300
+) -> None:
+    """Laedt das Modell in den Speicher, ohne etwas zu erzeugen (Ollama: ``/api/generate`` ohne Prompt). Danach
+    zeigt ``modell_belegung``, wo es liegt."""
+    try:
+        with _post_json(f"{base_url}/api/generate", {"model": modell}, timeout, opener):
+            pass
+    except (urllib.error.URLError, OSError, TimeoutError) as fehler:
+        raise _ollama_fehler(fehler) from fehler
+
+
+def _grafikkarte_nachpruefen(modell: str, base_url: str) -> None:
+    """Im Container mit Grafikkarte (``grafikkarte_service``): Rechnet das Modell ganz auf dem Prozessor, ist das
+    ein Fehler der Auswertung -- das Transkript bleibt, das Protokoll nennt den Grund."""
+    try:
+        grafikkarte_vorgabe.sprachmodell_nachpruefen(modell, lambda name: modell_belegung(name, base_url))
+    except grafikkarte_vorgabe.GrafikkarteFehlt as fehler:
+        raise OllamaError(str(fehler)) from fehler
+
+
 def modelle_entladen(base_url: str = OLLAMA_BASE_URL, opener: OeffneFn | None = None, timeout: float = 30) -> list[str]:
     """Nimmt alle gerade geladenen Modelle aus dem Speicher (``keep_alive: 0``)
     und liefert ihre Namen. Ollama haelt ein Modell sonst noch Minuten nach dem
@@ -750,16 +794,19 @@ def generate_text(
             {"role": "system", "content": system},
             {"role": "user", "content": prompt},
         ]
-        return _chat_request(model, messages, base_url, timeout, num_ctx, temperature)
-    body = {
-        "model": model,
-        "system": system,
-        "prompt": prompt,
-        "stream": False,
-        "think": False,
-        "options": {"temperature": temperature, "num_ctx": num_ctx},
-    }
-    return _generate_request(body, base_url, timeout)
+        antwort = _chat_request(model, messages, base_url, timeout, num_ctx, temperature)
+    else:
+        body = {
+            "model": model,
+            "system": system,
+            "prompt": prompt,
+            "stream": False,
+            "think": False,
+            "options": {"temperature": temperature, "num_ctx": num_ctx},
+        }
+        antwort = _generate_request(body, base_url, timeout)
+    _grafikkarte_nachpruefen(model, base_url)
+    return antwort
 
 
 def generate_json(
@@ -786,6 +833,7 @@ def generate_json(
         "options": {"temperature": temperature, "num_ctx": num_ctx},
     }
     raw_text = _generate_request(body, base_url, timeout)
+    _grafikkarte_nachpruefen(model, base_url)
     parsed = extract_json_object(raw_text)
     if parsed is None:
         raise OllamaError(

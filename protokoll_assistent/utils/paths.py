@@ -134,8 +134,18 @@ def get_system_prompt_file() -> Path:
 
 def get_default_system_prompt_file() -> Path:
     """Unveraenderliche mitgelieferte Referenzkopie fuer 'Auf Standard
-    zuruecksetzen'. Wird von der Anwendung selbst niemals beschrieben."""
-    return get_settings_dir() / "systemprompt_protokoll.default.txt"
+    zuruecksetzen'. Wird von der Anwendung selbst niemals beschrieben.
+
+    Liegt sie nicht im Einstellungsordner, gilt die im Paketordner: Im Container zeigt der Anwendungsordner auf
+    das Volume (``VERMERK_ANWENDUNGSORDNER=/daten/intern``), die Referenzkopie liegt aber mit dem Quelltext in
+    ``/app/protokoll_assistent/einstellungen``. Ohne diesen Rueckgriff entstand auf einem neuen Volume nie eine
+    Prompt-Datei, und jede Zusammenfassung brach mit "No such file or directory" ab."""
+    name = "systemprompt_protokoll.default.txt"
+    im_einstellungsordner = get_settings_dir() / name
+    im_paket = get_paket_dir() / "einstellungen" / name
+    if not im_einstellungsordner.is_file() and im_paket.is_file():
+        return im_paket
+    return im_einstellungsordner
 
 
 # SHA-256 des normalisierten Textes (siehe '_prompt_normalisieren') der frueher

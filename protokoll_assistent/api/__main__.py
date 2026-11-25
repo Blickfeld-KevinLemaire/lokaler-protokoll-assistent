@@ -4,6 +4,7 @@
     python -m protokoll_assistent.api --rolle server --host 0.0.0.0 --port 8780
     python -m protokoll_assistent.api zugang-anlegen <Name>      (Zugangsschluessel fuer den Servermodus)
     python -m protokoll_assistent.api openapi                    (Schnittstellenbeschreibung ausgeben)
+    python -m protokoll_assistent.api grafikkarte-pruefen        (Container: rechnet alles auf der Karte?)
 
 Rolle ``desktop``: Den Schluessel uebergibt das Desktop-Fenster in der Umgebung
 (``VERMERK_API_SCHLUESSEL``). Fehlt er, startet der Dienst nur mit
@@ -61,6 +62,8 @@ STANDARD_SERVER_PORT = 8780
 # Exit-Code fuer "bitte neu starten" -- das Fenster startet den Dienst dann sofort wieder
 # (oberflaeche/src-tauri/src/ueberwachung.rs, NEUSTART_EXIT_CODE).
 NEUSTART_EXIT_CODE = 75
+# Servermodus: Das Image ist fuer eine Grafikkarte gebaut, sie ist aber nicht nutzbar (grafikkarte_service).
+GRAFIKKARTE_FEHLT_EXIT_CODE = 4
 ENTWICKLUNG_URSPRUENGE = ("http://localhost:5173", "http://127.0.0.1:5173")
 
 
@@ -279,6 +282,29 @@ def eingang_einrichten(dienste: Dienste, umgebung: dict[str, str] | None = None)
     )
 
 
+def sprachmodell_fuer_pruefung(konfig: dict[str, Any], umgebung: dict[str, str] | None = None) -> str | None:
+    """Welches Ollama-Modell die Grafikkartenpruefung laedt: das eingestellte, sonst das des Containers
+    (``PROTOKOLL_OLLAMA_MODELL``). ``None``, wenn die Zusammenfassung ueber einen Online-Dienst laeuft."""
+    from protokoll_assistent.services import ollama_service
+
+    if konfig.get("nachbearbeitung_modus") == "api":
+        return None
+    umgebung = dict(os.environ) if umgebung is None else umgebung
+    return str(
+        konfig.get("ollama_modell") or umgebung.get("PROTOKOLL_OLLAMA_MODELL") or ollama_service.DEFAULT_MODEL
+    ).strip()
+
+
+def grafikkarte_pruefen(streng: bool) -> int:
+    """``grafikkarte-pruefen`` (streng) und der Start im Servermodus: Kann jeder Schritt, der laut Image auf der
+    Grafikkarte laufen soll, sie auch nutzen? Siehe ``grafikkarte_service``."""
+    from protokoll_assistent.services import grafikkarte_service
+
+    modell = sprachmodell_fuer_pruefung(app_config.load_config())
+    ok = grafikkarte_service.pruefen_und_melden(modell, streng=streng, ausgabe=lambda text: print(text, file=sys.stderr))
+    return 0 if ok else GRAFIKKARTE_FEHLT_EXIT_CODE
+
+
 def starten(argumente: argparse.Namespace, argv: Sequence[str] = ()) -> int:
     from protokoll_assistent.utils.logging_setup import setup_logging
 
@@ -287,6 +313,10 @@ def starten(argumente: argparse.Namespace, argv: Sequence[str] = ()) -> int:
     setup_logging()
     ensure_system_prompt_file_exists()
     rolle = argumente.rolle
+    if rolle == ROLLE_SERVER and grafikkarte_pruefen(streng=False) != 0:
+        # Lieber nicht starten (der Container meldet sich als fehlerhaft, das Log nennt den Grund) als stundenlang
+        # unbemerkt auf dem Prozessor rechnen.
+        return GRAFIKKARTE_FEHLT_EXIT_CODE
     host = argumente.host or ("127.0.0.1" if rolle == ROLLE_DESKTOP else "0.0.0.0")  # noqa: S104 -- Servermodus lauscht im Netz
     port = argumente.port if argumente.port is not None else (0 if rolle == ROLLE_DESKTOP else STANDARD_SERVER_PORT)
     try:
@@ -448,6 +478,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return nutzer_anlegen(argv[1:])
     if argv[:1] == ["openapi"]:
         return openapi_ausgeben()
+    if argv == ["grafikkarte-pruefen"]:
+        return grafikkarte_pruefen(streng=True)
     parser = argparse.ArgumentParser(prog="python -m protokoll_assistent.api")
     parser.add_argument("--rolle", choices=(ROLLE_DESKTOP, ROLLE_SERVER), default=ROLLE_DESKTOP)
     parser.add_argument("--host", default="")

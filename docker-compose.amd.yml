@@ -1,0 +1,50 @@
+# Zusatz fuer einen Linux-Rechner mit AMD-Grafikkarte (ROCm):
+#   docker compose -f docker-compose.yml -f docker-compose.amd.yml up -d --build
+#
+# Auf dem Rechner genuegt der amdgpu-Treiber des Kernels (/dev/kfd und /dev/dri
+# muessen da sein); ROCm selbst bringen die Images mit. Unterstuetzte Karten:
+# siehe protokoll_assistent/server/README.md ("Grafikkarten").
+#
+# Der Dienst 'protokoll' laeuft nicht als root und braucht deshalb die Gruppen,
+# denen /dev/kfd und /dev/dri/renderD* gehoeren. Ihre Nummern gehoeren in die
+# .env (sie unterscheiden sich je Distribution):
+#   getent group video render      ->  VIDEO_GID=44  RENDER_GID=105 (Beispiel)
+#
+# Transkription, Sprechertrennung und Sprachmodell rechnen auf der Karte. Kann
+# einer dieser Schritte sie nicht nutzen, startet der Dienst nicht und nennt den
+# Grund im Log (PROTOKOLL_GRAFIKKARTE_PFLICHT=0 erlaubt das Ausweichen auf den
+# Prozessor). Pruefen: docker compose exec protokoll python3 -m protokoll_assistent.api grafikkarte-pruefen
+
+# security_opt label:disable: Auf Rechnern mit SELinux (Fedora, RHEL, Rocky ...)
+# verweigert die Container-Richtlinie der ROCm-Laufzeit sonst den Zugriff, und
+# die erste Rechnung endet ohne jede Meldung mit einem Speicherzugriffsfehler
+# (gemessen auf Fedora 42 mit Ryzen AI Max+ 395). Ohne SELinux wirkungslos.
+
+services:
+  ollama:
+    image: ollama/ollama:rocm
+    devices:
+      - /dev/kfd
+      - /dev/dri
+    security_opt:
+      - label:disable
+
+  # Laedt nur das Modell herunter; dasselbe Image wie 'ollama', damit nicht zwei grosse Images geladen werden.
+  ollama-modell:
+    image: ollama/ollama:rocm
+
+  protokoll:
+    build:
+      args:
+        TORCH_INDEX_URL: https://download.pytorch.org/whl/rocm7.2
+        GRAFIKKARTE: amd
+    environment:
+      PROTOKOLL_GERAET: cuda
+    devices:
+      - /dev/kfd
+      - /dev/dri
+    security_opt:
+      - label:disable
+    group_add:
+      - "${VIDEO_GID:?VIDEO_GID fehlt in der .env (getent group video)}"
+      - "${RENDER_GID:?RENDER_GID fehlt in der .env (getent group render)}"

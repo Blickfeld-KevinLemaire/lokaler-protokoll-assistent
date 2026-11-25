@@ -24,6 +24,31 @@ die Versionierung an [Semantic Versioning](https://semver.org/lang/de/).
 - **Transkript kopieren:** legt den Text mit Zeitmarken und Sprechernamen in die Zwischenablage.
 - Wird ein Transkript in einem anderen Fenster oder Browser umbenannt oder gelöscht, aktualisieren sich die
   anderen Ansichten von selbst.
+- **Servermodus mit AMD- und Intel-Grafikkarten:** neue Zusatzdateien `docker-compose.amd.yml` (Transkription,
+  Sprechertrennung und Zusammenfassung über ROCm) und `docker-compose.intel.yml` (Zusammenfassung über Vulkan).
+- **Servermodus auf NVIDIA mit ARM64** (z. B. DGX Spark): `docker-compose.gpu-arm.yml` baut CTranslate2 mit CUDA
+  aus dem Quelltext – PyPI hat dafür nur eine Prozessor-Fassung, die Transkription lief dort bisher still auf der
+  CPU.
+- **Servermodus startet auf jedem Rechner gleich:** `./grafikkarte-erkennen.sh` erkennt die Grafikkarte (NVIDIA,
+  AMD, Intel oder keine, x86-64 oder ARM64) und trägt die passenden Compose-Dateien in die `.env` ein; danach
+  genügt `docker compose up -d --build`. Ist eine Karte da, aber nicht nutzbar, bricht das Skript mit einer
+  Erklärung ab. Das Prozessor-Image warnt beim Start, wenn der Rechner eine ungenutzte Karte hat.
+- **Grafikkarte ist im Container Pflicht:** Ein Image für eine Grafikkarte startet nur, wenn jeder Schritt sie
+  nutzen kann, und nennt sonst Grund und Abhilfe im Log. Fällt die Karte im Betrieb aus, bricht ein Auftrag ab,
+  statt auf dem Prozessor weiterzurechnen. Abschaltbar mit `PROTOKOLL_GRAFIKKARTE_PFLICHT=0`. Neuer Befehl
+  `python3 -m protokoll_assistent.api grafikkarte-pruefen` zeigt den Stand je Schritt.
+
+### Fixed
+
+- **Servermodus mit NVIDIA:** Die Sprechertrennung lief nicht auf der Grafikkarte, sondern still auf dem
+  Prozessor – das Image zog `torchaudio 2.11.1`, das neben `torch 2.11.0` nicht lädt. torchaudio steht jetzt wie
+  in der Windows-Anwendung auf 2.11.0. Das NVIDIA-Image nimmt PyTorch mit CUDA 12.8 statt 13 und läuft damit auch
+  mit Treibern vor 580.
+- **Servermodus auf SELinux-Rechnern** (Fedora, RHEL, Rocky, Alma): Der Dienst konnte den Eingangsordner nicht
+  lesen und meldete nichts. Die Ordner sind in der `docker-compose.yml` jetzt mit `:z` eingebunden, und ein
+  unlesbarer Eingang steht als Warnung im Log.
+- **Servermodus mit neuem Volume:** Jede Zusammenfassung brach mit „No such file or directory“ ab, weil die
+  mitgelieferte Vorlage des Systemprompts nicht gefunden wurde. Sie wird jetzt auch im Paketordner gesucht.
 
 ### Security
 

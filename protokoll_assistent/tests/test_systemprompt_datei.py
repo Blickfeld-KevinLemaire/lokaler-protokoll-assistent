@@ -173,3 +173,19 @@ def test_veraltete_standarddatei_wird_nicht_uebernommen(einstellungen):
     assert datei.read_text(encoding="utf-8") == ""
     # Die Referenzkopie beschreibt die Anwendung nie.
     assert (einstellungen / "systemprompt_protokoll.default.txt").read_text(encoding="utf-8") == ALTER_STANDARD_1
+
+
+def test_ohne_referenzkopie_im_einstellungsordner_gilt_die_des_pakets(einstellungen, monkeypatch, tmp_path):
+    """Container: Der Einstellungsordner liegt im Volume, die mitgelieferte Referenzkopie beim Quelltext. Auf einem
+    neuen Volume entstand frueher keine Prompt-Datei, und jede Zusammenfassung scheiterte."""
+    paket = tmp_path / "paket"
+    (paket / "einstellungen").mkdir(parents=True)
+    (paket / "einstellungen" / "systemprompt_protokoll.default.txt").write_text("PAKET", encoding="utf-8")
+    monkeypatch.setattr(paths, "get_paket_dir", lambda: paket)
+
+    paths.ensure_system_prompt_file_exists()
+
+    assert (einstellungen / "systemprompt_protokoll.txt").read_text(encoding="utf-8") == "PAKET"
+    # Liegt eine eigene Referenzkopie im Einstellungsordner, hat sie Vorrang.
+    (einstellungen / "systemprompt_protokoll.default.txt").write_text("EIGEN", encoding="utf-8")
+    assert paths.get_default_system_prompt_file() == einstellungen / "systemprompt_protokoll.default.txt"

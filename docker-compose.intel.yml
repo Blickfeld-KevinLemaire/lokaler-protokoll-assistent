@@ -1,0 +1,34 @@
+# Zusatz fuer einen Linux-Rechner mit Intel-Grafik (Arc oder Prozessorgrafik):
+#   docker compose -f docker-compose.yml -f docker-compose.intel.yml up -d --build
+#
+# Nur das Sprachmodell (Ollama, ueber Vulkan) rechnet auf der Karte. Fuer die
+# Transkription (CTranslate2) und die Sprechertrennung gibt es kein Rechenwerk
+# fuer Intel-Karten; sie laufen auf dem Prozessor. Auf dem Rechner muss der
+# Intel-Grafiktreiber des Kernels (i915 oder xe) geladen sein (/dev/dri).
+#
+# Kann Ollama die Karte nicht nutzen, bricht die Zusammenfassung mit einer
+# Meldung ab, statt auf dem Prozessor zu rechnen (PROTOKOLL_GRAFIKKARTE_PFLICHT=0
+# erlaubt das Ausweichen). Pruefen:
+#   docker compose exec protokoll python3 -m protokoll_assistent.api grafikkarte-pruefen
+
+# security_opt label:disable: siehe docker-compose.amd.yml (SELinux-Rechner).
+
+services:
+  ollama:
+    devices:
+      - /dev/dri
+    security_opt:
+      - label:disable
+    environment:
+      OLLAMA_VULKAN: "1"
+      # Ohne diesen Schalter verwirft Ollama Prozessorgrafik ("dropping integrated GPU") und rechnet auf der CPU --
+      # gemessen mit Ollama 0.40.18; mit ihm lag das Modell ganz im Grafikspeicher. Fuer Einzelkarten (Arc A/B)
+      # wirkungslos.
+      OLLAMA_IGPU_ENABLE: "1"
+
+  protokoll:
+    build:
+      args:
+        GRAFIKKARTE: intel
+    environment:
+      PROTOKOLL_GERAET: cpu

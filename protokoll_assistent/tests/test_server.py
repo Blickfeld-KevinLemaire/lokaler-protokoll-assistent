@@ -729,3 +729,29 @@ def test_empfangene_aufnahme_erreicht_die_warteschlange_erst_wenn_sie_fertig_ist
     beobachter.bereite_dateien()
     bereit = beobachter.bereite_dateien()
     assert bereit == [eingang / "S3_H5_001.opus"] and bereit[0].read_bytes() == daten
+
+
+def test_unlesbarer_eingang_wird_einmal_gemeldet(tmp_path, caplog):
+    """Unter SELinux ohne ':z' sah der Dienst den Eingang nicht -- und sagte nichts (25.11.2026)."""
+
+    class Gesperrt:
+        def rglob(self, muster):
+            raise PermissionError("Permission denied: '/daten/eingang'")
+
+        def __str__(self):
+            return "/daten/eingang"
+
+    beobachter = warteschlange.Beobachter(tmp_path, 0, warteschlange.Zustand(tmp_path / "z.json"))
+    beobachter._eingang = Gesperrt()  # type: ignore[assignment]
+    with caplog.at_level("WARNING", logger="protokoll_assistent.server"):
+        assert beobachter.bereite_dateien() == []
+        assert beobachter.bereite_dateien() == []
+    meldungen = [r.getMessage() for r in caplog.records if "nicht lesbar" in r.getMessage()]
+    assert len(meldungen) == 1 and "Permission denied" in meldungen[0] and ":z" in meldungen[0]
+    # Wieder lesbar: Ein spaeterer Fehler wird erneut gemeldet.
+    beobachter._eingang = tmp_path
+    assert beobachter.bereite_dateien() == []
+    beobachter._eingang = Gesperrt()  # type: ignore[assignment]
+    with caplog.at_level("WARNING", logger="protokoll_assistent.server"):
+        beobachter.bereite_dateien()
+    assert len([r for r in caplog.records if "nicht lesbar" in r.getMessage()]) == 2
