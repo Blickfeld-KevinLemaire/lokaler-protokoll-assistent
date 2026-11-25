@@ -1,5 +1,11 @@
-# Zusatz fuer einen Rechner mit NVIDIA-Grafikkarte (NVIDIA Container Toolkit noetig):
+# Zusatz fuer einen Linux-Rechner mit NVIDIA-Grafikkarte (NVIDIA-Treiber und
+# NVIDIA Container Toolkit noetig):
 #   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
+#
+# Transkription, Sprechertrennung und Sprachmodell rechnen auf der Karte. Kann
+# einer dieser Schritte sie nicht nutzen, startet der Dienst nicht und nennt den
+# Grund im Log (PROTOKOLL_GRAFIKKARTE_PFLICHT=0 erlaubt das Ausweichen auf den
+# Prozessor). Pruefen: docker compose exec protokoll python3 -m protokoll_assistent.api grafikkarte-pruefen
 
 services:
   ollama:
@@ -15,7 +21,10 @@ services:
     build:
       args:
         BASIS_IMAGE: nvidia/cuda:12.6.3-cudnn-runtime-ubuntu22.04
-        TORCH_INDEX_URL: ""
+        # CUDA 12.8: passt zum CUDA 12 von CTranslate2 und kennt Blackwell; Treiber ab 525, fuer
+        # Blackwell-Karten ab 570 (PyPI haette CUDA 13 und braeuchte Treiber ab 580).
+        TORCH_INDEX_URL: https://download.pytorch.org/whl/cu128
+        GRAFIKKARTE: nvidia
     environment:
       PROTOKOLL_GERAET: cuda
       NVIDIA_VISIBLE_DEVICES: all

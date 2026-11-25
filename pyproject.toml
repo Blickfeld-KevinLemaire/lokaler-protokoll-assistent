@@ -107,6 +107,9 @@ omit = [
     "vermerk_dienst.py",
     "tools/dienst_rauchtest.py",
     "tools/versionen_pruefen.py",
+    # Laeuft nur im Bau des AMD-Images (Dockerfile, GRAFIKKARTE=amd) und bricht den Bau bei jedem Fehler ab;
+    # geprueft wird es dort, nicht in der Testsuite (es installiert Pakete und ruft ldconfig auf).
+    "tools/ctranslate2_rocm_einbauen.py",
 ]
 relative_files = true
 

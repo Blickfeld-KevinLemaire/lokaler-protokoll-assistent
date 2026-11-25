@@ -113,6 +113,15 @@ zugestimmt haben. Entsprechend gelten hier ein paar Punkte besonders:
   Der optionale Webhook uebertraegt nur Dateiname,
   Status und Ordnerpfade, nie Inhalte; sein Token und `HF_TOKEN` kommen aus der
   Umgebung (nie ins Image, nie ins Repository, nie ins Log).
+* **Grafikkarte im Container (AMD, Intel):** `docker-compose.amd.yml` und
+  `docker-compose.intel.yml` reichen `/dev/kfd` bzw. `/dev/dri` in die Container
+  und setzen `security_opt: label:disable`. Auf Rechnern mit SELinux (Fedora,
+  RHEL, Rocky, Alma) laufen diese Container damit ohne SELinux-Etikett – ohne
+  das stuerzt die ROCm-Laufzeit bei der ersten Rechnung ab. Die uebrige
+  Abschottung (Namensraeume, seccomp, kein root im Dienst `protokoll`) bleibt.
+  Ohne SELinux (Ubuntu, Debian) ist die Angabe wirkungslos. Der Dienst
+  `protokoll` bekommt fuer die Karte die Gruppen `video` und `render`
+  (`VIDEO_GID`, `RENDER_GID`), keine weiteren Rechte.
 * **Empfang fuer die WLAN-Aufnahmegeraete oeffnet einen Port – nur auf Wunsch.**
   In der Anwendung (Einstellungen → „VERMERK Raum“) und im Servermodus
   (`PROTOKOLL_EMPFANG=1`) ist er ab Werk **aus**. Eingeschaltet lauscht ein

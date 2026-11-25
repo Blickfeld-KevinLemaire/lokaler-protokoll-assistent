@@ -366,6 +366,61 @@ def get_gpu_description() -> str:
         return "PyTorch nicht installiert"
 
 
+def whisper_auf_grafikkarte() -> tuple[bool, str]:
+    """Kann CTranslate2 (Whisper) auf der Karte rechnen? Fuer die Startpruefung im Container
+    (``grafikkarte_service``). Mit einer AMD-Karte (ROCm-Bau von CTranslate2) heisst das Geraet ebenfalls "cuda".
+
+    Bewusst ueber CTranslate2 selbst und nicht nur ueber PyTorch: Beide bringen eigene Bibliotheken mit, und
+    eine passende PyTorch-Umgebung sagt nichts darueber, ob CTranslate2 seine findet.
+
+    Gerechnet wird wirklich (auf die Karte kopieren, dort nach float16 wandeln, zurueck, vergleichen): Dass
+    CTranslate2 eine Karte zaehlt und float16 meldet, hiess auf einem Strix-Halo-Rechner mit zu altem Kernel
+    nichts -- die erste Rechnung stuerzte ab. Deshalb laeuft diese Pruefung im Dienst nur ueber
+    ``grafikkarte_probe`` in einem eigenen Prozess."""
+    try:
+        import ctranslate2  # type: ignore
+        import numpy as np
+
+        anzahl = ctranslate2.get_cuda_device_count()
+        if anzahl <= 0:
+            return False, "CTranslate2 findet keine Grafikkarte (bei NVIDIA auf ARM: CTranslate2 ohne CUDA gebaut?)"
+        if "float16" not in ctranslate2.get_supported_compute_types("cuda"):
+            return False, "CTranslate2 findet die Karte, kann auf ihr aber nicht mit float16 rechnen"
+        werte = np.arange(16, dtype=np.float32).reshape(4, 4)
+        auf_karte = ctranslate2.StorageView.from_array(werte).to_device(ctranslate2.Device.cuda)
+        gewandelt = auf_karte.to(ctranslate2.DataType.float16).to(ctranslate2.DataType.float32)
+        if not np.allclose(np.array(gewandelt.to_device(ctranslate2.Device.cpu)), werte):
+            return False, "CTranslate2 rechnet auf der Karte falsch"
+    except Exception as fehler:  # zu alter Treiber, fehlende Bibliothek ...: die Karte ist dann nicht nutzbar
+        return False, f"CTranslate2 kann die Karte nicht ansprechen ({type(fehler).__name__}: {fehler})"
+    return True, f"CTranslate2 rechnet auf der Karte ({anzahl} gefunden, float16)"
+
+
+def torch_auf_grafikkarte() -> tuple[bool, str]:
+    """Kann PyTorch (pyannote) auf der Karte rechnen? Mit einer echten Rechnung (``cuda_kann_wirklich_rechnen``).
+    Der ROCm-Bau von PyTorch meldet AMD-Karten ebenfalls ueber ``torch.cuda``."""
+    try:
+        import torch  # type: ignore
+    except ImportError:
+        return False, "PyTorch ist nicht installiert"
+    plattform = f"ROCm {torch.version.hip}" if getattr(torch.version, "hip", None) else (
+        f"CUDA {torch.version.cuda}" if getattr(torch.version, "cuda", None) else "nur Prozessor"
+    )
+    if not cuda_kann_wirklich_rechnen():
+        return False, f"PyTorch ({plattform}) kann auf keiner Karte rechnen"
+    try:
+        name = torch.cuda.get_device_name(0)
+    except Exception:  # der Name ist nur Beiwerk
+        name = "Grafikkarte"
+    return True, f"PyTorch ({plattform}) rechnet auf {name}"
+
+
+def sprechertrennung_cpu_erzwungen() -> bool:
+    """Hat jemand ausdruecklich ``PROTOKOLL_SPRECHERTRENNUNG_GERAET=cpu`` gesetzt? Das gilt auch dann, wenn die
+    Grafikkarte Pflicht ist (``grafikkarte_service``) -- es ist eine bewusste Entscheidung, kein Ausweichen."""
+    return os.environ.get(SPRECHERTRENNUNG_GERAET_VARIABLE, "").strip().lower() == "cpu"
+
+
 def geraet_fuer_sprechertrennung(geraet: str) -> str:
     """Auf welchem Geraet pyannote rechnet: wie Whisper, ausser
     ``PROTOKOLL_SPRECHERTRENNUNG_GERAET`` erzwingt "cpu" oder "cuda".
@@ -467,5 +522,12 @@ def load_pyannote_pipeline(device: str = "cuda"):
             "Hugging-Face-Token fehlt oder ist ungültig, die Nutzungsbedingungen von pyannote wurden noch "
             "nicht akzeptiert, oder das Modell ist noch nicht auf diesem Computer und der Offline-Modus ist an."
         )
+    if device == "cuda" and getattr(torch.version, "hip", None):
+        # AMD (ROCm): Ohne MIOpen rechnen PyTorchs eigene HIP-Kernel. MIOpen uebersetzt einige Kernel erst zur
+        # Laufzeit (hipRTC) und braucht dafuer die Kopfdateien einer vollen ROCm-Entwicklerinstallation -- im
+        # Container fehlen sie, und die Sprechertrennung brach mit "miopenStatusUnknownError" ab ('type_traits'
+        # bzw. 'rocrand/rocrand_xorwow.h' nicht gefunden; gemessen auf gfx1151 am 25.11.2026). Ohne MIOpen lief
+        # dieselbe Trennung fehlerfrei auf der Karte.
+        torch.backends.cudnn.enabled = False
     pipeline.to(torch.device(device))
     return pipeline

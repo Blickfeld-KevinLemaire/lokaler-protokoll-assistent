@@ -93,6 +93,15 @@ def main(argv: Sequence[str] | None = None, umgebung: Mapping[str, str] | None =
         kritisch = ("FFmpeg", "ffprobe", "Paket", "ordner")
         return 0 if all(ok for ok, text in ergebnisse if any(k in text for k in kritisch)) else 1
 
+    from protokoll_assistent.services import grafikkarte_service
+
+    if not grafikkarte_service.pruefen_und_melden(
+        einstellungen.ollama_modell if einstellungen.protokoll else None,
+        streng=False,
+        ausgabe=lambda text: print(text, file=sys.stderr),
+        umgebung=os.environ if umgebung is None else umgebung,
+    ):
+        return 4
     ensure_system_prompt_file_exists()
     dienst = Dienst(einstellungen, _daten_ordner("server_zustand") / "zustand.json")
     for signal_name in ("SIGTERM", "SIGINT"):

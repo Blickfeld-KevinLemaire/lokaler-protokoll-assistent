@@ -40,6 +40,18 @@ eine Oberfläche (oder Qt) importieren. Seine Pakete stehen in
 `requirements-server.txt` (Regel 8: nicht mit den anderen Listen vermischen).
 Die Tests des Servers laufen überall; das Image baut `.github/workflows/container.yml`.
 
+**Grafikkarte im Container ist Pflicht.** Je Hersteller gibt es eine Zusatzdatei
+(`docker-compose.gpu.yml`, dazu `.gpu-arm.yml` für NVIDIA auf ARM64,
+`.amd.yml`, `.intel.yml`); das `Dockerfile` baut über `GRAFIKKARTE` die
+passenden Pakete. Ein solches Image startet nur, wenn jeder erwartete Schritt
+die Karte wirklich nutzen kann (`services/grafikkarte_service.py`, Proben im
+eigenen Prozess in `grafikkarte_probe.py`), und ein Auftrag bricht ab, statt
+still auf den Prozessor auszuweichen. Dieses Ausweichen bitte nicht wieder
+einführen: Genau dadurch blieben im November 2026 drei echte Fehler unbemerkt
+(torchaudio im NVIDIA-Image, CTranslate2 ohne CUDA auf ARM64, MIOpen auf AMD).
+Erprobt auf RTX PRO 500 (x86), DGX Spark (GB10, ARM64) und Ryzen AI Max+ 395
+(gfx1151, Fedora); Einzelheiten in `protokoll_assistent/server/README.md`.
+
 ### Neue Oberfläche (ab 0.6, auf `main` seit 0.7)
 
 Seit 0.6 hat eine SvelteKit-Oberfläche (`oberflaeche/`) in einem

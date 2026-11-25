@@ -1,0 +1,14 @@
+# Zusatz zu docker-compose.gpu.yml fuer NVIDIA auf ARM64 (z. B. DGX Spark, GH200):
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml -f docker-compose.gpu-arm.yml up -d --build
+#
+# CUDA 12.9 kennt die Rechenfaehigkeit 12.1 des GB10 (DGX Spark); PyTorch kommt
+# aus dem passenden Index. CTranslate2 wird dabei aus dem Quelltext mit CUDA
+# gebaut (PyPI hat fuer ARM64 nur eine Prozessor-Fassung) -- der erste Bau
+# dauert deshalb einige Minuten laenger.
+
+services:
+  protokoll:
+    build:
+      args:
+        BASIS_IMAGE: nvidia/cuda:12.9.1-cudnn-runtime-ubuntu22.04
+        TORCH_INDEX_URL: https://download.pytorch.org/whl/cu129
